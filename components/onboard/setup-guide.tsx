@@ -84,6 +84,8 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
             <button
               key={t.id}
               onClick={() => setOS(t.id)}
+              aria-pressed={os === t.id}
+              aria-label={`${t.label} setup`}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors",
                 os === t.id ? "bg-primary text-primary-foreground" : "text-content-soft hover:text-content-primary",

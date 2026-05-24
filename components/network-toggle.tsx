@@ -25,6 +25,8 @@ export function NetworkToggle() {
         <button
           key={id}
           onClick={() => pick(id)}
+          aria-pressed={network === id}
+          aria-label={`Switch to ${NETWORKS[id].label}`}
           className={cn(
             "rounded-full px-2.5 py-1 transition-colors",
             network === id ? "bg-primary text-primary-foreground" : "text-content-soft hover:text-content-primary",

@@ -48,6 +48,18 @@ Copy `.env.example` → `.env.local`:
 - `error.tsx`, `not-found.tsx`, `loading.tsx`, SEO metadata + OpenGraph, favicon,
   `robots`, `sitemap`, web manifest.
 
+## Quality
+Run the full gate locally (matches CI):
+```bash
+npm run lint        # ESLint (next/core-web-vitals)
+npm run typecheck   # tsc --noEmit
+npm test            # Vitest — 27 unit tests (scriptgen, hardware, subgraph, utils)
+npm run build       # production build
+npm run test:e2e    # Playwright smoke (landing, nav, onboard, dashboard, 404)
+```
+GitHub Actions (`.github/workflows/ci.yml`) runs all of it on push/PR. A11y:
+visible focus rings, `aria-pressed` toggles, and `prefers-reduced-motion` honored.
+
 ## Scope
 Worker onboarding ships first (8GB GPU + 50k LCAI stake). Validator onboarding
 (500k LCAI + full node) is intentionally deferred — it's a much heavier, capital-gated path.
