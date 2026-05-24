@@ -4,7 +4,6 @@ import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import {
   injectedWallet,
   walletConnectWallet,
-  metaMaskWallet,
   coinbaseWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { NETWORKS } from "./network";
@@ -28,13 +27,17 @@ export const lightchainTestnet = defineChain({
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "";
 
-// connectorsForWallets gives browsers without an extension (Safari, mobile) the
-// WalletConnect QR modal automatically — same setup as the LightChallenge app.
+// Wallet list. We intentionally omit RainbowKit's `metaMaskWallet` because it
+// pulls @metamask/sdk, whose QR renderer crashes ("Bitmap.border: invalid
+// size=0") in environments without the extension — notably the Tauri desktop
+// webview. `injectedWallet` still connects to the MetaMask *extension* on the
+// web (no SDK, no QR), and `walletConnectWallet` covers everything else with
+// RainbowKit's own (working) QR modal.
 const connectors = connectorsForWallets(
   [
     {
       groupName: "Recommended",
-      wallets: [metaMaskWallet, walletConnectWallet, coinbaseWallet, injectedWallet],
+      wallets: [injectedWallet, walletConnectWallet, coinbaseWallet],
     },
   ],
   { appName: "LightNode", projectId },

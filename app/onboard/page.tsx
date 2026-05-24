@@ -101,6 +101,12 @@ export default function OnboardPage() {
             <div className="mt-6 flex justify-center">
               <ConnectButton size="lg" />
             </div>
+            <button
+              onClick={() => setStep(1)}
+              className="mx-auto mt-4 block text-sm text-content-soft underline-offset-4 hover:text-content-primary hover:underline"
+            >
+              Skip — I&apos;ll enter my funder key during setup
+            </button>
           </div>
         )}
 
