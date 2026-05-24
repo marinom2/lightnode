@@ -1,6 +1,6 @@
 [package]
 name = "lightnode-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "LightNode - one-click LightChain AI worker onboarding"
 edition = "2021"
 rust-version = "1.77"
