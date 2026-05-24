@@ -2,7 +2,7 @@
   "name": "lightnode",
   "version": "0.1.0",
   "private": true,
-  "description": "LightNode — one-flow onboarding for LightChain AI workers. Connect a wallet, check your machine, get a tailored setup, and watch your rewards.",
+  "description": "LightNode - one-flow onboarding for LightChain AI workers. Connect a wallet, check your machine, get a tailored setup, and watch your rewards.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

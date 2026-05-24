@@ -4,7 +4,7 @@ import { fromWei, compact, fmt, timeAgo, shortAddr } from "@/lib/utils";
 describe("fromWei", () => {
   it("converts 18-decimal wei to LCAI", () => {
     expect(fromWei("20000000000000000")).toBeCloseTo(0.02);
-    // large values lose float precision (fine — display always rounds)
+    // large values lose float precision (fine - display always rounds)
     expect(fromWei("50000000000000000000000")).toBeCloseTo(50000, 0);
   });
   it("handles null/garbage safely", () => {
