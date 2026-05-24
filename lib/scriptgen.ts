@@ -15,10 +15,32 @@ export interface ScriptBundle {
   network: NetworkId;
   model: string;
   prereqs: { label: string; cmd: string }[];
-  setup: string; // the main one-shot block
+  oneLiner: string; // single paste-and-run bootstrap (clone → all phases → run)
+  setup: string; // the explicit step-by-step (advanced)
   verify: string;
   watchdog: string;
   ops: { label: string; cmd: string }[];
+}
+
+const PHASES =
+  "00-generate-key 01-resolve-addresses 02-prepare-ollama 03-pull-image 04-import-key 05-generate-ecdh 06-fund-worker 07-register 08-run-worker";
+
+/** One command: clone, set the password, run all 9 phases (06 prompts for the funder key). */
+function bootstrap(os: OS, network: NetworkId, model: string): string {
+  if (os === "windows") {
+    return `git clone ${TOOLKIT}.git; cd lightchain-worker-toolkit\\scripts\\powershell; Copy-Item -ErrorAction Ignore secrets.example.ps1 secrets.ps1; ` +
+      `$p=Read-Host -AsSecureString "Set a worker keystore password"; ` +
+      `$env:WORKER_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)); ` +
+      `$env:NETWORK="${network}"; $env:SUPPORTED_MODELS="${model}"; ` +
+      `'${PHASES}'.Split(' ') | ForEach-Object { & ".\\$_.ps1"; if ($LASTEXITCODE -ne 0){ Write-Host "stopped at $_"; break } }`;
+  }
+  return (
+    `git clone ${TOOLKIT}.git && cd lightchain-worker-toolkit/scripts/bash && cp -n secrets.example.sh secrets.env && \\\n` +
+    `read -rs -p "Set a worker keystore password: " WP; echo && \\\n` +
+    `sed -i.bak "s|WORKER_PASSWORD=.*|WORKER_PASSWORD=\\"$WP\\"|" secrets.env && rm -f secrets.env.bak && \\\n` +
+    `export NETWORK=${network} SUPPORTED_MODELS=${model} && \\\n` +
+    `for p in ${PHASES}; do bash "$p.sh" || { echo "⛔ stopped at $p"; break; }; done`
+  );
 }
 
 export function generateSetup(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): ScriptBundle {
@@ -128,7 +150,7 @@ SEEN=$(curl -s -X POST -H 'content-type: application/json' \\
           { label: "Deregister + withdraw stake", cmd: `${run}deregister.${ext}` },
         ];
 
-  return { os, network, model, prereqs, setup, verify, watchdog, ops };
+  return { os, network, model, prereqs, oneLiner: bootstrap(os, network, model), setup, verify, watchdog, ops };
 }
 
 function winSetup(network: NetworkId, fund: number, model: string): string {

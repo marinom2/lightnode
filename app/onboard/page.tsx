@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, ExternalLink, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -113,10 +113,19 @@ export default function OnboardPage() {
 
         {step === 2 && (
           <div>
-            <h2 className="mb-1 text-xl font-semibold text-content-primary">Your tailored setup</h2>
-            <p className="mb-6 text-sm text-content-soft">
-              Personalized for your OS, wrapping the official toolkit with the production gotchas pre-handled.
+            <h2 className="mb-1 text-xl font-semibold text-content-primary">One command to set it all up</h2>
+            <p className="mb-5 text-sm text-content-soft">
+              Tailored to your OS &amp; chosen model — clones, configures, and runs everything. It only asks for a
+              password and your funder key.
             </p>
+            <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-primary/25 bg-primary/10 p-3 text-xs text-content-default">
+              <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-medium text-content-primary">Want truly zero commands?</span> A one-click LightNode
+                desktop app (auto-detects hardware, installs &amp; runs with a single button) is on the roadmap — it&apos;s the
+                only way a non-terminal install is technically possible. For now, this is one paste.
+              </span>
+            </div>
             <SetupGuide defaultOS={os} />
           </div>
         )}

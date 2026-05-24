@@ -83,33 +83,87 @@ export function assessMachine(m: MachineInput): MachineAssessment {
   };
 }
 
-/** Browser best-effort autodetect — fills what it can; the user confirms the rest. */
-export function autodetect(): Partial<MachineInput> {
-  if (typeof navigator === "undefined") return {};
-  const out: Partial<MachineInput> = {};
-  const cores = navigator.hardwareConcurrency;
-  if (cores) out.cores = cores;
-  // deviceMemory is a coarse hint (Chrome only), capped at 8 — treat as a floor.
-  const dm = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
-  if (dm) out.ramGb = dm;
-  const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes("mac")) out.os = "macos";
-  else if (ua.includes("win")) out.os = "windows";
-  else if (ua.includes("linux") || ua.includes("x11")) out.os = "linux";
+/**
+ * Best-effort VRAM inference from a WebGL renderer string. Returns the likely
+ * VRAM in GB for known discrete GPUs, or `{ unified: true }` for Apple Silicon
+ * (where the GPU shares system memory). Heuristic — the user can override.
+ */
+export function inferGpu(renderer: string): { vramGb?: number; unified?: boolean; clean: string } {
+  const r = renderer.toLowerCase();
+  const clean =
+    renderer
+      .replace(/^angle\s*\(/i, "")
+      .replace(/\bdirect3d\d+.*$/i, "")
+      .replace(/\bvs_\d.*$/i, "")
+      .replace(/[(),]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() || renderer;
 
-  // GPU renderer via WebGL (name only — not VRAM)
+  if (/apple\s*m\d/.test(r)) return { unified: true, clean };
+
+  const table: [RegExp, number][] = [
+    [/h100|h200|a100|a800/, 80],
+    [/l40|a6000|a40/, 48],
+    [/rtx\s*5090/, 32],
+    [/rtx\s*(4090|3090)|a10\b|l4\b|rtx\s*a5000/, 24],
+    [/rtx\s*(4080|5080|5060\s*ti)|t4\b|v100/, 16],
+    [/rtx\s*(4070|3080|5070|3060(?!\s*ti))/, 12],
+    [/rtx\s*(3070|4060|5060|2080|2070|3060\s*ti)/, 8],
+  ];
+  for (const [re, v] of table) if (re.test(r)) return { vramGb: v, clean };
+  return { clean };
+}
+
+export interface Detected {
+  input: Partial<MachineInput>;
+  vramInferred: boolean;
+  unified: boolean;
+  gpuLabel?: string;
+}
+
+/** Browser best-effort autodetect — fills cores, OS, GPU, and *infers* VRAM. */
+export function autodetect(): Detected {
+  if (typeof navigator === "undefined") return { input: {}, vramInferred: false, unified: false };
+  const input: Partial<MachineInput> = {};
+  let vramInferred = false;
+  let unified = false;
+  let gpuLabel: string | undefined;
+
+  const cores = navigator.hardwareConcurrency;
+  if (cores) input.cores = cores;
+  const dm = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+  if (dm) input.ramGb = dm; // coarse (capped at 8) — treat as a floor
+
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes("mac")) input.os = "macos";
+  else if (ua.includes("win")) input.os = "windows";
+  else if (ua.includes("linux") || ua.includes("x11")) input.os = "linux";
+
   try {
     const canvas = document.createElement("canvas");
     const gl = (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
     const dbg = gl?.getExtension("WEBGL_debug_renderer_info");
     if (gl && dbg) {
       const renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) as string;
-      if (renderer) out.gpuName = renderer;
+      if (renderer) {
+        const g = inferGpu(renderer);
+        input.gpuName = g.clean;
+        gpuLabel = g.clean;
+        if (g.vramGb) {
+          input.vramGb = g.vramGb;
+          vramInferred = true;
+        }
+        if (g.unified) {
+          unified = true;
+          // Apple Silicon shares memory; assume the GPU can use the system RAM.
+          input.vramGb = Math.max(input.ramGb ?? 16, 16);
+        }
+      }
     }
   } catch {
     /* ignore */
   }
-  return out;
+  return { input, vramInferred, unified, gpuLabel };
 }
 
 const WORKER_FEE_LCAI = 0.02;

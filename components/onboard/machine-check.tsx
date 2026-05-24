@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins, ScanLine, Pencil } from "lucide-react";
 import { assessMachine, autodetect, estimateRewards, type MachineInput } from "@/lib/hardware";
 import { fmt } from "@/lib/utils";
 import type { OS } from "@/lib/scriptgen";
@@ -41,11 +41,18 @@ export function MachineCheck({
     gpuName: "",
   });
   const [jobsPerDay, setJobsPerDay] = useState(50);
+  const [detected, setDetected] = useState<{ vramInferred: boolean; unified: boolean; gpuLabel?: string } | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
 
   useEffect(() => {
     const d = autodetect();
-    setM((prev) => ({ ...prev, ...d, ramGb: d.ramGb ? Math.max(prev.ramGb, d.ramGb) : prev.ramGb }));
-    // seed a conservative jobs/day from observed throughput, capped sanely
+    setM((prev) => ({
+      ...prev,
+      ...d.input,
+      ramGb: d.input.ramGb ? Math.max(prev.ramGb, d.input.ramGb) : prev.ramGb,
+    }));
+    setDetected({ vramInferred: d.vramInferred, unified: d.unified, gpuLabel: d.gpuLabel });
+    setShowEdit(!d.vramInferred && !d.unified); // open the form only if we couldn't infer VRAM
     if (avgJobsPerLiveWorker > 0) setJobsPerDay(Math.min(200, Math.max(10, Math.round(avgJobsPerLiveWorker / 7))));
   }, [avgJobsPerLiveWorker]);
 
@@ -62,7 +69,23 @@ export function MachineCheck({
     <div className="grid gap-6 md:grid-cols-[1fr_320px]">
       {/* inputs */}
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        {detected && (detected.vramInferred || detected.unified) && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-success/30 bg-success/10 p-3">
+            <ScanLine className="mt-0.5 size-4 shrink-0 text-success" />
+            <div className="text-xs text-content-default">
+              <span className="font-medium text-content-primary">Auto-detected your machine.</span>{" "}
+              {detected.gpuLabel ? `GPU: ${detected.gpuLabel}. ` : ""}
+              {detected.unified
+                ? "Apple Silicon (unified memory) — eligible."
+                : `Inferred ~${m.vramGb}GB VRAM.`}{" "}
+              <button onClick={() => setShowEdit((s) => !s)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                <Pencil className="size-3" /> {showEdit ? "Hide" : "Adjust"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className={showEdit ? "grid grid-cols-2 gap-3" : "hidden"}>
           <Field icon={MonitorCog} label="Operating system">
             <select className={selectCls} value={m.os} onChange={(e) => setM({ ...m, os: e.target.value as MachineInput["os"] })}>
               <option value="macos">macOS</option>
@@ -112,7 +135,9 @@ export function MachineCheck({
           </Field>
         </div>
         <p className="text-xs text-content-soft">
-          We pre-filled what the browser can see (cores, OS, GPU name). VRAM and RAM you confirm — the browser can&apos;t read them reliably.
+          {showEdit
+            ? "A browser can't read VRAM/RAM directly — confirm the values above. Full no-input auto-detection is coming in the LightNode desktop app."
+            : "Detected automatically from your browser. Wrong GPU? Hit Adjust."}
         </p>
 
         {a.notes.length > 0 && (

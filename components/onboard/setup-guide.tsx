@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Apple, Terminal, MonitorCog, Download, ListChecks, HeartPulse, Wrench, Box } from "lucide-react";
+import { Apple, Terminal, MonitorCog, Download, ListChecks, HeartPulse, Wrench, Box, Rocket, ChevronUp, ChevronDown } from "lucide-react";
 import { generateSetup, type OS } from "@/lib/scriptgen";
 import { CodeBlock } from "@/components/code-block";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
   const [os, setOS] = useState<OS>(defaultOS);
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
+  const [showSteps, setShowSteps] = useState(false);
 
   // Live whitelisted+enabled models — so the serve-target adapts as the registry grows.
   useEffect(() => {
@@ -47,14 +48,19 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
   const fullScript = useMemo(
     () =>
       [
-        "# === Prerequisites ===",
+        `# LightNode worker setup — ${bundle.network} — model: ${bundle.model}`,
+        "",
+        "# === Prerequisites (one-time) ===",
         ...bundle.prereqs.map((p) => `# ${p.label}\n${p.cmd}`),
         "",
-        "# === Worker setup (9 phases) ===",
-        bundle.setup,
+        "# === One command: set up + run everything ===",
+        bundle.oneLiner,
         "",
         "# === Verify ===",
         bundle.verify,
+        "",
+        "# === Keep it alive ===",
+        bundle.watchdog,
       ].join("\n"),
     [bundle],
   );
@@ -111,19 +117,36 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
         </div>
       </div>
 
-      <Section icon={Wrench} title="1 · Prerequisites" subtitle="One-time installs.">
+      <Section icon={Wrench} title="1 · Prerequisites" subtitle="One-time installs (Docker, Ollama, Foundry).">
         <CodeBlock code={bundle.prereqs.map((p) => `# ${p.label}\n${p.cmd}`).join("\n\n")} />
       </Section>
 
-      <Section icon={Terminal} title="2 · Worker setup" subtitle="The official 9-phase onboarding, wrapped. Every step is safe to re-run.">
-        <CodeBlock code={bundle.setup} label="run top to bottom" />
+      <Section icon={Rocket} title="2 · One command — set up everything" subtitle="Clones, configures, runs all 9 phases. Prompts only for a password + your funder key.">
+        <CodeBlock code={bundle.oneLiner} label={os === "windows" ? "PowerShell — paste & run" : "paste & run"} />
         <p className="mt-2 text-xs text-content-soft">
-          You&apos;ll need a <span className="text-content-primary">funder wallet with ~50,005 LCAI</span> (50,000 stake + gas).
-          The worker key is generated fresh and kept separate from your funder — never paste your funder key into the worker.
+          Generates a fresh worker key, stakes 50,000 LCAI, and starts the container with{" "}
+          <code className="rounded bg-surface-base-light px-1 py-0.5">--restart always</code>. You&apos;ll need a{" "}
+          <span className="text-content-primary">funder wallet with ~50,005 LCAI</span> (it prompts for the key, never stored by us).
         </p>
       </Section>
 
-      <Section icon={ListChecks} title="3 · Verify it's online" subtitle="Confirms the #1 silent failure (model alias mismatch) can't bite you.">
+      <button
+        onClick={() => setShowSteps((s) => !s)}
+        className="flex w-full items-center justify-between rounded-xl border border-bdr-soft bg-surface-base-subtle px-4 py-2.5 text-sm text-content-soft hover:text-content-primary"
+      >
+        <span className="inline-flex items-center gap-2">
+          <ListChecks className="size-4" /> Prefer to run it step by step? Show the 9 phases
+        </span>
+        {showSteps ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+      </button>
+
+      {showSteps && (
+        <Section icon={Terminal} title="Worker setup — step by step" subtitle="The official 9-phase onboarding, wrapped. Every step is safe to re-run.">
+          <CodeBlock code={bundle.setup} label="run top to bottom" />
+        </Section>
+      )}
+
+      <Section icon={ListChecks} title="3 · Verify it's online" subtitle="Confirms the #1 silent failure (model name mismatch) can't bite you.">
         <CodeBlock code={bundle.verify} />
       </Section>
 
