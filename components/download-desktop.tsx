@@ -19,10 +19,7 @@ export function DownloadDesktop() {
         <div className="relative rounded-[23px] bg-card/70 p-8 backdrop-blur-sm md:p-10">
           <div className="grid items-center gap-8 md:grid-cols-2">
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                <Rocket className="size-3.5" /> Zero terminal. One click.
-              </span>
-              <h2 className="mt-4 text-3xl font-semibold leading-tight tracking-tight text-content-primary">
+              <h2 className="text-3xl font-semibold leading-tight tracking-tight text-content-primary">
                 Get the desktop app and run a worker in <span className="text-gradient">one click</span>.
               </h2>
               <p className="mt-3 text-content-soft">

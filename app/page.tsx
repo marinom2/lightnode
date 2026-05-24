@@ -35,13 +35,7 @@ export default function Home() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-grid opacity-60" />
 
       {/* HERO */}
-      <section className="relative mx-auto max-w-6xl px-5 pt-20 pb-16 text-center">
-        <div className="mx-auto mb-6 inline-flex">
-          <Badge tone="brand" className="px-3 py-1">
-            <span className="size-1.5 rounded-full bg-primary animate-pulse-dot" />
-            Onboard to LightChain AI - no terminal required
-          </Badge>
-        </div>
+      <section className="relative mx-auto max-w-6xl px-5 pt-24 pb-16 text-center">
         <h1 className="mx-auto max-w-3xl text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-content-primary md:text-6xl">
           Become a LightChain AI worker in <span className="text-gradient">one flow</span>.
         </h1>
