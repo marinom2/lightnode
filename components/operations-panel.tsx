@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
@@ -158,14 +159,13 @@ export function OperationsPanel() {
             )}
           >
             <div className="mb-2 flex items-center gap-2">
-              <span
-                className={cn(
-                  "grid size-8 place-items-center rounded-lg",
-                  op.danger ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary",
-                )}
-              >
-                <op.icon className="size-4" />
-              </span>
+              {op.danger ? (
+                <span className="grid size-8 place-items-center rounded-lg bg-destructive/15 text-destructive">
+                  <op.icon className="size-4" />
+                </span>
+              ) : (
+                <IconChip icon={op.icon} size="sm" />
+              )}
               <div>
                 <div className="text-sm font-medium text-content-primary">{op.label}</div>
                 <div className="text-[11px] text-content-soft">{op.desc}</div>

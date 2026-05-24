@@ -1,5 +1,7 @@
-import { Apple, Terminal, MonitorCog, Download, ScanLine, Rocket, HeartPulse } from "lucide-react";
+import { Download, ScanLine, Rocket, HeartPulse } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
+import { AppleIcon, LinuxIcon, WindowsIcon } from "@/components/os-icons";
 
 const RELEASES = "https://github.com/marinom2/lightnode/releases/latest";
 
@@ -20,24 +22,22 @@ export function DownloadDesktop() {
           <div className="grid items-center gap-8 md:grid-cols-2">
             <div>
               <h2 className="text-3xl font-semibold leading-tight tracking-tight text-content-primary">
-                Get the desktop app and run a worker in <span className="text-gradient">one click</span>.
+                Run a worker in <span className="text-gradient">one click</span>, from your desktop.
               </h2>
               <p className="mt-3 text-content-soft">
-                The web flow gives you a ready command. The desktop app goes further: it detects your hardware,
-                installs everything, registers your worker, and starts it - all behind a single button. No terminal,
-                no copy-paste.
+                Download the app, press Install, and it handles the rest - reads your hardware, sets up the node,
+                stakes, and goes live. No terminal, no config, no copy-paste.
               </p>
-              <div className="mt-6 flex flex-wrap items-center gap-3">
+              <div className="mt-6 flex flex-wrap items-center gap-4">
                 <a href={RELEASES} target="_blank" rel="noreferrer">
                   <Button variant="gradient" size="lg">
-                    <Download /> Download desktop app
+                    <Download /> Download the app
                   </Button>
                 </a>
                 <div className="flex items-center gap-3 text-content-soft">
-                  <Apple className="size-5" />
-                  <Terminal className="size-5" />
-                  <MonitorCog className="size-5" />
-                  <span className="text-xs">macOS · Linux · Windows</span>
+                  <AppleIcon className="size-5" />
+                  <LinuxIcon className="size-5" />
+                  <WindowsIcon className="size-[18px]" />
                 </div>
               </div>
             </div>
@@ -45,10 +45,8 @@ export function DownloadDesktop() {
             <div className="grid grid-cols-2 gap-3">
               {STEPS.map((s, i) => (
                 <div key={s.t} className="rounded-2xl border border-bdr-soft bg-surface-base-subtle p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="grid size-9 place-items-center rounded-xl bg-primary/15 text-primary">
-                      <s.icon className="size-4.5" />
-                    </span>
+                  <div className="mb-3 flex items-center justify-between">
+                    <IconChip icon={s.icon} size="sm" />
                     <span className="font-mono text-xs text-content-soft">0{i + 1}</span>
                   </div>
                   <div className="text-sm font-semibold text-content-primary">{s.t}</div>

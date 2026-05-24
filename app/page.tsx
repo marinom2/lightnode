@@ -17,6 +17,7 @@ import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
 import { HeroPreview } from "@/components/hero-preview";
 import { DownloadDesktop } from "@/components/download-desktop";
+import { IconChip } from "@/components/ui/icon-chip";
 
 const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
 
@@ -73,12 +74,9 @@ export default function Home() {
           <div className="grid gap-8 p-8 md:grid-cols-2 md:p-10">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
-                We remove the friction, not the rewards.
+                Set up in clicks, not hours.
               </h2>
-              <p className="mt-3 text-content-soft">
-                Becoming a worker today means wrestling with all of this by hand. LightNode turns the
-                official 9-phase onboarding into a guided flow and a single tailored script.
-              </p>
+              <p className="mt-3 text-content-soft">Check your machine. Install. Earn.</p>
               <div className="mt-5 flex flex-wrap gap-2">
                 {FRICTIONS.map((f) => (
                   <span
@@ -97,9 +95,7 @@ export default function Home() {
                 { icon: Cpu, t: "Use real hardware", d: "Serve llama3-8b through Ollama on your own GPU." },
               ].map((b) => (
                 <div key={b.t} className="flex items-start gap-3">
-                  <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-                    <b.icon className="size-4.5" />
-                  </span>
+                  <IconChip icon={b.icon} size="sm" className="mt-0.5" />
                   <div>
                     <div className="font-medium text-content-primary">{b.t}</div>
                     <div className="text-sm text-content-soft">{b.d}</div>
@@ -119,9 +115,7 @@ export default function Home() {
           {STEPS.map((s, i) => (
             <Card key={s.title} className="p-6">
               <div className="mb-4 flex items-center justify-between">
-                <span className="grid size-10 place-items-center rounded-xl bg-gradient-primary text-white">
-                  <s.icon className="size-5" />
-                </span>
+                <IconChip icon={s.icon} />
                 <span className="text-sm font-mono text-content-soft">0{i + 1}</span>
               </div>
               <h3 className="font-semibold text-content-primary">{s.title}</h3>

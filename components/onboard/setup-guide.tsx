@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Apple, Terminal, MonitorCog, Download, ListChecks, HeartPulse, Wrench, Box, Rocket, ChevronUp, ChevronDown } from "lucide-react";
+import { Download, ListChecks, HeartPulse, Wrench, Box, Rocket, ChevronUp, ChevronDown, Terminal, type LucideIcon } from "lucide-react";
 import { generateSetup, type OS } from "@/lib/scriptgen";
 import { CodeBlock } from "@/components/code-block";
 import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
+import { AppleIcon, LinuxIcon, WindowsIcon } from "@/components/os-icons";
 import { cn } from "@/lib/utils";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL } from "@/lib/network";
 
-const OS_TABS: { id: OS; label: string; icon: typeof Apple }[] = [
-  { id: "macos", label: "macOS", icon: Apple },
-  { id: "linux", label: "Linux", icon: Terminal },
-  { id: "windows", label: "Windows", icon: MonitorCog },
+const OS_TABS: { id: OS; label: string; icon: (p: { className?: string }) => React.ReactElement }[] = [
+  { id: "macos", label: "macOS", icon: AppleIcon },
+  { id: "linux", label: "Linux", icon: LinuxIcon },
+  { id: "windows", label: "Windows", icon: WindowsIcon },
 ];
 
 export function SetupGuide({ defaultOS = "linux" as OS }) {
@@ -177,7 +179,7 @@ function Section({
   subtitle,
   children,
 }: {
-  icon: typeof Terminal;
+  icon: LucideIcon;
   title: string;
   subtitle: string;
   children: React.ReactNode;
@@ -185,9 +187,7 @@ function Section({
   return (
     <div>
       <div className="mb-2.5 flex items-center gap-2.5">
-        <span className="grid size-8 place-items-center rounded-lg bg-primary/15 text-primary">
-          <Icon className="size-4" />
-        </span>
+        <IconChip icon={Icon} size="sm" />
         <div>
           <div className="text-sm font-semibold text-content-primary">{title}</div>
           <div className="text-xs text-content-soft">{subtitle}</div>
