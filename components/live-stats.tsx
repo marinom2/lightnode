@@ -1,0 +1,67 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Activity, Cpu, Layers, Coins } from "lucide-react";
+import { compact, fmt } from "@/lib/utils";
+
+interface NetworkResponse {
+  ok: boolean;
+  stats?: { total: number; active: number; live: number; models: number; jobsCompleted: number; totalEarnedLcai: number };
+}
+
+export function LiveStats() {
+  const [data, setData] = useState<NetworkResponse | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    const load = () =>
+      fetch("/api/network?net=mainnet")
+        .then((r) => r.json())
+        .then((j) => on && (setData(j), setErr(!j.ok)))
+        .catch(() => on && setErr(true));
+    load();
+    const t = setInterval(load, 30_000);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  const s = data?.stats;
+  const tiles = [
+    { icon: Activity, label: "Live workers", value: s ? fmt(s.live, 0) : "—", tone: "text-success" },
+    { icon: Cpu, label: "Total registered", value: s ? fmt(s.total, 0) : "—", tone: "text-content-primary" },
+    { icon: Layers, label: "Models live", value: s ? fmt(s.models, 0) : "—", tone: "text-primary" },
+    { icon: Coins, label: "LCAI paid to workers", value: s ? compact(s.totalEarnedLcai) : "—", tone: "text-content-primary" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {tiles.map((t) => (
+        <div
+          key={t.label}
+          className="rounded-2xl border border-bdr-soft bg-card/50 p-4 backdrop-blur-sm"
+        >
+          <div className="mb-2 flex items-center gap-2 text-content-soft">
+            <t.icon className="size-4" />
+            <span className="text-xs font-medium">{t.label}</span>
+          </div>
+          <div className={`text-2xl font-semibold tracking-tight ${t.tone}`}>
+            {err && !s ? "—" : t.value}
+          </div>
+        </div>
+      ))}
+      <p className="col-span-2 -mt-1 text-xs text-content-soft md:col-span-4">
+        {err ? (
+          <span className="text-warning">Live network feed unavailable right now.</span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-1.5 rounded-full bg-success animate-pulse-dot" />
+            Live from the LightChain mainnet worker subgraph · refreshes every 30s
+          </span>
+        )}
+      </p>
+    </div>
+  );
+}

@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+/* dark mode via .dark class (we default the app to dark) */
+@custom-variant dark (&:is(.dark, .dark *));
+
+/* ── design tokens (light) — ported from lcai-chat-v2 ───────────────── */
+:root {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --background: #ffffff;
+  --primary: #6767e9;
+  --primary-600: #5a4fd8;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: hsl(240 10% 3.9%);
+  --primary-foreground: #fafafa;
+  --secondary: hsl(240 4.8% 95.9%);
+  --secondary-foreground: hsl(240 5.9% 10%);
+  --muted: hsl(240 4.8% 95.9%);
+  --muted-foreground: hsl(240 3.8% 46.1%);
+  --accent: hsl(240 4.8% 95.9%);
+  --accent-foreground: hsl(240 5.9% 10%);
+  --destructive: hsl(0 84.2% 60.2%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --success: #1fc16b;
+  --warning: #f6b51e;
+  --border: hsl(240 5.9% 90%);
+  --input: hsl(240 5.9% 90%);
+  --ring: hsl(240 10% 3.9%);
+  --radius: 0.625rem;
+
+  --surface-base-subtle: rgba(34, 35, 42, 0.02);
+  --surface-base-faint: rgba(14, 18, 27, 0.04);
+  --surface-base-light: rgba(204, 206, 239, 0.16);
+  --surface-elevation-light: #ffffff;
+
+  --content-primary: #0f0f14;
+  --content-default: #373842;
+  --content-soft: #656678;
+  --content-extraLight: #9798b6;
+
+  --border-soft: rgba(14, 18, 27, 0.08);
+  --border-light: rgba(14, 18, 27, 0.06);
+}
+
+/* ── design tokens (dark) ───────────────────────────────────────────── */
+.dark {
+  --background: #070710;
+  --foreground: hsl(0 0% 98%);
+  --card: #0f0f14;
+  --card-foreground: hsl(0 0% 98%);
+  --popover: #0f0f14;
+  --popover-foreground: hsl(0 0% 98%);
+  --primary: #7064e9;
+  --primary-600: #8c71f6;
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(240 3.7% 15.9%);
+  --secondary-foreground: hsl(0 0% 98%);
+  --muted: hsl(240 3.7% 15.9%);
+  --muted-foreground: hsl(240 5% 64.9%);
+  --accent: hsl(240 3.7% 15.9%);
+  --accent-foreground: hsl(0 0% 98%);
+  --destructive: hsl(0 72% 51%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --success: #1fc16b;
+  --warning: #f6b51e;
+  --border: hsl(240 3.7% 15.9%);
+  --input: hsl(240 3.7% 15.9%);
+  --ring: hsl(240 4.9% 83.9%);
+
+  --surface-base-subtle: rgba(204, 206, 239, 0.02);
+  --surface-base-faint: rgba(204, 206, 239, 0.04);
+  --surface-base-light: rgba(204, 206, 239, 0.08);
+  --surface-elevation-light: #0f0f14;
+
+  --content-primary: #cccef0;
+  --content-default: #9798b6;
+  --content-soft: rgba(154, 156, 207, 0.8);
+  --content-extraLight: #9798b6;
+
+  --border-soft: rgba(204, 206, 239, 0.12);
+  --border-light: rgba(204, 206, 239, 0.08);
+}
+
+/* ── theme mapping (Tailwind v4 @theme) ─────────────────────────────── */
+@theme inline {
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-600: var(--primary-600);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-surface-base-subtle: var(--surface-base-subtle);
+  --color-surface-base-faint: var(--surface-base-faint);
+  --color-surface-base-light: var(--surface-base-light);
+  --color-surface-elevation-light: var(--surface-elevation-light);
+  --color-surface-base-brand-default: #693ee0;
+  --color-surface-base-brand-strong: #8c71f6;
+
+  --color-content-primary: var(--content-primary);
+  --color-content-default: var(--content-default);
+  --color-content-soft: var(--content-soft);
+  --color-content-extraLight: var(--content-extraLight);
+
+  --color-bdr-soft: var(--border-soft);
+  --color-bdr-light: var(--border-light);
+
+  --color-gradient-primary: linear-gradient(270deg, #7064e9 0%, #dd00ac 100%);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    overflow-x: hidden;
+  }
+  html {
+    overflow-x: hidden;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* the signature lcai gradient */
+.bg-gradient-primary {
+  background-image: var(--color-gradient-primary);
+}
+.text-gradient {
+  background: linear-gradient(94deg, #dd00ac 10%, #7130c3 53%, #7064e9 96%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ambient glow used behind the hero */
+.glow-radial {
+  background: radial-gradient(
+    60% 50% at 50% 0%,
+    rgba(112, 100, 233, 0.25) 0%,
+    rgba(221, 0, 172, 0.08) 40%,
+    transparent 75%
+  );
+}
+
+/* subtle grid backdrop */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(204, 206, 239, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(204, 206, 239, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* minimal scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
