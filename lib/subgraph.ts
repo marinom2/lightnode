@@ -6,7 +6,17 @@
  * read stale (zero) even when the pool is healthy — we derive liveness from the
  * `workers` list instead.
  */
+import { getAddress } from "viem";
 import { NETWORKS, type NetworkId } from "./network";
+
+/** The subgraph stores checksummed addresses and is case-sensitive on `id`. */
+function checksum(address: string): string {
+  try {
+    return getAddress(address);
+  } catch {
+    return address;
+  }
+}
 
 export interface Worker {
   id: string;
@@ -18,6 +28,14 @@ export interface Worker {
   total_earned?: string; // wei
   last_seen_at?: number; // unix seconds
   created_at?: number;
+}
+
+export interface Job {
+  id: string;
+  state: string; // Completed | Acknowledged | Submitted | ...
+  submitted_at?: number;
+  completed_at?: number;
+  worker_share?: string; // wei
 }
 
 export interface ModelInfo {
@@ -64,11 +82,29 @@ export async function fetchWorkers(network: NetworkId, first = 200): Promise<Wor
 }
 
 export async function fetchWorker(network: NetworkId, address: string): Promise<Worker | null> {
-  const data = await gql<{ worker: Worker | null }>(
-    network,
-    `{ worker(id:"${address.toLowerCase()}") { id status stake active_job_count jobs_completed jobs_timed_out total_earned last_seen_at created_at } }`,
-  );
-  return data.worker ?? null;
+  try {
+    const data = await gql<{ worker: Worker | null }>(
+      network,
+      `{ worker(id:"${checksum(address)}") { id status stake active_job_count jobs_completed jobs_timed_out total_earned last_seen_at created_at } }`,
+    );
+    return data.worker ?? null;
+  } catch (e) {
+    // The subgraph throws "Row not found" for unknown workers — treat as null.
+    if (/not found/i.test((e as Error).message)) return null;
+    throw e;
+  }
+}
+
+export async function fetchWorkerJobs(network: NetworkId, address: string, first = 8): Promise<Job[]> {
+  try {
+    const data = await gql<{ jobs: Job[] }>(
+      network,
+      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc, where:{worker:"${checksum(address)}"}) { id state submitted_at completed_at worker_share } }`,
+    );
+    return data.jobs ?? [];
+  } catch {
+    return []; // jobs feed is best-effort; never block the dashboard
+  }
 }
 
 export async function fetchModels(network: NetworkId): Promise<ModelInfo[]> {

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConnectButton } from "@/components/connect-button";
 import { MachineCheck } from "@/components/onboard/machine-check";
 import { SetupGuide } from "@/components/onboard/setup-guide";
+import { NetworkHealth } from "@/components/network-health";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import type { OS } from "@/lib/scriptgen";
@@ -104,9 +105,12 @@ export default function OnboardPage() {
         {step === 1 && (
           <div>
             <h2 className="mb-1 text-xl font-semibold text-content-primary">Check your machine</h2>
-            <p className="mb-6 text-sm text-content-soft">
+            <p className="mb-4 text-sm text-content-soft">
               Confirm your specs. You need an <span className="text-content-primary">8GB+ GPU</span> to serve llama3-8b well.
             </p>
+            <div className="mb-6">
+              <NetworkHealth />
+            </div>
             <MachineCheck avgJobsPerLiveWorker={avgJobs} onResult={(r) => { setEligible(r.eligible); setOS(r.os); }} />
           </div>
         )}

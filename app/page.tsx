@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
+import { HeroPreview } from "@/components/hero-preview";
 
 const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
 
@@ -60,6 +61,8 @@ export default function Home() {
             </Button>
           </Link>
         </div>
+
+        <HeroPreview />
 
         <div className="mx-auto mt-14 max-w-4xl">
           <LiveStats />

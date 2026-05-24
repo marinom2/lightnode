@@ -12,6 +12,9 @@ import {
   ShieldCheck,
   AlertTriangle,
   RefreshCw,
+  Star,
+  X,
+  ListChecks,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +22,9 @@ import { Button } from "@/components/ui/button";
 import { ModelsPanel } from "@/components/models-panel";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
+import { useSavedWorkers } from "@/lib/saved-workers";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
-import type { Worker } from "@/lib/subgraph";
+import type { Worker, Job } from "@/lib/subgraph";
 
 type Health = "live" | "stale" | "down";
 
@@ -39,9 +43,11 @@ const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: st
 export default function DashboardPage() {
   const { address } = useAccount();
   const { network } = useNetwork();
+  const { saved, add, remove, has } = useSavedWorkers();
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -57,9 +63,11 @@ export default function DashboardPage() {
         const r = await fetch(`/api/worker?net=${network}&address=${addr}`).then((x) => x.json());
         if (!r.ok) throw new Error(r.error || "lookup failed");
         setWorker(r.worker);
+        setJobs(Array.isArray(r.jobs) ? r.jobs : []);
       } catch (e) {
         setError((e as Error).message);
         setWorker(undefined);
+        setJobs([]);
       } finally {
         setLoading(false);
       }
@@ -114,6 +122,30 @@ export default function DashboardPage() {
         <code className="rounded bg-surface-base-light px-1 py-0.5">status</code> — it&apos;s the generated worker key, not your funder wallet.
       </p>
 
+      {saved.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-content-soft">Watching:</span>
+          {saved.map((w) => (
+            <span
+              key={w}
+              className={cn(
+                "group inline-flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-1.5 text-xs",
+                query.toLowerCase() === w.toLowerCase()
+                  ? "border-primary/40 bg-primary/15 text-primary"
+                  : "border-bdr-soft bg-surface-base-subtle text-content-soft",
+              )}
+            >
+              <button onClick={() => { setInput(w); setQuery(w); }} className="font-mono">
+                {shortAddr(w)}
+              </button>
+              <button onClick={() => remove(w)} aria-label="Remove" className="opacity-50 hover:opacity-100">
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="mt-5 flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           <AlertTriangle className="size-4" /> {error}
@@ -129,7 +161,16 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {worker && <WorkerView worker={worker} explorer={net.explorer} minStake={net.minStakeLcai} />}
+      {worker && (
+        <WorkerView
+          worker={worker}
+          jobs={jobs}
+          explorer={net.explorer}
+          minStake={net.minStakeLcai}
+          watched={has(worker.id)}
+          onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
+        />
+      )}
 
       {worker === undefined && !error && !loading && (
         <Card className="mt-6 p-10 text-center">
@@ -145,7 +186,21 @@ export default function DashboardPage() {
   );
 }
 
-function WorkerView({ worker, explorer, minStake }: { worker: Worker; explorer: string; minStake: number }) {
+function WorkerView({
+  worker,
+  jobs,
+  explorer,
+  minStake,
+  watched,
+  onToggleWatch,
+}: {
+  worker: Worker;
+  jobs: Job[];
+  explorer: string;
+  minStake: number;
+  watched: boolean;
+  onToggleWatch: () => void;
+}) {
   const h = healthOf(worker);
   const meta = HEALTH[h];
   const stake = fromWei(worker.stake);
@@ -173,11 +228,17 @@ function WorkerView({ worker, explorer, minStake }: { worker: Worker; explorer: 
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {(worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
           </div>
-          <a href={`${explorer}/address/${worker.id}`} target="_blank" rel="noreferrer">
-            <Button variant="outline" size="sm">
-              Explorer <ExternalLink />
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={onToggleWatch}>
+              <Star className={cn("size-4", watched && "fill-warning text-warning")} />
+              {watched ? "Watching" : "Watch"}
             </Button>
-          </a>
+            <a href={`${explorer}/address/${worker.id}`} target="_blank" rel="noreferrer">
+              <Button variant="outline" size="sm">
+                Explorer <ExternalLink />
+              </Button>
+            </a>
+          </div>
         </div>
         <p className="mt-3 text-sm text-content-soft">{meta.hint}</p>
       </Card>
@@ -210,6 +271,37 @@ function WorkerView({ worker, explorer, minStake }: { worker: Worker; explorer: 
       {stake < minStake && worker.status === "active" && (
         <Card className="border-warning/30 bg-warning/10 p-4 text-sm text-content-default">
           Stake is below the {minStake.toLocaleString()} LCAI floor — likely slashed. Top up to stay eligible for jobs.
+        </Card>
+      )}
+
+      {jobs.length > 0 && (
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <ListChecks className="size-4 text-content-soft" />
+            <h3 className="text-sm font-semibold text-content-primary">Recent jobs</h3>
+          </div>
+          <div className="space-y-1.5">
+            {jobs.map((j) => {
+              const done = /complet/i.test(j.state);
+              const share = fromWei(j.worker_share);
+              return (
+                <div key={j.id} className="flex items-center justify-between rounded-lg bg-surface-base-faint px-3 py-2 text-xs">
+                  <span className="font-mono text-content-soft">job #{j.id}</span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 font-medium",
+                      done ? "text-success" : /ack/i.test(j.state) ? "text-warning" : "text-content-soft",
+                    )}
+                  >
+                    {done && <CheckCircle2 className="size-3.5" />}
+                    {j.state}
+                  </span>
+                  <span className="text-content-soft">{share > 0 ? `+${fmt(share, 3)} LCAI` : "—"}</span>
+                  <span className="text-content-soft">{timeAgo(j.completed_at || j.submitted_at)}</span>
+                </div>
+              );
+            })}
+          </div>
         </Card>
       )}
 

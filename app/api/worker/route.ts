@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchWorker, isLive } from "@/lib/subgraph";
+import { fetchWorker, fetchWorkerJobs, isLive } from "@/lib/subgraph";
 import type { NetworkId } from "@/lib/network";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +12,9 @@ export async function GET(req: NextRequest) {
   }
   try {
     const worker = await fetchWorker(net, address);
-    if (!worker) return NextResponse.json({ ok: true, worker: null });
-    return NextResponse.json({ ok: true, worker, live: isLive(worker) });
+    if (!worker) return NextResponse.json({ ok: true, worker: null, jobs: [] });
+    const jobs = await fetchWorkerJobs(net, address);
+    return NextResponse.json({ ok: true, worker, live: isLive(worker), jobs });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
