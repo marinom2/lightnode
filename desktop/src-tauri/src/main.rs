@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
@@ -91,10 +92,14 @@ fn detect_gpu() -> (String, Option<u64>, bool) {
 
 /// Runs a shell command and streams its output to the webview as `setup-log`
 /// events, finishing with `setup-exit { code }`. The web UI builds the command
-/// (it already generates the exact setup) and prompts for secrets in-memory —
-/// nothing is persisted by this app.
+/// (it already generates the exact setup); secrets are passed via `env` (process
+/// environment), never baked into the command string or persisted by this app.
 #[tauri::command]
-fn run_command_streamed(app: AppHandle, command: String) -> Result<(), String> {
+fn run_command_streamed(
+    app: AppHandle,
+    command: String,
+    env: Option<HashMap<String, String>>,
+) -> Result<(), String> {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "windows") {
         ("powershell", vec!["-NoProfile", "-Command", &command])
     } else {
@@ -103,6 +108,7 @@ fn run_command_streamed(app: AppHandle, command: String) -> Result<(), String> {
 
     let mut child = Command::new(program)
         .args(&args)
+        .envs(env.unwrap_or_default())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

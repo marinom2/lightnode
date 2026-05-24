@@ -41,9 +41,11 @@ export async function detectNativeHardware(): Promise<NativeHardware | null> {
   }
 }
 
-/** Run the generated setup command natively, streaming logs. Returns a stop fn. */
+/** Run the generated setup command natively, streaming logs. Secrets go in
+ *  `env` (process environment), never in the command string. Returns a stop fn. */
 export async function runSetupStreamed(
   command: string,
+  env: Record<string, string>,
   onLog: (line: string) => void,
   onExit: (code: number) => void,
 ): Promise<() => void> {
@@ -54,7 +56,7 @@ export async function runSetupStreamed(
   }
   const un1 = await t.event.listen("setup-log", (e) => onLog(String(e.payload)));
   const un2 = await t.event.listen("setup-exit", (e) => onExit(Number(e.payload)));
-  await t.core.invoke("run_command_streamed", { command });
+  await t.core.invoke("run_command_streamed", { command, env });
   return () => {
     un1();
     un2();

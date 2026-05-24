@@ -55,10 +55,20 @@ cd desktop/src-tauri && cargo check
   webview only loads the first-party LightNode UI, this is first-party code — but
   if you point the shell at any other origin, lock this down with an allowlist.
 
+## Status
+- ✅ Full icon set generated (`tauri icon` from `icons/logo-source.svg` → 1024px
+  PNG → all platform sizes + `.icns`/`.ico`).
+- ✅ One-click install **wired**: `components/onboard/one-click-install.tsx`
+  (desktop-only) collects the password + funder key in-memory, passes them as
+  process **env** to `run_command_streamed`, and streams a live install log.
+- ✅ Real hardware detection feeds the web UI (`MachineCheck` uses true VRAM in
+  the shell).
+- ✅ `cargo check` passes.
+
 ## TODO before shipping a public binary
-- Replace `icons/icon.png` with a full icon set (`tauri icon path/to/logo.png`).
-- Code-sign + notarize (macOS) / sign (Windows) for distribution.
-- Decide prod frontend: load the hosted URL (current) or bundle a Next static
-  export + run the server as a sidecar (needed offline / for the API routes).
-- Wire `run_command_streamed` into the onboarding "one-click" button behind a
-  secure secret prompt.
+- **Code-sign + notarize** (macOS, needs an Apple Developer cert) / sign
+  (Windows). Can't be done without your certificates.
+- **Prod frontend decision**: currently loads the hosted URL (simplest). For an
+  offline-capable app, bundle a Next static export + run the server as a Tauri
+  sidecar (the API routes need a server).
+- Run `npm run build` on each target OS to produce the installer.

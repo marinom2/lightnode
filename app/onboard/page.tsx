@@ -12,6 +12,7 @@ import { MachineCheck } from "@/components/onboard/machine-check";
 import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NetworkHealth } from "@/components/network-health";
 import { VerifyWorker } from "@/components/onboard/verify-worker";
+import { OneClickInstall } from "@/components/onboard/one-click-install";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import type { OS } from "@/lib/scriptgen";
@@ -130,6 +131,9 @@ export default function OnboardPage() {
                 desktop app (auto-detects hardware, installs &amp; runs with a single button) is on the roadmap — it&apos;s the
                 only way a non-terminal install is technically possible. For now, this is one paste.
               </span>
+            </div>
+            <div className="mb-6">
+              <OneClickInstall />
             </div>
             <SetupGuide defaultOS={os} />
           </div>

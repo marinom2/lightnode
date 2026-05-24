@@ -43,6 +43,27 @@ function bootstrap(os: OS, network: NetworkId, model: string): string {
   );
 }
 
+/**
+ * Non-interactive install command for the desktop shell. Reads WORKER_PASSWORD
+ * and FUNDER_PRIVKEY from the process env (the app passes them securely, never
+ * in this string), writes the toolkit's secrets.env, and runs all 9 phases.
+ * Unix (bash) only — the desktop one-click is gated to macOS/Linux for now.
+ */
+export function desktopInstallCommand(network: NetworkId, model: string = DEFAULT_MODEL): string {
+  return [
+    "set -e",
+    `[ -d lightchain-worker-toolkit ] || git clone ${TOOLKIT}.git`,
+    "cd lightchain-worker-toolkit/scripts/bash",
+    "cp -n secrets.example.sh secrets.env",
+    'sed -i.bak "s|WORKER_PASSWORD=.*|WORKER_PASSWORD=\\"$WORKER_PASSWORD\\"|" secrets.env',
+    'sed -i.bak "s|FUNDER_PRIVKEY=.*|FUNDER_PRIVKEY=\\"$FUNDER_PRIVKEY\\"|" secrets.env',
+    "rm -f secrets.env.bak",
+    `export NETWORK=${network} SUPPORTED_MODELS=${model}`,
+    `for p in ${PHASES}; do echo "▶ phase $p"; bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    'echo "✅ worker online"',
+  ].join("\n");
+}
+
 export function generateSetup(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): ScriptBundle {
   const net = NETWORKS[network];
   const fund = net.fundLcai;

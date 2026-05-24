@@ -34,8 +34,12 @@ export function LiveStats() {
   }, [network]);
 
   const s = data?.stats;
+  // "Online" = workers the chain reports as active (registered + staked + not
+  // deregistered). The 20-min heartbeat ("live") is a finer per-worker signal we
+  // surface on the dashboard — it's too volatile to headline (it can read 0 even
+  // when a healthy, earning pool exists).
   const tiles = [
-    { icon: Activity, label: "Live workers", value: s ? fmt(s.live, 0) : "—", tone: "text-success" },
+    { icon: Activity, label: "Workers online", value: s ? fmt(s.active, 0) : "—", tone: "text-success" },
     { icon: Cpu, label: "Total registered", value: s ? fmt(s.total, 0) : "—", tone: "text-content-primary" },
     { icon: Layers, label: "Models live", value: s ? fmt(s.models, 0) : "—", tone: "text-primary" },
     { icon: Coins, label: "LCAI paid to workers", value: s ? compact(s.totalEarnedLcai) : "—", tone: "text-content-primary" },

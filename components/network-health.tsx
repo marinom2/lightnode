@@ -61,7 +61,8 @@ export function NetworkHealth() {
       </span>
       <span className="inline-flex items-center gap-1.5 text-content-soft">
         <Activity className="size-3.5" />
-        {fmt(stats.live, 0)} live · {fmt(stats.active, 0)} active workers · {fmt(stats.jobsCompleted, 0)} jobs done
+        {fmt(stats.active, 0)} workers online · {fmt(stats.jobsCompleted, 0)} jobs completed
+        {stats.live > 0 && ` · ${fmt(stats.live, 0)} serving now`}
       </span>
     </div>
   );
