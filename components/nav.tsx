@@ -6,6 +6,7 @@ import { Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
 import { NetworkToggle } from "@/components/network-toggle";
+import { RememberToggle } from "@/components/remember-toggle";
 
 const links = [
   { href: "/onboard", label: "Become a worker" },
@@ -44,6 +45,7 @@ export function Nav() {
         </nav>
 
         <div className="flex items-center gap-2.5">
+          <RememberToggle className="hidden md:inline-flex" />
           <NetworkToggle />
           <ConnectButton size="sm" />
         </div>

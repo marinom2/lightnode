@@ -8,6 +8,7 @@ import {
   coinbaseWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { NETWORKS } from "./network";
+import { walletStorage } from "./wallet-storage";
 
 export const lightchainMainnet = defineChain({
   id: NETWORKS.mainnet.chainId,
@@ -46,5 +47,6 @@ export const wagmiConfig = createConfig({
     [lightchainMainnet.id]: http(NETWORKS.mainnet.rpc),
     [lightchainTestnet.id]: http(NETWORKS.testnet.rpc),
   },
+  storage: walletStorage,
   ssr: true,
 });

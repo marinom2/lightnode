@@ -6,10 +6,31 @@ import { Nav } from "@/components/nav";
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://lightnode.app";
+const TITLE = "LightNode — Run a LightChain AI worker in one flow";
+const DESCRIPTION =
+  "Connect a wallet, check your machine, get a tailored setup, and watch your rewards. The friction-free way to join LightChain's decentralized AI network and earn $LCAI.";
+
 export const metadata: Metadata = {
-  title: "LightNode — Run a LightChain AI worker in one flow",
-  description:
-    "Connect a wallet, check your machine, get a tailored setup, and watch your rewards. The friction-free way to join LightChain's decentralized AI network.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: TITLE, template: "%s · LightNode" },
+  description: DESCRIPTION,
+  applicationName: "LightNode",
+  keywords: ["LightChain", "LCAI", "AI worker", "decentralized AI", "Ollama", "node operator", "staking"],
+  authors: [{ name: "LightNode" }],
+  openGraph: {
+    type: "website",
+    siteName: "LightNode",
+    url: SITE_URL,
+    title: TITLE,
+    description: DESCRIPTION,
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
+  robots: { index: true, follow: true },
+};
+
+export const viewport = {
+  themeColor: "#070710",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

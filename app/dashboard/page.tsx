@@ -16,6 +16,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ModelsPanel } from "@/components/models-panel";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
@@ -136,6 +137,10 @@ export default function DashboardPage() {
           <p className="text-content-soft">Enter a worker address to see its live status.</p>
         </Card>
       )}
+
+      <Card className="mt-8 p-6">
+        <ModelsPanel />
+      </Card>
     </div>
   );
 }

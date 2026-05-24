@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LiveStats } from "@/components/live-stats";
+import { ModelsPanel } from "@/components/models-panel";
 
 const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
 
@@ -127,6 +128,17 @@ export default function Home() {
             </Card>
           ))}
         </div>
+      </section>
+
+      {/* MODELS */}
+      <section className="mx-auto max-w-6xl px-5 py-10">
+        <h2 className="text-center text-2xl font-semibold tracking-tight text-content-primary">What you&apos;ll serve</h2>
+        <p className="mx-auto mt-2 mb-8 max-w-xl text-center text-content-soft">
+          The models the network pays workers to run, with the live per-job fee.
+        </p>
+        <Card className="p-6">
+          <ModelsPanel compactHeader />
+        </Card>
       </section>
 
       {/* ROLE CARDS */}

@@ -29,18 +29,30 @@ export interface ModelInfo {
   is_enabled: boolean;
 }
 
+const TIMEOUT_MS = 12_000;
+
 async function gql<T>(network: NetworkId, query: string): Promise<T> {
   const url = NETWORKS[network].subgraph;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`subgraph ${res.status}`);
-  const json = await res.json();
-  if (json.errors) throw new Error(json.errors[0]?.message ?? "subgraph error");
-  return json.data as T;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query }),
+      cache: "no-store",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`subgraph ${res.status}`);
+    const json = await res.json();
+    if (json.errors) throw new Error(json.errors[0]?.message ?? "subgraph error");
+    return json.data as T;
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw new Error(`subgraph timeout after ${TIMEOUT_MS}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function fetchWorkers(network: NetworkId, first = 200): Promise<Worker[]> {
