@@ -51,7 +51,7 @@ export function WatchGrid({
         const d = data[addr.toLowerCase()];
         const w = d?.worker;
         const isActive = active?.toLowerCase() === addr.toLowerCase();
-        const dot = !w ? "bg-content-extraLight" : d.live ? "bg-success animate-pulse-dot" : w.status === "active" ? "bg-warning" : "bg-destructive";
+        const dot = !w ? "dot-idle" : d.live ? "dot-live" : w.status === "active" ? "dot-warn" : "dot-down";
         return (
           <button
             key={addr}
@@ -62,7 +62,7 @@ export function WatchGrid({
             )}
           >
             <div className="flex items-center gap-2">
-              <span className={cn("size-2 rounded-full", dot)} />
+              <span className={cn("dot", dot)} />
               <span className="font-mono text-sm text-content-primary">{shortAddr(addr)}</span>
             </div>
             {w ? (
@@ -76,7 +76,7 @@ export function WatchGrid({
                 <span>{timeAgo(w.last_seen_at)}</span>
               </div>
             ) : (
-              <div className="mt-3 text-xs text-content-soft">{d ? "not registered" : "loading…"}</div>
+              <div className="mt-3 text-xs text-content-soft">{d ? "not registered" : "loading..."}</div>
             )}
           </button>
         );

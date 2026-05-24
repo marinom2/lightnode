@@ -66,7 +66,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
 
 export const DEFAULT_NETWORK: NetworkId = "mainnet";
 
-/** The model every worker serves today (bare name, no :latest — see toolkit gotcha #1). */
+/** The model every worker serves today (bare name, no :latest - see toolkit gotcha #1). */
 export const DEFAULT_MODEL = "llama3-8b";
 
 /** Hardware floor + recommended spec from the official worker page. */

@@ -23,12 +23,12 @@ npm run test:e2e    # Playwright smoke tests (builds + serves)
 - TypeScript, no `any`. Keep functions small and single-purpose.
 - Pure logic lives in `lib/` and must have a Vitest test in `tests/unit/`.
 - UI uses the design tokens in `app/globals.css` (don't hardcode colors).
-- Data is read live from the LightChain subgraph via the `/api/*` routes — never
+- Data is read live from the LightChain subgraph via the `/api/*` routes - never
   call the subgraph directly from a client component (CORS + caching).
 - Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
 
 ## Project layout
-- `app/` — routes (landing, onboard wizard, dashboard) + `/api` subgraph proxy
-- `components/` — UI (incl. `ui/` primitives)
-- `lib/` — network constants, subgraph client, hardware scoring, script generator
-- `tests/unit` — Vitest · `tests/e2e` — Playwright
+- `app/` - routes (landing, onboard wizard, dashboard) + `/api` subgraph proxy
+- `components/` - UI (incl. `ui/` primitives)
+- `lib/` - network constants, subgraph client, hardware scoring, script generator
+- `tests/unit` - Vitest · `tests/e2e` - Playwright

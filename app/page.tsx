@@ -16,13 +16,14 @@ import { Badge } from "@/components/ui/badge";
 import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
 import { HeroPreview } from "@/components/hero-preview";
+import { DownloadDesktop } from "@/components/download-desktop";
 
 const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
 
 const STEPS = [
   { icon: Wallet, title: "Connect your wallet", body: "Connect the wallet you'll fund the worker from. No sign-up, no API key." },
   { icon: Gauge, title: "Check your machine", body: "We score your GPU/CPU/RAM, confirm you clear the 8GB-VRAM floor, and estimate rewards." },
-  { icon: Terminal, title: "Get a tailored setup", body: "A personalized, copy-paste install for your OS — wrapping the official toolkit, gotchas pre-fixed." },
+  { icon: Terminal, title: "Get a tailored setup", body: "A personalized, copy-paste install for your OS - wrapping the official toolkit, gotchas pre-fixed." },
   { icon: HeartPulse, title: "Run & watch rewards", body: "Start the node, then track jobs, earnings, and health on a live dashboard." },
 ];
 
@@ -38,14 +39,14 @@ export default function Home() {
         <div className="mx-auto mb-6 inline-flex">
           <Badge tone="brand" className="px-3 py-1">
             <span className="size-1.5 rounded-full bg-primary animate-pulse-dot" />
-            Onboard to LightChain AI — no terminal required
+            Onboard to LightChain AI - no terminal required
           </Badge>
         </div>
         <h1 className="mx-auto max-w-3xl text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-content-primary md:text-6xl">
           Become a LightChain AI worker in <span className="text-gradient">one flow</span>.
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
-          Most people don&apos;t fail to run a node because they lack hardware — they fail on setup.
+          Most people don&apos;t fail to run a node because they lack hardware - they fail on setup.
           LightNode abstracts all of it: connect a wallet, check your machine, get a tailored install,
           and start earning <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference.
         </p>
@@ -68,6 +69,9 @@ export default function Home() {
           <LiveStats />
         </div>
       </section>
+
+      {/* DESKTOP DOWNLOAD - one click */}
+      <DownloadDesktop />
 
       {/* WHAT WE REMOVE */}
       <section className="mx-auto max-w-6xl px-5 py-10">
@@ -153,7 +157,7 @@ export default function Home() {
             <h3 className="mt-4 text-2xl font-semibold tracking-tight text-content-primary">Run a Worker</h3>
             <p className="mt-2 text-content-soft">
               Serve llama3-8b inference and earn $LCAI. Needs an 8GB+ GPU and a 50,000 LCAI stake.
-              This is the one-flow path — start here.
+              This is the one-flow path - start here.
             </p>
             <ul className="mt-5 space-y-2 text-sm text-content-soft">
               {["Guided machine check + reward estimate", "Tailored install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (

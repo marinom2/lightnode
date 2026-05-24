@@ -1,11 +1,11 @@
 # LightNode Desktop (Tauri v2)
 
-The desktop shell that makes worker onboarding **truly one-click** — the two
+The desktop shell that makes worker onboarding **truly one-click** - the two
 things a browser sandbox can't do:
 
-1. **Real hardware detection** — actual CPU/RAM/GPU/**VRAM** via OS tools
+1. **Real hardware detection** - actual CPU/RAM/GPU/**VRAM** via OS tools
    (`nvidia-smi`, `system_profiler`, `wmic`) instead of browser guesses.
-2. **Native install** — runs the setup pipeline locally and streams progress to
+2. **Native install** - runs the setup pipeline locally and streams progress to
    the UI (no copy-paste, no terminal).
 
 It reuses the exact same LightNode web UI (loaded in the webview), so there's one
@@ -52,7 +52,7 @@ cd desktop/src-tauri && cargo check
   worker password / funder key in-memory and passes them to the local process;
   nothing is written by this shell.
 - `run_command_streamed` executes shell commands the UI generates. Because the
-  webview only loads the first-party LightNode UI, this is first-party code — but
+  webview only loads the first-party LightNode UI, this is first-party code - but
   if you point the shell at any other origin, lock this down with an allowlist.
 
 ## Status

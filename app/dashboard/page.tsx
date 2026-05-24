@@ -35,7 +35,7 @@ function healthOf(w: Worker): Health {
 }
 
 const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: string; hint: string }> = {
-  live: { tone: "success", label: "Live", hint: "Heartbeat fresh — serving jobs." },
+  live: { tone: "success", label: "Live", hint: "Heartbeat fresh - serving jobs." },
   stale: { tone: "warning", label: "Stale heartbeat", hint: "Active on-chain but no recent heartbeat. Check the container / watchdog." },
   down: { tone: "danger", label: "Offline", hint: "Not active. Deregistered, deactivated, or never started." },
 };
@@ -75,7 +75,7 @@ export default function DashboardPage() {
     [network],
   );
 
-  // Deep-link support: /dashboard?address=0x… (e.g. from the leaderboard).
+  // Deep-link support: /dashboard?address=0x... (e.g. from the leaderboard).
   useEffect(() => {
     const a = new URLSearchParams(window.location.search).get("address");
     if (a && /^0x[a-fA-F0-9]{40}$/.test(a)) {
@@ -113,7 +113,7 @@ export default function DashboardPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="0x… worker address"
+            placeholder="0x... worker address"
             className="h-11 w-full rounded-xl border border-bdr-soft bg-surface-base-subtle pl-9 pr-3 font-mono text-sm text-content-primary outline-none focus:border-primary"
           />
         </div>
@@ -128,7 +128,7 @@ export default function DashboardPage() {
       </form>
       <p className="mt-2 text-xs text-content-soft">
         Tip: your worker address is printed by <code className="rounded bg-surface-base-light px-1 py-0.5">08-run-worker</code> /{" "}
-        <code className="rounded bg-surface-base-light px-1 py-0.5">status</code> — it&apos;s the generated worker key, not your funder wallet.
+        <code className="rounded bg-surface-base-light px-1 py-0.5">status</code> - it&apos;s the generated worker key, not your funder wallet.
       </p>
 
       {saved.length > 0 && (
@@ -222,12 +222,7 @@ function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "size-2.5 rounded-full",
-                h === "live" ? "bg-success animate-pulse-dot" : h === "stale" ? "bg-warning" : "bg-destructive",
-              )}
-            />
+            <span className={cn("dot", h === "live" ? "dot-live" : h === "stale" ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {(worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
@@ -274,7 +269,7 @@ function WorkerView({
 
       {stake < minStake && worker.status === "active" && (
         <Card className="border-warning/30 bg-warning/10 p-4 text-sm text-content-default">
-          Stake is below the {minStake.toLocaleString()} LCAI floor — likely slashed. Top up to stay eligible for jobs.
+          Stake is below the {minStake.toLocaleString()} LCAI floor - likely slashed. Top up to stay eligible for jobs.
         </Card>
       )}
 
@@ -300,7 +295,7 @@ function WorkerView({
                     {done && <CheckCircle2 className="size-3.5" />}
                     {j.state}
                   </span>
-                  <span className="text-content-soft">{share > 0 ? `+${fmt(share, 3)} LCAI` : "—"}</span>
+                  <span className="text-content-soft">{share > 0 ? `+${fmt(share, 3)} LCAI` : "-"}</span>
                   <span className="text-content-soft">{timeAgo(j.completed_at || j.submitted_at)}</span>
                 </div>
               );

@@ -3,7 +3,7 @@
  * Powers the live network stats on the landing page and the worker dashboard.
  *
  * Note: the per-model `active_worker_count` field on `modelinfos` is known to
- * read stale (zero) even when the pool is healthy — we derive liveness from the
+ * read stale (zero) even when the pool is healthy - we derive liveness from the
  * `workers` list instead.
  */
 import { getAddress } from "viem";
@@ -89,7 +89,7 @@ export async function fetchWorker(network: NetworkId, address: string): Promise<
     );
     return data.worker ?? null;
   } catch (e) {
-    // The subgraph throws "Row not found" for unknown workers — treat as null.
+    // The subgraph throws "Row not found" for unknown workers - treat as null.
     if (/not found/i.test((e as Error).message)) return null;
     throw e;
   }

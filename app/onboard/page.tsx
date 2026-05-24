@@ -96,7 +96,7 @@ export default function OnboardPage() {
             <h2 className="text-xl font-semibold text-content-primary">Connect the wallet you&apos;ll fund from</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-content-soft">
               This is the wallet that holds your stake capital (≈ {NETWORKS[network].fundLcai.toLocaleString()} LCAI).
-              No sign-up, no API key — your worker key gets generated separately and locally.
+              No sign-up, no API key - your worker key gets generated separately and locally.
             </p>
             <div className="mt-6 flex justify-center">
               <ConnectButton size="lg" />
@@ -105,7 +105,7 @@ export default function OnboardPage() {
               onClick={() => setStep(1)}
               className="mx-auto mt-4 block text-sm text-content-soft underline-offset-4 hover:text-content-primary hover:underline"
             >
-              Skip — I&apos;ll enter my funder key during setup
+              Skip - I&apos;ll enter my funder key during setup
             </button>
           </div>
         )}
@@ -127,14 +127,14 @@ export default function OnboardPage() {
           <div>
             <h2 className="mb-1 text-xl font-semibold text-content-primary">One command to set it all up</h2>
             <p className="mb-5 text-sm text-content-soft">
-              Tailored to your OS &amp; chosen model — clones, configures, and runs everything. It only asks for a
+              Tailored to your OS &amp; chosen model - clones, configures, and runs everything. It only asks for a
               password and your funder key.
             </p>
             <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-primary/25 bg-primary/10 p-3 text-xs text-content-default">
               <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
               <span>
                 <span className="font-medium text-content-primary">Want truly zero commands?</span> A one-click LightNode
-                desktop app (auto-detects hardware, installs &amp; runs with a single button) is on the roadmap — it&apos;s the
+                desktop app (auto-detects hardware, installs &amp; runs with a single button) is on the roadmap - it&apos;s the
                 only way a non-terminal install is technically possible. For now, this is one paste.
               </span>
             </div>
@@ -150,7 +150,7 @@ export default function OnboardPage() {
             <span className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-gradient-primary text-white">
               <HeartPulse className="size-6" />
             </span>
-            <h2 className="text-xl font-semibold text-content-primary">You&apos;re live — now watch it earn</h2>
+            <h2 className="text-xl font-semibold text-content-primary">You&apos;re live - now watch it earn</h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-content-soft">
               After <code className="rounded bg-surface-base-light px-1.5 py-0.5 text-xs">08-run-worker</code>, your terminal
               prints your <span className="text-content-primary">worker address</span> (and{" "}

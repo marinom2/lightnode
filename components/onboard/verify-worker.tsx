@@ -57,7 +57,7 @@ export function VerifyWorker() {
         <input
           value={addr}
           onChange={(e) => setAddr(e.target.value.trim())}
-          placeholder="0x… your worker address (from the setup output)"
+          placeholder="0x... your worker address (from the setup output)"
           className="h-10 flex-1 rounded-lg border border-bdr-soft bg-card/60 px-3 font-mono text-sm text-content-primary outline-none focus:border-primary"
         />
         <Button variant="gradient" disabled={!valid || phase === "watching"} onClick={start}>
@@ -67,14 +67,14 @@ export function VerifyWorker() {
 
       {phase === "watching" && (
         <p className="mt-3 inline-flex items-center gap-2 text-sm text-content-soft">
-          <Loader2 className="size-4 animate-spin" /> Watching the network for {shortAddr(addr)} — this appears once
-          <code className="rounded bg-surface-base-light px-1">07-register</code> lands…
+          <Loader2 className="size-4 animate-spin" /> Watching the network for {shortAddr(addr)} - this appears once
+          <code className="rounded bg-surface-base-light px-1">07-register</code> lands...
         </p>
       )}
 
       {phase === "found" && (
         <p className="mt-3 inline-flex items-center gap-2 text-sm text-warning">
-          <CheckCircle2 className="size-4" /> Registered, waiting for the first heartbeat — make sure{" "}
+          <CheckCircle2 className="size-4" /> Registered, waiting for the first heartbeat - make sure{" "}
           <code className="rounded bg-surface-base-light px-1">08-run-worker</code> is running.
         </p>
       )}

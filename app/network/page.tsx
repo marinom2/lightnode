@@ -74,20 +74,20 @@ export default function NetworkPage() {
               <span className="w-6 text-right font-mono text-content-soft">{i + 1}</span>
               <span
                 className={cn(
-                  "size-2 rounded-full",
-                  !r ? "bg-surface-base-faint" : r.live ? "bg-success animate-pulse-dot" : r.status === "active" ? "bg-warning" : "bg-destructive",
+                  "dot",
+                  !r ? "dot-idle" : r.live ? "dot-live" : r.status === "active" ? "dot-warn" : "dot-down",
                 )}
               />
               <Link
                 href={`/dashboard?address=${r?.id ?? ""}`}
                 className="flex-1 font-mono text-content-primary hover:text-primary"
               >
-                {r ? shortAddr(r.id) : "—"}
+                {r ? shortAddr(r.id) : "-"}
               </Link>
               <span className="hidden w-28 text-right text-content-soft sm:block">
-                {r ? `${fmt(r.jobs_completed, 0)} jobs` : "—"}
+                {r ? `${fmt(r.jobs_completed, 0)} jobs` : "-"}
               </span>
-              <span className="w-28 text-right font-medium text-success">{r ? `${fmt(r.earnedLcai, 2)} LCAI` : "—"}</span>
+              <span className="w-28 text-right font-medium text-success">{r ? `${fmt(r.earnedLcai, 2)} LCAI` : "-"}</span>
               <span className="hidden w-20 text-right text-content-soft md:block">{r ? timeAgo(r.last_seen_at) : ""}</span>
               {r && (
                 <a href={`${explorer}/address/${r.id}`} target="_blank" rel="noreferrer" className="text-content-soft hover:text-content-primary" aria-label="Explorer">

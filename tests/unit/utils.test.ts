@@ -16,7 +16,7 @@ describe("fromWei", () => {
 
 describe("shortAddr", () => {
   it("truncates the middle", () => {
-    expect(shortAddr("0x1F899FaD2C8BD70b6eF356ae6cC3c0abDbB15EB5")).toBe("0x1F89…5EB5");
+    expect(shortAddr("0x1F899FaD2C8BD70b6eF356ae6cC3c0abDbB15EB5")).toBe("0x1F89...5EB5");
   });
   it("returns empty for nullish", () => {
     expect(shortAddr(null)).toBe("");

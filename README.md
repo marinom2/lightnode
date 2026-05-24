@@ -4,7 +4,7 @@
 Connect a wallet → check your machine → get a tailored setup → watch your rewards.
 
 An independent ecosystem tool (not an official LightChain product). It's a UX layer
-over the official [`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit) —
+over the official [`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit) -
 no protocol changes, no consensus work.
 
 ## Stack
@@ -20,26 +20,26 @@ npm run dev   # http://localhost:3000
 ```
 
 ## Pages
-- `/` — landing: live network stats, the pitch, how-it-works, Worker (now) / Validator (roadmap)
-- `/onboard` — 4-step wizard: connect → machine score + reward estimate → tailored per-OS setup → run & verify
-- `/dashboard` — live worker status/earnings/health from the subgraph (auto-refresh)
+- `/` - landing: live network stats, the pitch, how-it-works, Worker (now) / Validator (roadmap)
+- `/onboard` - 4-step wizard: connect → machine score + reward estimate → tailored per-OS setup → run & verify
+- `/dashboard` - live worker status/earnings/health from the subgraph (auto-refresh)
 
 ## Features
-- **Wallet:** Reown AppKit (the same stack LightChain's own chat uses) — email,
+- **Wallet:** Reown AppKit (the same stack LightChain's own chat uses) - email,
   Google/X/GitHub/Discord socials, WalletConnect, and 300+ wallets, with native
   network-switch UX. Works in the desktop webview (no extension/QR crash).
 - **Network toggle:** mainnet ↔ testnet, persisted, threaded through every view
   (also switches the connected wallet's chain). Testnet shows a faucet link.
-- **Models panel:** live registry — each model's per-job fee, max output tokens,
-  and status — on the landing page and dashboard.
+- **Models panel:** live registry - each model's per-job fee, max output tokens,
+  and status - on the landing page and dashboard.
 - **Live dashboard:** any worker's status / stake / jobs / earnings / health from
   the subgraph, auto-refresh, timed-out-job + slashed-stake warnings.
 
 ## Configuration
 Copy `.env.example` → `.env.local`:
-- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` — Reown/WalletConnect project id (add your
+- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` - Reown/WalletConnect project id (add your
   origin to its allowlist for production; localhost works for dev).
-- `NEXT_PUBLIC_SITE_URL` — used by metadata, `robots.txt`, `sitemap.xml`.
+- `NEXT_PUBLIC_SITE_URL` - used by metadata, `robots.txt`, `sitemap.xml`.
 
 ## Production-readiness
 - Security headers (`X-Frame-Options`, `nosniff`, `Referrer-Policy`,
@@ -54,7 +54,7 @@ Run the full gate locally (matches CI):
 ```bash
 npm run lint        # ESLint (next/core-web-vitals)
 npm run typecheck   # tsc --noEmit
-npm test            # Vitest — 27 unit tests (scriptgen, hardware, subgraph, utils)
+npm test            # Vitest - 27 unit tests (scriptgen, hardware, subgraph, utils)
 npm run build       # production build
 npm run test:e2e    # Playwright smoke (landing, nav, onboard, dashboard, 404)
 ```
@@ -63,4 +63,4 @@ visible focus rings, `aria-pressed` toggles, and `prefers-reduced-motion` honore
 
 ## Scope
 Worker onboarding ships first (8GB GPU + 50k LCAI stake). Validator onboarding
-(500k LCAI + full node) is intentionally deferred — it's a much heavier, capital-gated path.
+(500k LCAI + full node) is intentionally deferred - it's a much heavier, capital-gated path.

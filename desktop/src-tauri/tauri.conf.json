@@ -11,7 +11,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "LightNode — run a LightChain AI worker",
+        "title": "LightNode - run a LightChain AI worker",
         "width": 1180,
         "height": 820,
         "minWidth": 900,

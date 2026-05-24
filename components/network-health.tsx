@@ -38,7 +38,7 @@ export function NetworkHealth() {
   if (state === "loading")
     return (
       <div className="flex items-center gap-2 rounded-xl border border-bdr-soft bg-surface-base-subtle px-4 py-3 text-sm text-content-soft">
-        <Loader2 className="size-4 animate-spin" /> Checking network health…
+        <Loader2 className="size-4 animate-spin" /> Checking network health...
       </div>
     );
 

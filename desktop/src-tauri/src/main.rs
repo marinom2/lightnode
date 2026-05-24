@@ -18,7 +18,7 @@ struct Hardware {
     unified: bool,
 }
 
-/// Real hardware detection — the thing a browser can't do. Uses sysinfo for
+/// Real hardware detection - the thing a browser can't do. Uses sysinfo for
 /// CPU/RAM and platform tools for the GPU.
 #[tauri::command]
 fn detect_hardware() -> Hardware {
@@ -63,7 +63,7 @@ fn detect_gpu() -> (String, Option<u64>, bool) {
         }
     }
 
-    // 2) macOS — Apple Silicon shares memory (unified, no separate VRAM).
+    // 2) macOS - Apple Silicon shares memory (unified, no separate VRAM).
     #[cfg(target_os = "macos")]
     if let Some(o) = run("system_profiler", &["SPDisplaysDataType"]) {
         let name = o
@@ -76,7 +76,7 @@ fn detect_gpu() -> (String, Option<u64>, bool) {
         return (name, None, unified);
     }
 
-    // 3) Windows fallback — GPU name via wmic (no reliable VRAM).
+    // 3) Windows fallback - GPU name via wmic (no reliable VRAM).
     #[cfg(target_os = "windows")]
     if let Some(o) = run("wmic", &["path", "win32_VideoController", "get", "name"]) {
         if let Some(name) = o.lines().nth(1) {

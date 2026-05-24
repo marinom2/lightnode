@@ -17,7 +17,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
       </span>
       <h1 className="text-2xl font-semibold text-content-primary">Something went wrong</h1>
       <p className="mt-2 text-content-soft">
-        An unexpected error occurred. You can retry — your wallet stays connected.
+        An unexpected error occurred. You can retry - your wallet stays connected.
       </p>
       <Button variant="gradient" className="mt-6" onClick={reset}>
         <RefreshCw /> Try again

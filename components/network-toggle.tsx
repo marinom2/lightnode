@@ -15,7 +15,7 @@ export function NetworkToggle() {
     try {
       switchChain?.({ chainId: NETWORKS[id].chainId });
     } catch {
-      /* wallet not connected / user declined — data network still switches */
+      /* wallet not connected / user declined - data network still switches */
     }
   };
 

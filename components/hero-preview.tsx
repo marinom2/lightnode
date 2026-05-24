@@ -1,7 +1,7 @@
 import { CheckCircle2, Coins, ShieldCheck, Activity, Cpu } from "lucide-react";
 
 /**
- * Stylized product preview for the hero — a faux app window showing the worker
+ * Stylized product preview for the hero - a faux app window showing the worker
  * dashboard. Pure presentation (no live data), tuned to the LightNode palette.
  */
 export function HeroPreview() {
@@ -29,8 +29,8 @@ export function HeroPreview() {
           {/* worker header row */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-bdr-soft bg-surface-base-subtle p-4">
             <div className="flex items-center gap-2.5">
-              <span className="size-2.5 rounded-full bg-success animate-pulse-dot" />
-              <span className="font-mono text-sm text-content-primary">0x1F89…5EB5</span>
+              <span className="dot dot-live" />
+              <span className="font-mono text-sm text-content-primary">0x1F89...5EB5</span>
               <span className="rounded-full border border-success/30 bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
                 Live
               </span>

@@ -1,6 +1,6 @@
 # Deploying LightNode
 
-LightNode is a standard Next.js 15 app — Vercel auto-detects everything. No
+LightNode is a standard Next.js 15 app - Vercel auto-detects everything. No
 `vercel.json` needed.
 
 ## 1. Environment variables
@@ -10,7 +10,7 @@ Production + Preview:
 | Variable | Value |
 |---|---|
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | your Reown/WalletConnect project id |
-| `NEXT_PUBLIC_SITE_URL` | the production URL (e.g. `https://lightnode.app`) — no trailing slash |
+| `NEXT_PUBLIC_SITE_URL` | the production URL (e.g. `https://lightnode.app`) - no trailing slash |
 
 > Without the project id, the WalletConnect QR option is disabled but injected
 > wallets (MetaMask, etc.) still work.
@@ -25,7 +25,7 @@ the modal can fail):
 
 ## 3. Deploy
 
-### Option A — CLI
+### Option A - CLI
 ```bash
 npm i -g vercel
 cd lightnode
@@ -34,14 +34,14 @@ vercel --prod     # promote to production
 ```
 Set the two env vars when prompted (or add them in the dashboard, then redeploy).
 
-### Option B — Git
+### Option B - Git
 Push this repo to GitHub and "Import Project" in Vercel. It builds on every push;
 `main` → Production, branches → Preview.
 
 ## 4. Post-deploy checklist
 - [ ] Home, `/onboard`, `/dashboard` all load.
 - [ ] Wallet connect modal opens; connecting on a fresh MetaMask auto-prompts to
-      **add LightChain** (mainnet/testnet) — no manual network entry.
+      **add LightChain** (mainnet/testnet) - no manual network entry.
 - [ ] Mainnet/Testnet toggle switches the live stats + dashboard data.
 - [ ] `/robots.txt`, `/sitemap.xml`, `/manifest.webmanifest` resolve.
 

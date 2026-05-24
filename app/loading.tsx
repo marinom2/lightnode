@@ -6,7 +6,7 @@ export default function Loading() {
       <span className="grid size-12 animate-pulse-dot place-items-center rounded-2xl bg-gradient-primary text-white">
         <Cpu className="size-5" />
       </span>
-      <p className="text-sm">Loading…</p>
+      <p className="text-sm">Loading...</p>
     </div>
   );
 }

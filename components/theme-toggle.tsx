@@ -5,7 +5,7 @@ import { Moon, Sun } from "lucide-react";
 
 const KEY = "lightnode.theme";
 
-/** Light/dark toggle with the circular "wave" reveal from the click point —
+/** Light/dark toggle with the circular "wave" reveal from the click point -
  *  the same View Transitions effect LightChain's chat uses. Falls back to an
  *  instant switch where the API isn't available (and honours reduced-motion). */
 export function ThemeToggle() {

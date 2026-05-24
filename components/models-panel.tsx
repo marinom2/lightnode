@@ -31,7 +31,7 @@ export function ModelsPanel({ compactHeader = false }: { compactHeader?: boolean
         <div className="mb-3 flex items-center gap-2">
           <Box className="size-4 text-content-soft" />
           <h3 className="text-sm font-semibold text-content-primary">Models on the network</h3>
-          <span className="text-xs text-content-soft">— what workers can serve & the per-job fee</span>
+          <span className="text-xs text-content-soft">- what workers can serve & the per-job fee</span>
         </div>
       )}
 
@@ -47,7 +47,7 @@ export function ModelsPanel({ compactHeader = false }: { compactHeader?: boolean
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-sm font-medium text-content-primary">
-                  {loading ? "—" : m.name}
+                  {loading ? "-" : m.name}
                 </span>
                 {!loading &&
                   (m.is_enabled && m.is_whitelisted ? (
@@ -62,7 +62,7 @@ export function ModelsPanel({ compactHeader = false }: { compactHeader?: boolean
                     <Coins className="size-3" /> Fee
                   </div>
                   <div className="mt-0.5 font-medium text-content-primary">
-                    {loading ? "—" : `${fmt(fromWei(m.fee), 3)} LCAI`}
+                    {loading ? "-" : `${fmt(fromWei(m.fee), 3)} LCAI`}
                   </div>
                 </div>
                 <div className="rounded-lg bg-surface-base-subtle p-2">
@@ -70,7 +70,7 @@ export function ModelsPanel({ compactHeader = false }: { compactHeader?: boolean
                     <Hash className="size-3" /> Max output
                   </div>
                   <div className="mt-0.5 font-medium text-content-primary">
-                    {loading ? "—" : `${fmt(m.max_output_tokens, 0)} tok`}
+                    {loading ? "-" : `${fmt(m.max_output_tokens, 0)} tok`}
                   </div>
                 </div>
               </div>
@@ -83,6 +83,6 @@ export function ModelsPanel({ compactHeader = false }: { compactHeader?: boolean
 }
 
 const skeleton: ModelInfo[] = [
-  { id: "s1", name: "—", fee: "0", max_output_tokens: 0, is_whitelisted: false, is_enabled: false },
-  { id: "s2", name: "—", fee: "0", max_output_tokens: 0, is_whitelisted: false, is_enabled: false },
+  { id: "s1", name: "-", fee: "0", max_output_tokens: 0, is_whitelisted: false, is_enabled: false },
+  { id: "s2", name: "-", fee: "0", max_output_tokens: 0, is_whitelisted: false, is_enabled: false },
 ];

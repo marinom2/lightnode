@@ -1,7 +1,7 @@
 /**
  * Bridge to the LightNode desktop shell (Tauri). When the web UI runs inside the
  * desktop app, `window.__TAURI__` is injected (withGlobalTauri), so we can call
- * the native commands for real hardware detection and a streamed install — the
+ * the native commands for real hardware detection and a streamed install - the
  * two things a browser can't do. On the web these are no-ops/null.
  */
 
@@ -30,7 +30,7 @@ export function isDesktop(): boolean {
   return tauri() !== null;
 }
 
-/** Real CPU/RAM/GPU/VRAM from the OS — only available in the desktop shell. */
+/** Real CPU/RAM/GPU/VRAM from the OS - only available in the desktop shell. */
 export async function detectNativeHardware(): Promise<NativeHardware | null> {
   const t = tauri();
   if (!t) return null;

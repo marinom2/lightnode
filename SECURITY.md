@@ -5,7 +5,7 @@ LightNode is a **non-custodial** UX layer. It never sees, stores, or transmits
 any private key:
 - **Worker key** is generated locally by the official toolkit on the operator's
   machine and kept in the toolkit's gitignored `secrets.env` / keystore.
-- **Funder key** is entered locally when the toolkit prompts for it — it never
+- **Funder key** is entered locally when the toolkit prompts for it - it never
   touches this web app or any LightNode server.
 - The browser connects a wallet via WalletConnect/injected only to read the
   address and (optionally) add/switch the LightChain network.

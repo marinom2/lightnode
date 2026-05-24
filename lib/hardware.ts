@@ -1,7 +1,7 @@
 /**
  * Machine scoring + role recommendation for the onboarding flow.
  *
- * The score is a transparent, capacity-oriented heuristic — VRAM dominates
+ * The score is a transparent, capacity-oriented heuristic - VRAM dominates
  * because that's what gates serving llama3-8b through Ollama. We never pretend
  * the score is the barrier to entry: the real gate is the 50,000 LCAI stake,
  * which we surface explicitly in the UI.
@@ -20,7 +20,7 @@ export interface MachineInput {
 export type Tier = "below" | "eligible" | "strong" | "premium";
 
 export interface MachineAssessment {
-  score: number; // 0–100
+  score: number; // 0-100
   tier: Tier;
   tierLabel: string;
   vramOk: boolean;
@@ -36,7 +36,7 @@ function clamp(n: number, lo = 0, hi = 100) {
 export function assessMachine(m: MachineInput): MachineAssessment {
   const notes: string[] = [];
 
-  // sub-scores (each 0–1)
+  // sub-scores (each 0-1)
   const vramScore = clamp((m.vramGb / HARDWARE.rec.vramGb) * 100) / 100; // 24GB = full
   const ramScore = clamp((m.ramGb / HARDWARE.rec.ramGb) * 100) / 100;
   const coreScore = clamp((m.cores / HARDWARE.rec.cores) * 100) / 100;
@@ -53,16 +53,16 @@ export function assessMachine(m: MachineInput): MachineAssessment {
   let tierLabel: string;
   if (m.vramGb >= HARDWARE.rec.vramGb) {
     tier = "premium";
-    tierLabel = "Premium — headroom for larger models";
+    tierLabel = "Premium - headroom for larger models";
   } else if (m.vramGb >= 12) {
     tier = "strong";
-    tierLabel = "Strong — comfortably serves llama3-8b";
+    tierLabel = "Strong - comfortably serves llama3-8b";
   } else if (vramOk) {
     tier = "eligible";
-    tierLabel = "Eligible — meets the 8GB minimum";
+    tierLabel = "Eligible - meets the 8GB minimum";
   } else {
     tier = "below";
-    tierLabel = cpuFallback ? "Below GPU minimum — CPU fallback only (slow)" : "Below minimum spec";
+    tierLabel = cpuFallback ? "Below GPU minimum - CPU fallback only (slow)" : "Below minimum spec";
   }
 
   if (!vramOk && cpuFallback)
@@ -86,7 +86,7 @@ export function assessMachine(m: MachineInput): MachineAssessment {
 /**
  * Best-effort VRAM inference from a WebGL renderer string. Returns the likely
  * VRAM in GB for known discrete GPUs, or `{ unified: true }` for Apple Silicon
- * (where the GPU shares system memory). Heuristic — the user can override.
+ * (where the GPU shares system memory). Heuristic - the user can override.
  */
 export function inferGpu(renderer: string): { vramGb?: number; unified?: boolean; clean: string } {
   const r = renderer.toLowerCase();
@@ -121,7 +121,7 @@ export interface Detected {
   gpuLabel?: string;
 }
 
-/** Browser best-effort autodetect — fills cores, OS, GPU, and *infers* VRAM. */
+/** Browser best-effort autodetect - fills cores, OS, GPU, and *infers* VRAM. */
 export function autodetect(): Detected {
   if (typeof navigator === "undefined") return { input: {}, vramInferred: false, unified: false };
   const input: Partial<MachineInput> = {};
@@ -132,7 +132,7 @@ export function autodetect(): Detected {
   const cores = navigator.hardwareConcurrency;
   if (cores) input.cores = cores;
   const dm = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
-  if (dm) input.ramGb = dm; // coarse (capped at 8) — treat as a floor
+  if (dm) input.ramGb = dm; // coarse (capped at 8) - treat as a floor
 
   const ua = navigator.userAgent.toLowerCase();
   if (ua.includes("mac")) input.os = "macos";
@@ -182,7 +182,7 @@ export interface RewardEstimate {
 /**
  * Demand-based estimate. `jobsPerDay` should come from observed network
  * throughput per live worker (caller derives it); we keep the math explicit and
- * honest — rewards are demand-driven, not guaranteed.
+ * honest - rewards are demand-driven, not guaranteed.
  */
 /** Rough energy cost per day for a worker drawing `watts` at `pricePerKwh`. */
 export function energyCostPerDay(watts: number, pricePerKwh: number): number {

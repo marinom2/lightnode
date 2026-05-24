@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck } from "lucide-react";
+import { Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL } from "@/lib/network";
@@ -11,7 +11,7 @@ import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 type Phase = "idle" | "running" | "done" | "failed";
 
 /**
- * The literal one-click button — only in the desktop shell (a browser can't
+ * The literal one-click button - only in the desktop shell (a browser can't
  * install/run anything). Collects the password + funder key in-memory, passes
  * them as process env to the native runner, and streams the install log.
  */
@@ -31,12 +31,19 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
   if (!desktop) {
     return (
-      <div className="flex items-start gap-2.5 rounded-xl border border-bdr-soft bg-surface-base-subtle p-4 text-sm text-content-soft">
-        <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
-        <span>
-          <span className="font-medium text-content-primary">One-click install</span> runs in the LightNode desktop app
-          (a browser can&apos;t install software). On the web, use the one command below.
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4">
+        <div className="flex items-start gap-2.5 text-sm text-content-soft">
+          <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span>
+            <span className="font-medium text-content-primary">Want true one-click?</span> The desktop app installs &amp;
+            runs everything with a single button. On the web, use the one command below.
+          </span>
+        </div>
+        <a href="https://github.com/marinom2/lightnode/releases/latest" target="_blank" rel="noreferrer">
+          <Button variant="outline" size="sm">
+            <Download /> Get the desktop app
+          </Button>
+        </a>
       </div>
     );
   }
@@ -80,18 +87,18 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
               />
             </label>
             <label className="text-xs text-content-soft">
-              Funder private key (0x…, holds ~50,005 LCAI)
+              Funder private key (0x..., holds ~50,005 LCAI)
               <input
                 type="password"
                 value={funder}
                 onChange={(e) => setFunder(e.target.value.trim())}
-                placeholder="0x… (used once to fund + stake)"
+                placeholder="0x... (used once to fund + stake)"
                 className="mt-1 h-9 w-full rounded-lg border border-bdr-soft bg-card/60 px-2.5 font-mono text-sm text-content-primary outline-none focus:border-primary"
               />
             </label>
           </div>
           <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
-            <ShieldCheck className="size-3.5 text-success" /> Kept in memory only — passed to the local installer, never
+            <ShieldCheck className="size-3.5 text-success" /> Kept in memory only - passed to the local installer, never
             stored or sent anywhere.
           </p>
           <Button variant="gradient" className="mt-3" disabled={!valid} onClick={run}>
@@ -105,17 +112,17 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
           <div className="mb-2 flex items-center gap-2 text-sm">
             {phase === "running" && (
               <span className="inline-flex items-center gap-2 text-content-primary">
-                <Loader2 className="size-4 animate-spin" /> Installing…
+                <Loader2 className="size-4 animate-spin" /> Installing...
               </span>
             )}
             {phase === "done" && (
               <span className="inline-flex items-center gap-2 font-medium text-success">
-                <CheckCircle2 className="size-4" /> Worker online — track it on the dashboard.
+                <CheckCircle2 className="size-4" /> Worker online - track it on the dashboard.
               </span>
             )}
             {phase === "failed" && (
               <span className="inline-flex items-center gap-2 font-medium text-destructive">
-                <XCircle className="size-4" /> Install stopped — see the log.
+                <XCircle className="size-4" /> Install stopped - see the log.
               </span>
             )}
           </div>

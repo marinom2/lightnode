@@ -1,7 +1,7 @@
 /**
  * Generates a tailored worker setup, wrapping the official
  * `lightchain-worker-toolkit` (idempotent 9-phase scripts). The browser can't
- * install anything itself — this produces the exact, personalized commands the
+ * install anything itself - this produces the exact, personalized commands the
  * operator runs locally, with the production gotchas already handled.
  */
 import { NETWORKS, DEFAULT_MODEL, type NetworkId } from "./network";
@@ -47,7 +47,7 @@ function bootstrap(os: OS, network: NetworkId, model: string): string {
  * Non-interactive install command for the desktop shell. Reads WORKER_PASSWORD
  * and FUNDER_PRIVKEY from the process env (the app passes them securely, never
  * in this string), writes the toolkit's secrets.env, and runs all 9 phases.
- * Unix (bash) only — the desktop one-click is gated to macOS/Linux for now.
+ * Unix (bash) only - the desktop one-click is gated to macOS/Linux for now.
  */
 export function desktopInstallCommand(network: NetworkId, model: string = DEFAULT_MODEL): string {
   return [
@@ -107,7 +107,7 @@ ollama pull ${model}              # ⚠ this exact name must match the on-chain 
 git clone ${TOOLKIT}.git
 cd lightchain-worker-toolkit/${dir}
 
-# 2. Configure — NETWORK, the model to serve, + your funder wallet (NEVER your worker key)
+# 2. Configure - NETWORK, the model to serve, + your funder wallet (NEVER your worker key)
 cp secrets.example.${ext} secrets.${ext}
 $EDITOR secrets.${ext}     # set FUNDER_PRIVKEY (holds ${fund}+ LCAI) and a KEYSTORE_PASSWORD
 export NETWORK=${network}
@@ -143,7 +143,7 @@ curl -s http://localhost:11434/api/generate -d '{"model":"${model}","prompt":"ok
       ? `# Liveness watchdog (Task Scheduler, every 10 min): restart if the heartbeat goes stale.
 # Prevents the "ack-then-silent" failure that triggers a 15% slash.
 # Full PowerShell script: docs/operations.md in the toolkit.`
-      : `# Liveness watchdog — restart the worker if its heartbeat goes stale (>20m).
+      : `# Liveness watchdog - restart the worker if its heartbeat goes stale (>20m).
 # Stops the "ack-then-silent" failure that triggers a 15% slash.
 # Save as ~/lc-watchdog.sh, set WORKER, 'chmod +x', then add to 'crontab -e':
 #   */10 * * * * ~/lc-watchdog.sh
@@ -184,7 +184,7 @@ ollama pull ${model}           # this exact name must match the on-chain model "
 git clone ${TOOLKIT}.git
 cd lightchain-worker-toolkit\\scripts\\powershell
 
-# 2. Configure — NETWORK, the model to serve, + your funder wallet (NEVER your worker key)
+# 2. Configure - NETWORK, the model to serve, + your funder wallet (NEVER your worker key)
 Copy-Item secrets.example.ps1 secrets.ps1
 notepad secrets.ps1        # set FUNDER_PRIVKEY (holds ${fund}+ LCAI) and a KEYSTORE_PASSWORD
 $env:NETWORK = "${network}"

@@ -22,7 +22,7 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
   const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
   const [showSteps, setShowSteps] = useState(false);
 
-  // Live whitelisted+enabled models — so the serve-target adapts as the registry grows.
+  // Live whitelisted+enabled models - so the serve-target adapts as the registry grows.
   useEffect(() => {
     let on = true;
     fetch(`/api/models?net=${network}`)
@@ -48,7 +48,7 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
   const fullScript = useMemo(
     () =>
       [
-        `# LightNode worker setup — ${bundle.network} — model: ${bundle.model}`,
+        `# LightNode worker setup - ${bundle.network} - model: ${bundle.model}`,
         "",
         "# === Prerequisites (one-time) ===",
         ...bundle.prereqs.map((p) => `# ${p.label}\n${p.cmd}`),
@@ -123,8 +123,8 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
         <CodeBlock code={bundle.prereqs.map((p) => `# ${p.label}\n${p.cmd}`).join("\n\n")} />
       </Section>
 
-      <Section icon={Rocket} title="2 · One command — set up everything" subtitle="Clones, configures, runs all 9 phases. Prompts only for a password + your funder key.">
-        <CodeBlock code={bundle.oneLiner} label={os === "windows" ? "PowerShell — paste & run" : "paste & run"} />
+      <Section icon={Rocket} title="2 · One command - set up everything" subtitle="Clones, configures, runs all 9 phases. Prompts only for a password + your funder key.">
+        <CodeBlock code={bundle.oneLiner} label={os === "windows" ? "PowerShell - paste & run" : "paste & run"} />
         <p className="mt-2 text-xs text-content-soft">
           Generates a fresh worker key, stakes 50,000 LCAI, and starts the container with{" "}
           <code className="rounded bg-surface-base-light px-1 py-0.5">--restart always</code>. You&apos;ll need a{" "}
@@ -143,7 +143,7 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
       </button>
 
       {showSteps && (
-        <Section icon={Terminal} title="Worker setup — step by step" subtitle="The official 9-phase onboarding, wrapped. Every step is safe to re-run.">
+        <Section icon={Terminal} title="Worker setup - step by step" subtitle="The official 9-phase onboarding, wrapped. Every step is safe to re-run.">
           <CodeBlock code={bundle.setup} label="run top to bottom" />
         </Section>
       )}
@@ -152,7 +152,7 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
         <CodeBlock code={bundle.verify} />
       </Section>
 
-      <Section icon={HeartPulse} title="4 · Keep it alive (recommended)" subtitle="Auto-restart on stale heartbeat — avoids the ack-then-silent 15% slash.">
+      <Section icon={HeartPulse} title="4 · Keep it alive (recommended)" subtitle="Auto-restart on stale heartbeat - avoids the ack-then-silent 15% slash.">
         <CodeBlock code={bundle.watchdog} />
       </Section>
 

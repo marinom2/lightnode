@@ -7,7 +7,7 @@ import { Nav } from "@/components/nav";
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://lightnode.app";
-const TITLE = "LightNode — Run a LightChain AI worker in one flow";
+const TITLE = "LightNode - Run a LightChain AI worker in one flow";
 const DESCRIPTION =
   "Connect a wallet, check your machine, get a tailored setup, and watch your rewards. The friction-free way to join LightChain's decentralized AI network and earn $LCAI.";
 
@@ -38,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
         <script
-          // Apply the stored theme before paint (default dark) — avoids a flash.
+          // Apply the stored theme before paint (default dark) - avoids a flash.
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('lightnode.theme');if(t!=='light'){document.documentElement.classList.add('dark');}}catch(e){document.documentElement.classList.add('dark');}})();`,
           }}
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <footer className="mt-24 border-t border-bdr-soft">
             <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 py-8 text-sm text-content-soft md:flex-row">
               <p>
-                LightNode — an independent ecosystem tool for LightChain AI. Not an official LightChain product.
+                LightNode - an independent ecosystem tool for LightChain AI. Not an official LightChain product.
               </p>
               <p>Built builder-to-builder · wraps the open lightchain-worker-toolkit</p>
             </div>

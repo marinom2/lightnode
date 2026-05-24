@@ -3,7 +3,7 @@
 /* dark mode via .dark class (we default the app to dark) */
 @custom-variant dark (&:is(.dark, .dark *));
 
-/* ── design tokens (light) — ported from lcai-chat-v2 ───────────────── */
+/* ── design tokens (light) - ported from lcai-chat-v2 ───────────────── */
 :root {
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
@@ -22,10 +22,10 @@
   --muted-foreground: hsl(240 3.8% 46.1%);
   --accent: hsl(240 4.8% 95.9%);
   --accent-foreground: hsl(240 5.9% 10%);
-  --destructive: hsl(0 84.2% 60.2%);
+  --destructive: #ef4d6a;
   --destructive-foreground: hsl(0 0% 98%);
-  --success: #1fc16b;
-  --warning: #f6b51e;
+  --success: #15bd77;
+  --warning: #eaa53d;
   --border: hsl(240 5.9% 90%);
   --input: hsl(240 5.9% 90%);
   --ring: hsl(240 10% 3.9%);
@@ -62,10 +62,10 @@
   --muted-foreground: hsl(240 5% 64.9%);
   --accent: hsl(240 3.7% 15.9%);
   --accent-foreground: hsl(0 0% 98%);
-  --destructive: hsl(0 72% 51%);
+  --destructive: #fb5a76;
   --destructive-foreground: hsl(0 0% 98%);
-  --success: #1fc16b;
-  --warning: #f6b51e;
+  --success: #22d68a;
+  --warning: #f5be5c;
   --border: hsl(240 3.7% 15.9%);
   --input: hsl(240 3.7% 15.9%);
   --ring: hsl(240 4.9% 83.9%);
@@ -225,6 +225,31 @@
 }
 .animate-pulse-dot {
   animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+/* refined status indicators - soft glow ring, premium tones */
+.dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.dot-live {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 22%, transparent);
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+.dot-warn {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--warning) 20%, transparent);
+}
+.dot-down {
+  background: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive) 18%, transparent);
+}
+.dot-idle {
+  background: var(--content-extraLight);
 }
 
 /* ── theme switch: circular "wave" reveal from the click point ──────── */

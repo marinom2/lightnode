@@ -96,7 +96,7 @@ export function MachineCheck({
               <span className="font-medium text-content-primary">Auto-detected your machine.</span>{" "}
               {detected.gpuLabel ? `GPU: ${detected.gpuLabel}. ` : ""}
               {detected.unified
-                ? "Apple Silicon (unified memory) — eligible."
+                ? "Apple Silicon (unified memory) - eligible."
                 : `Inferred ~${m.vramGb}GB VRAM.`}{" "}
               <button onClick={() => setShowEdit((s) => !s)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
                 <Pencil className="size-3" /> {showEdit ? "Hide" : "Adjust"}
@@ -156,7 +156,7 @@ export function MachineCheck({
         </div>
         <p className="text-xs text-content-soft">
           {showEdit
-            ? "A browser can't read VRAM/RAM directly — confirm the values above. Full no-input auto-detection is coming in the LightNode desktop app."
+            ? "A browser can't read VRAM/RAM directly - confirm the values above. Full no-input auto-detection is coming in the LightNode desktop app."
             : "Detected automatically from your browser. Wrong GPU? Hit Adjust."}
         </p>
 
@@ -219,7 +219,7 @@ export function MachineCheck({
           </label>
           <p className="mt-2 text-[11px] leading-relaxed text-content-soft">
             {fmt(reward.perJobLcai, 3)} LCAI per completed job (80% of the 0.02 fee). Actual earnings depend on
-            network demand and routing — this is an estimate, not a guarantee.
+            network demand and routing - this is an estimate, not a guarantee.
           </p>
 
           <div className="mt-4 border-t border-bdr-light pt-3">
@@ -257,7 +257,7 @@ export function MachineCheck({
               </span>
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-content-soft">
-              Net profit = {fmt(reward.dailyLcai, 2)} LCAI/day minus ${fmt(energyCost, 2)} energy — positive once LCAI
+              Net profit = {fmt(reward.dailyLcai, 2)} LCAI/day minus ${fmt(energyCost, 2)} energy - positive once LCAI
               clears your power cost. (We don&apos;t price LCAI here.)
             </p>
           </div>
