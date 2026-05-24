@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Apple, Terminal, MonitorCog, Download, ListChecks, HeartPulse, Wrench } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Apple, Terminal, MonitorCog, Download, ListChecks, HeartPulse, Wrench, Box } from "lucide-react";
 import { generateSetup, type OS } from "@/lib/scriptgen";
 import { CodeBlock } from "@/components/code-block";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useNetwork } from "@/lib/network-context";
+import { DEFAULT_MODEL } from "@/lib/network";
 
 const OS_TABS: { id: OS; label: string; icon: typeof Apple }[] = [
   { id: "macos", label: "macOS", icon: Apple },
@@ -17,7 +18,31 @@ const OS_TABS: { id: OS; label: string; icon: typeof Apple }[] = [
 export function SetupGuide({ defaultOS = "linux" as OS }) {
   const { network } = useNetwork();
   const [os, setOS] = useState<OS>(defaultOS);
-  const bundle = useMemo(() => generateSetup(os, network), [os, network]);
+  const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
+
+  // Live whitelisted+enabled models — so the serve-target adapts as the registry grows.
+  useEffect(() => {
+    let on = true;
+    fetch(`/api/models?net=${network}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!on || !j.ok) return;
+        const live: string[] = j.models
+          .filter((m: { is_enabled: boolean; is_whitelisted: boolean }) => m.is_enabled && m.is_whitelisted)
+          .map((m: { name: string }) => m.name);
+        if (live.length) {
+          setModels(live);
+          setModel((cur) => (live.includes(cur) ? cur : live.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : live[0]));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      on = false;
+    };
+  }, [network]);
+
+  const bundle = useMemo(() => generateSetup(os, network, model), [os, network, model]);
 
   const fullScript = useMemo(
     () =>
@@ -62,9 +87,28 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
             </button>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={download}>
-          <Download /> Download script
-        </Button>
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 rounded-xl border border-bdr-soft bg-surface-base-subtle px-2.5 py-1.5 text-sm">
+            <Box className="size-4 text-content-soft" />
+            <span className="text-content-soft">Model</span>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              disabled={models.length <= 1}
+              className="bg-transparent font-mono text-content-primary outline-none disabled:opacity-70"
+              aria-label="Model to serve"
+            >
+              {models.map((m) => (
+                <option key={m} value={m} className="bg-card text-content-primary">
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button variant="outline" size="sm" onClick={download}>
+            <Download /> Download script
+          </Button>
+        </div>
       </div>
 
       <Section icon={Wrench} title="1 · Prerequisites" subtitle="One-time installs.">
