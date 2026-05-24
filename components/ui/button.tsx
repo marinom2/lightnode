@@ -4,18 +4,19 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] font-medium text-sm transition-all focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] font-medium text-sm transition-all duration-300 active:scale-[0.98] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-transform",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary-600",
+        default:
+          "bg-primary text-primary-foreground hover:bg-primary-600 hover:shadow-[0_0_18px_-2px_rgba(112,100,233,0.55)]",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-bdr-soft bg-surface-base-subtle hover:bg-surface-base-faint",
+        outline: "border border-bdr-soft bg-surface-base-subtle hover:bg-surface-base-faint hover:border-bdr-light",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         gradient:
-          "text-white tracking-[0.3px] bg-[linear-gradient(94deg,#dd00ac_10%,#7130c3_53%,#410093_96%)] bg-[length:200%_auto] hover:brightness-125 hover:shadow-[0_0_24px_2px_rgba(112,100,233,0.35)]",
+          "text-white tracking-[0.3px] bg-[length:200%_auto] bg-[position:left_center] hover:bg-[position:right_center] hover:brightness-110 hover:shadow-[0_0_28px_-2px_rgba(112,100,233,0.6)] bg-[linear-gradient(94deg,#dd00ac_0%,#7130c3_38%,#7064e9_68%,#4f7cf6_100%)] [&:hover_svg]:translate-x-0.5",
       },
       size: {
         default: "h-10 px-4 py-2",

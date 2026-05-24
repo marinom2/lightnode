@@ -7,7 +7,6 @@ import { Cpu, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
 import { NetworkToggle } from "@/components/network-toggle";
-import { RememberToggle } from "@/components/remember-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const links = [
@@ -23,8 +22,8 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-40 border-b border-bdr-soft bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-2.5" onClick={() => setOpen(false)}>
-          <span className="grid size-8 place-items-center rounded-lg bg-gradient-primary text-white">
+        <Link href="/" className="group flex items-center gap-2.5" onClick={() => setOpen(false)}>
+          <span className="grid size-8 place-items-center rounded-lg bg-gradient-primary text-white shadow-[0_0_0_0_rgba(112,100,233,0)] transition-shadow group-hover:shadow-[0_0_18px_2px_rgba(112,100,233,0.45)]">
             <Cpu className="size-4" />
           </span>
           <span className="text-[15px] font-semibold tracking-tight text-content-primary">
@@ -33,24 +32,27 @@ export function Nav() {
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={cn(
-                "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                pathname.startsWith(l.href)
-                  ? "bg-surface-base-light text-content-primary"
-                  : "text-content-soft hover:text-content-primary",
-              )}
-            >
-              {l.label}
-            </Link>
-          ))}
+          {links.map((l) => {
+            const active = pathname.startsWith(l.href);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={cn(
+                  "relative rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  active ? "text-gradient" : "text-content-soft hover:text-content-primary",
+                )}
+              >
+                {l.label}
+                {active && (
+                  <span className="absolute inset-x-3 -bottom-px h-[2px] rounded-full bg-gradient-primary" />
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="flex items-center gap-2.5">
-          <RememberToggle className="hidden lg:inline-flex" />
           <ThemeToggle />
           <NetworkToggle />
           <div className="hidden sm:block">
@@ -67,25 +69,25 @@ export function Nav() {
         </div>
       </div>
 
-      {/* mobile panel */}
       {open && (
         <div className="border-t border-bdr-soft bg-background/95 px-5 py-4 md:hidden">
           <nav className="flex flex-col gap-1">
-            {links.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  pathname.startsWith(l.href)
-                    ? "bg-surface-base-light text-content-primary"
-                    : "text-content-soft hover:text-content-primary",
-                )}
-              >
-                {l.label}
-              </Link>
-            ))}
+            {links.map((l) => {
+              const active = pathname.startsWith(l.href);
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    active ? "bg-surface-base-light text-gradient" : "text-content-soft hover:text-content-primary",
+                  )}
+                >
+                  {l.label}
+                </Link>
+              );
+            })}
           </nav>
           <div className="mt-3 sm:hidden">
             <ConnectButton size="sm" />

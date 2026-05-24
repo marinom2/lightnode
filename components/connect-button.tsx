@@ -1,53 +1,38 @@
 "use client";
 
-import { ConnectButton as RKConnectButton } from "@rainbow-me/rainbowkit";
+import { useAppKit, useAppKitAccount, useAppKitNetwork } from "@reown/appkit/react";
 import { Wallet, AlertTriangle } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
+import { NETWORKS } from "@/lib/network";
+import { shortAddr } from "@/lib/utils";
 
-/** RainbowKit connect flow rendered with LightNode's own button styling. */
+const SUPPORTED = new Set<number>([NETWORKS.mainnet.chainId, NETWORKS.testnet.chainId]);
+
+/** Reown AppKit connect flow rendered with LightNode's own button styling. */
 export function ConnectButton({ size = "default" }: { size?: ButtonProps["size"] }) {
+  const { open } = useAppKit();
+  const { isConnected, address } = useAppKitAccount();
+  const { chainId } = useAppKitNetwork();
+
+  if (!isConnected) {
+    return (
+      <Button variant="gradient" size={size} onClick={() => open()}>
+        <Wallet /> Connect wallet
+      </Button>
+    );
+  }
+
+  if (chainId !== undefined && !SUPPORTED.has(Number(chainId))) {
+    return (
+      <Button variant="destructive" size={size} onClick={() => open({ view: "Networks" })}>
+        <AlertTriangle /> Wrong network
+      </Button>
+    );
+  }
+
   return (
-    <RKConnectButton.Custom>
-      {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
-        const ready = mounted;
-        const connected = ready && account && chain;
-        return (
-          <div
-            {...(!ready && { "aria-hidden": true, style: { opacity: 0, pointerEvents: "none", userSelect: "none" } })}
-          >
-            {(() => {
-              if (!connected) {
-                return (
-                  <Button variant="gradient" size={size} onClick={openConnectModal}>
-                    <Wallet /> Connect wallet
-                  </Button>
-                );
-              }
-              if (chain.unsupported) {
-                return (
-                  <Button variant="destructive" size={size} onClick={openChainModal}>
-                    <AlertTriangle /> Wrong network
-                  </Button>
-                );
-              }
-              return (
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size={size} onClick={openChainModal} className="hidden sm:inline-flex">
-                    {chain.hasIcon && chain.iconUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={chain.iconUrl} alt={chain.name ?? ""} className="size-4 rounded-full" />
-                    )}
-                    {chain.name?.replace("LightChain AI", "LCAI") ?? "Network"}
-                  </Button>
-                  <Button variant="outline" size={size} onClick={openAccountModal}>
-                    <span className="font-mono">{account.displayName}</span>
-                  </Button>
-                </div>
-              );
-            })()}
-          </div>
-        );
-      }}
-    </RKConnectButton.Custom>
+    <Button variant="outline" size={size} onClick={() => open({ view: "Account" })}>
+      <span className="font-mono">{shortAddr(address)}</span>
+    </Button>
   );
 }

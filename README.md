@@ -25,8 +25,9 @@ npm run dev   # http://localhost:3000
 - `/dashboard` — live worker status/earnings/health from the subgraph (auto-refresh)
 
 ## Features
-- **Wallet:** RainbowKit (MetaMask / WalletConnect / Coinbase / injected) + a
-  "Remember this device" toggle (session storage by default, localStorage opt-in).
+- **Wallet:** Reown AppKit (the same stack LightChain's own chat uses) — email,
+  Google/X/GitHub/Discord socials, WalletConnect, and 300+ wallets, with native
+  network-switch UX. Works in the desktop webview (no extension/QR crash).
 - **Network toggle:** mainnet ↔ testnet, persisted, threaded through every view
   (also switches the connected wallet's chain). Testnet shows a faucet link.
 - **Models panel:** live registry — each model's per-job fee, max output tokens,

@@ -226,3 +226,36 @@
 .animate-pulse-dot {
   animation: pulse-dot 1.8s ease-in-out infinite;
 }
+
+/* ── theme switch: circular "wave" reveal from the click point ──────── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 0;
+}
+::view-transition-new(root) {
+  z-index: 1;
+}
+@keyframes lc-reveal {
+  from {
+    clip-path: circle(0% at var(--x, 50%) var(--y, 50%));
+    opacity: 0.85;
+  }
+  to {
+    clip-path: circle(150% at var(--x, 50%) var(--y, 50%));
+    opacity: 1;
+  }
+}
+::view-transition-new(root) {
+  animation: lc-reveal 0.45s ease-in-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root),
+  ::view-transition-old(root) {
+    animation: none;
+  }
+}
