@@ -12,12 +12,36 @@ import {
   Terminal,
   Loader2,
   ShieldAlert,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CodeBlock } from "@/components/code-block";
 import { Badge } from "@/components/ui/badge";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
+
+function CopyCommand({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="mt-1 w-full"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          /* clipboard blocked */
+        }
+      }}
+    >
+      {copied ? <Check className="text-success" /> : <Copy />}
+      {copied ? "Copied command" : "Copy command"}
+    </Button>
+  );
+}
 
 const TK = "cd lightchain-worker-toolkit/scripts/bash";
 
@@ -160,7 +184,7 @@ export function OperationsPanel() {
                 {op.label}
               </Button>
             ) : (
-              <CodeBlock code={op.cmd(dest)} />
+              <CopyCommand value={op.cmd(dest)} />
             )}
           </div>
         ))}

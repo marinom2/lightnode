@@ -24,21 +24,19 @@ export function CodeBlock({
     }
   };
   return (
-    <div className={cn("group relative overflow-hidden rounded-xl border border-bdr-soft bg-[#0b0b14]", className)}>
-      {label && (
-        <div className="flex items-center justify-between border-b border-bdr-soft px-4 py-2">
-          <span className="text-xs font-medium text-content-soft">{label}</span>
-        </div>
-      )}
-      <button
-        onClick={copy}
-        className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md border border-bdr-soft bg-surface-base-light px-2 py-1 text-xs text-content-soft opacity-0 transition-opacity hover:text-content-primary group-hover:opacity-100"
-        style={label ? { top: "2.5rem" } : undefined}
-      >
-        {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-        {copied ? "Copied" : "Copy"}
-      </button>
-      <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed text-content-default">
+    <div className={cn("code-surface overflow-hidden rounded-xl border border-bdr-soft", className)}>
+      <div className="flex items-center justify-between gap-2 border-b border-bdr-soft px-3 py-1.5">
+        <span className="truncate text-xs font-medium text-content-soft">{label ?? "command"}</span>
+        <button
+          onClick={copy}
+          aria-label="Copy to clipboard"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-bdr-soft bg-surface-base-light px-2 py-1 text-xs text-content-soft transition-colors hover:text-content-primary"
+        >
+          {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
         <code className="font-mono whitespace-pre">{code}</code>
       </pre>
     </div>

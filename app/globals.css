@@ -252,6 +252,16 @@
   background: var(--content-extraLight);
 }
 
+/* theme-aware code surface (light in light theme, dark in dark theme) */
+.code-surface {
+  background: #f4f4f8;
+  color: #1b1c22;
+}
+.dark .code-surface {
+  background: #0b0b14;
+  color: var(--content-default);
+}
+
 /* ── theme switch: circular "wave" reveal from the click point ──────── */
 ::view-transition-old(root),
 ::view-transition-new(root) {

@@ -73,13 +73,10 @@ export default function NetworkPage() {
             <div key={r?.id ?? i} className="flex items-center gap-3 px-5 py-3 text-sm">
               <span className="w-6 text-right font-mono text-content-soft">{i + 1}</span>
               <span
-                className={cn(
-                  "dot",
-                  !r ? "dot-idle" : r.live ? "dot-live" : r.status === "active" ? "dot-warn" : "dot-down",
-                )}
+                className={cn("dot", !r ? "dot-idle" : r.status === "active" ? "dot-live" : "dot-down")}
               />
               <Link
-                href={`/dashboard?address=${r?.id ?? ""}`}
+                href={`/worker/${r?.id ?? ""}`}
                 className="flex-1 font-mono text-content-primary hover:text-primary"
               >
                 {r ? shortAddr(r.id) : "-"}
@@ -105,9 +102,9 @@ export default function NetworkPage() {
       </Card>
 
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-content-soft">
-        <Badge tone="success">live</Badge> seen &lt;20m
-        <Badge tone="warning">active</Badge> registered, stale heartbeat
+        <Badge tone="success">online</Badge> active &amp; staked
         <Badge tone="danger">offline</Badge> deregistered / inactive
+        <span className="text-content-soft">- open a worker for its live heartbeat &amp; earnings.</span>
       </div>
 
       <Card className="mt-8 p-6">

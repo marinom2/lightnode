@@ -27,7 +27,7 @@ export function Nav() {
           <img
             src="/lightnode_logo.svg"
             alt="LightNode"
-            className="size-9 transition-transform group-hover:scale-105"
+            className="size-12 -my-2 transition-transform group-hover:scale-105"
           />
           <span className="text-[15px] font-semibold tracking-tight text-content-primary">
             Light<span className="text-gradient">Node</span>
