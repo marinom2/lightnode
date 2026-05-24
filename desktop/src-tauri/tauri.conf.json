@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LightNode",
+  "version": "0.1.0",
+  "identifier": "ai.lightchain.lightnode",
+  "build": {
+    "frontendDist": "../frontend",
+    "devUrl": "http://localhost:3000"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "LightNode — run a LightChain AI worker",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "category": "DeveloperTool",
+    "shortDescription": "One-click LightChain AI worker onboarding"
+  }
+}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins, ScanLine, Pencil, Zap } from "lucide-react";
 import { assessMachine, autodetect, estimateRewards, energyCostPerDay, type MachineInput } from "@/lib/hardware";
+import { detectNativeHardware } from "@/lib/tauri";
 import { fmt } from "@/lib/utils";
 import type { OS } from "@/lib/scriptgen";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,21 @@ export function MachineCheck({
     setDetected({ vramInferred: d.vramInferred, unified: d.unified, gpuLabel: d.gpuLabel });
     setShowEdit(!d.vramInferred && !d.unified); // open the form only if we couldn't infer VRAM
     if (avgJobsPerLiveWorker > 0) setJobsPerDay(Math.min(200, Math.max(10, Math.round(avgJobsPerLiveWorker / 7))));
+
+    // In the desktop shell: real OS-level detection (true VRAM) overrides guesses.
+    detectNativeHardware().then((nat) => {
+      if (!nat) return;
+      setM((prev) => ({
+        ...prev,
+        os: nat.os,
+        cores: nat.cores || prev.cores,
+        ramGb: nat.ram_gb || prev.ramGb,
+        vramGb: nat.unified ? Math.max(nat.ram_gb || prev.ramGb, 16) : nat.vram_gb ?? prev.vramGb,
+        gpuName: nat.gpu || prev.gpuName,
+      }));
+      setDetected({ vramInferred: nat.vram_gb != null, unified: nat.unified, gpuLabel: nat.gpu });
+      setShowEdit(false);
+    });
   }, [avgJobsPerLiveWorker]);
 
   const [watts, setWatts] = useState(200);

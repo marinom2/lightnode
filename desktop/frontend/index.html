@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LightNode</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #070710; color: #cccef0;
+        font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; }
+      .wrap { height: 100%; display: grid; place-items: center; text-align: center; }
+    </style>
+    <!--
+      Production shell. The desktop app loads the LightNode web UI here.
+      Point this at your deployed URL (it runs inside the Tauri webview with
+      window.__TAURI__ available, so the web UI can call the native commands).
+      In `tauri dev`, the devUrl (http://localhost:3000) is used instead.
+    -->
+    <meta http-equiv="refresh" content="0; url=https://lightnode.app" />
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <h1>LightNode</h1>
+        <p>Loading the worker console…</p>
+        <p><a style="color:#7064e9" href="https://lightnode.app">Open LightNode</a></p>
+      </div>
+    </div>
+  </body>
+</html>
