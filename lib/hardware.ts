@@ -184,6 +184,12 @@ export interface RewardEstimate {
  * throughput per live worker (caller derives it); we keep the math explicit and
  * honest — rewards are demand-driven, not guaranteed.
  */
+/** Rough energy cost per day for a worker drawing `watts` at `pricePerKwh`. */
+export function energyCostPerDay(watts: number, pricePerKwh: number): number {
+  if (watts <= 0 || pricePerKwh <= 0) return 0;
+  return (watts / 1000) * 24 * pricePerKwh;
+}
+
 export function estimateRewards(jobsPerDay: number): RewardEstimate {
   const dailyLcai = jobsPerDay * workerSharePerJob;
   return {

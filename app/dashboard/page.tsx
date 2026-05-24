@@ -13,13 +13,13 @@ import {
   AlertTriangle,
   RefreshCw,
   Star,
-  X,
   ListChecks,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModelsPanel } from "@/components/models-panel";
+import { WatchGrid } from "@/components/watch-grid";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
@@ -75,6 +75,15 @@ export default function DashboardPage() {
     [network],
   );
 
+  // Deep-link support: /dashboard?address=0x… (e.g. from the leaderboard).
+  useEffect(() => {
+    const a = new URLSearchParams(window.location.search).get("address");
+    if (a && /^0x[a-fA-F0-9]{40}$/.test(a)) {
+      setInput(a);
+      setQuery(a);
+    }
+  }, []);
+
   useEffect(() => {
     if (!query) return;
     load(query);
@@ -123,26 +132,21 @@ export default function DashboardPage() {
       </p>
 
       {saved.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-content-soft">Watching:</span>
-          {saved.map((w) => (
-            <span
-              key={w}
-              className={cn(
-                "group inline-flex items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-1.5 text-xs",
-                query.toLowerCase() === w.toLowerCase()
-                  ? "border-primary/40 bg-primary/15 text-primary"
-                  : "border-bdr-soft bg-surface-base-subtle text-content-soft",
-              )}
-            >
-              <button onClick={() => { setInput(w); setQuery(w); }} className="font-mono">
-                {shortAddr(w)}
-              </button>
-              <button onClick={() => remove(w)} aria-label="Remove" className="opacity-50 hover:opacity-100">
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
+        <div className="mt-6">
+          <div className="mb-2 flex items-center gap-2">
+            <Star className="size-4 fill-warning text-warning" />
+            <h2 className="text-sm font-semibold text-content-primary">Your watchlist</h2>
+            <span className="text-xs text-content-soft">live overview · click to open</span>
+          </div>
+          <WatchGrid
+            addresses={saved}
+            network={network}
+            active={query}
+            onSelect={(a) => {
+              setInput(a);
+              setQuery(a);
+            }}
+          />
         </div>
       )}
 

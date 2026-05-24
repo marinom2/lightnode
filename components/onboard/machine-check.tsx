@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins, ScanLine, Pencil } from "lucide-react";
-import { assessMachine, autodetect, estimateRewards, type MachineInput } from "@/lib/hardware";
+import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins, ScanLine, Pencil, Zap } from "lucide-react";
+import { assessMachine, autodetect, estimateRewards, energyCostPerDay, type MachineInput } from "@/lib/hardware";
 import { fmt } from "@/lib/utils";
 import type { OS } from "@/lib/scriptgen";
 import { Badge } from "@/components/ui/badge";
@@ -56,8 +56,12 @@ export function MachineCheck({
     if (avgJobsPerLiveWorker > 0) setJobsPerDay(Math.min(200, Math.max(10, Math.round(avgJobsPerLiveWorker / 7))));
   }, [avgJobsPerLiveWorker]);
 
+  const [watts, setWatts] = useState(200);
+  const [pricePerKwh, setPricePerKwh] = useState(0.15);
+
   const a = useMemo(() => assessMachine(m), [m]);
   const reward = useMemo(() => estimateRewards(jobsPerDay), [jobsPerDay]);
+  const energyCost = useMemo(() => energyCostPerDay(watts, pricePerKwh), [watts, pricePerKwh]);
 
   useEffect(() => {
     onResult({ eligible: a.workerEligible, os: m.os });
@@ -201,6 +205,46 @@ export function MachineCheck({
             {fmt(reward.perJobLcai, 3)} LCAI per completed job (80% of the 0.02 fee). Actual earnings depend on
             network demand and routing — this is an estimate, not a guarantee.
           </p>
+
+          <div className="mt-4 border-t border-bdr-light pt-3">
+            <div className="flex items-center gap-2 text-content-soft">
+              <Zap className="size-3.5" />
+              <span className="text-xs font-medium">Running cost</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-[11px] text-content-soft">
+                GPU draw (W)
+                <input
+                  type="number"
+                  min={0}
+                  value={watts}
+                  onChange={(e) => setWatts(Number(e.target.value) || 0)}
+                  className="mt-1 h-8 w-full rounded-md border border-bdr-soft bg-surface-base-subtle px-2 text-sm text-content-primary outline-none focus:border-primary"
+                />
+              </label>
+              <label className="text-[11px] text-content-soft">
+                $/kWh
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={pricePerKwh}
+                  onChange={(e) => setPricePerKwh(Number(e.target.value) || 0)}
+                  className="mt-1 h-8 w-full rounded-md border border-bdr-soft bg-surface-base-subtle px-2 text-sm text-content-primary outline-none focus:border-primary"
+                />
+              </label>
+            </div>
+            <div className="mt-2 flex items-baseline justify-between text-xs">
+              <span className="text-content-soft">Energy ≈</span>
+              <span className="font-medium text-content-primary">
+                ${fmt(energyCost, 2)}/day · ${fmt(energyCost * 30, 0)}/mo
+              </span>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-content-soft">
+              Net profit = {fmt(reward.dailyLcai, 2)} LCAI/day minus ${fmt(energyCost, 2)} energy — positive once LCAI
+              clears your power cost. (We don&apos;t price LCAI here.)
+            </p>
+          </div>
         </div>
       </div>
     </div>

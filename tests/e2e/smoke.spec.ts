@@ -38,3 +38,17 @@ test("unknown route renders the 404 page", async ({ page }) => {
   expect(res?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: /Page not found/i })).toBeVisible();
 });
+
+test("network page renders the leaderboard", async ({ page }) => {
+  await page.goto("/network");
+  await expect(page.getByRole("heading", { name: "Network", exact: true })).toBeVisible();
+  await expect(page.getByText("Top workers")).toBeVisible();
+});
+
+test("theme toggle switches to light mode", async ({ page }) => {
+  await page.goto("/");
+  const html = page.locator("html");
+  await expect(html).toHaveClass(/dark/);
+  await page.getByRole("button", { name: /Switch to light theme/i }).click();
+  await expect(html).not.toHaveClass(/dark/);
+});

@@ -8,10 +8,12 @@ import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
 import { NetworkToggle } from "@/components/network-toggle";
 import { RememberToggle } from "@/components/remember-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const links = [
   { href: "/onboard", label: "Become a worker" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/network", label: "Network" },
 ];
 
 export function Nav() {
@@ -48,7 +50,8 @@ export function Nav() {
         </nav>
 
         <div className="flex items-center gap-2.5">
-          <RememberToggle className="hidden md:inline-flex" />
+          <RememberToggle className="hidden lg:inline-flex" />
+          <ThemeToggle />
           <NetworkToggle />
           <div className="hidden sm:block">
             <ConnectButton size="sm" />

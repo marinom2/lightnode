@@ -11,6 +11,7 @@ import { ConnectButton } from "@/components/connect-button";
 import { MachineCheck } from "@/components/onboard/machine-check";
 import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NetworkHealth } from "@/components/network-health";
+import { VerifyWorker } from "@/components/onboard/verify-worker";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import type { OS } from "@/lib/scriptgen";
@@ -146,7 +147,12 @@ export default function OnboardPage() {
               <code className="rounded bg-surface-base-light px-1.5 py-0.5 text-xs">status</code> shows it too). Paste it into
               the dashboard to track jobs, earnings, and health in real time.
             </p>
-            <div className="mx-auto mt-6 grid max-w-md gap-3 text-left">
+            <div className="mx-auto mt-6 max-w-lg">
+              <p className="mb-2 text-sm font-medium text-content-primary">Verify it&apos;s live</p>
+              <VerifyWorker />
+            </div>
+
+            <div className="mx-auto mt-6 grid max-w-lg gap-3 text-left">
               {[
                 "Logs show: registration validated · gateway auth · websocket connected",
                 "status reports stake + supported model (llama3-8b)",

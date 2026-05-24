@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { inferGpu, assessMachine, estimateRewards, workerSharePerJob, type MachineInput } from "@/lib/hardware";
+import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, type MachineInput } from "@/lib/hardware";
 
 describe("inferGpu", () => {
   it("infers VRAM for known NVIDIA GPUs", () => {
@@ -50,5 +50,16 @@ describe("estimateRewards", () => {
     expect(r.perJobLcai).toBeCloseTo(workerSharePerJob); // 0.016
     expect(r.dailyLcai).toBeCloseTo(100 * 0.016);
     expect(r.monthlyLcai).toBeCloseTo(100 * 0.016 * 30);
+  });
+});
+
+describe("energyCostPerDay", () => {
+  it("computes kWh cost over 24h", () => {
+    // 200W at $0.15/kWh = 0.2 * 24 * 0.15 = $0.72/day
+    expect(energyCostPerDay(200, 0.15)).toBeCloseTo(0.72);
+  });
+  it("is zero for non-positive inputs", () => {
+    expect(energyCostPerDay(0, 0.15)).toBe(0);
+    expect(energyCostPerDay(200, 0)).toBe(0);
   });
 });
