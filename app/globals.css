@@ -173,9 +173,38 @@
   }
 }
 
+/* ── ambient app background (subtle gradient mesh behind everything) ── */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.06), transparent 60%),
+    radial-gradient(50% 40% at 92% 0%, rgba(221, 0, 172, 0.05), transparent 55%),
+    radial-gradient(45% 45% at 50% 115%, rgba(112, 100, 233, 0.05), transparent 60%);
+}
+.dark body::before {
+  background:
+    radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.18), transparent 60%),
+    radial-gradient(50% 40% at 92% 0%, rgba(221, 0, 172, 0.12), transparent 55%),
+    radial-gradient(45% 45% at 50% 118%, rgba(112, 100, 233, 0.1), transparent 60%);
+}
+
 /* the signature lcai gradient */
 .bg-gradient-primary {
   background-image: var(--color-gradient-primary);
+}
+
+/* gradient hairline (used under the navbar) */
+.gradient-underline::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 55%, transparent), rgba(221, 0, 172, 0.45), transparent);
 }
 .text-gradient {
   background: linear-gradient(94deg, #dd00ac 10%, #7130c3 53%, #7064e9 96%);

@@ -28,8 +28,10 @@ export function NetworkToggle() {
           aria-pressed={network === id}
           aria-label={`Switch to ${NETWORKS[id].label}`}
           className={cn(
-            "rounded-full px-2.5 py-1 transition-colors",
-            network === id ? "bg-primary text-primary-foreground" : "text-content-soft hover:text-content-primary",
+            "rounded-full px-2.5 py-1 transition-all",
+            network === id
+              ? "bg-gradient-primary text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)]"
+              : "text-content-soft hover:text-content-primary",
           )}
         >
           {NETWORKS[id].label}
