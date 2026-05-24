@@ -25,9 +25,9 @@ export function Nav() {
         <Link href="/" className="group flex items-center gap-2" onClick={() => setOpen(false)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/lightnode_logo.svg"
+            src="/lightnode-mark.png"
             alt="LightNode"
-            className="size-12 -my-2 transition-transform group-hover:scale-105"
+            className="size-9 transition-transform group-hover:scale-105"
           />
           <span className="text-[15px] font-semibold tracking-tight text-content-primary">
             Light<span className="text-gradient">Node</span>
