@@ -6,6 +6,7 @@ import { generateSetup, type OS } from "@/lib/scriptgen";
 import { CodeBlock } from "@/components/code-block";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useNetwork } from "@/lib/network-context";
 
 const OS_TABS: { id: OS; label: string; icon: typeof Apple }[] = [
   { id: "macos", label: "macOS", icon: Apple },
@@ -14,8 +15,9 @@ const OS_TABS: { id: OS; label: string; icon: typeof Apple }[] = [
 ];
 
 export function SetupGuide({ defaultOS = "linux" as OS }) {
+  const { network } = useNetwork();
   const [os, setOS] = useState<OS>(defaultOS);
-  const bundle = useMemo(() => generateSetup(os, "mainnet"), [os]);
+  const bundle = useMemo(() => generateSetup(os, network), [os, network]);
 
   const fullScript = useMemo(
     () =>

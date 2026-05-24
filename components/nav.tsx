@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
+import { NetworkToggle } from "@/components/network-toggle";
 
 const links = [
   { href: "/onboard", label: "Become a worker" },
@@ -42,7 +43,10 @@ export function Nav() {
           ))}
         </nav>
 
-        <ConnectButton size="sm" />
+        <div className="flex items-center gap-2.5">
+          <NetworkToggle />
+          <ConnectButton size="sm" />
+        </div>
       </div>
     </header>
   );

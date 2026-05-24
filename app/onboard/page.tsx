@@ -11,6 +11,7 @@ import { ConnectButton } from "@/components/connect-button";
 import { MachineCheck } from "@/components/onboard/machine-check";
 import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NETWORKS } from "@/lib/network";
+import { useNetwork } from "@/lib/network-context";
 import type { OS } from "@/lib/scriptgen";
 import { cn } from "@/lib/utils";
 
@@ -23,17 +24,18 @@ const STEPS = [
 
 export default function OnboardPage() {
   const { isConnected } = useAccount();
+  const { network } = useNetwork();
   const [step, setStep] = useState(0);
   const [eligible, setEligible] = useState(false);
   const [os, setOS] = useState<OS>("linux");
   const [avgJobs, setAvgJobs] = useState(0);
 
   useEffect(() => {
-    fetch("/api/network?net=mainnet")
+    fetch(`/api/network?net=${network}`)
       .then((r) => r.json())
       .then((j) => j.ok && setAvgJobs(j.avgJobsPerLiveWorker ?? 0))
       .catch(() => {});
-  }, []);
+  }, [network]);
 
   useEffect(() => {
     if (isConnected && step === 0) setStep(1);
@@ -45,7 +47,19 @@ export default function OnboardPage() {
     <div className="mx-auto max-w-4xl px-5 py-10">
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-semibold tracking-tight text-content-primary">Become a worker</h1>
-        <p className="mt-2 text-content-soft">Four steps from wallet to earning $LCAI on LightChain mainnet.</p>
+        <p className="mt-2 text-content-soft">
+          Four steps from wallet to earning $LCAI on LightChain {NETWORKS[network].label.toLowerCase()}.
+          {network === "testnet" && NETWORKS.testnet.faucet && (
+            <>
+              {" "}
+              Need test LCAI?{" "}
+              <a href={NETWORKS.testnet.faucet} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
+                Use the faucet
+              </a>
+              .
+            </>
+          )}
+        </p>
       </div>
 
       {/* stepper */}
@@ -78,7 +92,7 @@ export default function OnboardPage() {
             </span>
             <h2 className="text-xl font-semibold text-content-primary">Connect the wallet you&apos;ll fund from</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-content-soft">
-              This is the wallet that holds your stake capital (≈ {NETWORKS.mainnet.fundLcai.toLocaleString()} LCAI).
+              This is the wallet that holds your stake capital (≈ {NETWORKS[network].fundLcai.toLocaleString()} LCAI).
               No sign-up, no API key — your worker key gets generated separately and locally.
             </p>
             <div className="mt-6 flex justify-center">

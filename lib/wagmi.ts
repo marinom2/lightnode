@@ -1,6 +1,12 @@
 import { createConfig, http } from "wagmi";
 import { defineChain } from "viem";
-import { injected } from "wagmi/connectors";
+import { connectorsForWallets } from "@rainbow-me/rainbowkit";
+import {
+  injectedWallet,
+  walletConnectWallet,
+  metaMaskWallet,
+  coinbaseWallet,
+} from "@rainbow-me/rainbowkit/wallets";
 import { NETWORKS } from "./network";
 
 export const lightchainMainnet = defineChain({
@@ -19,12 +25,26 @@ export const lightchainTestnet = defineChain({
   blockExplorers: { default: { name: "LightScan", url: NETWORKS.testnet.explorer } },
 });
 
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "";
+
+// connectorsForWallets gives browsers without an extension (Safari, mobile) the
+// WalletConnect QR modal automatically — same setup as the LightChallenge app.
+const connectors = connectorsForWallets(
+  [
+    {
+      groupName: "Recommended",
+      wallets: [metaMaskWallet, walletConnectWallet, coinbaseWallet, injectedWallet],
+    },
+  ],
+  { appName: "LightNode", projectId },
+);
+
 export const wagmiConfig = createConfig({
   chains: [lightchainMainnet, lightchainTestnet],
-  connectors: [injected()],
+  connectors,
   transports: {
-    [lightchainMainnet.id]: http(),
-    [lightchainTestnet.id]: http(),
+    [lightchainMainnet.id]: http(NETWORKS.mainnet.rpc),
+    [lightchainTestnet.id]: http(NETWORKS.testnet.rpc),
   },
   ssr: true,
 });

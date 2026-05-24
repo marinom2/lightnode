@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Activity, Cpu, Layers, Coins } from "lucide-react";
 import { compact, fmt } from "@/lib/utils";
+import { useNetwork } from "@/lib/network-context";
+import { NETWORKS } from "@/lib/network";
 
 interface NetworkResponse {
   ok: boolean;
@@ -10,13 +12,16 @@ interface NetworkResponse {
 }
 
 export function LiveStats() {
+  const { network } = useNetwork();
   const [data, setData] = useState<NetworkResponse | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
     let on = true;
+    setData(null);
+    setErr(false);
     const load = () =>
-      fetch("/api/network?net=mainnet")
+      fetch(`/api/network?net=${network}`)
         .then((r) => r.json())
         .then((j) => on && (setData(j), setErr(!j.ok)))
         .catch(() => on && setErr(true));
@@ -26,7 +31,7 @@ export function LiveStats() {
       on = false;
       clearInterval(t);
     };
-  }, []);
+  }, [network]);
 
   const s = data?.stats;
   const tiles = [
@@ -58,7 +63,7 @@ export function LiveStats() {
         ) : (
           <span className="inline-flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-success animate-pulse-dot" />
-            Live from the LightChain mainnet worker subgraph · refreshes every 30s
+            Live from the LightChain {NETWORKS[network].label.toLowerCase()} worker subgraph · refreshes every 30s
           </span>
         )}
       </p>

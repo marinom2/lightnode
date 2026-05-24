@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NETWORKS } from "@/lib/network";
+import { useNetwork } from "@/lib/network-context";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
 import type { Worker } from "@/lib/subgraph";
 
@@ -36,30 +37,34 @@ const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: st
 
 export default function DashboardPage() {
   const { address } = useAccount();
+  const { network } = useNetwork();
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const load = useCallback(async (addr: string) => {
-    if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
-      setError("Enter a valid 0x worker address.");
-      return;
-    }
-    setError("");
-    setLoading(true);
-    try {
-      const r = await fetch(`/api/worker?net=mainnet&address=${addr}`).then((x) => x.json());
-      if (!r.ok) throw new Error(r.error || "lookup failed");
-      setWorker(r.worker);
-    } catch (e) {
-      setError((e as Error).message);
-      setWorker(undefined);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (addr: string) => {
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+        setError("Enter a valid 0x worker address.");
+        return;
+      }
+      setError("");
+      setLoading(true);
+      try {
+        const r = await fetch(`/api/worker?net=${network}&address=${addr}`).then((x) => x.json());
+        if (!r.ok) throw new Error(r.error || "lookup failed");
+        setWorker(r.worker);
+      } catch (e) {
+        setError((e as Error).message);
+        setWorker(undefined);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [network],
+  );
 
   useEffect(() => {
     if (!query) return;
@@ -73,13 +78,15 @@ export default function DashboardPage() {
     setQuery(input.trim());
   };
 
-  const net = NETWORKS.mainnet;
+  const net = NETWORKS[network];
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-10">
       <div className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight text-content-primary">Worker dashboard</h1>
-        <p className="mt-2 text-content-soft">Live status, earnings, and health for any LightChain mainnet worker.</p>
+        <p className="mt-2 text-content-soft">
+          Live status, earnings, and health for any LightChain {net.label.toLowerCase()} worker.
+        </p>
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
@@ -115,8 +122,8 @@ export default function DashboardPage() {
       {worker === null && !error && (
         <Card className="mt-6 p-8 text-center">
           <p className="text-content-soft">
-            No worker found at <span className="font-mono text-content-primary">{shortAddr(query)}</span> on mainnet.
-            It may not be registered yet.
+            No worker found at <span className="font-mono text-content-primary">{shortAddr(query)}</span> on{" "}
+            {net.label.toLowerCase()}. It may not be registered yet.
           </p>
         </Card>
       )}
@@ -203,7 +210,7 @@ function WorkerView({ worker, explorer, minStake }: { worker: Worker; explorer: 
 
       <p className="text-center text-xs text-content-soft">
         <span className="inline-flex items-center gap-1.5">
-          <RefreshCw className="size-3" /> Auto-refreshes every 20s · live from the mainnet worker subgraph
+          <RefreshCw className="size-3" /> Auto-refreshes every 20s · live from the worker subgraph
         </span>
       </p>
     </div>
