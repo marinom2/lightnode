@@ -29,7 +29,8 @@ export default function OnboardPage() {
   const { isConnected } = useAccount();
   const { network } = useNetwork();
   const [step, setStep] = useState(0);
-  const [eligible, setEligible] = useState(false);
+  const [vramOk, setVramOk] = useState(false);
+  const [ackRisk, setAckRisk] = useState(false);
   const [os, setOS] = useState<OS>("linux");
   const [avgJobs, setAvgJobs] = useState(0);
 
@@ -44,7 +45,9 @@ export default function OnboardPage() {
     if (isConnected && step === 0) setStep(1);
   }, [isConnected, step]);
 
-  const canNext = (step === 0 && isConnected) || (step === 1 && eligible) || step === 2;
+  // Never hard-block on hardware: if below the 8GB-GPU bar, the user can still
+  // proceed after acknowledging the risk (they may want to test on CPU/low spec).
+  const canNext = (step === 0 && isConnected) || (step === 1 && (vramOk || ackRisk)) || step === 2;
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-10">
@@ -119,7 +122,29 @@ export default function OnboardPage() {
             <div className="mb-6">
               <NetworkHealth />
             </div>
-            <MachineCheck avgJobsPerLiveWorker={avgJobs} onResult={(r) => { setEligible(r.eligible); setOS(r.os); }} />
+            <MachineCheck
+              avgJobsPerLiveWorker={avgJobs}
+              onResult={(r) => {
+                setVramOk(r.vramOk);
+                setOS(r.os);
+              }}
+            />
+            {!vramOk && (
+              <label className="mt-5 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-content-default">
+                <input
+                  type="checkbox"
+                  checked={ackRisk}
+                  onChange={(e) => setAckRisk(e.target.checked)}
+                  className="mt-0.5 size-4 accent-[var(--warning)]"
+                />
+                <span>
+                  <span className="font-medium text-content-primary">Run anyway (below the 8GB-GPU bar).</span> Inference
+                  will be slow on CPU and may miss the completion deadline - which can cost a small{" "}
+                  <span className="text-warning">stake slash</span>. Fine for testing; not ideal for earning. I understand
+                  and want to continue.
+                </span>
+              </label>
+            )}
           </div>
         )}
 
@@ -196,8 +221,8 @@ export default function OnboardPage() {
             <ArrowLeft /> Back
           </Button>
           <div className="flex items-center gap-3">
-            {step === 1 && !eligible && (
-              <Badge tone="warning">Meet the 8GB GPU minimum to continue</Badge>
+            {step === 1 && !vramOk && !ackRisk && (
+              <Badge tone="warning">Tick the box above to continue anyway</Badge>
             )}
             <Button variant="gradient" disabled={!canNext} onClick={() => setStep((s) => Math.min(3, s + 1))}>
               {step === 2 ? "I've run it" : "Continue"} <ArrowRight />

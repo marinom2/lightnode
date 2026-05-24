@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModelsPanel } from "@/components/models-panel";
 import { WatchGrid } from "@/components/watch-grid";
+import { OperationsPanel } from "@/components/operations-panel";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
@@ -184,6 +185,10 @@ export default function DashboardPage() {
       )}
 
       <Card className="mt-8 p-6">
+        <OperationsPanel />
+      </Card>
+
+      <Card className="mt-4 p-6">
         <ModelsPanel />
       </Card>
     </div>

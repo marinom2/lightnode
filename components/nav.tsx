@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Cpu, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
 import { NetworkToggle } from "@/components/network-toggle";
@@ -22,10 +22,13 @@ export function Nav() {
   return (
     <header className="sticky top-0 z-40 border-b border-bdr-soft bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-        <Link href="/" className="group flex items-center gap-2.5" onClick={() => setOpen(false)}>
-          <span className="grid size-8 place-items-center rounded-lg bg-gradient-primary text-white shadow-[0_0_0_0_rgba(112,100,233,0)] transition-shadow group-hover:shadow-[0_0_18px_2px_rgba(112,100,233,0.45)]">
-            <Cpu className="size-4" />
-          </span>
+        <Link href="/" className="group flex items-center gap-2" onClick={() => setOpen(false)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/lightnode_logo.svg"
+            alt="LightNode"
+            className="size-9 transition-transform group-hover:scale-105"
+          />
           <span className="text-[15px] font-semibold tracking-tight text-content-primary">
             Light<span className="text-gradient">Node</span>
           </span>

@@ -30,7 +30,7 @@ export function MachineCheck({
   onResult,
   avgJobsPerLiveWorker,
 }: {
-  onResult: (r: { eligible: boolean; os: OS }) => void;
+  onResult: (r: { eligible: boolean; vramOk: boolean; os: OS }) => void;
   avgJobsPerLiveWorker: number;
 }) {
   const [m, setM] = useState<MachineInput>({
@@ -80,8 +80,8 @@ export function MachineCheck({
   const energyCost = useMemo(() => energyCostPerDay(watts, pricePerKwh), [watts, pricePerKwh]);
 
   useEffect(() => {
-    onResult({ eligible: a.workerEligible, os: m.os });
-  }, [a.workerEligible, m.os, onResult]);
+    onResult({ eligible: a.workerEligible, vramOk: a.vramOk, os: m.os });
+  }, [a.workerEligible, a.vramOk, m.os, onResult]);
 
   const ring = a.score >= 75 ? "#1fc16b" : a.score >= 45 ? "#7064e9" : "#f6b51e";
 
