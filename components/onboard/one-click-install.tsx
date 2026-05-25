@@ -44,7 +44,7 @@ function CopyBtn({ value }: { value: string }) {
 }
 
 function PasswordField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(true);
   return (
     <label className="text-xs text-content-soft">
       <span className="flex items-center justify-between">
@@ -54,18 +54,29 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
         </button>
       </span>
       <span className="relative mt-1 block">
+        {/* type=text + CSS masking, so WebKit AutoFill never hijacks/replaces the value */}
         <input
-          type={show ? "text" : "password"}
+          type="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-1p-ignore
+          data-lpignore="true"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="choose or generate a strong password"
-          className="h-9 w-full rounded-lg border border-bdr-soft bg-card/60 px-2.5 pr-9 text-sm text-content-primary outline-none focus:border-primary"
+          style={show ? undefined : ({ WebkitTextSecurity: "disc" } as React.CSSProperties)}
+          className="h-9 w-full rounded-lg border border-bdr-soft bg-card/60 px-2.5 pr-16 font-mono text-sm text-content-primary outline-none focus:border-primary"
         />
-        <button type="button" onClick={() => setShow((s) => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 text-content-soft hover:text-content-primary">
-          {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-        </button>
+        <span className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-2">
+          {value && <CopyBtn value={value} />}
+          <button type="button" aria-label={show ? "Hide" : "Show"} onClick={() => setShow((s) => !s)} className="text-content-soft hover:text-content-primary">
+            {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </span>
       </span>
-      {value && show && <span className="mt-1 block text-[11px] text-warning">Save this - it decrypts your worker key.</span>}
+      {value && <span className="mt-1 block text-[11px] text-warning">Save this - it decrypts your worker key and can&apos;t be recovered.</span>}
     </label>
   );
 }

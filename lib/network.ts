@@ -58,8 +58,8 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     workerRegistry: "0x0000000000000000000000000000000000001002",
     aiConfig: "0x24D11533C354092ed6E18b964257819cE78Ce77D",
     jobRegistry: "0x531b3a87c5d785441b9cf55b98169f20fd9056a7",
-    minStakeLcai: 50000,
-    fundLcai: 50005,
+    minStakeLcai: 5000,
+    fundLcai: 5005,
     faucet: "https://lightfaucet.ai",
   },
 };
