@@ -20,6 +20,20 @@ import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 type Phase = "idle" | "running" | "done" | "failed";
 const PRIVKEY_RE = /^0x[a-fA-F0-9]{64}$/;
 
+// Persist in-flight secrets so a reload/redeploy never loses the funded key or
+// password (which would orphan the stake). Cleared once install succeeds.
+const FUNDER_STORE = "lightnode.funderKey";
+const PW_STORE = "lightnode.workerPw";
+function lsGet(k: string): string {
+  try { return window.localStorage.getItem(k) ?? ""; } catch { return ""; }
+}
+function lsSet(k: string, v: string): void {
+  try { window.localStorage.setItem(k, v); } catch { /* storage unavailable */ }
+}
+function clearInflightSecrets(): void {
+  try { window.localStorage.removeItem(FUNDER_STORE); window.localStorage.removeItem(PW_STORE); } catch { /* ignore */ }
+}
+
 /** Cryptographically-strong keystore password. */
 function strongPassword(len = 20): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
@@ -108,6 +122,18 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
   const [reveal, setReveal] = useState(false);
   const [paste, setPaste] = useState("");
 
+  // Restore a previously-generated key so a reload doesn't orphan its funds.
+  useEffect(() => {
+    const saved = lsGet(FUNDER_STORE);
+    if (PRIVKEY_RE.test(saved)) setGenKey(saved);
+  }, []);
+
+  const generate = () => {
+    const k = generatePrivateKey();
+    setGenKey(k);
+    lsSet(FUNDER_STORE, k);
+  };
+
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const onChain = chainId === net.chainId;
@@ -151,7 +177,7 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
       </span>
 
       {!genKey ? (
-        <button type="button" onClick={() => setGenKey(generatePrivateKey())} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 font-medium text-primary hover:bg-primary/15">
+        <button type="button" onClick={generate} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 font-medium text-primary hover:bg-primary/15">
           <Wand2 className="size-3.5" /> Generate a dedicated funding key
         </button>
       ) : (
@@ -162,6 +188,13 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
               {genAddr && <CopyBtn value={genAddr} />}
               <button type="button" onClick={() => setReveal((r) => !r)} className="inline-flex items-center gap-1 text-[11px] text-content-soft hover:text-content-primary">
                 {reveal ? <EyeOff className="size-3" /> : <Eye className="size-3" />} key
+              </button>
+              <button
+                type="button"
+                onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten — back it up first if it holds funds.")) generate(); }}
+                className="inline-flex items-center gap-1 text-[11px] text-content-soft hover:text-content-primary"
+              >
+                new
               </button>
             </span>
           </div>
@@ -247,7 +280,16 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     const d = detectClientOS();
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
   }, []);
+  useEffect(() => {
+    const saved = lsGet(PW_STORE);
+    if (saved) setPw(saved);
+  }, []);
   useEffect(() => () => stopRef.current?.(), []);
+
+  const updatePw = (v: string) => {
+    setPw(v);
+    lsSet(PW_STORE, v);
+  };
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
   if (!desktop) {
@@ -279,8 +321,13 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
       (line) => setLog((l) => [...l, line]),
       (code) => {
         setPhase(code === 0 ? "done" : "failed");
-        setPw("");
-        setFunderKey(null);
+        // Only wipe secrets once it actually worked; on failure keep them so a
+        // retry doesn't lose the already-funded key.
+        if (code === 0) {
+          clearInflightSecrets();
+          setPw("");
+          setFunderKey(null);
+        }
       },
     );
   };
@@ -295,7 +342,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
       {phase === "idle" && (
         <>
           <div className="grid gap-4 sm:grid-cols-2">
-            <PasswordField value={pw} onChange={setPw} />
+            <PasswordField value={pw} onChange={updatePw} />
             <FunderSetup network={network} onReady={setFunderKey} />
           </div>
           <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
