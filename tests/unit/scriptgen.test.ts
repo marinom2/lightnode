@@ -55,6 +55,17 @@ describe("desktopInstallCommand (smart install)", () => {
   it("short-circuits when the worker is already running", () => {
     expect(unix).toContain("worker already running — nothing to reinstall");
   });
+  it("funds the worker directly: no funder key, no generate/fund phases", () => {
+    expect(unix).not.toContain("$FUNDER_PRIVKEY"); // never reads a funder key
+    expect(unix).toContain('cast wallet address --private-key "$WORKER_PRIVKEY"');
+    expect(unix).not.toContain("00-generate-key");
+    expect(unix).not.toContain("06-fund-worker");
+    expect(unix).toContain("07-register");
+  });
+  it("patches the stale stake guard to the network minimum (testnet 5001, mainnet 50001)", () => {
+    expect(desktopInstallCommand("macos", "testnet")).toContain("s/50001/5001/g");
+    expect(desktopInstallCommand("macos", "mainnet")).toContain("s/50001/50001/g");
+  });
   it("emits PowerShell (not bash) for Windows, auto-starting Docker Desktop", () => {
     expect(win).toContain("$ErrorActionPreference");
     expect(win).toContain("Docker Desktop.exe");

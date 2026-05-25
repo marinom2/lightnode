@@ -25,6 +25,11 @@ export interface ScriptBundle {
 const PHASES =
   "00-generate-key 01-resolve-addresses 02-prepare-ollama 03-pull-image 04-import-key 05-generate-ecdh 06-fund-worker 07-register 08-run-worker";
 
+// Desktop one-click provides the worker key itself and funds it directly from the
+// user's wallet, so it skips 00 (generate-key) and 06 (funder→worker transfer).
+const DESKTOP_PHASES =
+  "01-resolve-addresses 02-prepare-ollama 03-pull-image 04-import-key 05-generate-ecdh 07-register 08-run-worker";
+
 /** One command: clone, set the password, run all 9 phases (06 prompts for the funder key). */
 function bootstrap(os: OS, network: NetworkId, model: string): string {
   if (os === "windows") {
@@ -71,8 +76,11 @@ if have cast; then echo "✓ Foundry already installed"; else
   echo "▶ installing Foundry"; curl -L https://foundry.paradigm.xyz | bash; export PATH="$HOME/.foundry/bin:$PATH"; foundryup
 fi`;
 
-/** Smart, idempotent install for macOS + Linux (bash). */
+/** Smart, idempotent install for macOS + Linux (bash). The app passes the
+ *  WORKER key + password via env; we fund the worker directly from the user's
+ *  wallet, so there's no separate funder and no phase 00/06. */
 function unixInstall(network: NetworkId, model: string): string {
+  const thr = NETWORKS[network].minStakeLcai + 1; // toolkit's pre-flight guard, per network
   return [
     "set -e",
     SMART_PREREQS,
@@ -80,12 +88,17 @@ function unixInstall(network: NetworkId, model: string): string {
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
     "[ -f secrets.env ] || cp secrets.example.sh secrets.env",
-    'sed -i.bak "s|WORKER_PASSWORD=.*|WORKER_PASSWORD=\\"$WORKER_PASSWORD\\"|" secrets.env',
-    'sed -i.bak "s|FUNDER_PRIVKEY=.*|FUNDER_PRIVKEY=\\"$FUNDER_PRIVKEY\\"|" secrets.env',
-    "rm -f secrets.env.bak",
+    // Pass secrets via the environment (the app already exported WORKER_PASSWORD +
+    // WORKER_PRIVKEY) — strip any file-set copies so they can't override, and add
+    // the derived address. Avoids sed-escaping pitfalls with special chars.
+    "grep -vE '^[[:space:]]*export (WORKER_PASSWORD|WORKER_ADDR|WORKER_PRIVKEY|FUNDER_PRIVKEY)=' secrets.env > secrets.env.tmp || true; mv secrets.env.tmp secrets.env",
+    'export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY")"',
     `export NETWORK=${network} SUPPORTED_MODELS=${model}`,
+    // The toolkit hardcodes a 50,001 LCAI pre-flight guard; correct it to this network's minimum.
+    `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
+    `echo "▶ funding worker: send to $WORKER_ADDR"`,
     `if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^lightchain-worker$'; then echo "✓ worker already running — nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
-    `for p in ${PHASES}; do echo "▶ phase $p"; bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    `for p in ${DESKTOP_PHASES}; do echo "▶ phase $p"; FORCE=1 bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
     'echo "✅ worker online"',
   ].join("\n");
 }
@@ -93,7 +106,8 @@ function unixInstall(network: NetworkId, model: string): string {
 /** Smart, idempotent install for Windows (PowerShell). Auto-starts Docker
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
 function windowsInstall(network: NetworkId, model: string): string {
-  const phases = PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
+  const thr = NETWORKS[network].minStakeLcai + 1;
+  const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   return `$ErrorActionPreference = "Stop"
 function Have($c){ $null -ne (Get-Command $c -ErrorAction SilentlyContinue) }
 function DockerUp { docker info *> $null; return ($LASTEXITCODE -eq 0) }
@@ -115,9 +129,15 @@ if (Have cast) { Write-Host "✓ Foundry already installed" } else { Write-Host 
 if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present — updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
 Set-Location lightchain-worker-toolkit\\scripts\\powershell
 if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
+# Worker key + password come from the app via process env; derive the address.
+$env:WORKER_ADDR = (cast wallet address --private-key $env:WORKER_PRIVKEY)
 $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
+# Correct the toolkit's hardcoded 50,001 stake guard to this network's minimum.
+if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace '50001', '${thr}' -replace '50,001', '${thr}' | Set-Content 07-register.ps1 }
+Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
 if ((docker ps --format "{{.Names}}") -match "^lightchain-worker$") { Write-Host "✓ worker already running — nothing to reinstall"; Write-Host "✅ worker online"; exit 0 }
+$env:FORCE = "1"
 foreach ($p in @('${phases}')) { Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
 Write-Host "✅ worker online"`;
 }
@@ -126,7 +146,8 @@ Write-Host "✅ worker online"`;
  * Smart, idempotent install command for the desktop shell, per OS. Installs only
  * missing prerequisites (auto-starting Docker), skips the model pull if present,
  * and short-circuits if the worker is already running. Reads WORKER_PASSWORD and
- * FUNDER_PRIVKEY from the process env (passed securely by the app, never here).
+ * WORKER_PRIVKEY from the process env (passed securely by the app, never here);
+ * the worker is funded directly from the user's wallet, so there's no funder key.
  */
 export function desktopInstallCommand(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): string {
   return os === "windows" ? windowsInstall(network, model) : unixInstall(network, model);

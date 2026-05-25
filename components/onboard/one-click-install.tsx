@@ -178,7 +178,7 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
 
       {!genKey ? (
         <button type="button" onClick={generate} className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 font-medium text-primary hover:bg-primary/15">
-          <Wand2 className="size-3.5" /> Generate a dedicated funding key
+          <Wand2 className="size-3.5" /> Generate your worker key
         </button>
       ) : (
         <div className="space-y-2 rounded-lg border border-bdr-soft bg-card/60 p-3">
@@ -205,7 +205,7 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
             </div>
           )}
           <p className="flex items-start gap-1.5 text-[11px] text-warning">
-            <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key - it holds your stake until the worker is funded.
+            <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key - it&apos;s your worker&apos;s identity and holds the staked LCAI.
           </p>
           <div className="flex items-center gap-3 rounded-lg border border-bdr-light bg-card/40 p-2.5">
             {genAddr && <FundingQr uri={`ethereum:${genAddr}@${net.chainId}?value=${need.toString()}`} />}
@@ -317,7 +317,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     setLog([]);
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, model),
-      { WORKER_PASSWORD: pw, FUNDER_PRIVKEY: funderKey, NETWORK: network, SUPPORTED_MODELS: model },
+      { WORKER_PASSWORD: pw, WORKER_PRIVKEY: funderKey, NETWORK: network, SUPPORTED_MODELS: model },
       (line) => setLog((l) => [...l, line]),
       (code) => {
         setPhase(code === 0 ? "done" : "failed");
