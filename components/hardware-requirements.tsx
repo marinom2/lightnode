@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { Cpu, MemoryStick, HardDrive, Sparkles } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, Sparkles, Gauge, type LucideIcon } from "lucide-react";
 import { HARDWARE, DEFAULT_MODEL } from "@/lib/network";
 
 const { min, rec } = HARDWARE;
@@ -8,18 +8,31 @@ function tb(gb: number): string {
   return gb >= 1024 ? `${gb / 1024}TB` : `${gb}GB`;
 }
 
+function net(mbps: number): string {
+  return mbps >= 1000 ? `${mbps / 1000} Gbps` : `${mbps} Mbps`;
+}
+
+interface Row {
+  icon: LucideIcon;
+  spec: string;
+  minimum: string;
+  recommended: string;
+}
+
 // Spec rows derived from the network HARDWARE config (single source of truth).
-const ROWS = [
+const ROWS: Row[] = [
   { icon: Cpu, spec: "CPU", minimum: `${min.cores} Cores (x86_64)`, recommended: `${rec.cores} Cores (AMD/Intel)` },
   { icon: MemoryStick, spec: "RAM", minimum: `${min.ramGb}GB DDR4`, recommended: `${rec.ramGb}GB+ DDR5` },
   { icon: HardDrive, spec: "Storage", minimum: `${tb(min.storageGb)} NVMe SSD`, recommended: `${tb(rec.storageGb)} NVMe Gen4` },
   { icon: Sparkles, spec: "GPU", minimum: `${min.vramGb}GB VRAM (${DEFAULT_MODEL})`, recommended: `${rec.vramGb}GB+ VRAM (RTX 4090/A100)` },
+  { icon: Gauge, spec: "Internet", minimum: `${net(min.mbps)} Up/Down`, recommended: `${net(rec.mbps)} Symmetric` },
 ];
 
-const COLS = "grid grid-cols-[1.3fr_1fr_1.1fr] items-center gap-4";
+const HEAD = "flex h-14 items-center px-6 text-xs font-semibold uppercase tracking-wider";
+const CELL = "flex h-16 items-center px-6 text-sm border-b border-bdr-light last:border-b-0";
 
-/** Minimum vs recommended worker hardware, mirroring the LightChain run-node page
- *  (raised Recommended card) but driven by our HARDWARE config. */
+/** Minimum vs recommended worker hardware, mirroring the LightChain run-node page:
+ *  the Recommended column is an elevated, purple-topped card. Driven by HARDWARE config. */
 export function HardwareRequirements() {
   return (
     <section className="mx-auto max-w-5xl px-5 py-14">
@@ -43,25 +56,37 @@ export function HardwareRequirements() {
         </p>
       </div>
 
-      <div className="relative mt-12">
-        {/* raised, highlighted Recommended column */}
-        <div className="pointer-events-none absolute -top-4 bottom-0 right-0 w-[33%] rounded-2xl border border-primary/30 bg-gradient-to-b from-primary/20 via-primary/[0.05] to-transparent shadow-[0_24px_70px_-24px_rgba(112,100,233,0.55)]" />
-
-        <div className="relative overflow-hidden rounded-2xl border border-bdr-soft bg-card/40 backdrop-blur-sm">
-          <div className={`${COLS} border-b border-bdr-soft px-6 py-4 text-xs font-semibold uppercase tracking-wider text-content-soft`}>
-            <span>Specification</span>
-            <span>Minimum</span>
-            <span className="text-primary">Recommended</span>
-          </div>
-          {ROWS.map((r) => (
-            <div key={r.spec} className={`${COLS} border-b border-bdr-light px-6 py-5 text-sm last:border-b-0`}>
-              <span className="flex items-center gap-2.5 font-medium text-content-primary">
-                <r.icon className="size-4 shrink-0 text-content-soft" /> {r.spec}
-              </span>
-              <span className="text-content-soft">{r.minimum}</span>
-              <span className="font-semibold text-content-primary">{r.recommended}</span>
+      <div className="mt-12 overflow-x-auto pb-6 pt-4">
+        <div className="mx-auto flex min-w-[620px] max-w-4xl">
+          {/* base panel: Specification + Minimum */}
+          <div className="flex flex-[2.2] overflow-hidden rounded-2xl border border-bdr-soft bg-card/40">
+            <div className="flex-[1.3]">
+              <div className={`${HEAD} border-b border-bdr-soft text-content-soft`}>Specification</div>
+              {ROWS.map((r) => (
+                <div key={r.spec} className={`${CELL} gap-2.5 font-medium text-content-primary`}>
+                  <r.icon className="size-4 shrink-0 text-content-soft" /> {r.spec}
+                </div>
+              ))}
             </div>
-          ))}
+            <div className="flex-1">
+              <div className={`${HEAD} border-b border-bdr-soft text-content-soft`}>Minimum</div>
+              {ROWS.map((r) => (
+                <div key={r.spec} className={`${CELL} text-content-soft`}>
+                  {r.minimum}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* elevated Recommended card (lifted above the base panel) */}
+          <div className="-my-3 flex-[1.15] rounded-2xl border border-primary/30 bg-gradient-to-b from-primary/[0.18] via-card/85 to-card/70 shadow-[0_30px_80px_-28px_rgba(112,100,233,0.6)] backdrop-blur-sm">
+            <div className={`${HEAD} h-[68px] pt-3 text-primary`}>Recommended</div>
+            {ROWS.map((r) => (
+              <div key={r.spec} className={`${CELL} border-white/5 font-semibold text-content-primary`}>
+                {r.recommended}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

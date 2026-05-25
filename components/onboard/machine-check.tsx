@@ -118,6 +118,24 @@ export function MachineCheck({
           </div>
         )}
 
+        {/* read-only view of what we detected (so the numbers are visible) */}
+        {detected && !showEdit && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[
+              { label: "Operating system", value: { macos: "macOS", linux: "Linux", windows: "Windows" }[m.os] },
+              { label: "Detected GPU", value: m.gpuName || "Unknown" },
+              { label: detected.unified ? "Unified memory" : "GPU VRAM", value: detected.unified ? `${m.vramGb} GB shared` : `${m.vramGb} GB` },
+              { label: "System RAM", value: `${m.ramGb} GB` },
+              { label: "CPU cores", value: `${m.cores}` },
+            ].map((s) => (
+              <div key={s.label} className="rounded-lg border border-bdr-soft bg-surface-base-subtle px-3 py-2">
+                <div className="text-[11px] text-content-soft">{s.label}</div>
+                <div className="truncate text-sm font-medium text-content-primary">{s.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className={showEdit ? "grid grid-cols-2 gap-3" : "hidden"}>
           <Field icon={MonitorCog} label="Operating system">
             <select className={selectCls} value={m.os} onChange={(e) => setM({ ...m, os: e.target.value as MachineInput["os"] })}>
