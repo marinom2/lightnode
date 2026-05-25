@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins, ScanLine, Pencil, Zap } from "lucide-react";
 import { assessMachine, autodetect, estimateRewards, energyCostPerDay, type MachineInput } from "@/lib/hardware";
-import { detectNativeHardware } from "@/lib/tauri";
+import { detectNativeHardware, bridgeInfo, lastHardwareError } from "@/lib/tauri";
 import { fmt } from "@/lib/utils";
 import type { OS } from "@/lib/scriptgen";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,7 @@ export function MachineCheck({
   const [jobsPerDay, setJobsPerDay] = useState(50);
   const [detected, setDetected] = useState<{ vramInferred: boolean; unified: boolean; gpuLabel?: string } | null>(null);
   const [showEdit, setShowEdit] = useState(false);
+  const [diag, setDiag] = useState<{ env: "web" | "desktop"; detail: string } | null>(null);
 
   useEffect(() => {
     const d = autodetect();
@@ -57,8 +58,20 @@ export function MachineCheck({
     if (avgJobsPerLiveWorker > 0) setJobsPerDay(Math.min(200, Math.max(10, Math.round(avgJobsPerLiveWorker / 7))));
 
     // In the desktop shell: real OS-level detection (true VRAM) overrides guesses.
+    const info = bridgeInfo();
     detectNativeHardware().then((nat) => {
-      if (!nat) return;
+      if (!nat) {
+        setDiag(
+          info.inDesktop
+            ? {
+                env: "desktop",
+                detail: `Desktop detected (internals:${info.hasInternals} global:${info.hasGlobal}) but the hardware read failed${lastHardwareError() ? ` - ${lastHardwareError()}` : ""}.`,
+              }
+            : { env: "web", detail: "Running in a web browser - open the LightNode desktop app for full no-input auto-detection." },
+        );
+        return;
+      }
+      setDiag({ env: "desktop", detail: "Auto-detected from the desktop app." });
       setM((prev) => ({
         ...prev,
         os: nat.os,
@@ -159,6 +172,17 @@ export function MachineCheck({
             ? "A browser can't read VRAM/RAM directly - confirm the values above. Full no-input auto-detection is coming in the LightNode desktop app."
             : "Detected automatically from your browser. Wrong GPU? Hit Adjust."}
         </p>
+        {diag && (
+          <p
+            className={`rounded-md border px-2.5 py-1.5 font-mono text-[11px] ${
+              diag.env === "desktop"
+                ? "border-warning/30 bg-warning/10 text-content-default"
+                : "border-bdr-soft bg-surface-base-faint text-content-soft"
+            }`}
+          >
+            diag · {diag.detail}
+          </p>
+        )}
 
         {a.notes.length > 0 && (
           <div className="space-y-1.5 rounded-xl border border-warning/30 bg-warning/10 p-3">

@@ -49,13 +49,38 @@ export function isDesktop(): boolean {
   return getInvoke() !== null;
 }
 
+export interface BridgeInfo {
+  inDesktop: boolean;
+  hasInternals: boolean;
+  hasGlobal: boolean;
+}
+
+/** What IPC surface (if any) the page sees - used to diagnose desktop detection. */
+export function bridgeInfo(): BridgeInfo {
+  const w = win();
+  return {
+    inDesktop: getInvoke() !== null,
+    hasInternals: !!w?.__TAURI_INTERNALS__?.invoke,
+    hasGlobal: !!w?.__TAURI__?.core?.invoke,
+  };
+}
+
+let lastDetectError: string | null = null;
+/** The last detect_hardware error message, if any (for on-screen diagnostics). */
+export function lastHardwareError(): string | null {
+  return lastDetectError;
+}
+
 /** Real CPU/RAM/GPU/VRAM from the OS - only available in the desktop shell. */
 export async function detectNativeHardware(): Promise<NativeHardware | null> {
   const invoke = getInvoke();
   if (!invoke) return null;
   try {
-    return await invoke<NativeHardware>("detect_hardware");
+    const hw = await invoke<NativeHardware>("detect_hardware");
+    lastDetectError = null;
+    return hw;
   } catch (err) {
+    lastDetectError = err instanceof Error ? err.message : String(err);
     console.error("[tauri] detect_hardware failed:", err);
     return null;
   }
