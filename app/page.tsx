@@ -62,23 +62,28 @@ export default function Home() {
           </Link>
         </div>
 
-        {/* worker rig hero device, lit from within the page and melting into the bg */}
-        <div className="relative mx-auto mt-10 w-fit">
-          {/* soft overhead light beam */}
-          <div className="pointer-events-none absolute -top-16 left-1/2 -z-10 h-64 w-[220px] -translate-x-1/2 bg-[linear-gradient(to_bottom,rgba(168,150,255,0.22),transparent_75%)] blur-2xl [clip-path:polygon(38%_0,62%_0,100%_100%,0_100%)]" />
-          <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 size-[440px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(112,100,233,0.32),transparent_62%)] blur-2xl" />
-          <div className="pointer-events-none absolute bottom-1 left-1/2 -z-10 h-20 w-[300px] -translate-x-1/2 translate-y-1/2 rounded-[50%] bg-primary/20 blur-2xl" />
+        {/* worker rig hero device - god-rays from above, grounded, lit from within */}
+        <div className="relative mx-auto mt-12 w-fit">
+          {/* volumetric light rays streaming from the top */}
+          <div className="pointer-events-none absolute -top-24 left-1/2 -z-10 h-[460px] w-[560px] -translate-x-1/2 opacity-70 mix-blend-screen">
+            <div className="absolute inset-0 rotate-[7deg] bg-[linear-gradient(180deg,rgba(178,158,255,0.18),transparent_72%)] blur-2xl [clip-path:polygon(45%_0,55%_0,70%_100%,30%_100%)]" />
+            <div className="absolute inset-0 -rotate-[9deg] bg-[linear-gradient(180deg,rgba(150,130,255,0.13),transparent_66%)] blur-2xl [clip-path:polygon(47%_0,53%_0,64%_100%,36%_100%)]" />
+          </div>
+          {/* core glow behind the LCAI coin */}
+          <div className="pointer-events-none absolute left-1/2 top-[38%] -z-10 size-[460px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(124,90,233,0.38),transparent_60%)] blur-3xl" />
+          {/* contact shadow grounding the rig */}
+          <div className="pointer-events-none absolute bottom-3 left-1/2 -z-10 h-12 w-[260px] -translate-x-1/2 rounded-[50%] bg-primary/25 blur-2xl" />
           <Image
             src="/images/rn-hero-device.png"
             alt="LightChain worker rig powering AI inference"
             width={360}
             height={346}
             priority
-            className="mx-auto w-[200px] drop-shadow-[0_30px_55px_rgba(112,100,233,0.3)] [mask-image:linear-gradient(to_bottom,#000_80%,transparent_100%)] sm:w-[260px] md:w-[300px]"
+            className="relative mx-auto w-[240px] drop-shadow-[0_28px_55px_rgba(80,60,160,0.45)] sm:w-[300px] md:w-[340px]"
           />
         </div>
 
-        <div className="-mt-4">
+        <div className="mt-4">
           <HeroPreview />
         </div>
 
