@@ -1,9 +1,6 @@
 import { Download, ScanLine, Rocket, HeartPulse } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
-import { AppleIcon, LinuxIcon, WindowsIcon } from "@/components/os-icons";
-
-const RELEASES = "https://github.com/marinom2/lightnode/releases/latest";
+import { DownloadButton } from "@/components/download-button";
 
 const STEPS = [
   { icon: Download, t: "Download", d: "Grab the app for your OS." },
@@ -28,17 +25,8 @@ export function DownloadDesktop() {
                 Download the app, press Install, and it handles the rest - reads your hardware, sets up the node,
                 stakes, and goes live. No terminal, no config, no copy-paste.
               </p>
-              <div className="mt-6 flex flex-wrap items-center gap-4">
-                <a href={RELEASES} target="_blank" rel="noreferrer">
-                  <Button variant="gradient" size="lg">
-                    <Download /> Download the app
-                  </Button>
-                </a>
-                <div className="flex items-center gap-3 text-content-soft">
-                  <AppleIcon className="size-5" />
-                  <LinuxIcon className="size-5" />
-                  <WindowsIcon className="size-[18px]" />
-                </div>
+              <div className="mt-6">
+                <DownloadButton />
               </div>
             </div>
 
