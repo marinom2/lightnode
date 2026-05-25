@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-run-command-streamed"
+description = "Enables the run_command_streamed command without any pre-configured scope."
+commands.allow = ["run_command_streamed"]
+
+[[permission]]
+identifier = "deny-run-command-streamed"
+description = "Denies the run_command_streamed command without any pre-configured scope."
+commands.deny = ["run_command_streamed"]
