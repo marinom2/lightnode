@@ -5,7 +5,7 @@ import {
   Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download,
   Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle,
 } from "lucide-react";
-import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
 import { parseEther, formatEther } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import QRCode from "qrcode";
@@ -114,6 +114,7 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
   const { data: bal } = useBalance({ address: genAddr, chainId: net.chainId, query: { enabled: !!genAddr, refetchInterval: 5000 } });
   const { sendTransaction, isPending, error: sendError, data: hash } = useSendTransaction();
   const { isLoading: confirming } = useWaitForTransactionReceipt({ hash, chainId: net.chainId, query: { enabled: !!hash } });
+  const { switchChain, isPending: switching } = useSwitchChain();
 
   const funded = !!bal && bal.value >= need;
   const errMsg = sendError ? sendError.message.split("\n")[0].slice(0, 140) : null;
@@ -174,11 +175,22 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
           </p>
           <div className="flex items-center gap-3 rounded-lg border border-bdr-light bg-card/40 p-2.5">
             {genAddr && <FundingQr uri={`ethereum:${genAddr}@${net.chainId}?value=${need.toString()}`} />}
-            <p className="text-[11px] text-content-soft">
+            <div className="text-[11px] text-content-soft">
               <span className="font-medium text-content-primary">Scan with your phone wallet</span> to send{" "}
               {net.fundLcai.toLocaleString()} LCAI - recipient, amount and network are prefilled. The balance updates
               automatically. (Or use the button below and approve in your wallet.)
-            </p>
+              {isConnected && (
+                <button
+                  type="button"
+                  disabled={switching}
+                  onClick={() => switchChain({ chainId: net.chainId })}
+                  className="mt-1.5 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                >
+                  {switching ? <Loader2 className="size-3 animate-spin" /> : <Wallet className="size-3" />}
+                  First time? Add LightChain {net.label} to your wallet
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t border-bdr-light pt-2">
@@ -189,8 +201,12 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
               <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={() => genAddr && sendTransaction({ to: genAddr, value: need, chainId: net.chainId })}>
                 {isPending || confirming ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Fund {net.fundLcai.toLocaleString()} from wallet
               </Button>
+            ) : isConnected ? (
+              <button type="button" disabled={switching} onClick={() => switchChain({ chainId: net.chainId })} className="inline-flex items-center gap-1 text-warning hover:underline">
+                {switching ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Switch to {net.label}
+              </button>
             ) : (
-              <span className="text-warning">{isConnected ? `Switch to ${net.label}` : "Connect wallet to fund"}</span>
+              <span className="text-warning">Connect wallet to fund</span>
             )}
           </div>
           {isPending && !funded && (
