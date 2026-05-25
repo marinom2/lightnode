@@ -341,6 +341,14 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
       {phase === "idle" && (
         <>
+          <p className="mb-3 flex items-start gap-1.5 rounded-lg border border-bdr-soft bg-surface-base-subtle/60 px-3 py-2 text-[11px] text-content-soft">
+            <Wallet className="mt-0.5 size-3.5 shrink-0 text-content-soft" />
+            <span>
+              <span className="font-medium text-content-primary">No wallet connection needed to fund.</span> This desktop app
+              runs in its own browser, so it can&apos;t use your Chrome MetaMask extension. Just send the amount to the funding
+              address below from any wallet (your Chrome MetaMask works) - the balance updates automatically.
+            </span>
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <PasswordField value={pw} onChange={updatePw} />
             <FunderSetup network={network} onReady={setFunderKey} />
