@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowRight,
   Terminal,
@@ -60,7 +61,22 @@ export default function Home() {
           </Link>
         </div>
 
-        <HeroPreview />
+        {/* worker rig hero device, floating above the live dashboard */}
+        <div className="relative mx-auto mt-12 w-fit">
+          <div className="pointer-events-none absolute left-1/2 top-[46%] -z-10 size-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/25 blur-[90px]" />
+          <Image
+            src="/images/rn-hero-device.png"
+            alt="LightChain worker rig powering AI inference"
+            width={360}
+            height={346}
+            priority
+            className="mx-auto w-[200px] drop-shadow-[0_24px_70px_rgba(112,100,233,0.45)] sm:w-[260px] md:w-[300px]"
+          />
+        </div>
+
+        <div className="-mt-2">
+          <HeroPreview />
+        </div>
 
         <div className="mx-auto mt-14 max-w-4xl">
           <LiveStats />
