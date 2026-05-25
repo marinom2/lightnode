@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateSetup } from "@/lib/scriptgen";
+import { generateSetup, desktopInstallCommand } from "@/lib/scriptgen";
 
 describe("generateSetup (default model)", () => {
   const b = generateSetup("linux", "mainnet");
@@ -35,5 +35,30 @@ describe("generateSetup (windows)", () => {
     expect(b.network).toBe("testnet");
     expect(b.setup).toContain('$env:SUPPORTED_MODELS = "llama3-8b"');
     expect(b.oneLiner).toContain("Read-Host");
+  });
+});
+
+describe("desktopInstallCommand (smart install)", () => {
+  const unix = desktopInstallCommand("macos", "testnet");
+  const win = desktopInstallCommand("windows", "testnet");
+
+  it("is idempotent: never uses `cp -n` (exits 1 on macOS re-runs), guards instead", () => {
+    expect(unix).not.toContain("cp -n");
+    expect(unix).toContain("[ -f secrets.env ] || cp secrets.example.sh secrets.env");
+  });
+  it("only installs missing tools + auto-starts Docker (no manual 're-run')", () => {
+    expect(unix).toContain("✓ Docker already installed");
+    expect(unix).toContain("starting the Docker engine");
+    expect(unix).toContain("open -a Docker"); // macOS
+    expect(unix).toContain("systemctl"); // linux
+  });
+  it("short-circuits when the worker is already running", () => {
+    expect(unix).toContain("worker already running — nothing to reinstall");
+  });
+  it("emits PowerShell (not bash) for Windows, auto-starting Docker Desktop", () => {
+    expect(win).toContain("$ErrorActionPreference");
+    expect(win).toContain("Docker Desktop.exe");
+    expect(win).toContain("winget install --id Docker.DockerDesktop");
+    expect(win).not.toContain("set -e");
   });
 });

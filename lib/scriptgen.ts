@@ -79,7 +79,7 @@ function unixInstall(network: NetworkId, model: string): string {
     `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
-    "cp -n secrets.example.sh secrets.env",
+    "[ -f secrets.env ] || cp secrets.example.sh secrets.env",
     'sed -i.bak "s|WORKER_PASSWORD=.*|WORKER_PASSWORD=\\"$WORKER_PASSWORD\\"|" secrets.env',
     'sed -i.bak "s|FUNDER_PRIVKEY=.*|FUNDER_PRIVKEY=\\"$FUNDER_PRIVKEY\\"|" secrets.env',
     "rm -f secrets.env.bak",
