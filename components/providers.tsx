@@ -20,6 +20,10 @@ createAppKit({
     icons: ["https://lightnode.app/icon.svg"],
   },
   themeMode: "dark",
+  // Coinbase/Base connectors bundle their own IndexedDB telemetry, which throws
+  // in the desktop WebView and isn't usable there anyway. Keep injected
+  // (MetaMask) + WalletConnect, which cover the real flows.
+  enableCoinbase: false,
   themeVariables: {
     "--w3m-accent": "#7064e9",
     "--w3m-color-mix": "#7064e9",
