@@ -19,8 +19,25 @@ Without signing secrets the installers still work; users just see a one-time OS
 warning (macOS: right-click -> Open; Windows: SmartScreen -> More info -> Run).
 
 ## Enable code-signing + notarization (no more warnings)
-Add these repository secrets (Settings -> Secrets and variables -> Actions). The
-workflow auto-uses them when present.
+Add these repository secrets (Settings -> Secrets and variables -> Actions), then
+add the env block below to the `Build + release` step in
+`.github/workflows/release.yml`.
+
+> IMPORTANT: only add this block once the secrets actually exist. Tauri's macOS
+> bundler treats a defined-but-empty `APPLE_CERTIFICATE` as "please sign" and then
+> fails on `security import` of an empty cert. That is why the default workflow
+> does NOT define these vars.
+
+```yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+```
 
 ### macOS (Apple Developer Program required)
 | Secret | What it is |

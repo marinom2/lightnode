@@ -57,14 +57,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing + notarization. Optional: set these repo secrets to
-          # produce a signed/notarized build that opens without the right-click.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # NOTE: do NOT define the APPLE_* signing vars here unconditionally.
+          # Tauri's macOS bundler treats a defined-but-empty APPLE_CERTIFICATE as
+          # "sign me" and then fails on `security import` of an empty cert. To
+          # enable signing/notarization, add the env block from docs/RELEASING.md
+          # (it is gated so the keys only exist when the secrets are set).
         with:
           projectPath: desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
