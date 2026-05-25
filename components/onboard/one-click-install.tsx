@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/lib/network-context";
-import { DEFAULT_MODEL } from "@/lib/network";
+import { DEFAULT_MODEL, NETWORKS } from "@/lib/network";
 import { desktopInstallCommand } from "@/lib/scriptgen";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 
@@ -87,7 +87,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
               />
             </label>
             <label className="text-xs text-content-soft">
-              Funder private key (0x..., holds ~50,005 LCAI)
+              Funder private key (0x..., holds ~{NETWORKS[network].fundLcai.toLocaleString()} LCAI)
               <input
                 type="password"
                 value={funder}

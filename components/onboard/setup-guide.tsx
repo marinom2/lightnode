@@ -9,7 +9,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { AppleIcon, LinuxIcon, WindowsIcon } from "@/components/os-icons";
 import { cn } from "@/lib/utils";
 import { useNetwork } from "@/lib/network-context";
-import { DEFAULT_MODEL } from "@/lib/network";
+import { DEFAULT_MODEL, NETWORKS } from "@/lib/network";
 
 const OS_TABS: { id: OS; label: string; icon: (p: { className?: string }) => React.ReactElement }[] = [
   { id: "macos", label: "macOS", icon: AppleIcon },
@@ -128,9 +128,9 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
       <Section icon={Rocket} title="2 · One command - set up everything" subtitle="Clones, configures, runs all 9 phases. Prompts only for a password + your funder key.">
         <CodeBlock code={bundle.oneLiner} label={os === "windows" ? "PowerShell - paste & run" : "paste & run"} />
         <p className="mt-2 text-xs text-content-soft">
-          Generates a fresh worker key, stakes 50,000 LCAI, and starts the container with{" "}
+          Generates a fresh worker key, stakes {NETWORKS[network].minStakeLcai.toLocaleString()} LCAI, and starts the container with{" "}
           <code className="rounded bg-surface-base-light px-1 py-0.5">--restart always</code>. You&apos;ll need a{" "}
-          <span className="text-content-primary">funder wallet with ~50,005 LCAI</span> (it prompts for the key, never stored by us).
+          <span className="text-content-primary">funder wallet with ~{NETWORKS[network].fundLcai.toLocaleString()} LCAI</span> (it prompts for the key, never stored by us).
         </p>
       </Section>
 

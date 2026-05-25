@@ -16,6 +16,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
+import { DEFAULT_MODEL } from "@/lib/network";
 import type { Worker, Job } from "@/lib/subgraph";
 
 type Health = "live" | "stale" | "down";
@@ -147,7 +148,7 @@ export function WorkerView({
             <span>
               <span className="font-medium text-content-primary">{worker.jobs_timed_out} timed-out job(s).</span> Each
               ack-then-incomplete job risks a slash. Make sure the liveness watchdog is running and Ollama serves{" "}
-              <code className="rounded bg-surface-base-light px-1 py-0.5">llama3-8b</code> by that exact name.
+              <code className="rounded bg-surface-base-light px-1 py-0.5">{DEFAULT_MODEL}</code> by that exact name.
             </span>
           </div>
         </Card>

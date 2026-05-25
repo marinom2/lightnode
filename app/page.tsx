@@ -18,12 +18,14 @@ import { ModelsPanel } from "@/components/models-panel";
 import { HeroPreview } from "@/components/hero-preview";
 import { DownloadDesktop } from "@/components/download-desktop";
 import { IconChip } from "@/components/ui/icon-chip";
+import { StakeAmount } from "@/components/stake-amount";
+import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 
 const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
 
 const STEPS = [
   { icon: Wallet, title: "Connect your wallet", body: "Connect the wallet you'll fund the worker from. No sign-up, no API key." },
-  { icon: Gauge, title: "Check your machine", body: "We score your GPU/CPU/RAM, confirm you clear the 8GB-VRAM floor, and estimate rewards." },
+  { icon: Gauge, title: "Check your machine", body: `We score your GPU/CPU/RAM, confirm you clear the ${HARDWARE.min.vramGb}GB-VRAM floor, and estimate rewards.` },
   { icon: Terminal, title: "Get a tailored setup", body: "A personalized, copy-paste install for your OS - wrapping the official toolkit, gotchas pre-fixed." },
   { icon: HeartPulse, title: "Run & watch rewards", body: "Start the node, then track jobs, earnings, and health on a live dashboard." },
 ];
@@ -92,7 +94,7 @@ export default function Home() {
               {[
                 { icon: Coins, t: "Earn $LCAI", d: "Paid per inference job your worker completes." },
                 { icon: ShieldCheck, t: "Secure the network", d: "Stake LCAI and contribute censorship-resistant compute." },
-                { icon: Cpu, t: "Use real hardware", d: "Serve llama3-8b through Ollama on your own GPU." },
+                { icon: Cpu, t: "Use real hardware", d: `Serve ${DEFAULT_MODEL} through Ollama on your own GPU.` },
               ].map((b) => (
                 <div key={b.t} className="flex items-start gap-3">
                   <IconChip icon={b.icon} size="sm" className="mt-0.5" />
@@ -144,8 +146,8 @@ export default function Home() {
             <Badge tone="success">Available now</Badge>
             <h3 className="mt-4 text-2xl font-semibold tracking-tight text-content-primary">Run a Worker</h3>
             <p className="mt-2 text-content-soft">
-              Serve llama3-8b inference and earn $LCAI. Needs an 8GB+ GPU and a 50,000 LCAI stake.
-              This is the one-flow path - start here.
+              Serve {DEFAULT_MODEL} inference and earn $LCAI. Needs an {HARDWARE.min.vramGb}GB+ GPU and a{" "}
+              <StakeAmount /> LCAI stake. This is the one-flow path - start here.
             </p>
             <ul className="mt-5 space-y-2 text-sm text-content-soft">
               {["Guided machine check + reward estimate", "Tailored install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (
@@ -188,7 +190,7 @@ export default function Home() {
         <Card className="bg-gradient-primary p-[1px]">
           <div className="rounded-[15px] bg-background/85 px-8 py-12 text-center backdrop-blur-sm">
             <h2 className="text-3xl font-semibold tracking-tight text-content-primary">
-              Got a spare GPU and 50k LCAI?
+              Got a spare GPU and <StakeAmount format="compact" /> LCAI?
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-content-soft">
               Put it to work in a few minutes. LightNode walks you the whole way.

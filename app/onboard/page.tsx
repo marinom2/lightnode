@@ -13,7 +13,7 @@ import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NetworkHealth } from "@/components/network-health";
 import { VerifyWorker } from "@/components/onboard/verify-worker";
 import { OneClickInstall } from "@/components/onboard/one-click-install";
-import { NETWORKS } from "@/lib/network";
+import { NETWORKS, DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import type { OS } from "@/lib/scriptgen";
 import { cn } from "@/lib/utils";
@@ -117,7 +117,7 @@ export default function OnboardPage() {
           <div>
             <h2 className="mb-1 text-xl font-semibold text-content-primary">Check your machine</h2>
             <p className="mb-4 text-sm text-content-soft">
-              Confirm your specs. You need an <span className="text-content-primary">8GB+ GPU</span> to serve llama3-8b well.
+              Confirm your specs. You need an <span className="text-content-primary">{HARDWARE.min.vramGb}GB+ GPU</span> to serve {DEFAULT_MODEL} well.
             </p>
             <div className="mb-6">
               <NetworkHealth />
@@ -138,7 +138,7 @@ export default function OnboardPage() {
                   className="mt-0.5 size-4 accent-[var(--warning)]"
                 />
                 <span>
-                  <span className="font-medium text-content-primary">Run anyway (below the 8GB-GPU bar).</span> Inference
+                  <span className="font-medium text-content-primary">Run anyway (below the {HARDWARE.min.vramGb}GB-GPU bar).</span> Inference
                   will be slow on CPU and may miss the completion deadline - which can cost a small{" "}
                   <span className="text-warning">stake slash</span>. Fine for testing; not ideal for earning. I understand
                   and want to continue.
@@ -190,7 +190,7 @@ export default function OnboardPage() {
             <div className="mx-auto mt-6 grid max-w-lg gap-3 text-left">
               {[
                 "Logs show: registration validated · gateway auth · websocket connected",
-                "status reports stake + supported model (llama3-8b)",
+                `status reports stake + supported model (${DEFAULT_MODEL})`,
                 "First job: ws_job_received → job completed, earnings start accruing",
               ].map((x) => (
                 <div key={x} className="flex items-start gap-2 rounded-lg border border-bdr-light bg-surface-base-subtle p-3 text-sm text-content-default">
