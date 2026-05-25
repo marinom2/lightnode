@@ -50,11 +50,17 @@ if [ "$OS" = "Darwin" ] && ! have brew; then echo "⛔ Install Homebrew first: h
 
 if have docker; then echo "✓ Docker already installed"; else
   echo "▶ installing Docker"
-  if [ "$OS" = "Darwin" ]; then brew install --cask docker && open -a Docker || true; else curl -fsSL https://get.docker.com | sh; fi
+  if [ "$OS" = "Darwin" ]; then brew install --cask docker; else curl -fsSL https://get.docker.com | sh; fi
 fi
-echo "… waiting for the Docker engine"
-for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done
-docker info >/dev/null 2>&1 || { echo "⛔ Docker is installed but not running — start Docker Desktop and re-run"; exit 1; }
+if ! docker info >/dev/null 2>&1; then
+  echo "▶ starting the Docker engine"
+  if [ "$OS" = "Darwin" ]; then open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true;
+  else sudo systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || true; fi
+fi
+echo "… waiting for the Docker engine to be ready (this can take a minute on first launch)"
+for _ in $(seq 1 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
+docker info >/dev/null 2>&1 || { echo "⛔ Docker engine didn't come up automatically — open Docker Desktop once, then re-run"; exit 1; }
+echo "✓ Docker engine ready"
 
 if have ollama; then echo "✓ Ollama already installed"; else
   echo "▶ installing Ollama"
@@ -65,14 +71,8 @@ if have cast; then echo "✓ Foundry already installed"; else
   echo "▶ installing Foundry"; curl -L https://foundry.paradigm.xyz | bash; export PATH="$HOME/.foundry/bin:$PATH"; foundryup
 fi`;
 
-/**
- * Smart, idempotent install command for the desktop shell. Installs only the
- * prerequisites that are missing, skips the model pull if already present, and
- * short-circuits if the worker container is already running. Reads
- * WORKER_PASSWORD and FUNDER_PRIVKEY from the process env (passed securely by the
- * app, never in this string). Unix (bash) only - gated to macOS/Linux.
- */
-export function desktopInstallCommand(network: NetworkId, model: string = DEFAULT_MODEL): string {
+/** Smart, idempotent install for macOS + Linux (bash). */
+function unixInstall(network: NetworkId, model: string): string {
   return [
     "set -e",
     SMART_PREREQS,
@@ -88,6 +88,48 @@ export function desktopInstallCommand(network: NetworkId, model: string = DEFAUL
     `for p in ${PHASES}; do echo "▶ phase $p"; bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
     'echo "✅ worker online"',
   ].join("\n");
+}
+
+/** Smart, idempotent install for Windows (PowerShell). Auto-starts Docker
+ *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
+function windowsInstall(network: NetworkId, model: string): string {
+  const phases = PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
+  return `$ErrorActionPreference = "Stop"
+function Have($c){ $null -ne (Get-Command $c -ErrorAction SilentlyContinue) }
+function DockerUp { docker info *> $null; return ($LASTEXITCODE -eq 0) }
+
+if (Have docker) { Write-Host "✓ Docker already installed" } else { Write-Host "▶ installing Docker"; winget install --id Docker.DockerDesktop -e --silent --accept-package-agreements --accept-source-agreements }
+if (-not (DockerUp)) {
+  Write-Host "▶ starting the Docker engine"
+  $dd = Join-Path $env:ProgramFiles "Docker\\Docker\\Docker Desktop.exe"
+  if (Test-Path $dd) { Start-Process $dd }
+}
+Write-Host "… waiting for the Docker engine to be ready (this can take a minute on first launch)"
+for ($i=0; $i -lt 90; $i++){ if (DockerUp) { break }; Start-Sleep 2 }
+if (-not (DockerUp)) { Write-Host "⛔ Docker engine didn't come up automatically — open Docker Desktop once, then re-run"; exit 1 }
+Write-Host "✓ Docker engine ready"
+
+if (Have ollama) { Write-Host "✓ Ollama already installed" } else { Write-Host "▶ installing Ollama"; winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements }
+if (Have cast) { Write-Host "✓ Foundry already installed" } else { Write-Host "▶ installing Foundry"; Invoke-RestMethod https://foundry.paradigm.xyz | Invoke-Expression; foundryup }
+
+if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present — updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
+Set-Location lightchain-worker-toolkit\\scripts\\powershell
+if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
+$env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
+
+if ((docker ps --format "{{.Names}}") -match "^lightchain-worker$") { Write-Host "✓ worker already running — nothing to reinstall"; Write-Host "✅ worker online"; exit 0 }
+foreach ($p in @('${phases}')) { Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
+Write-Host "✅ worker online"`;
+}
+
+/**
+ * Smart, idempotent install command for the desktop shell, per OS. Installs only
+ * missing prerequisites (auto-starting Docker), skips the model pull if present,
+ * and short-circuits if the worker is already running. Reads WORKER_PASSWORD and
+ * FUNDER_PRIVKEY from the process env (passed securely by the app, never here).
+ */
+export function desktopInstallCommand(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): string {
+  return os === "windows" ? windowsInstall(network, model) : unixInstall(network, model);
 }
 
 export function generateSetup(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): ScriptBundle {

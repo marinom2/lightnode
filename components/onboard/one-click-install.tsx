@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
-import { desktopInstallCommand } from "@/lib/scriptgen";
+import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
+import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 
 type Phase = "idle" | "running" | "done" | "failed";
@@ -233,6 +234,7 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
 export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   const { network } = useNetwork();
   const [desktop, setDesktop] = useState(false);
+  const [os, setOs] = useState<OS>("macos");
   const [pw, setPw] = useState("");
   const [funderKey, setFunderKey] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -241,6 +243,10 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDesktop(isDesktop()), []);
+  useEffect(() => {
+    const d = detectClientOS();
+    setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
+  }, []);
   useEffect(() => () => stopRef.current?.(), []);
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
@@ -268,7 +274,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     setPhase("running");
     setLog([]);
     stopRef.current = await runSetupStreamed(
-      desktopInstallCommand(network, model),
+      desktopInstallCommand(os, network, model),
       { WORKER_PASSWORD: pw, FUNDER_PRIVKEY: funderKey, NETWORK: network, SUPPORTED_MODELS: model },
       (line) => setLog((l) => [...l, line]),
       (code) => {
