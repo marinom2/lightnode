@@ -43,22 +43,48 @@ function bootstrap(os: OS, network: NetworkId, model: string): string {
   );
 }
 
+/** Idempotent prerequisite checks: install a tool only when it's missing. */
+const SMART_PREREQS = `have(){ command -v "$1" >/dev/null 2>&1; }
+OS="$(uname -s)"
+if [ "$OS" = "Darwin" ] && ! have brew; then echo "⛔ Install Homebrew first: https://brew.sh"; exit 1; fi
+
+if have docker; then echo "✓ Docker already installed"; else
+  echo "▶ installing Docker"
+  if [ "$OS" = "Darwin" ]; then brew install --cask docker && open -a Docker || true; else curl -fsSL https://get.docker.com | sh; fi
+fi
+echo "… waiting for the Docker engine"
+for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done
+docker info >/dev/null 2>&1 || { echo "⛔ Docker is installed but not running — start Docker Desktop and re-run"; exit 1; }
+
+if have ollama; then echo "✓ Ollama already installed"; else
+  echo "▶ installing Ollama"
+  if [ "$OS" = "Darwin" ]; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi
+fi
+
+if have cast; then echo "✓ Foundry already installed"; else
+  echo "▶ installing Foundry"; curl -L https://foundry.paradigm.xyz | bash; export PATH="$HOME/.foundry/bin:$PATH"; foundryup
+fi`;
+
 /**
- * Non-interactive install command for the desktop shell. Reads WORKER_PASSWORD
- * and FUNDER_PRIVKEY from the process env (the app passes them securely, never
- * in this string), writes the toolkit's secrets.env, and runs all 9 phases.
- * Unix (bash) only - the desktop one-click is gated to macOS/Linux for now.
+ * Smart, idempotent install command for the desktop shell. Installs only the
+ * prerequisites that are missing, skips the model pull if already present, and
+ * short-circuits if the worker container is already running. Reads
+ * WORKER_PASSWORD and FUNDER_PRIVKEY from the process env (passed securely by the
+ * app, never in this string). Unix (bash) only - gated to macOS/Linux.
  */
 export function desktopInstallCommand(network: NetworkId, model: string = DEFAULT_MODEL): string {
   return [
     "set -e",
-    `[ -d lightchain-worker-toolkit ] || git clone ${TOOLKIT}.git`,
+    SMART_PREREQS,
+    `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
+    `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
     "cp -n secrets.example.sh secrets.env",
     'sed -i.bak "s|WORKER_PASSWORD=.*|WORKER_PASSWORD=\\"$WORKER_PASSWORD\\"|" secrets.env',
     'sed -i.bak "s|FUNDER_PRIVKEY=.*|FUNDER_PRIVKEY=\\"$FUNDER_PRIVKEY\\"|" secrets.env',
     "rm -f secrets.env.bak",
     `export NETWORK=${network} SUPPORTED_MODELS=${model}`,
+    `if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^lightchain-worker$'; then echo "✓ worker already running — nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
     `for p in ${PHASES}; do echo "▶ phase $p"; bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
     'echo "✅ worker online"',
   ].join("\n");

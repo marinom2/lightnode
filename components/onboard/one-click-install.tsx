@@ -157,6 +157,10 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
           <p className="flex items-start gap-1.5 text-[11px] text-warning">
             <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key - it holds your stake until the worker is funded.
           </p>
+          <p className="text-[11px] text-content-soft">
+            Send <span className="font-medium text-content-primary">{net.fundLcai.toLocaleString()} LCAI</span> to this address from any wallet (the
+            balance updates automatically), or use the button below and approve in your wallet.
+          </p>
 
           <div className="flex items-center justify-between border-t border-bdr-light pt-2">
             <span>Balance: <span className="font-medium text-content-primary">{bal ? Number(formatEther(bal.value)).toLocaleString() : "0"} LCAI</span></span>
