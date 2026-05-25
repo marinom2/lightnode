@@ -8,6 +8,7 @@ import {
 import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { parseEther, formatEther } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { useNetwork } from "@/lib/network-context";
@@ -42,6 +43,20 @@ function CopyBtn({ value }: { value: string }) {
       {done ? <Check className="size-3 text-success" /> : <Copy className="size-3" />} {done ? "Copied" : "Copy"}
     </button>
   );
+}
+
+/** QR of an EIP-681 payment URI - scanning it in a mobile wallet prefills the
+ *  recipient, amount and chain for a one-tap native transfer. */
+function FundingQr({ uri }: { uri: string }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    QRCode.toDataURL(uri, { margin: 1, width: 168, color: { dark: "#0b0b14", light: "#ffffff" } })
+      .then(setSrc)
+      .catch(() => setSrc(""));
+  }, [uri]);
+  if (!src) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="Scan to fund" width={84} height={84} className="rounded-md" />;
 }
 
 function PasswordField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -157,10 +172,14 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
           <p className="flex items-start gap-1.5 text-[11px] text-warning">
             <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key - it holds your stake until the worker is funded.
           </p>
-          <p className="text-[11px] text-content-soft">
-            Send <span className="font-medium text-content-primary">{net.fundLcai.toLocaleString()} LCAI</span> to this address from any wallet (the
-            balance updates automatically), or use the button below and approve in your wallet.
-          </p>
+          <div className="flex items-center gap-3 rounded-lg border border-bdr-light bg-card/40 p-2.5">
+            {genAddr && <FundingQr uri={`ethereum:${genAddr}@${net.chainId}?value=${need.toString()}`} />}
+            <p className="text-[11px] text-content-soft">
+              <span className="font-medium text-content-primary">Scan with your phone wallet</span> to send{" "}
+              {net.fundLcai.toLocaleString()} LCAI - recipient, amount and network are prefilled. The balance updates
+              automatically. (Or use the button below and approve in your wallet.)
+            </p>
+          </div>
 
           <div className="flex items-center justify-between border-t border-bdr-light pt-2">
             <span>Balance: <span className="font-medium text-content-primary">{bal ? Number(formatEther(bal.value)).toLocaleString() : "0"} LCAI</span></span>
