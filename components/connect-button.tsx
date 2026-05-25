@@ -1,9 +1,11 @@
 "use client";
 
 import { useAppKit, useAppKitAccount, useAppKitNetwork } from "@reown/appkit/react";
-import { Wallet, AlertTriangle, ChevronDown } from "lucide-react";
+import { useSwitchChain } from "wagmi";
+import { Wallet, AlertTriangle, ChevronDown, Loader2 } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { NETWORKS } from "@/lib/network";
+import { useNetwork } from "@/lib/network-context";
 import { shortAddr } from "@/lib/utils";
 
 const SUPPORTED = new Set<number>([NETWORKS.mainnet.chainId, NETWORKS.testnet.chainId]);
@@ -20,6 +22,8 @@ export function ConnectButton({ size = "default" }: { size?: ButtonProps["size"]
   const { open } = useAppKit();
   const { isConnected, address } = useAppKitAccount();
   const { chainId } = useAppKitNetwork();
+  const { switchChain, isPending } = useSwitchChain();
+  const { network } = useNetwork();
 
   if (!isConnected) {
     return (
@@ -30,9 +34,16 @@ export function ConnectButton({ size = "default" }: { size?: ButtonProps["size"]
   }
 
   if (chainId !== undefined && !SUPPORTED.has(Number(chainId))) {
+    const target = NETWORKS[network];
     return (
-      <Button variant="destructive" size={size} onClick={() => open({ view: "Networks" })}>
-        <AlertTriangle /> Wrong network
+      <Button
+        variant="destructive"
+        size={size}
+        disabled={isPending}
+        onClick={() => switchChain({ chainId: target.chainId })}
+      >
+        {isPending ? <Loader2 className="animate-spin" /> : <AlertTriangle />}
+        {isPending ? "Switching…" : `Switch to ${target.label}`}
       </Button>
     );
   }

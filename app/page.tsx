@@ -18,6 +18,7 @@ import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
 import { HeroPreview } from "@/components/hero-preview";
 import { DownloadDesktop } from "@/components/download-desktop";
+import { HardwareRequirements } from "@/components/hardware-requirements";
 import { IconChip } from "@/components/ui/icon-chip";
 import { StakeAmount } from "@/components/stake-amount";
 import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
@@ -61,20 +62,23 @@ export default function Home() {
           </Link>
         </div>
 
-        {/* worker rig hero device, floating above the live dashboard */}
-        <div className="relative mx-auto mt-12 w-fit">
-          <div className="pointer-events-none absolute left-1/2 top-[46%] -z-10 size-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/25 blur-[90px]" />
+        {/* worker rig hero device, lit from within the page and melting into the bg */}
+        <div className="relative mx-auto mt-10 w-fit">
+          {/* soft overhead light beam */}
+          <div className="pointer-events-none absolute -top-16 left-1/2 -z-10 h-64 w-[220px] -translate-x-1/2 bg-[linear-gradient(to_bottom,rgba(168,150,255,0.22),transparent_75%)] blur-2xl [clip-path:polygon(38%_0,62%_0,100%_100%,0_100%)]" />
+          <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 size-[440px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(112,100,233,0.32),transparent_62%)] blur-2xl" />
+          <div className="pointer-events-none absolute bottom-1 left-1/2 -z-10 h-20 w-[300px] -translate-x-1/2 translate-y-1/2 rounded-[50%] bg-primary/20 blur-2xl" />
           <Image
             src="/images/rn-hero-device.png"
             alt="LightChain worker rig powering AI inference"
             width={360}
             height={346}
             priority
-            className="mx-auto w-[200px] drop-shadow-[0_24px_70px_rgba(112,100,233,0.45)] sm:w-[260px] md:w-[300px]"
+            className="mx-auto w-[200px] drop-shadow-[0_30px_55px_rgba(112,100,233,0.3)] [mask-image:linear-gradient(to_bottom,#000_80%,transparent_100%)] sm:w-[260px] md:w-[300px]"
           />
         </div>
 
-        <div className="-mt-2">
+        <div className="-mt-4">
           <HeroPreview />
         </div>
 
@@ -153,6 +157,9 @@ export default function Home() {
           <ModelsPanel compactHeader />
         </Card>
       </section>
+
+      {/* HARDWARE REQUIREMENTS */}
+      <HardwareRequirements />
 
       {/* ROLE CARDS */}
       <section className="mx-auto max-w-6xl px-5 py-10">
