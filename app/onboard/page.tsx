@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ConnectButton } from "@/components/connect-button";
+import { IconChip } from "@/components/ui/icon-chip";
 import { MachineCheck } from "@/components/onboard/machine-check";
 import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NetworkHealth } from "@/components/network-health";
@@ -165,7 +166,7 @@ export default function OnboardPage() {
             {!desktop && (
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/10 p-3 text-xs text-content-default">
                 <span className="flex items-start gap-2.5">
-                  <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <IconChip icon={Rocket} size="sm" className="shrink-0" />
                   <span>
                     <span className="font-medium text-content-primary">Want truly zero commands?</span> The LightNode
                     desktop app auto-detects hardware and installs + runs with a single button. On the web, use the one

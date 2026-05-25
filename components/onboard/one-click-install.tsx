@@ -5,10 +5,11 @@ import {
   Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download,
   Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle,
 } from "lucide-react";
-import { useAccount, useChainId, useBalance, useSendTransaction } from "wagmi";
+import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { parseEther, formatEther } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { Button } from "@/components/ui/button";
+import { IconChip } from "@/components/ui/icon-chip";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand } from "@/lib/scriptgen";
@@ -96,9 +97,11 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
   const onChain = chainId === net.chainId;
   const genAddr = genKey ? privateKeyToAccount(genKey as `0x${string}`).address : undefined;
   const { data: bal } = useBalance({ address: genAddr, chainId: net.chainId, query: { enabled: !!genAddr, refetchInterval: 5000 } });
-  const { sendTransaction, isPending } = useSendTransaction();
+  const { sendTransaction, isPending, error: sendError, data: hash } = useSendTransaction();
+  const { isLoading: confirming } = useWaitForTransactionReceipt({ hash, chainId: net.chainId, query: { enabled: !!hash } });
 
   const funded = !!bal && bal.value >= need;
+  const errMsg = sendError ? sendError.message.split("\n")[0].slice(0, 140) : null;
 
   useEffect(() => {
     if (mode === "wallet") onReady(genKey && funded ? genKey : null);
@@ -160,13 +163,23 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
             {funded ? (
               <span className="inline-flex items-center gap-1 font-medium text-success"><CheckCircle2 className="size-3.5" /> Funded</span>
             ) : isConnected && onChain ? (
-              <Button size="sm" variant="outline" disabled={isPending} onClick={() => genAddr && sendTransaction({ to: genAddr, value: need })}>
-                {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Fund {net.fundLcai.toLocaleString()} from wallet
+              <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={() => genAddr && sendTransaction({ to: genAddr, value: need, chainId: net.chainId })}>
+                {isPending || confirming ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Fund {net.fundLcai.toLocaleString()} from wallet
               </Button>
             ) : (
               <span className="text-warning">{isConnected ? `Switch to ${net.label}` : "Connect wallet to fund"}</span>
             )}
           </div>
+          {isPending && !funded && (
+            <p className="text-[11px] text-warning">Approve the transfer in your wallet - on mobile, open the MetaMask app to see the request.</p>
+          )}
+          {hash && !funded && (
+            <p className="text-[11px] text-content-soft">
+              Sent - confirming on-chain…{" "}
+              <a href={`${net.explorer}/tx/${hash}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">view</a>
+            </p>
+          )}
+          {errMsg && <p className="text-[11px] text-destructive">{errMsg}</p>}
         </div>
       )}
     </div>
@@ -196,7 +209,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4">
         <div className="flex items-start gap-2.5 text-sm text-content-soft">
-          <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
+          <IconChip icon={Rocket} size="sm" className="shrink-0" />
           <span>
             <span className="font-medium text-content-primary">Want true one-click?</span> The desktop app installs &amp;
             runs everything with a single button. On the web, use the one command below.
@@ -229,8 +242,8 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
   return (
     <div className="rounded-xl border border-primary/25 bg-primary/5 p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <Rocket className="size-4 text-primary" />
+      <div className="mb-3 flex items-center gap-2.5">
+        <IconChip icon={Rocket} size="sm" />
         <span className="text-sm font-semibold text-content-primary">One-click install (desktop)</span>
       </div>
 
