@@ -15,6 +15,7 @@ import { VerifyWorker } from "@/components/onboard/verify-worker";
 import { OneClickInstall } from "@/components/onboard/one-click-install";
 import { NETWORKS, DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
+import { isDesktop } from "@/lib/tauri";
 import type { OS } from "@/lib/scriptgen";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,8 @@ export default function OnboardPage() {
   const [ackRisk, setAckRisk] = useState(false);
   const [os, setOS] = useState<OS>("linux");
   const [avgJobs, setAvgJobs] = useState(0);
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => setDesktop(isDesktop()), []);
 
   useEffect(() => {
     fetch(`/api/network?net=${network}`)
@@ -150,23 +153,47 @@ export default function OnboardPage() {
 
         {step === 2 && (
           <div>
-            <h2 className="mb-1 text-xl font-semibold text-content-primary">One command to set it all up</h2>
+            <h2 className="mb-1 text-xl font-semibold text-content-primary">
+              {desktop ? "Install & run your worker" : "One command to set it all up"}
+            </h2>
             <p className="mb-5 text-sm text-content-soft">
-              Tailored to your OS &amp; chosen model - clones, configures, and runs everything. It only asks for a
-              password and your funder key.
+              {desktop
+                ? "One click. We generate your worker keys, fund + stake from your connected wallet, then start the node and keep it alive."
+                : "Tailored to your OS & chosen model - clones, configures, and runs everything. It only asks for a password and your funder key."}
             </p>
-            <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-primary/25 bg-primary/10 p-3 text-xs text-content-default">
-              <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
-              <span>
-                <span className="font-medium text-content-primary">Want truly zero commands?</span> A one-click LightNode
-                desktop app (auto-detects hardware, installs &amp; runs with a single button) is on the roadmap - it&apos;s the
-                only way a non-terminal install is technically possible. For now, this is one paste.
-              </span>
-            </div>
+
+            {!desktop && (
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/10 p-3 text-xs text-content-default">
+                <span className="flex items-start gap-2.5">
+                  <Rocket className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <span>
+                    <span className="font-medium text-content-primary">Want truly zero commands?</span> The LightNode
+                    desktop app auto-detects hardware and installs + runs with a single button. On the web, use the one
+                    command below.
+                  </span>
+                </span>
+                <a href="https://github.com/marinom2/lightnode/releases/latest" target="_blank" rel="noreferrer" className="shrink-0">
+                  <Button variant="outline" size="sm">Get the desktop app</Button>
+                </a>
+              </div>
+            )}
+
             <div className="mb-6">
               <OneClickInstall />
             </div>
-            <SetupGuide defaultOS={os} />
+
+            {desktop ? (
+              <details className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
+                <summary className="cursor-pointer text-sm font-medium text-content-soft hover:text-content-primary">
+                  Prefer to run it yourself? Manual / advanced install
+                </summary>
+                <div className="mt-4">
+                  <SetupGuide defaultOS={os} />
+                </div>
+              </details>
+            ) : (
+              <SetupGuide defaultOS={os} />
+            )}
           </div>
         )}
 
