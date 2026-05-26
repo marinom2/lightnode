@@ -73,8 +73,17 @@ if have ollama; then echo "✓ Ollama already installed"; else
 fi
 
 if have cast; then echo "✓ Foundry already installed"; else
-  echo "▶ installing Foundry"; curl -L https://foundry.paradigm.xyz | bash; export PATH="$HOME/.foundry/bin:$PATH"; foundryup
-fi`;
+  echo "▶ installing Foundry"
+  # foundryup installs the binaries fine but can return non-zero (e.g. libusb
+  # warning); tolerate its exit code and verify 'cast' afterward instead.
+  curl -L https://foundry.paradigm.xyz | bash || true
+  export PATH="$HOME/.foundry/bin:$PATH"
+  foundryup || true
+fi
+export PATH="$HOME/.foundry/bin:$PATH"
+hash -r 2>/dev/null || true
+have cast || { echo "⛔ Foundry installed but 'cast' isn't on PATH yet — fully quit and reopen LightNode, then run again."; exit 1; }
+echo "✓ Foundry (cast) ready"`;
 
 /** Smart, idempotent install for macOS + Linux (bash). The app passes the
  *  WORKER key + password via env; we fund the worker directly from the user's
