@@ -223,6 +223,37 @@ export function desktopInstallCommand(os: OS, network: NetworkId, model: string 
   return os === "windows" ? windowsInstall(network, model) : unixInstall(network, model);
 }
 
+/**
+ * Repair an already-installed worker without the UI needing its key: stop the
+ * (possibly crash-looping) container, clear a stale session store, restart it.
+ * The container keeps its baked-in keystore + password, so no re-stake.
+ */
+export function repairWorkerCommand(os: OS): string {
+  if (os === "windows") {
+    return `$ErrorActionPreference = "Stop"
+Write-Host "▶ repairing lightchain-worker"
+if (-not ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$")) { Write-Host "⛔ No lightchain-worker container found — install one first."; exit 1 }
+docker stop lightchain-worker *> $null
+$sess = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\session-keys.enc"
+if (Test-Path $sess) { Move-Item $sess "$sess.bak-$((Get-Date).Ticks)"; Write-Host "✓ cleared stale session store" }
+docker start lightchain-worker
+Write-Host "✓ worker restarted — give it ~1 min, then check the dashboard"
+docker logs --tail 20 lightchain-worker`;
+  }
+  return [
+    "exec 2>&1",
+    'echo "▶ repairing lightchain-worker"',
+    `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No lightchain-worker container found — install one first."; exit 1; fi`,
+    "docker stop lightchain-worker >/dev/null 2>&1 || true",
+    'SESS="$HOME/lightchain-worker/keys/session-keys.enc"',
+    '[ -f "$SESS" ] && mv "$SESS" "${SESS}.bak-$(date +%s)" && echo "✓ cleared stale session store"',
+    "docker start lightchain-worker",
+    'echo "✓ worker restarted — watching for connection (up to ~60s)"',
+    'for _ in $(seq 1 30); do if docker logs --since 20s lightchain-worker 2>&1 | grep -qiE "websocket connected|gateway auth"; then echo "✅ worker connected — should go Live on the dashboard"; break; fi; sleep 2; done',
+    "docker logs --tail 15 lightchain-worker 2>&1",
+  ].join("\n");
+}
+
 export function generateSetup(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): ScriptBundle {
   const net = NETWORKS[network];
   const fund = net.fundLcai;

@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
+import { repairWorkerCommand, type OS } from "@/lib/scriptgen";
+import { detectClientOS } from "@/lib/os-detect";
 import { cn } from "@/lib/utils";
 
 function CopyCommand({ value }: { value: string }) {
@@ -60,7 +62,7 @@ type Op = {
 
 const OPS: Op[] = [
   { key: "status", label: "Status", desc: "Stake, model, on-chain health", icon: Activity, cmd: () => `${TK} && bash status.sh` },
-  { key: "restart", label: "Restart", desc: "Recover a stalled worker", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
+  { key: "restart", label: "Restart", desc: "Recover a stalled worker (clears stale session, restarts)", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
   { key: "stop", label: "Stop", desc: "Stop the worker (stake stays staked)", icon: Square, cmd: () => `${TK} && bash stop.sh` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
   {
@@ -85,6 +87,7 @@ const OPS: Op[] = [
 
 export function OperationsPanel() {
   const [desktop, setDesktop] = useState(false);
+  const [os, setOs] = useState<OS>("macos");
   const [active, setActive] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [dest, setDest] = useState("");
@@ -92,6 +95,12 @@ export function OperationsPanel() {
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDesktop(isDesktop()), []);
+  useEffect(() => {
+    const d = detectClientOS();
+    setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
+  }, []);
+  // Restart runs the full repair (stop + clear stale session store + start), not a bare docker restart.
+  const cmdFor = (op: Op) => (op.key === "restart" ? repairWorkerCommand(os) : op.cmd(dest));
   useEffect(() => () => stopRef.current?.(), []);
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
@@ -102,7 +111,7 @@ export function OperationsPanel() {
     setActive(op.key);
     setLog([`$ ${op.label.toLowerCase()}...`]);
     stopRef.current = await runSetupStreamed(
-      op.cmd(dest),
+      cmdFor(op),
       {},
       (line) => setLog((l) => [...l, line]),
       (code) => setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]),
@@ -184,7 +193,7 @@ export function OperationsPanel() {
                 {op.label}
               </Button>
             ) : (
-              <CopyCommand value={op.cmd(dest)} />
+              <CopyCommand value={cmdFor(op)} />
             )}
           </div>
         ))}
