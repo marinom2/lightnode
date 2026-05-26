@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.6";
+const INSTALLER_REV = "2026-05-26.7";
 
 export interface ScriptBundle {
   os: OS;
@@ -130,6 +130,13 @@ function unixInstall(network: NetworkId, model: string): string {
     'WADDR="$(printf "%s" "$WORKER_ADDR" | sed "s/^0x//" | tr "A-Z" "a-z")"',
     'SKIP_IMPORT=0',
     'if [ -d "$KS" ] && [ -n "$(ls -A "$KS" 2>/dev/null)" ]; then if ls "$KS" | grep -qi "$WADDR"; then echo "✓ worker key already imported — skipping import"; SKIP_IMPORT=1; else echo "▶ backing up a previous worker keystore (not deleting)"; mv "$KS" "${KS}.bak-$(date +%s)"; fi; fi',
+    // The ECDH key (worker-encryption.key) is encrypted with the worker password.
+    // A leftover from a different worker can't be decrypted with this password, so
+    // back it up (via a marker recording which worker owns this keys dir) and let
+    // phase 05 regenerate it for the current worker.
+    'ENCKEY="$(dirname "$KS")/worker-encryption.key"; MARKER="$(dirname "$KS")/.lightnode-worker"',
+    'if [ -f "$ENCKEY" ] && [ "$(cat "$MARKER" 2>/dev/null)" != "$WADDR" ]; then echo "▶ ECDH key is from a different/old worker — backing it up so it regenerates"; mv "$ENCKEY" "${ENCKEY}.bak-$(date +%s)"; fi',
+    'mkdir -p "$(dirname "$MARKER")"; echo "$WADDR" > "$MARKER"',
     // The toolkit uses bash 4+ syntax (e.g. ${var,,}); macOS ships bash 3.2. Run
     // the phases with a modern bash (install via brew if the system one is old).
     'if bash -c "declare -A _t" 2>/dev/null; then RUNBASH=bash; else echo "▶ system bash is too old for the toolkit — installing bash 4+ via brew"; brew install bash >/dev/null 2>&1 || true; RUNBASH="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
@@ -186,6 +193,14 @@ if ((Test-Path $ks) -and (Get-ChildItem $ks -ErrorAction SilentlyContinue)) {
   if (Get-ChildItem $ks | Where-Object { $_.Name.ToLower().Contains($waddr) }) { Write-Host "✓ worker key already imported — skipping import"; $skipImport = $true }
   else { Write-Host "▶ backing up a previous worker keystore (not deleting)"; Move-Item $ks "$ks.bak-$((Get-Date).Ticks)" }
 }
+# Stale ECDH key (different worker / old password) → back up so phase 05 regenerates.
+$keysDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys"
+$enc = Join-Path $keysDir "worker-encryption.key"
+$marker = Join-Path $keysDir ".lightnode-worker"
+$waddr = ($env:WORKER_ADDR -replace '^0x','').ToLower()
+if ((Test-Path $enc) -and ((Get-Content $marker -ErrorAction SilentlyContinue) -ne $waddr)) { Write-Host "▶ ECDH key is from a different/old worker — backing it up"; Move-Item $enc "$enc.bak-$((Get-Date).Ticks)" }
+New-Item -ItemType Directory -Force -Path $keysDir | Out-Null
+Set-Content -Path $marker -Value $waddr
 $env:FORCE = "1"
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped — key present)"; continue }; Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
 Write-Host "✅ worker online"`;
