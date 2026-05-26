@@ -19,17 +19,18 @@ import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
 import { DEFAULT_MODEL } from "@/lib/network";
 import type { Worker, Job } from "@/lib/subgraph";
 
-type Health = "live" | "stale" | "down";
+type Health = "live" | "down";
 
+// The subgraph's last_seen_at is NOT a real-time heartbeat — it tracks last
+// on-chain activity, so even busy workers (200+ jobs) read "stale" for long
+// stretches. So health is based on the reliable signal: on-chain status. Use
+// Operations → Status to confirm the container's websocket is connected.
 export function healthOf(w: Worker): Health {
-  if (w.status !== "active") return "down";
-  if (!w.last_seen_at) return "down";
-  return Math.floor(Date.now() / 1000) - w.last_seen_at < 20 * 60 ? "live" : "stale";
+  return w.status === "active" ? "live" : "down";
 }
 
 const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: string; hint: string }> = {
-  live: { tone: "success", label: "Live", hint: "Heartbeat fresh - serving jobs." },
-  stale: { tone: "warning", label: "Stale heartbeat", hint: "Active on-chain but no recent heartbeat. Check the container / watchdog." },
+  live: { tone: "success", label: "Active", hint: "Registered & staked on-chain. Confirm the container is connected via Operations → Status." },
   down: { tone: "danger", label: "Offline", hint: "Not active. Deregistered, deactivated, or never started." },
 };
 
@@ -99,7 +100,7 @@ export function WorkerView({
     { icon: CheckCircle2, label: "Jobs completed", value: fmt(worker.jobs_completed ?? 0, 0), tone: "text-content-primary" },
     { icon: Coins, label: "LCAI earned", value: fmt(earned, 3), tone: "text-success" },
     { icon: ShieldCheck, label: "Stake (LCAI)", value: compact(stake), tone: "text-content-primary" },
-    { icon: Clock, label: "Last seen", value: timeAgo(worker.last_seen_at), tone: h === "live" ? "text-success" : "text-warning" },
+    { icon: Clock, label: "Last on-chain activity", value: timeAgo(worker.last_seen_at), tone: "text-content-primary" },
   ];
 
   return (
@@ -107,7 +108,7 @@ export function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={cn("dot", h === "live" ? "dot-live" : h === "stale" ? "dot-warn" : "dot-down")} />
+            <span className={cn("dot", h === "live" ? "dot-live" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {(worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
