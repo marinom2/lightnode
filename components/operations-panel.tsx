@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, toolkitOpCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { cn } from "@/lib/utils";
 
@@ -97,8 +97,15 @@ export function OperationsPanel() {
     const d = detectClientOS();
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
   }, []);
+  // Docker-based ops: status/restart/stop/tail. (Sweep/Deregister are on-chain
+  // cast scripts run via the toolkit, not docker.)
+  const DOCKER_OPS = new Set(["status", "restart", "stop", "tail"]);
   // Restart runs the full repair (stop + clear stale session store + start), not a bare docker restart.
-  const cmdFor = (op: Op) => (op.key === "restart" ? repairWorkerCommand(os) : op.cmd(dest));
+  const baseCmd = (op: Op) => (op.key === "restart" ? repairWorkerCommand(os) : op.cmd(dest));
+  // Desktop execution wraps docker ops so they survive the launched-app
+  // environment (PATH + reachable socket + auto-start Docker). The copy-to-clipboard
+  // path stays raw - the user's own terminal already has Docker on PATH.
+  const runCmd = (op: Op) => (DOCKER_OPS.has(op.key) ? dockerOpCommand(baseCmd(op), os) : baseCmd(op));
   useEffect(() => () => stopRef.current?.(), []);
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
@@ -109,7 +116,7 @@ export function OperationsPanel() {
     setActive(op.key);
     setLog([`$ ${op.label.toLowerCase()}...`]);
     stopRef.current = await runSetupStreamed(
-      cmdFor(op),
+      runCmd(op),
       {},
       (line) => setLog((l) => [...l, line]),
       (code) => setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]),
@@ -191,7 +198,7 @@ export function OperationsPanel() {
                 {op.label}
               </Button>
             ) : (
-              <CopyCommand value={cmdFor(op)} />
+              <CopyCommand value={baseCmd(op)} />
             )}
           </div>
         ))}

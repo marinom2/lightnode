@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { generateSetup, desktopInstallCommand } from "@/lib/scriptgen";
+import { generateSetup, desktopInstallCommand, dockerOpCommand } from "@/lib/scriptgen";
+
+describe("dockerOpCommand", () => {
+  const wrapped = dockerOpCommand("docker ps -a --filter name=lightchain-worker", "macos");
+  it("keeps the original command", () => {
+    expect(wrapped).toContain("docker ps -a --filter name=lightchain-worker");
+  });
+  it("hardens PATH and probes a reachable docker socket before running", () => {
+    expect(wrapped).toContain("/usr/local/bin");
+    expect(wrapped).toContain(".docker/run/docker.sock");
+    expect(wrapped).toContain("DOCKER_HOST=");
+  });
+  it("auto-starts Docker Desktop when it is not running", () => {
+    expect(wrapped).toContain("open -a Docker");
+    expect(wrapped).toContain("Cannot reach Docker");
+  });
+  it("uses PowerShell start on windows", () => {
+    const win = dockerOpCommand("docker stop lightchain-worker", "windows");
+    expect(win).toContain("Start-Process");
+    expect(win).toContain("docker stop lightchain-worker");
+  });
+});
 
 describe("generateSetup (default model)", () => {
   const b = generateSetup("linux", "mainnet");

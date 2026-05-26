@@ -237,6 +237,44 @@ export function toolkitOpCommand(script: string, confirm?: string): string {
 }
 
 /**
+ * Shell preamble (unix) that guarantees Docker is reachable from the launched
+ * `.app`. The app runs as a login shell but Docker can still be unreachable for
+ * two reasons we fix here:
+ *   1. wrong/missing socket - the app's environment may resolve the Docker
+ *      context to a socket path it can't connect to ("no such file or
+ *      directory"). We probe the known sockets and pin DOCKER_HOST to the first
+ *      one that actually answers.
+ *   2. Docker not running - the app can be opened before (or after quitting)
+ *      Docker Desktop. We start it and wait, exactly like the installer does.
+ */
+function dockerEnvPreambleUnix(): string {
+  return [
+    "exec 2>&1",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"',
+    'if ! docker info >/dev/null 2>&1; then for s in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock" "$HOME/.colima/default/docker.sock" "$HOME/.rd/docker.sock"; do if [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1; then export DOCKER_HOST="unix://$s"; break; fi; done; fi',
+    'if ! docker info >/dev/null 2>&1; then echo "▶ Docker is not running - starting Docker Desktop..."; open -a Docker 2>/dev/null || true; for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done; fi',
+    'docker info >/dev/null 2>&1 || { echo "⛔ Cannot reach Docker. Open Docker Desktop once, then try again."; exit 1; }',
+  ].join("\n");
+}
+
+/**
+ * Wrap a Docker-based operations command so it runs reliably from the desktop
+ * app (PATH + reachable socket + auto-start). Pass the raw `docker ...` command;
+ * returns it prefixed with the environment preamble for the given OS.
+ */
+export function dockerOpCommand(inner: string, os: OS): string {
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      'docker info *> $null; if (-not $?) { Write-Host "> starting Docker Desktop..."; Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0; $i -lt 45; $i++) { docker info *> $null; if ($?) { break }; Start-Sleep 2 } }',
+      'docker info *> $null; if (-not $?) { Write-Host "Cannot reach Docker. Open Docker Desktop once, then try again."; exit 1 }',
+      inner,
+    ].join("\n");
+  }
+  return [dockerEnvPreambleUnix(), inner].join("\n");
+}
+
+/**
  * Repair an already-installed worker without the UI needing its key: stop the
  * (possibly crash-looping) container, clear a stale session store, restart it.
  * The container keeps its baked-in keystore + password, so no re-stake.
