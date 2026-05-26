@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ModelsPanel } from "@/components/models-panel";
 import { WatchGrid } from "@/components/watch-grid";
 import { OperationsPanel } from "@/components/operations-panel";
+import { WithdrawWorker } from "@/components/withdraw-worker";
 import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
@@ -186,6 +187,10 @@ export default function DashboardPage() {
       <Card className="mt-8 p-6">
         <OperationsPanel />
       </Card>
+
+      <div className="mt-4">
+        <WithdrawWorker />
+      </div>
 
       <Card className="mt-4 p-6">
         <ModelsPanel />

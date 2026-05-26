@@ -192,17 +192,16 @@ export function OperationsPanel() {
       (code) => {
         setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]);
         setActive(null); // clear the tile's loading state once the command finishes
-        // Privacy: once deregistered, the worker no longer exists - wipe its
-        // key/password/address from local storage so no secret lingers.
+        // After deregister the unstaked LCAI is returned to the WORKER wallet,
+        // and only the worker key can move it out - so we must NOT wipe the key
+        // here. Prompt the user to withdraw it first; the key is wiped only
+        // after the Withdraw empties the wallet.
         if (op.key === "dereg" && code === 0) {
-          try {
-            ["lightnode.funderKey", "lightnode.workerPw", "lightnode.workerAddress"].forEach((k) =>
-              window.localStorage.removeItem(k),
-            );
-            setLog((l) => [...l, "✓ local worker key + password wiped from this device"]);
-          } catch {
-            /* storage unavailable */
-          }
+          setLog((l) => [
+            ...l,
+            "✓ deregistered - your stake was returned to the worker wallet.",
+            "→ Use 'Withdraw to my wallet' below to send it out; the local key is wiped only after that.",
+          ]);
         }
       },
     );
