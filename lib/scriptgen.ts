@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.2";
+const INSTALLER_REV = "2026-05-26.3";
 
 export interface ScriptBundle {
   os: OS;
@@ -95,8 +95,11 @@ function unixInstall(network: NetworkId, model: string): string {
   const thr = NETWORKS[network].minStakeLcai + 1; // toolkit's pre-flight guard, per network
   return [
     "set -e",
+    "exec 2>&1", // surface stderr (git clone, cast, etc.) in the streamed log
     `echo "▶ LightNode installer rev ${INSTALLER_REV} (${network})"`,
     SMART_PREREQS,
+    // The app's working dir may be "/" (non-writable). Work in a real home dir.
+    'mkdir -p "$HOME/.lightnode" && cd "$HOME/.lightnode" && echo "✓ workdir: $HOME/.lightnode"',
     `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
@@ -140,6 +143,9 @@ Write-Host "✓ Docker engine ready"
 if (Have ollama) { Write-Host "✓ Ollama already installed" } else { Write-Host "▶ installing Ollama"; winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements }
 if (Have cast) { Write-Host "✓ Foundry already installed" } else { Write-Host "▶ installing Foundry"; Invoke-RestMethod https://foundry.paradigm.xyz | Invoke-Expression; foundryup }
 
+# The app's working dir may not be writable; work in a real home dir.
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-Null
+Set-Location "$env:USERPROFILE\\.lightnode"
 if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present — updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
 Set-Location lightchain-worker-toolkit\\scripts\\powershell
 if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
