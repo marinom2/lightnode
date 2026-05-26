@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAccount } from "wagmi";
 import { Search, Activity, AlertTriangle, RefreshCw, Star } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,9 +15,12 @@ import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
 
 export default function DashboardPage() {
-  const { address } = useAccount();
   const { network } = useNetwork();
   const { saved, add, remove, has } = useSavedWorkers();
+  const [myWorker, setMyWorker] = useState("");
+  useEffect(() => {
+    try { const w = window.localStorage.getItem("lightnode.workerAddress"); if (w) setMyWorker(w); } catch { /* ignore */ }
+  }, []);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
@@ -95,9 +97,9 @@ export default function DashboardPage() {
         <Button type="submit" variant="gradient" disabled={loading}>
           {loading ? <RefreshCw className="animate-spin" /> : <Search />} Look up
         </Button>
-        {address && (
-          <Button type="button" variant="outline" onClick={() => { setInput(address); setQuery(address); }}>
-            Use connected
+        {(myWorker || saved[0]) && (
+          <Button type="button" variant="outline" onClick={() => { const w = myWorker || saved[0]; setInput(w); setQuery(w); }}>
+            My worker
           </Button>
         )}
       </form>

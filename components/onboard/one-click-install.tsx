@@ -16,6 +16,7 @@ import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
+import { useSavedWorkers } from "@/lib/saved-workers";
 
 type Phase = "idle" | "running" | "done" | "failed";
 const PRIVKEY_RE = /^0x[a-fA-F0-9]{64}$/;
@@ -24,6 +25,7 @@ const PRIVKEY_RE = /^0x[a-fA-F0-9]{64}$/;
 // password (which would orphan the stake). Cleared once install succeeds.
 const FUNDER_STORE = "lightnode.funderKey";
 const PW_STORE = "lightnode.workerPw";
+const WORKER_ADDR_STORE = "lightnode.workerAddress"; // public address — lets the dashboard find your worker
 function lsGet(k: string): string {
   try { return window.localStorage.getItem(k) ?? ""; } catch { return ""; }
 }
@@ -122,17 +124,24 @@ function FunderSetup({ network, onReady }: { network: NetworkId; onReady: (key: 
   // Restore a previously-generated key so a reload doesn't orphan its funds.
   useEffect(() => {
     const saved = lsGet(FUNDER_STORE);
-    if (PRIVKEY_RE.test(saved)) setGenKey(saved);
+    if (PRIVKEY_RE.test(saved)) {
+      setGenKey(saved);
+      lsSet(WORKER_ADDR_STORE, privateKeyToAccount(saved as `0x${string}`).address);
+    }
   }, []);
 
   const generate = () => {
     const k = generatePrivateKey();
     setGenKey(k);
     lsSet(FUNDER_STORE, k);
+    const addr = privateKeyToAccount(k).address;
+    lsSet(WORKER_ADDR_STORE, addr); // so the dashboard's "My worker" finds it
+    savedWorkers.add(addr); // add to the watchlist
   };
 
   const { isConnected } = useAccount();
   const chainId = useChainId();
+  const savedWorkers = useSavedWorkers();
   const onChain = chainId === net.chainId;
   const genAddr = genKey ? privateKeyToAccount(genKey as `0x${string}`).address : undefined;
   const { data: bal } = useBalance({ address: genAddr, chainId: net.chainId, query: { enabled: !!genAddr, refetchInterval: 5000 } });
