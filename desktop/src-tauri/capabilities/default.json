@@ -6,5 +6,12 @@
   "remote": {
     "urls": ["https://lightnode.vercel.app", "http://localhost:3000"]
   },
-  "permissions": ["core:default", "allow-detect-hardware", "allow-run-command-streamed"]
+  "permissions": [
+    "core:default",
+    "allow-detect-hardware",
+    "allow-run-command-streamed",
+    "allow-secret-set",
+    "allow-secret-get",
+    "allow-secret-delete"
+  ]
 }

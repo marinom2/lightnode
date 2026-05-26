@@ -86,6 +86,44 @@ export async function detectNativeHardware(): Promise<NativeHardware | null> {
   }
 }
 
+/**
+ * Native OS-keychain secret store (Keychain / Credential Manager / Secret
+ * Service). Only available in the desktop shell - on the web these return
+ * null/false so callers fall back to localStorage.
+ */
+export async function secretSet(name: string, value: string): Promise<boolean> {
+  const invoke = getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke("secret_set", { name, value });
+    return true;
+  } catch (e) {
+    console.error("[tauri] secret_set failed:", e);
+    return false;
+  }
+}
+
+export async function secretGet(name: string): Promise<string | null> {
+  const invoke = getInvoke();
+  if (!invoke) return null;
+  try {
+    return (await invoke<string | null>("secret_get", { name })) ?? null;
+  } catch (e) {
+    console.error("[tauri] secret_get failed:", e);
+    return null;
+  }
+}
+
+export async function secretDelete(name: string): Promise<void> {
+  const invoke = getInvoke();
+  if (!invoke) return;
+  try {
+    await invoke("secret_delete", { name });
+  } catch (e) {
+    console.error("[tauri] secret_delete failed:", e);
+  }
+}
+
 export type LocalContainerStatus = "running" | "stopped" | "missing" | "unknown";
 
 /**
@@ -139,6 +177,7 @@ export async function runSetupStreamed(
   env: Record<string, string>,
   onLog: (line: string) => void,
   onExit: (code: number) => void,
+  secretEnv?: string[],
 ): Promise<() => void> {
   const invoke = getInvoke();
   const events = win()?.__TAURI__?.event;
@@ -148,7 +187,10 @@ export async function runSetupStreamed(
   }
   const un1 = await events.listen("setup-log", (e) => onLog(String(e.payload)));
   const un2 = await events.listen("setup-exit", (e) => onExit(Number(e.payload)));
-  await invoke("run_command_streamed", { command, env });
+  // `secretEnv` is a list of secret NAMES the native side pulls from the
+  // keychain into the child env - so the worker key/password never have to be
+  // passed through (or held by) the web layer.
+  await invoke("run_command_streamed", { command, env, secretEnv: secretEnv ?? null });
   return () => {
     un1();
     un2();

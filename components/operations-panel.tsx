@@ -22,6 +22,7 @@ import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
+import { getSecret, hasNativeSecrets, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { cn } from "@/lib/utils";
 
 function CopyCommand({ value }: { value: string }) {
@@ -171,18 +172,23 @@ export function OperationsPanel() {
     setActive(op.key);
     setLog([`$ ${op.label.toLowerCase()}...`]);
     // Sweep/Deregister are toolkit scripts that sign on-chain with the worker
-    // key - they need it (+ the keystore password + network) in the env, just
-    // like the installer. The app already holds these locally.
+    // key - they need it (+ keystore password + network). On desktop the native
+    // runner injects them straight from the keychain by NAME (the web never
+    // holds the value); on web we fall back to passing them via env.
     const env: Record<string, string> = {};
+    let secretEnv: string[] | undefined;
     if (op.key === "sweep" || op.key === "dereg") {
-      try {
-        const k = window.localStorage.getItem("lightnode.funderKey") || "";
-        const pw = window.localStorage.getItem("lightnode.workerPw") || "";
+      env.NETWORK = network;
+      if (hasNativeSecrets()) {
+        // touch them once so any legacy localStorage secret migrates into the keychain
+        await getSecret(SECRET_WORKER_KEY);
+        await getSecret(SECRET_WORKER_PW);
+        secretEnv = [SECRET_WORKER_KEY, SECRET_WORKER_PW];
+      } else {
+        const k = await getSecret(SECRET_WORKER_KEY);
+        const pw = await getSecret(SECRET_WORKER_PW);
         if (k) env.WORKER_PRIVKEY = k;
         if (pw) env.WORKER_PASSWORD = pw;
-        env.NETWORK = network;
-      } catch {
-        /* storage unavailable */
       }
     }
     stopRef.current = await runSetupStreamed(
@@ -204,6 +210,7 @@ export function OperationsPanel() {
           ]);
         }
       },
+      secretEnv,
     );
   };
 

@@ -9,18 +9,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
+import { getSecret, wipeWorkerSecrets, SECRET_WORKER_KEY } from "@/lib/secrets";
 import { fmt, cn } from "@/lib/utils";
 
 const PRIVKEY_RE = /^0x[a-fA-F0-9]{64}$/;
-const KEY_STORE = "lightnode.funderKey";
-
-function lsGet(k: string): string {
-  try {
-    return window.localStorage.getItem(k) ?? "";
-  } catch {
-    return "";
-  }
-}
 
 /**
  * Send the worker wallet's spendable LCAI to a wallet you control. Signs locally
@@ -44,11 +36,16 @@ export function WithdrawWorker() {
   const [wiped, setWiped] = useState(false);
 
   useEffect(() => {
-    const k = lsGet(KEY_STORE);
-    if (PRIVKEY_RE.test(k)) {
-      setKey(k);
-      setAddr(privateKeyToAccount(k as `0x${string}`).address);
-    }
+    let on = true;
+    getSecret(SECRET_WORKER_KEY).then((k) => {
+      if (on && PRIVKEY_RE.test(k)) {
+        setKey(k);
+        setAddr(privateKeyToAccount(k as `0x${string}`).address);
+      }
+    });
+    return () => {
+      on = false;
+    };
   }, []);
   useEffect(() => {
     if (connected && !dest) setDest(connected);
@@ -107,14 +104,10 @@ export function WithdrawWorker() {
     }
   };
 
-  const wipeKey = () => {
-    try {
-      ["lightnode.funderKey", "lightnode.workerPw", "lightnode.workerAddress"].forEach((k) => window.localStorage.removeItem(k));
-      setWiped(true);
-      setKey("");
-    } catch {
-      /* storage unavailable */
-    }
+  const wipeKey = async () => {
+    await wipeWorkerSecrets();
+    setWiped(true);
+    setKey("");
   };
 
   const nearEmpty = balance !== null && bal < 1_000_000_000_000_000n; // < 0.001 LCAI

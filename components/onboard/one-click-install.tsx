@@ -16,17 +16,17 @@ import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
+import { getSecret, setSecret, hasNativeSecrets, SECRET_WORKER_KEY, SECRET_WORKER_PW, WORKER_ADDR_STORE } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 
 type Phase = "idle" | "running" | "done" | "failed";
 type FundMode = "wallet" | "paste";
 const PRIVKEY_RE = /^0x[a-fA-F0-9]{64}$/;
 
-// Persist in-flight secrets so a reload/redeploy never loses the funded key or
-// password (which would orphan the stake). Cleared once install succeeds.
-const FUNDER_STORE = "lightnode.funderKey";
-const PW_STORE = "lightnode.workerPw";
-const WORKER_ADDR_STORE = "lightnode.workerAddress"; // public address - lets the dashboard find your worker
+// In-flight secrets persist so a reload never loses the funded key/password
+// (which would orphan the stake). On desktop they live in the OS keychain
+// (via the secrets module); on web they fall back to localStorage. The worker
+// ADDRESS is public, so it stays in localStorage for the dashboard.
 function lsGet(k: string): string {
   try { return window.localStorage.getItem(k) ?? ""; } catch { return ""; }
 }
@@ -142,20 +142,26 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
   const [paste, setPaste] = useState("");
 
   // Restore a previously-generated key so a reload doesn't orphan its funds.
+  // (getSecret reads the keychain on desktop, migrating any legacy localStorage.)
   useEffect(() => {
-    const saved = lsGet(FUNDER_STORE);
-    if (PRIVKEY_RE.test(saved)) {
-      setGenKey(saved);
-      lsSet(WORKER_ADDR_STORE, privateKeyToAccount(saved as `0x${string}`).address);
-    }
+    let on = true;
+    getSecret(SECRET_WORKER_KEY).then((saved) => {
+      if (on && PRIVKEY_RE.test(saved)) {
+        setGenKey(saved);
+        lsSet(WORKER_ADDR_STORE, privateKeyToAccount(saved as `0x${string}`).address);
+      }
+    });
+    return () => {
+      on = false;
+    };
   }, []);
 
   const generate = () => {
     const k = generatePrivateKey();
     setGenKey(k);
-    lsSet(FUNDER_STORE, k);
+    void setSecret(SECRET_WORKER_KEY, k); // keychain on desktop, localStorage on web
     const addr = privateKeyToAccount(k).address;
-    lsSet(WORKER_ADDR_STORE, addr); // so the dashboard's "My worker" finds it
+    lsSet(WORKER_ADDR_STORE, addr); // public - so the dashboard's "My worker" finds it
     savedWorkers.add(addr); // add to the watchlist
   };
 
@@ -313,14 +319,17 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
   }, []);
   useEffect(() => {
-    const saved = lsGet(PW_STORE);
-    if (saved) setPw(saved);
+    let on = true;
+    getSecret(SECRET_WORKER_PW).then((saved) => on && saved && setPw(saved));
+    return () => {
+      on = false;
+    };
   }, []);
   useEffect(() => () => stopRef.current?.(), []);
 
   const updatePw = (v: string) => {
     setPw(v);
-    lsSet(PW_STORE, v);
+    void setSecret(SECRET_WORKER_PW, v); // keychain on desktop, localStorage on web
   };
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
@@ -348,9 +357,19 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     if (!funderKey) return;
     setPhase("running");
     setLog([]);
+    // Make sure the keychain holds the key + password, then let the native
+    // runner inject them by NAME (desktop) - the command string + web layer
+    // never carry the secret values. On web, fall back to passing them via env.
+    await setSecret(SECRET_WORKER_KEY, funderKey);
+    await setSecret(SECRET_WORKER_PW, pw);
+    const baseEnv = { NETWORK: network, SUPPORTED_MODELS: model };
+    const env = hasNativeSecrets()
+      ? baseEnv
+      : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: funderKey };
+    const secretEnv = hasNativeSecrets() ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, model),
-      { WORKER_PASSWORD: pw, WORKER_PRIVKEY: funderKey, NETWORK: network, SUPPORTED_MODELS: model },
+      env,
       (line) => setLog((l) => [...l, line]),
       (code) => {
         setPhase(code === 0 ? "done" : "failed");
@@ -360,6 +379,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
         // and make the app "forget" it. The key stays persisted so the worker is
         // always recoverable; the "new" button lets the user discard it on purpose.
       },
+      secretEnv,
     );
   };
 

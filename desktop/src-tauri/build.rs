@@ -4,7 +4,13 @@ fn main() {
     // with "Command <name> not allowed by ACL". The capability then grants these.
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(&["detect_hardware", "run_command_streamed"]),
+            tauri_build::AppManifest::new().commands(&[
+                "detect_hardware",
+                "run_command_streamed",
+                "secret_set",
+                "secret_get",
+                "secret_delete",
+            ]),
         ),
     )
     .expect("failed to run tauri-build");

@@ -1,11 +1,45 @@
 // Prevents an extra console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use keyring::Entry;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
+
+/// OS keychain namespace for LightNode secrets (the worker key + keystore
+/// password). Stored natively so the remote web UI never has to persist them.
+const KEYCHAIN_SERVICE: &str = "ai.lightchain.lightnode";
+
+fn keychain(name: &str) -> Result<Entry, String> {
+    Entry::new(KEYCHAIN_SERVICE, name).map_err(|e| e.to_string())
+}
+
+/// Store a secret in the OS keychain.
+#[tauri::command]
+fn secret_set(name: String, value: String) -> Result<(), String> {
+    keychain(&name)?.set_password(&value).map_err(|e| e.to_string())
+}
+
+/// Read a secret from the OS keychain (None when absent).
+#[tauri::command]
+fn secret_get(name: String) -> Result<Option<String>, String> {
+    match keychain(&name)?.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Delete a secret from the OS keychain (ok if it was already absent).
+#[tauri::command]
+fn secret_delete(name: String) -> Result<(), String> {
+    match keychain(&name)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
 
 #[derive(Serialize, Clone)]
 struct Hardware {
@@ -99,6 +133,7 @@ fn run_command_streamed(
     app: AppHandle,
     command: String,
     env: Option<HashMap<String, String>>,
+    secret_env: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "windows") {
         ("powershell", vec!["-NoProfile", "-Command", &command])
@@ -106,9 +141,21 @@ fn run_command_streamed(
         ("bash", vec!["-lc", &command])
     };
 
+    // Merge plain env with secrets pulled from the keychain by NAME - so the web
+    // UI can run a command that needs the worker key/password without ever
+    // holding their values (it passes only the secret names).
+    let mut envs = env.unwrap_or_default();
+    if let Some(names) = secret_env {
+        for n in names {
+            if let Ok(Some(val)) = secret_get(n.clone()) {
+                envs.insert(n, val);
+            }
+        }
+    }
+
     let mut child = Command::new(program)
         .args(&args)
-        .envs(env.unwrap_or_default())
+        .envs(envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -136,7 +183,13 @@ fn run_command_streamed(
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![detect_hardware, run_command_streamed])
+        .invoke_handler(tauri::generate_handler![
+            detect_hardware,
+            run_command_streamed,
+            secret_set,
+            secret_get,
+            secret_delete
+        ])
         .run(tauri::generate_context!())
         .expect("error while running LightNode");
 }
