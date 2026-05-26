@@ -15,6 +15,7 @@ export interface MachineInput {
   storageGb: number;
   os: "macos" | "linux" | "windows";
   gpuName?: string;
+  unified?: boolean; // Apple Silicon: GPU + CPU share one memory pool
 }
 
 export type Tier = "below" | "eligible" | "strong" | "premium";
@@ -36,9 +37,16 @@ function clamp(n: number, lo = 0, hi = 100) {
 export function assessMachine(m: MachineInput): MachineAssessment {
   const notes: string[] = [];
 
+  // On Apple Silicon the GPU and CPU share ONE unified memory pool, so "RAM" and
+  // "VRAM" are the same bytes - the discrete-PC "16GB RAM + 8GB VRAM" split does
+  // not apply. The browser's navigator.deviceMemory also caps at 8GB and badly
+  // under-reports these machines. So for unified memory we gate on the single
+  // pool (the larger of the two readings), not a separate system-RAM figure.
+  const effectiveRamGb = m.unified ? Math.max(m.ramGb, m.vramGb) : m.ramGb;
+
   // sub-scores (each 0-1)
   const vramScore = clamp((m.vramGb / HARDWARE.rec.vramGb) * 100) / 100; // 24GB = full
-  const ramScore = clamp((m.ramGb / HARDWARE.rec.ramGb) * 100) / 100;
+  const ramScore = clamp((effectiveRamGb / HARDWARE.rec.ramGb) * 100) / 100;
   const coreScore = clamp((m.cores / HARDWARE.rec.cores) * 100) / 100;
   const storageScore = m.storageGb >= HARDWARE.min.storageGb ? 1 : m.storageGb / HARDWARE.min.storageGb;
 
@@ -47,7 +55,7 @@ export function assessMachine(m: MachineInput): MachineAssessment {
   const score = Math.round(clamp(raw * 100));
 
   const vramOk = m.vramGb >= HARDWARE.min.vramGb;
-  const cpuFallback = !vramOk && m.ramGb >= HARDWARE.min.ramGb;
+  const cpuFallback = !vramOk && effectiveRamGb >= HARDWARE.min.ramGb;
 
   let tier: Tier;
   let tierLabel: string;
@@ -67,7 +75,10 @@ export function assessMachine(m: MachineInput): MachineAssessment {
 
   if (!vramOk && cpuFallback)
     notes.push("No 8GB+ GPU detected. You can still run on CPU, but inference will be slow and may risk completion timeouts.");
-  if (m.ramGb < HARDWARE.min.ramGb) notes.push(`RAM is below the ${HARDWARE.min.ramGb}GB minimum.`);
+  // Unified-memory Macs are gated on the single pool above, so don't raise the
+  // PC-style "RAM below 16GB" flag (the reading is the shared pool, not a
+  // separate system-RAM stick that's missing).
+  if (!m.unified && m.ramGb < HARDWARE.min.ramGb) notes.push(`RAM is below the ${HARDWARE.min.ramGb}GB minimum.`);
   if (m.storageGb < HARDWARE.min.storageGb) notes.push(`Storage is below the ${HARDWARE.min.storageGb}GB minimum.`);
   if (m.vramGb >= HARDWARE.rec.vramGb)
     notes.push("Enough VRAM to be a candidate for future premium models (e.g. 70B-class) if they're whitelisted.");
@@ -155,6 +166,7 @@ export function autodetect(): Detected {
         }
         if (g.unified) {
           unified = true;
+          input.unified = true;
           // Apple Silicon shares memory; assume the GPU can use the system RAM.
           input.vramGb = Math.max(input.ramGb ?? 16, 16);
         }

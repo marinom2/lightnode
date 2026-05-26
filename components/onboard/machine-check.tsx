@@ -52,6 +52,7 @@ export function MachineCheck({
       ...prev,
       ...d.input,
       ramGb: d.input.ramGb ? Math.max(prev.ramGb, d.input.ramGb) : prev.ramGb,
+      unified: d.unified,
     }));
     setDetected({ vramInferred: d.vramInferred, unified: d.unified, gpuLabel: d.gpuLabel });
     setShowEdit(!d.vramInferred && !d.unified); // open the form only if we couldn't infer VRAM
@@ -79,6 +80,7 @@ export function MachineCheck({
         ramGb: nat.ram_gb || prev.ramGb,
         vramGb: nat.unified ? Math.max(nat.ram_gb || prev.ramGb, 16) : nat.vram_gb ?? prev.vramGb,
         gpuName: nat.gpu || prev.gpuName,
+        unified: nat.unified,
       }));
       setDetected({ vramInferred: nat.vram_gb != null, unified: nat.unified, gpuLabel: nat.gpu });
       setShowEdit(false);
@@ -109,7 +111,7 @@ export function MachineCheck({
               <span className="font-medium text-content-primary">Auto-detected your machine.</span>{" "}
               {detected.gpuLabel ? `GPU: ${detected.gpuLabel}. ` : ""}
               {detected.unified
-                ? "Apple Silicon (unified memory) - eligible."
+                ? `Apple Silicon with ${Math.max(m.ramGb, m.vramGb)}GB unified memory - eligible. The GPU and CPU share one pool, so the PC-style "16GB RAM + 8GB VRAM" split doesn't apply; llama3-8b fits comfortably.`
                 : `Inferred ~${m.vramGb}GB VRAM.`}{" "}
               <button onClick={() => setShowEdit((s) => !s)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
                 <Pencil className="size-3" /> {showEdit ? "Hide" : "Adjust"}
@@ -124,8 +126,14 @@ export function MachineCheck({
             {[
               { label: "Operating system", value: { macos: "macOS", linux: "Linux", windows: "Windows" }[m.os] },
               { label: "Detected GPU", value: m.gpuName || "Unknown" },
-              { label: detected.unified ? "Unified memory" : "GPU VRAM", value: detected.unified ? `${m.vramGb} GB shared` : `${m.vramGb} GB` },
-              { label: "System RAM", value: `${m.ramGb} GB` },
+              {
+                label: detected.unified ? "Unified memory (RAM + GPU)" : "GPU VRAM",
+                value: detected.unified ? `${Math.max(m.ramGb, m.vramGb)} GB shared` : `${m.vramGb} GB`,
+              },
+              // On Apple Silicon RAM and VRAM are one pool, so a separate
+              // "System RAM" figure (which the browser caps at 8GB) is both
+              // redundant and misleading - omit it.
+              ...(detected.unified ? [] : [{ label: "System RAM", value: `${m.ramGb} GB` }]),
               { label: "CPU cores", value: `${m.cores}` },
             ].map((s) => (
               <div key={s.label} className="rounded-lg border border-bdr-soft bg-surface-base-subtle px-3 py-2">

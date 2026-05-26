@@ -42,6 +42,20 @@ describe("assessMachine", () => {
     expect(a.score).toBeGreaterThanOrEqual(0);
     expect(a.score).toBeLessThanOrEqual(100);
   });
+
+  it("treats Apple Silicon unified memory as eligible without a RAM-below warning", () => {
+    // The browser caps deviceMemory at 8GB and the GPU shares that pool, so a
+    // real 16GB+ M-series machine reports ramGb:8 / vramGb:16 (forced min).
+    const a = assessMachine({ cores: 8, ramGb: 8, vramGb: 16, storageGb: 512, os: "macos", unified: true });
+    expect(a.vramOk).toBe(true);
+    expect(a.workerEligible).toBe(true);
+    expect(a.notes.some((n) => /below the .*minimum/i.test(n))).toBe(false);
+  });
+
+  it("still flags low RAM on a discrete (non-unified) machine", () => {
+    const a = assessMachine({ cores: 8, ramGb: 8, vramGb: 16, storageGb: 512, os: "linux" });
+    expect(a.notes.some((n) => /below the 16GB minimum/i.test(n))).toBe(true);
+  });
 });
 
 describe("estimateRewards", () => {
