@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.3";
+const INSTALLER_REV = "2026-05-26.4";
 
 export interface ScriptBundle {
   os: OS;
@@ -74,6 +74,15 @@ if have ollama; then echo "✓ Ollama already installed"; else
   echo "▶ installing Ollama"
   if [ "$OS" = "Darwin" ]; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi
 fi
+if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+  echo "▶ starting the Ollama server"
+  if [ "$OS" = "Darwin" ]; then open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &)
+  else sudo systemctl start ollama 2>/dev/null || systemctl --user start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &); fi
+fi
+echo "… waiting for Ollama on 127.0.0.1:11434"
+for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama isn't responding on 127.0.0.1:11434 — open the Ollama app (or run 'ollama serve'), then re-run."; exit 1; }
+echo "✓ Ollama server running"
 
 if have cast; then echo "✓ Foundry already installed"; else
   echo "▶ installing Foundry"
