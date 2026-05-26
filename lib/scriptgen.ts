@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.8";
+const INSTALLER_REV = "2026-05-26.9";
 
 export interface ScriptBundle {
   os: OS;
@@ -32,6 +32,60 @@ const PHASES =
 // user's wallet, so it skips 00 (generate-key) and 06 (funder→worker transfer).
 const DESKTOP_PHASES =
   "01-resolve-addresses 02-prepare-ollama 03-pull-image 04-import-key 05-generate-ecdh 07-register 08-run-worker";
+
+/**
+ * Keep-online watchdog (macOS + Linux), installed automatically by the worker
+ * setup. A worker only earns while its Docker container runs, and the container
+ * (--restart always) only runs while the Docker engine is up - but Docker
+ * Desktop is an app, so a reboot, logout, or long sleep stops it and the worker
+ * goes offline (lost earnings; a crash mid-job risks a slash). This watchdog
+ * runs every ~10 min via launchd (macOS) / cron (Linux) and:
+ *   1. starts the Docker engine if it is down (so it also auto-starts on login),
+ *   2. starts the worker container if it is stopped.
+ * It writes the script + registers the scheduler idempotently, and never aborts
+ * the install (wrapped in set +e by the caller).
+ */
+const KEEP_ONLINE_UNIX = `echo "▶ installing keep-online watchdog (auto-start Docker + worker)"
+cat > "$HOME/.lightnode/keep-online.sh" <<'KEEPEOF'
+#!/usr/bin/env bash
+# LightNode keep-online watchdog - ensure Docker + the worker are running.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+log(){ echo "$(date -u +%FT%TZ) $*"; }
+# Respect an intentional Stop/Deregister: while this marker exists, leave the
+# worker alone (Install or Restart clears it to re-arm).
+[ -f "$HOME/.lightnode/keep-online.paused" ] && { log "paused by user - leaving worker as-is"; exit 0; }
+if ! docker info >/dev/null 2>&1; then
+  log "docker down - starting"
+  if [ "$(uname -s)" = "Darwin" ]; then open -a Docker 2>/dev/null || true; else systemctl --user start docker-desktop 2>/dev/null || sudo systemctl start docker 2>/dev/null || true; fi
+  for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done
+fi
+docker info >/dev/null 2>&1 || { log "docker still down - retry next tick"; exit 0; }
+if docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
+  docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$' || { log "worker stopped - starting"; docker start lightchain-worker >/dev/null 2>&1 && log "worker started"; }
+fi
+KEEPEOF
+chmod +x "$HOME/.lightnode/keep-online.sh"
+if [ "$(uname -s)" = "Darwin" ]; then
+  PLIST="$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist"
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$PLIST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.lightchain.worker-watchdog</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$HOME/.lightnode/keep-online.sh</string></array>
+  <key>StartInterval</key><integer>600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$HOME/.lightnode/keep-online.log</string>
+  <key>StandardErrorPath</key><string>$HOME/.lightnode/keep-online.log</string>
+</dict></plist>
+PLISTEOF
+  launchctl unload "$PLIST" 2>/dev/null || true
+  launchctl load -w "$PLIST" 2>/dev/null && echo "✓ keep-online watchdog active (launchd, every 10 min)" || true
+else
+  ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh'; echo "*/10 * * * * /bin/bash $HOME/.lightnode/keep-online.sh >> $HOME/.lightnode/keep-online.log 2>&1" ) | crontab - 2>/dev/null && echo "✓ keep-online watchdog active (cron, every 10 min)" || true
+  command -v systemctl >/dev/null 2>&1 && sudo systemctl enable docker >/dev/null 2>&1 || true
+fi`;
 
 /** One command: clone, set the password, run all 9 phases (06 prompts for the funder key). */
 function bootstrap(os: OS, network: NetworkId, model: string): string {
@@ -109,6 +163,15 @@ function unixInstall(network: NetworkId, model: string): string {
     SMART_PREREQS,
     // The app's working dir may be "/" (non-writable). Work in a real home dir.
     'mkdir -p "$HOME/.lightnode" && cd "$HOME/.lightnode" && echo "✓ workdir: $HOME/.lightnode"',
+    // Installing means the user wants the worker running - clear any pause set by
+    // a previous Stop/Deregister so the watchdog resumes guarding it.
+    'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
+    // Arm the keep-online watchdog on every run (best-effort, never aborts the
+    // install) so it's refreshed even when the worker is already running.
+    "set +e",
+    KEEP_ONLINE_UNIX,
+    'cd "$HOME/.lightnode"',
+    "set -e",
     `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
@@ -178,6 +241,21 @@ if (Have cast) { Write-Host "✓ Foundry already installed" } else { Write-Host 
 # The app's working dir may not be writable; work in a real home dir.
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-Null
 Set-Location "$env:USERPROFILE\\.lightnode"
+# Installing means the worker should run - clear any pause from a prior Stop/Deregister.
+Remove-Item (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused") -ErrorAction SilentlyContinue
+# Keep-online watchdog: auto-start Docker + the worker on a schedule (survives reboot).
+try {
+  $ko = Join-Path $env:USERPROFILE ".lightnode\\keep-online.ps1"
+@'
+if (Test-Path (Join-Path $env:USERPROFILE ".lightnode\keep-online.paused")) { exit 0 }
+docker info *> $null
+if (-not $?) { Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0;$i -lt 45;$i++){ docker info *> $null; if($?){break}; Start-Sleep 2 } }
+docker info *> $null; if (-not $?) { exit 0 }
+if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null } }
+'@ | Set-Content -Path $ko -Encoding ASCII
+  schtasks /Create /TN "LightChainWorkerWatchdog" /TR "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$ko\`"" /SC MINUTE /MO 10 /F | Out-Null
+  Write-Host "✓ keep-online watchdog active (Scheduled Task, every 10 min)"
+} catch { Write-Host "(keep-online watchdog skipped)" }
 if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present — updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
 Set-Location lightchain-worker-toolkit\\scripts\\powershell
 if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
@@ -233,6 +311,55 @@ export function toolkitOpCommand(script: string, confirm?: string): string {
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found — install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     run,
+  ].join("\n");
+}
+
+/**
+ * Stop the worker on purpose. Writes the pause marker FIRST (so the keep-online
+ * watchdog won't restart it), then stops the container best-effort. The marker
+ * write happens even if Docker is down, so the intent always sticks.
+ */
+export function stopWorkerCommand(os: OS): string {
+  if (os === "windows") {
+    return [
+      'New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-Null',
+      'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
+      'Write-Host "worker paused - the watchdog will leave it stopped until you Install or Restart"',
+      "docker stop lightchain-worker 2>$null",
+    ].join("\n");
+  }
+  return [
+    "exec 2>&1",
+    'mkdir -p "$HOME/.lightnode" && touch "$HOME/.lightnode/keep-online.paused"',
+    'echo "✓ worker paused - the keep-online watchdog will leave it stopped until you Install or Restart"',
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"',
+    '(docker stop lightchain-worker >/dev/null 2>&1 && echo "✓ worker stopped") || echo "(worker was not running)"',
+  ].join("\n");
+}
+
+/**
+ * Deregister + withdraw stake, then tear down the keep-online watchdog (the
+ * worker is leaving the network, so it must not be auto-restarted). Pauses
+ * first, runs the toolkit deregister, then removes the launchd/cron schedule.
+ */
+export function deregisterCommand(os: OS): string {
+  if (os === "windows") {
+    return [
+      'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
+      'schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
+      // The toolkit's powershell deregister (best-effort path).
+      'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
+      'if (Test-Path .\\deregister.ps1) { $env:FORCE="1"; .\\deregister.ps1 } else { Write-Host "toolkit not found - install first" }',
+    ].join("\n");
+  }
+  return [
+    toolkitOpCommand("deregister.sh", "deregister"),
+    // teardown (runs after the deregister script returns)
+    'touch "$HOME/.lightnode/keep-online.paused"',
+    'launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
+    'rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
+    `( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
+    'echo "✓ keep-online watchdog removed - worker will stay offline"',
   ].join("\n");
 }
 
@@ -294,6 +421,8 @@ docker logs --tail 20 lightchain-worker`;
   return [
     "exec 2>&1",
     'echo "▶ repairing lightchain-worker"',
+    // Restart = the user wants it running, so lift any pause from a prior Stop.
+    'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
     `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No lightchain-worker container found — install one first."; exit 1; fi`,
     "docker stop lightchain-worker >/dev/null 2>&1 || true",
     'SESS="$HOME/lightchain-worker/keys/session-keys.enc"',

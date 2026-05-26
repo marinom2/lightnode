@@ -1,5 +1,38 @@
 import { describe, it, expect } from "vitest";
-import { generateSetup, desktopInstallCommand, dockerOpCommand } from "@/lib/scriptgen";
+import {
+  generateSetup,
+  desktopInstallCommand,
+  dockerOpCommand,
+  stopWorkerCommand,
+  deregisterCommand,
+  repairWorkerCommand,
+} from "@/lib/scriptgen";
+
+describe("pause marker (intentional stop must not be auto-restarted)", () => {
+  it("the watchdog skips work while the pause marker exists", () => {
+    expect(desktopInstallCommand("macos", "testnet")).toContain("keep-online.paused");
+  });
+  it("Stop writes the pause marker before stopping (works even if Docker is down)", () => {
+    const stop = stopWorkerCommand("macos");
+    expect(stop).toContain('touch "$HOME/.lightnode/keep-online.paused"');
+    expect(stop.indexOf("keep-online.paused")).toBeLessThan(stop.indexOf("docker stop"));
+  });
+  it("Restart and Install clear the pause marker (re-arm)", () => {
+    expect(repairWorkerCommand("macos")).toContain('rm -f "$HOME/.lightnode/keep-online.paused"');
+    expect(desktopInstallCommand("macos", "testnet")).toContain('rm -f "$HOME/.lightnode/keep-online.paused"');
+  });
+  it("Deregister pauses and removes the watchdog schedule", () => {
+    const d = deregisterCommand("macos");
+    expect(d).toContain("deregister.sh");
+    expect(d).toContain("keep-online.paused");
+    expect(d).toContain("launchctl unload");
+    expect(d).toContain("crontab -");
+  });
+  it("Stop/Deregister on windows use USERPROFILE marker + schtasks delete", () => {
+    expect(stopWorkerCommand("windows")).toContain("keep-online.paused");
+    expect(deregisterCommand("windows")).toContain("schtasks /Delete");
+  });
+});
 
 describe("dockerOpCommand", () => {
   const wrapped = dockerOpCommand("docker ps -a --filter name=lightchain-worker", "macos");
@@ -19,6 +52,31 @@ describe("dockerOpCommand", () => {
     const win = dockerOpCommand("docker stop lightchain-worker", "windows");
     expect(win).toContain("Start-Process");
     expect(win).toContain("docker stop lightchain-worker");
+  });
+});
+
+describe("keep-online watchdog (auto-installed by the desktop setup)", () => {
+  const unix = desktopInstallCommand("macos", "testnet");
+  const win = desktopInstallCommand("windows", "testnet");
+  it("unix install writes the watchdog and schedules it (launchd + cron)", () => {
+    expect(unix).toContain("keep-online.sh");
+    expect(unix).toContain("LaunchAgents");
+    expect(unix).toContain("StartInterval");
+    expect(unix).toContain("crontab -");
+  });
+  it("the watchdog starts Docker and the worker", () => {
+    expect(unix).toContain("open -a Docker");
+    expect(unix).toContain("docker start lightchain-worker");
+  });
+  it("watchdog setup is best-effort (never aborts the install)", () => {
+    // wrapped in set +e / set -e around the workdir
+    expect(unix).toContain("set +e");
+    expect(unix).toContain("set -e");
+  });
+  it("windows install registers a Scheduled Task running every 10 min", () => {
+    expect(win).toContain("schtasks /Create");
+    expect(win).toContain("/SC MINUTE /MO 10");
+    expect(win).toContain("docker start lightchain-worker");
   });
 });
 

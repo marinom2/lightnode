@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { cn } from "@/lib/utils";
 
@@ -60,8 +60,8 @@ type Op = {
 
 const OPS: Op[] = [
   { key: "status", label: "Status", desc: "Local container health + recent log", icon: Activity, cmd: () => 'docker ps -a --filter name=lightchain-worker --format "container: {{.Status}}"; echo "--- recent log ---"; docker logs --tail 25 lightchain-worker 2>&1' },
-  { key: "restart", label: "Restart", desc: "Recover a stalled worker (clears stale session, restarts)", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
-  { key: "stop", label: "Stop", desc: "Stop the worker (stake stays staked)", icon: Square, cmd: () => `docker stop lightchain-worker` },
+  { key: "restart", label: "Restart", desc: "Recover a stalled worker + re-arm the keep-online watchdog", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
+  { key: "stop", label: "Stop", desc: "Pause the worker - stays down until you Install/Restart (stake intact)", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
   {
     key: "sweep",
@@ -97,11 +97,20 @@ export function OperationsPanel() {
     const d = detectClientOS();
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
   }, []);
-  // Docker-based ops: status/restart/stop/tail. (Sweep/Deregister are on-chain
-  // cast scripts run via the toolkit, not docker.)
-  const DOCKER_OPS = new Set(["status", "restart", "stop", "tail"]);
-  // Restart runs the full repair (stop + clear stale session store + start), not a bare docker restart.
-  const baseCmd = (op: Op) => (op.key === "restart" ? repairWorkerCommand(os) : op.cmd(dest));
+  // Docker ops that need the engine reachable before they run get the docker
+  // preamble (PATH + socket + auto-start). Stop is excluded: it writes the pause
+  // marker first and must work even when Docker is already down.
+  const DOCKER_OPS = new Set(["status", "restart", "tail"]);
+  // Several ops are OS-aware builders rather than the raw OPS.cmd:
+  // - restart = full repair (stop + clear stale session + start), clears the pause marker
+  // - stop    = write pause marker (so the watchdog leaves it down) + docker stop
+  // - dereg   = deregister + remove the watchdog schedule
+  const baseCmd = (op: Op) => {
+    if (op.key === "restart") return repairWorkerCommand(os);
+    if (op.key === "stop") return stopWorkerCommand(os);
+    if (op.key === "dereg") return deregisterCommand(os);
+    return op.cmd(dest);
+  };
   // Desktop execution wraps docker ops so they survive the launched-app
   // environment (PATH + reachable socket + auto-start Docker). The copy-to-clipboard
   // path stays raw - the user's own terminal already has Docker on PATH.
