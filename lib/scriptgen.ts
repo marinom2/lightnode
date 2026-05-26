@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.4";
+const INSTALLER_REV = "2026-05-26.5";
 
 export interface ScriptBundle {
   os: OS;
@@ -123,7 +123,14 @@ function unixInstall(network: NetworkId, model: string): string {
     `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
     `if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^lightchain-worker$'; then echo "✓ worker already running — nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
-    `for p in ${DESKTOP_PHASES}; do echo "▶ phase $p"; FORCE=1 bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    // A keystore may already exist (our key on a re-run, or a stale key from a
+    // prior worker). Skip the import if it's already ours; otherwise back up the
+    // old one (never delete) so our key can be imported.
+    'KS="${KEYS_DIR:-$HOME/lightchain-worker/keys}/eth-keystore"',
+    'WADDR="$(printf "%s" "$WORKER_ADDR" | sed "s/^0x//" | tr "A-Z" "a-z")"',
+    'SKIP_IMPORT=0',
+    'if [ -d "$KS" ] && [ -n "$(ls -A "$KS" 2>/dev/null)" ]; then if ls "$KS" | grep -qi "$WADDR"; then echo "✓ worker key already imported — skipping import"; SKIP_IMPORT=1; else echo "▶ backing up a previous worker keystore (not deleting)"; mv "$KS" "${KS}.bak-$(date +%s)"; fi; fi',
+    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped — key already present)"; continue; fi; echo "▶ phase $p"; FORCE=1 bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
     'echo "✅ worker online"',
   ].join("\n");
 }
@@ -166,8 +173,16 @@ if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace '50001',
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
 if ((docker ps --format "{{.Names}}") -match "^lightchain-worker$") { Write-Host "✓ worker already running — nothing to reinstall"; Write-Host "✅ worker online"; exit 0 }
+# Handle a pre-existing keystore: skip if it's already ours, else back up (never delete).
+$ks = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"
+$skipImport = $false
+if ((Test-Path $ks) -and (Get-ChildItem $ks -ErrorAction SilentlyContinue)) {
+  $waddr = ($env:WORKER_ADDR -replace '^0x','').ToLower()
+  if (Get-ChildItem $ks | Where-Object { $_.Name.ToLower().Contains($waddr) }) { Write-Host "✓ worker key already imported — skipping import"; $skipImport = $true }
+  else { Write-Host "▶ backing up a previous worker keystore (not deleting)"; Move-Item $ks "$ks.bak-$((Get-Date).Ticks)" }
+}
 $env:FORCE = "1"
-foreach ($p in @('${phases}')) { Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped — key present)"; continue }; Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
 Write-Host "✅ worker online"`;
 }
 
