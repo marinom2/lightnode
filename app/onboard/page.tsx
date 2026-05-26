@@ -103,10 +103,11 @@ export default function OnboardPage() {
             <span className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-gradient-primary text-white">
               <Wallet className="size-6" />
             </span>
-            <h2 className="text-xl font-semibold text-content-primary">Connect the wallet you&apos;ll fund from</h2>
+            <h2 className="text-xl font-semibold text-content-primary">Connect a funding wallet (optional)</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-content-soft">
-              This is the wallet that holds your stake capital (≈ {NETWORKS[network].fundLcai.toLocaleString()} LCAI).
-              No sign-up, no API key - your worker key gets generated separately and locally.
+              Your worker gets its <span className="text-content-primary">own freshly-generated wallet</span> during setup -
+              that&apos;s what stakes and earns. Connect a wallet here only to <span className="text-content-primary">fund
+              that worker in one click</span> (it needs ≈ {NETWORKS[network].fundLcai.toLocaleString()} LCAI to stake).
             </p>
             <div className="mt-6 flex justify-center">
               <ConnectButton size="lg" />
@@ -115,7 +116,7 @@ export default function OnboardPage() {
               onClick={() => setStep(1)}
               className="mx-auto mt-4 block text-sm text-content-soft underline-offset-4 hover:text-content-primary hover:underline"
             >
-              Skip - I&apos;ll enter my funder key during setup
+              Skip - during setup you can scan a QR or send from any wallet
             </button>
           </div>
         )}

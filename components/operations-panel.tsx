@@ -92,6 +92,7 @@ export function OperationsPanel() {
   const [log, setLog] = useState<string[]>([]);
   const [dest, setDest] = useState("");
   const [activeJobs, setActiveJobs] = useState(0);
+  const [confirmOp, setConfirmOp] = useState<Op | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
@@ -141,28 +142,68 @@ export function OperationsPanel() {
   useEffect(() => () => stopRef.current?.(), []);
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
-  const runOp = async (op: Op) => {
-    if (op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest)) return;
-    // Warn before stopping/deregistering with jobs in flight - that's what
-    // strands acked jobs (they can't finish, won't pay, and risk a slash).
-    const stranding = (op.key === "stop" || op.danger) && activeJobs > 0;
-    if (op.danger || stranding) {
-      const lead = op.danger ? `This will ${op.label.toLowerCase()} your worker (withdraws stake). ` : "";
-      const jobs = stranding
-        ? `⚠ Your worker has ${activeJobs} job(s) in flight - ${op.danger ? "deregistering" : "stopping"} now strands them (they can't finish, won't pay, and an acked job risks a slash). `
+  // Stop/Deregister need a confirmation. We must NOT use window.confirm: in the
+  // Tauri webview it returns false (no-op), which silently swallowed Deregister.
+  // So we gate through an in-app confirmation panel instead.
+  const needsConfirm = (op: Op) => op.danger || (op.key === "stop" && activeJobs > 0);
+
+  const confirmBody = (op: Op) => {
+    const lead = op.danger ? `This stops your worker and withdraws your stake - you'd re-run setup to rejoin. ` : "";
+    const jobs =
+      activeJobs > 0
+        ? `Your worker has ${activeJobs} job(s) in flight - ${op.danger ? "deregistering" : "stopping"} now strands them (they can't finish, won't pay, and an acked job risks a slash). `
         : "";
-      if (!window.confirm(`${lead}${jobs}Continue?`)) return;
+    return `${lead}${jobs}`.trim();
+  };
+
+  const requestOp = (op: Op) => {
+    if (op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest)) return;
+    if (needsConfirm(op)) {
+      setConfirmOp(op);
+      return;
     }
+    void executeOp(op);
+  };
+
+  const executeOp = async (op: Op) => {
+    setConfirmOp(null);
     stopRef.current?.();
     setActive(op.key);
     setLog([`$ ${op.label.toLowerCase()}...`]);
+    // Sweep/Deregister are toolkit scripts that sign on-chain with the worker
+    // key - they need it (+ the keystore password + network) in the env, just
+    // like the installer. The app already holds these locally.
+    const env: Record<string, string> = {};
+    if (op.key === "sweep" || op.key === "dereg") {
+      try {
+        const k = window.localStorage.getItem("lightnode.funderKey") || "";
+        const pw = window.localStorage.getItem("lightnode.workerPw") || "";
+        if (k) env.WORKER_PRIVKEY = k;
+        if (pw) env.WORKER_PASSWORD = pw;
+        env.NETWORK = network;
+      } catch {
+        /* storage unavailable */
+      }
+    }
     stopRef.current = await runSetupStreamed(
       runCmd(op),
-      {},
+      env,
       (line) => setLog((l) => [...l, line]),
       (code) => {
         setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]);
         setActive(null); // clear the tile's loading state once the command finishes
+        // Privacy: once deregistered, the worker no longer exists - wipe its
+        // key/password/address from local storage so no secret lingers.
+        if (op.key === "dereg" && code === 0) {
+          try {
+            ["lightnode.funderKey", "lightnode.workerPw", "lightnode.workerAddress"].forEach((k) =>
+              window.localStorage.removeItem(k),
+            );
+            setLog((l) => [...l, "✓ local worker key + password wiped from this device"]);
+          } catch {
+            /* storage unavailable */
+          }
+        }
       },
     );
   };
@@ -244,7 +285,7 @@ export function OperationsPanel() {
               key={op.key}
               type="button"
               disabled={isActive || blocked}
-              onClick={() => runOp(op)}
+              onClick={() => requestOp(op)}
               title={blocked ? "Enter a payout address above first" : undefined}
               className={cn(
                 "group flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50",
@@ -287,6 +328,41 @@ export function OperationsPanel() {
         <ShieldAlert className="size-3.5 text-warning" /> Sweep and Deregister move funds / exit the network. Stake stays
         locked until you deregister.
       </p>
+
+      {/* In-app confirmation (window.confirm is a no-op in the desktop webview). */}
+      {confirmOp && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setConfirmOp(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-bdr-soft bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center gap-2.5">
+              <span
+                className={cn(
+                  "grid size-9 place-items-center rounded-xl",
+                  confirmOp.danger ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning",
+                )}
+              >
+                <ShieldAlert className="size-4" />
+              </span>
+              <h3 className="text-base font-semibold text-content-primary">Confirm {confirmOp.label.toLowerCase()}</h3>
+            </div>
+            <p className="text-sm leading-relaxed text-content-default">{confirmBody(confirmOp) || "Are you sure?"}</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmOp(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant={confirmOp.danger ? "destructive" : "default"}
+                size="sm"
+                onClick={() => executeOp(confirmOp)}
+              >
+                {confirmOp.label}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
