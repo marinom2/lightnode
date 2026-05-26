@@ -125,6 +125,31 @@ export function inferGpu(renderer: string): { vramGb?: number; unified?: boolean
   return { clean };
 }
 
+export type ModelTier = "light" | "standard" | "large" | "server";
+
+export interface ModelRequirement {
+  paramsB: number; // estimated parameter count in billions (0 = unknown)
+  vramGb: number; // rough resident memory needed to serve it
+  tier: ModelTier;
+  tierLabel: string;
+}
+
+/**
+ * Rough hardware requirement for a model, inferred from its name (the param
+ * count, e.g. the "8" in "llama3-8b" or the "2" in "gemma4:e2b"). Used only to
+ * label models and flag a fit vs the operator's machine - the network never
+ * gates on this. Unknown names fall back to a standard 8GB assumption.
+ */
+export function modelRequirement(name: string): ModelRequirement {
+  const m = /(\d+(?:\.\d+)?)\s*b\b/i.exec(name);
+  const paramsB = m ? parseFloat(m[1]) : 0;
+  if (paramsB > 0 && paramsB <= 4) return { paramsB, vramGb: 4, tier: "light", tierLabel: "Light - runs on most machines" };
+  if (paramsB <= 9) return { paramsB, vramGb: 8, tier: "standard", tierLabel: "Standard - needs an 8GB GPU / 16GB unified" };
+  if (paramsB <= 15) return { paramsB, vramGb: 12, tier: "standard", tierLabel: "Standard+ - needs a 12GB GPU" };
+  if (paramsB <= 34) return { paramsB, vramGb: 24, tier: "large", tierLabel: "Large - needs a 24GB GPU" };
+  return { paramsB, vramGb: 48, tier: "server", tierLabel: "Server-class - needs a 48GB+ GPU" };
+}
+
 export interface Detected {
   input: Partial<MachineInput>;
   vramInferred: boolean;

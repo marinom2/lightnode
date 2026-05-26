@@ -11,6 +11,7 @@ import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
+import { isDesktop, localContainerStatus, type LocalContainerStatus } from "@/lib/tauri";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
 
@@ -27,6 +28,7 @@ export default function DashboardPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [localStatus, setLocalStatus] = useState<LocalContainerStatus | null>(null);
 
   const load = useCallback(
     async (addr: string) => {
@@ -72,6 +74,24 @@ export default function DashboardPage() {
     e.preventDefault();
     setQuery(input.trim());
   };
+
+  // In the desktop app, show the REAL local container state for YOUR worker -
+  // the one signal the on-chain subgraph can't see (it only knows "registered").
+  const isMine = !!worker && !!myWorker && worker.id.toLowerCase() === myWorker.toLowerCase();
+  useEffect(() => {
+    if (!isMine || !isDesktop()) {
+      setLocalStatus(null);
+      return;
+    }
+    let on = true;
+    const check = () => localContainerStatus().then((s) => on && setLocalStatus(s));
+    check();
+    const t = setInterval(check, 15_000);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, [isMine]);
 
   const net = NETWORKS[network];
 
@@ -151,6 +171,7 @@ export default function DashboardPage() {
             minStake={net.minStakeLcai}
             watched={has(worker.id)}
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
+            localStatus={localStatus}
           />
         </div>
       )}

@@ -1,5 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, type MachineInput } from "@/lib/hardware";
+import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, modelRequirement, type MachineInput } from "@/lib/hardware";
+
+describe("modelRequirement", () => {
+  it("reads the param count from the model name", () => {
+    expect(modelRequirement("llama3-8b").paramsB).toBe(8);
+    expect(modelRequirement("llama3-70b").paramsB).toBe(70);
+    expect(modelRequirement("gemma4:e2b").paramsB).toBe(2); // version '4' ignored, '2b' params
+  });
+  it("tiers by size", () => {
+    expect(modelRequirement("gemma4:e2b").tier).toBe("light");
+    expect(modelRequirement("llama3-8b").tier).toBe("standard");
+    expect(modelRequirement("llama3-70b").tier).toBe("server");
+    expect(modelRequirement("llama3-70b").vramGb).toBe(48);
+  });
+  it("falls back to a standard assumption for unknown names", () => {
+    expect(modelRequirement("mystery-model").tier).toBe("standard");
+  });
+});
 
 describe("inferGpu", () => {
   it("infers VRAM for known NVIDIA GPUs", () => {

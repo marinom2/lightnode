@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConnectButton } from "@/components/connect-button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { MachineCheck } from "@/components/onboard/machine-check";
+import { ModelPicker } from "@/components/onboard/model-picker";
 import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NetworkHealth } from "@/components/network-health";
 import { VerifyWorker } from "@/components/onboard/verify-worker";
@@ -32,6 +33,8 @@ export default function OnboardPage() {
   const { network } = useNetwork();
   const [step, setStep] = useState(0);
   const [vramOk, setVramOk] = useState(false);
+  const [vramGb, setVramGb] = useState(0);
+  const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [ackRisk, setAckRisk] = useState(false);
   const [os, setOS] = useState<OS>("linux");
   const [avgJobs, setAvgJobs] = useState(0);
@@ -131,6 +134,7 @@ export default function OnboardPage() {
               onResult={(r) => {
                 setVramOk(r.vramOk);
                 setOS(r.os);
+                setVramGb(r.vramGb);
               }}
             />
             {!vramOk && (
@@ -179,8 +183,12 @@ export default function OnboardPage() {
               </div>
             )}
 
+            <div className="mb-6 rounded-2xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
+              <ModelPicker network={network} vramGb={vramGb} value={model} onChange={setModel} />
+            </div>
+
             <div className="mb-6">
-              <OneClickInstall />
+              <OneClickInstall model={model} />
             </div>
 
             {desktop ? (
@@ -189,11 +197,11 @@ export default function OnboardPage() {
                   Prefer to run it yourself? Manual / advanced install
                 </summary>
                 <div className="mt-4">
-                  <SetupGuide defaultOS={os} />
+                  <SetupGuide defaultOS={os} model={model} onModel={setModel} />
                 </div>
               </details>
             ) : (
-              <SetupGuide defaultOS={os} />
+              <SetupGuide defaultOS={os} model={model} onModel={setModel} />
             )}
           </div>
         )}

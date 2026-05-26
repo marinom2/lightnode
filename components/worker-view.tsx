@@ -19,6 +19,7 @@ import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job } from "@/lib/subgraph";
+import type { LocalContainerStatus } from "@/lib/tauri";
 
 type Health = "live" | "down";
 
@@ -46,8 +47,8 @@ export function healthOf(w: Worker): Health {
 }
 
 const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: string; hint: string }> = {
-  live: { tone: "success", label: "Active", hint: "Registered & staked on-chain. Confirm the container is connected via Operations → Status." },
-  down: { tone: "danger", label: "Offline", hint: "Not active. Deregistered, deactivated, or never started." },
+  live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running - that's the local status." },
+  down: { tone: "danger", label: "Not registered", hint: "Not active on-chain. Deregistered, deactivated, or never started." },
 };
 
 /** Cumulative settled-earnings sparkline (Released jobs only; no chart lib). */
@@ -166,6 +167,12 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
   );
 }
 
+const LOCAL: Record<"running" | "stopped" | "missing", { tone: "success" | "warning" | "danger"; label: string }> = {
+  running: { tone: "success", label: "Running on this machine" },
+  stopped: { tone: "danger", label: "Stopped on this machine" },
+  missing: { tone: "warning", label: "Not installed on this machine" },
+};
+
 export function WorkerView({
   worker,
   jobs,
@@ -173,6 +180,7 @@ export function WorkerView({
   minStake,
   watched,
   onToggleWatch,
+  localStatus,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -180,10 +188,12 @@ export function WorkerView({
   minStake: number;
   watched: boolean;
   onToggleWatch: () => void;
+  localStatus?: LocalContainerStatus | null;
 }) {
   const h = healthOf(worker);
   const meta = HEALTH[h];
   const stake = fromWei(worker.stake);
+  const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
 
   const tiles = [
     { icon: CheckCircle2, label: "Jobs completed", value: fmt(worker.jobs_completed ?? 0, 0), tone: "text-content-primary" },
@@ -199,6 +209,7 @@ export function WorkerView({
             <span className={cn("dot", h === "live" ? "dot-live" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
+            {local && <Badge tone={local.tone}>{local.label}</Badge>}
             {(worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
           </div>
           <div className="flex items-center gap-2">
@@ -214,6 +225,13 @@ export function WorkerView({
           </div>
         </div>
         <p className="mt-3 text-sm text-content-soft">{meta.hint}</p>
+        {local && localStatus === "stopped" && (
+          <p className="mt-2 flex items-start gap-2 text-sm text-warning">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            Your stake is still registered, but the container is stopped on this machine - so it is not earning. Use
+            Operations → Restart to bring it back online.
+          </p>
+        )}
       </Card>
 
       <EarningsPanel worker={worker} jobs={jobs} />

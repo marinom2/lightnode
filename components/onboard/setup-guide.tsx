@@ -17,15 +17,29 @@ const OS_TABS: { id: OS; label: string; icon: (p: { className?: string }) => Rea
   { id: "windows", label: "Windows", icon: WindowsIcon },
 ];
 
-export function SetupGuide({ defaultOS = "linux" as OS }) {
+export function SetupGuide({
+  defaultOS = "linux" as OS,
+  model: modelProp,
+  onModel,
+}: {
+  defaultOS?: OS;
+  model?: string;
+  onModel?: (m: string) => void;
+}) {
   const { network } = useNetwork();
   const [os, setOS] = useState<OS>(defaultOS);
-  const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  const [modelState, setModelState] = useState<string>(DEFAULT_MODEL);
+  // When the parent supplies a model (its own ModelPicker), this is controlled
+  // and we hide our local model dropdown to avoid two competing pickers.
+  const controlled = modelProp !== undefined;
+  const model = controlled ? (modelProp as string) : modelState;
+  const setModel = onModel ?? setModelState;
   const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
   const [showSteps, setShowSteps] = useState(false);
 
   // Live whitelisted+enabled models - so the serve-target adapts as the registry grows.
   useEffect(() => {
+    if (controlled) return; // parent's ModelPicker owns selection
     let on = true;
     fetch(`/api/models?net=${network}`)
       .then((r) => r.json())
@@ -36,14 +50,15 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
           .map((m: { name: string }) => m.name);
         if (live.length) {
           setModels(live);
-          setModel((cur) => (live.includes(cur) ? cur : live.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : live[0]));
+          // This path only runs when uncontrolled, so use the local state setter.
+          setModelState((cur) => (live.includes(cur) ? cur : live.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : live[0]));
         }
       })
       .catch(() => {});
     return () => {
       on = false;
     };
-  }, [network]);
+  }, [network, controlled]);
 
   const bundle = useMemo(() => generateSetup(os, network, model), [os, network, model]);
 
@@ -98,23 +113,25 @@ export function SetupGuide({ defaultOS = "linux" as OS }) {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <label className="inline-flex items-center gap-1.5 rounded-xl border border-bdr-soft bg-surface-base-subtle px-2.5 py-1.5 text-sm">
-            <Box className="size-4 text-content-soft" />
-            <span className="text-content-soft">Model</span>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              disabled={models.length <= 1}
-              className="bg-transparent font-mono text-content-primary outline-none disabled:opacity-70"
-              aria-label="Model to serve"
-            >
-              {models.map((m) => (
-                <option key={m} value={m} className="bg-card text-content-primary">
-                  {m}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!controlled && (
+            <label className="inline-flex items-center gap-1.5 rounded-xl border border-bdr-soft bg-surface-base-subtle px-2.5 py-1.5 text-sm">
+              <Box className="size-4 text-content-soft" />
+              <span className="text-content-soft">Model</span>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={models.length <= 1}
+                className="bg-transparent font-mono text-content-primary outline-none disabled:opacity-70"
+                aria-label="Model to serve"
+              >
+                {models.map((m) => (
+                  <option key={m} value={m} className="bg-card text-content-primary">
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <Button variant="outline" size="sm" onClick={download}>
             <Download /> Download script
           </Button>

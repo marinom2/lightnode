@@ -55,6 +55,21 @@ describe("dockerOpCommand", () => {
   });
 });
 
+describe("keep model warm (avoid cold-load inference timeouts)", () => {
+  const unix = desktopInstallCommand("macos", "testnet");
+  it("sets the Ollama keep-alive default to never evict", () => {
+    expect(unix).toContain("OLLAMA_KEEP_ALIVE");
+  });
+  it("records the served model and pre-warms it pinned", () => {
+    expect(unix).toContain('.lightnode/model');
+    expect(unix).toContain("keep_alive");
+    expect(unix).toContain("pre-warming");
+  });
+  it("the watchdog re-warms the model it reads from the model file", () => {
+    expect(unix).toContain('cat "$HOME/.lightnode/model"');
+  });
+});
+
 describe("keep-online watchdog (auto-installed by the desktop setup)", () => {
   const unix = desktopInstallCommand("macos", "testnet");
   const win = desktopInstallCommand("windows", "testnet");

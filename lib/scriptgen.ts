@@ -63,6 +63,10 @@ docker info >/dev/null 2>&1 || { log "docker still down - retry next tick"; exit
 if docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
   docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$' || { log "worker stopped - starting"; docker start lightchain-worker >/dev/null 2>&1 && log "worker started"; }
 fi
+# Keep the served model pinned in Ollama (keep_alive:-1) so it never cold-loads
+# mid-job. Reads the current model from a file so a model change is picked up.
+MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null)"
+[ -n "$MODEL" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\"model\":\"$MODEL\",\"prompt\":\"ok\",\"keep_alive\":-1,\"stream\":false}" >/dev/null 2>&1 &
 KEEPEOF
 chmod +x "$HOME/.lightnode/keep-online.sh"
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -128,6 +132,12 @@ if have ollama; then echo "✓ Ollama already installed"; else
   echo "▶ installing Ollama"
   if [ "$OS" = "Darwin" ]; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi
 fi
+# Keep the model resident (no idle eviction) so it never cold-loads mid-job -
+# cold loads under memory pressure are what blow past the inference timeout and
+# fail jobs. Applies to Ollama we start below; a running instance is pinned by
+# the warm-up request (keep_alive:-1) at the end of the install + the watchdog.
+export OLLAMA_KEEP_ALIVE=-1
+[ "$OS" = "Darwin" ] && { launchctl setenv OLLAMA_KEEP_ALIVE -1 2>/dev/null || true; }
 if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
   echo "▶ starting the Ollama server"
   if [ "$OS" = "Darwin" ]; then open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &)
@@ -163,6 +173,8 @@ function unixInstall(network: NetworkId, model: string): string {
     SMART_PREREQS,
     // The app's working dir may be "/" (non-writable). Work in a real home dir.
     'mkdir -p "$HOME/.lightnode" && cd "$HOME/.lightnode" && echo "✓ workdir: $HOME/.lightnode"',
+    // Record the served model so the watchdog can keep it warm in Ollama.
+    `echo "${model}" > "$HOME/.lightnode/model"`,
     // Installing means the user wants the worker running - clear any pause set by
     // a previous Stop/Deregister so the watchdog resumes guarding it.
     'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
@@ -210,6 +222,10 @@ function unixInstall(network: NetworkId, model: string): string {
     '"$RUNBASH" -c "declare -A _t" 2>/dev/null || { echo "⛔ The toolkit needs bash 4+. Run: brew install bash, then retry."; exit 1; }',
     'echo "✓ phase shell: $("$RUNBASH" --version | head -1)"',
     `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    // Pre-warm: load the model and pin it (keep_alive:-1) so the first real job
+    // doesn't pay a cold-load that could exceed the inference timeout.
+    `echo "▶ pre-warming ${model} (kept resident to avoid cold-load timeouts)"`,
+    `curl -s -m 120 http://127.0.0.1:11434/api/generate -d '{"model":"${model}","prompt":"ok","keep_alive":-1,"stream":false}' >/dev/null 2>&1 || true`,
     'echo "✅ worker online"',
   ].join("\n");
 }
@@ -236,6 +252,8 @@ if (-not (DockerUp)) { Write-Host "⛔ Docker engine didn't come up automaticall
 Write-Host "✓ Docker engine ready"
 
 if (Have ollama) { Write-Host "✓ Ollama already installed" } else { Write-Host "▶ installing Ollama"; winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements }
+# Keep the model resident (no idle eviction) so it never cold-loads mid-job.
+setx OLLAMA_KEEP_ALIVE -1 *> $null; $env:OLLAMA_KEEP_ALIVE = "-1"
 if (Have cast) { Write-Host "✓ Foundry already installed" } else { Write-Host "▶ installing Foundry"; Invoke-RestMethod https://foundry.paradigm.xyz | Invoke-Expression; foundryup }
 
 # The app's working dir may not be writable; work in a real home dir.
@@ -243,6 +261,8 @@ New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-N
 Set-Location "$env:USERPROFILE\\.lightnode"
 # Installing means the worker should run - clear any pause from a prior Stop/Deregister.
 Remove-Item (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused") -ErrorAction SilentlyContinue
+# Record the served model so the watchdog can keep it warm in Ollama.
+Set-Content -Path (Join-Path $env:USERPROFILE ".lightnode\\model") -Value "${model}"
 # Keep-online watchdog: auto-start Docker + the worker on a schedule (survives reboot).
 try {
   $ko = Join-Path $env:USERPROFILE ".lightnode\\keep-online.ps1"
@@ -252,6 +272,8 @@ docker info *> $null
 if (-not $?) { Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0;$i -lt 45;$i++){ docker info *> $null; if($?){break}; Start-Sleep 2 } }
 docker info *> $null; if (-not $?) { exit 0 }
 if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null } }
+$m = Get-Content (Join-Path $env:USERPROFILE ".lightnode\model") -ErrorAction SilentlyContinue
+if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 5 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
 '@ | Set-Content -Path $ko -Encoding ASCII
   schtasks /Create /TN "LightChainWorkerWatchdog" /TR "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$ko\`"" /SC MINUTE /MO 10 /F | Out-Null
   Write-Host "✓ keep-online watchdog active (Scheduled Task, every 10 min)"
@@ -287,6 +309,9 @@ New-Item -ItemType Directory -Force -Path $keysDir | Out-Null
 Set-Content -Path $marker -Value $waddr
 $env:FORCE = "1"
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
+# Pre-warm the model and pin it so the first job doesn't pay a cold load.
+Write-Host "▶ pre-warming ${model} (kept resident to avoid cold-load timeouts)"
+try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"${model}\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {}
 Write-Host "✅ worker online"`;
 }
 

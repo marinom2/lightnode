@@ -86,6 +86,51 @@ export async function detectNativeHardware(): Promise<NativeHardware | null> {
   }
 }
 
+export type LocalContainerStatus = "running" | "stopped" | "missing" | "unknown";
+
+/**
+ * Real local state of the worker container on this machine - the one thing the
+ * on-chain subgraph can't see. Runs `docker ps` natively and parses the result.
+ * "unknown" when not in the desktop shell or Docker is unreachable (we do NOT
+ * auto-start Docker here - this is a read-only check).
+ */
+export async function localContainerStatus(): Promise<LocalContainerStatus> {
+  const invoke = getInvoke();
+  const events = win()?.__TAURI__?.event;
+  if (!invoke || !events) return "unknown";
+  const cmd =
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"; ' +
+    'docker info >/dev/null 2>&1 || { echo "__NODOCKER__"; exit 0; }; ' +
+    "docker ps -a --filter name=lightchain-worker --format '{{.Status}}' 2>/dev/null";
+  return new Promise<LocalContainerStatus>((resolve) => {
+    let out = "";
+    let settled = false;
+    const unsubs: Array<() => void> = [];
+    const finish = (v: LocalContainerStatus) => {
+      if (settled) return;
+      settled = true;
+      unsubs.forEach((u) => u());
+      resolve(v);
+    };
+    const classify = () => {
+      if (/__NODOCKER__/.test(out)) return finish("unknown");
+      if (/^\s*Up\b/im.test(out)) return finish("running");
+      if (/\bExited\b|\bCreated\b/i.test(out)) return finish("stopped");
+      return finish("missing");
+    };
+    Promise.all([
+      events.listen("setup-log", (e) => {
+        out += String(e.payload) + "\n";
+      }),
+      events.listen("setup-exit", classify),
+    ]).then((u) => {
+      unsubs.push(...u);
+      invoke("run_command_streamed", { command: cmd, env: {} }).catch(() => finish("unknown"));
+    });
+    setTimeout(() => finish("unknown"), 8000);
+  });
+}
+
 /** Run the generated setup command natively, streaming logs. Secrets go in
  *  `env` (process environment), never in the command string. Returns a stop fn.
  *  Requires the event API (the global wrapper); no-ops if unavailable. */
