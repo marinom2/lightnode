@@ -265,7 +265,9 @@ export function OperationsPanel() {
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-semibold text-content-primary">{op.label}</span>
-                <span className="block text-[11px] leading-snug text-content-soft">{op.desc}</span>
+                <span className={cn("block text-[11px] leading-snug", blocked ? "text-warning" : "text-content-soft")}>
+                  {blocked ? "Enter a payout address above to enable" : op.desc}
+                </span>
               </span>
             </button>
           );
