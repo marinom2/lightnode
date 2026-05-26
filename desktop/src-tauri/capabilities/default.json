@@ -12,6 +12,7 @@
     "allow-run-command-streamed",
     "allow-secret-set",
     "allow-secret-get",
-    "allow-secret-delete"
+    "allow-secret-delete",
+    "allow-generate-worker-key"
   ]
 }

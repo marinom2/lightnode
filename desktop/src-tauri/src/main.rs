@@ -41,6 +41,27 @@ fn secret_delete(name: String) -> Result<(), String> {
     }
 }
 
+/// Generate a fresh worker key natively (secp256k1), store the PRIVATE key in
+/// the keychain under `name`, and return ONLY the public Ethereum address. The
+/// raw key never crosses into the web layer - the most private generation path.
+#[tauri::command]
+fn generate_worker_key(name: String) -> Result<String, String> {
+    use k256::ecdsa::SigningKey;
+    use sha3::{Digest, Keccak256};
+
+    let sk = SigningKey::random(&mut rand::rngs::OsRng);
+    let priv_hex = format!("0x{}", hex::encode(sk.to_bytes()));
+
+    // Ethereum address = last 20 bytes of keccak256(uncompressed pubkey[1..]).
+    let point = sk.verifying_key().to_encoded_point(false);
+    let pub_bytes = &point.as_bytes()[1..]; // drop the 0x04 SEC1 prefix -> 64 bytes
+    let hash = Keccak256::digest(pub_bytes);
+    let address = format!("0x{}", hex::encode(&hash[12..]));
+
+    keychain(&name)?.set_password(&priv_hex).map_err(|e| e.to_string())?;
+    Ok(address)
+}
+
 #[derive(Serialize, Clone)]
 struct Hardware {
     os: String,
@@ -188,7 +209,8 @@ fn main() {
             run_command_streamed,
             secret_set,
             secret_get,
-            secret_delete
+            secret_delete,
+            generate_worker_key
         ])
         .run(tauri::generate_context!())
         .expect("error while running LightNode");

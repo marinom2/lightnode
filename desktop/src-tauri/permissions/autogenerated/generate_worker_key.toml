@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-generate-worker-key"
+description = "Enables the generate_worker_key command without any pre-configured scope."
+commands.allow = ["generate_worker_key"]
+
+[[permission]]
+identifier = "deny-generate-worker-key"
+description = "Denies the generate_worker_key command without any pre-configured scope."
+commands.deny = ["generate_worker_key"]

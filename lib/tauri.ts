@@ -124,6 +124,22 @@ export async function secretDelete(name: string): Promise<void> {
   }
 }
 
+/**
+ * Generate a worker key NATIVELY: the key is created in Rust, stored in the
+ * keychain under `name`, and only the public address is returned - the raw key
+ * never enters the web layer. Null on the web (caller falls back to viem).
+ */
+export async function generateWorkerKey(name: string): Promise<string | null> {
+  const invoke = getInvoke();
+  if (!invoke) return null;
+  try {
+    return await invoke<string>("generate_worker_key", { name });
+  } catch (e) {
+    console.error("[tauri] generate_worker_key failed:", e);
+    return null;
+  }
+}
+
 export type LocalContainerStatus = "running" | "stopped" | "missing" | "unknown";
 
 /**

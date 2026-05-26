@@ -10,6 +10,7 @@ fn main() {
                 "secret_set",
                 "secret_get",
                 "secret_delete",
+                "generate_worker_key",
             ]),
         ),
     )

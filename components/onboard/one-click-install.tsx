@@ -6,7 +6,7 @@ import {
   Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight,
 } from "lucide-react";
 import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
-import { parseEther, formatEther } from "viem";
+import { parseEther, formatEther, getAddress } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
-import { isDesktop, runSetupStreamed } from "@/lib/tauri";
+import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
 import { getSecret, setSecret, hasNativeSecrets, SECRET_WORKER_KEY, SECRET_WORKER_PW, WORKER_ADDR_STORE } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 
@@ -134,43 +134,66 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
 /** Funding source body: generate a dedicated key + fund it from the connected
  *  wallet, or paste an existing funder key. (Mode toggle lives in the StepCard
  *  aside.) Reports the chosen key once it holds enough. */
-function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: FundMode; onReady: (key: string | null) => void }) {
+function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: FundMode; onReady: (ready: string | null) => void }) {
   const net = NETWORKS[network];
   const need = parseEther(String(net.fundLcai));
-  const [genKey, setGenKey] = useState("");
+  const [genAddr, setGenAddr] = useState("");
   const [reveal, setReveal] = useState(false);
+  const [revealedKey, setRevealedKey] = useState("");
   const [paste, setPaste] = useState("");
-
-  // Restore a previously-generated key so a reload doesn't orphan its funds.
-  // (getSecret reads the keychain on desktop, migrating any legacy localStorage.)
-  useEffect(() => {
-    let on = true;
-    getSecret(SECRET_WORKER_KEY).then((saved) => {
-      if (on && PRIVKEY_RE.test(saved)) {
-        setGenKey(saved);
-        lsSet(WORKER_ADDR_STORE, privateKeyToAccount(saved as `0x${string}`).address);
-      }
-    });
-    return () => {
-      on = false;
-    };
-  }, []);
-
-  const generate = () => {
-    const k = generatePrivateKey();
-    setGenKey(k);
-    void setSecret(SECRET_WORKER_KEY, k); // keychain on desktop, localStorage on web
-    const addr = privateKeyToAccount(k).address;
-    lsSet(WORKER_ADDR_STORE, addr); // public - so the dashboard's "My worker" finds it
-    savedWorkers.add(addr); // add to the watchlist
-  };
+  const [busy, setBusy] = useState(false);
 
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const savedWorkers = useSavedWorkers();
   const onChain = chainId === net.chainId;
-  const genAddr = genKey ? privateKeyToAccount(genKey as `0x${string}`).address : undefined;
-  const { data: bal } = useBalance({ address: genAddr, chainId: net.chainId, query: { enabled: !!genAddr, refetchInterval: 5000 } });
+
+  // Restore from the public ADDRESS (never the key) - if it's stored, a key
+  // exists in the keychain/localStorage. The raw key is fetched only on an
+  // explicit "reveal for backup".
+  useEffect(() => {
+    const a = lsGet(WORKER_ADDR_STORE);
+    if (/^0x[a-fA-F0-9]{40}$/.test(a)) setGenAddr(a);
+  }, []);
+
+  const generate = async () => {
+    setBusy(true);
+    setReveal(false);
+    setRevealedKey("");
+    try {
+      let addr: string;
+      if (hasNativeSecrets()) {
+        // Key is created + kept in the keychain natively; only the address returns.
+        const native = await generateWorkerKey(SECRET_WORKER_KEY);
+        if (!native) throw new Error("native key generation unavailable");
+        addr = getAddress(native);
+      } else {
+        const k = generatePrivateKey();
+        await setSecret(SECRET_WORKER_KEY, k); // localStorage on web
+        addr = privateKeyToAccount(k).address;
+      }
+      setGenAddr(addr);
+      lsSet(WORKER_ADDR_STORE, addr); // public - powers the dashboard "My worker"
+      savedWorkers.add(addr);
+    } catch {
+      /* leave prior state */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleReveal = async () => {
+    if (reveal) {
+      setReveal(false);
+      setRevealedKey("");
+      return;
+    }
+    setRevealedKey(await getSecret(SECRET_WORKER_KEY)); // explicit backup action
+    setReveal(true);
+  };
+
+  const genAddrTyped = genAddr ? (genAddr as `0x${string}`) : undefined;
+  const { data: bal } = useBalance({ address: genAddrTyped, chainId: net.chainId, query: { enabled: !!genAddr, refetchInterval: 5000 } });
   const { sendTransaction, isPending, error: sendError, data: hash } = useSendTransaction();
   const { isLoading: confirming } = useWaitForTransactionReceipt({ hash, chainId: net.chainId, query: { enabled: !!hash } });
   const { switchChain, isPending: switching } = useSwitchChain();
@@ -178,10 +201,22 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
   const funded = !!bal && bal.value >= need;
   const errMsg = sendError ? sendError.message.split("\n")[0].slice(0, 140) : null;
 
+  // Report readiness as the worker ADDRESS (not the key). In paste mode, store
+  // the pasted key (keychain on desktop) so the install/withdraw can use it.
   useEffect(() => {
-    if (mode === "wallet") onReady(genKey && funded ? genKey : null);
-    else onReady(PRIVKEY_RE.test(paste) ? paste : null);
-  }, [mode, genKey, funded, paste, onReady]);
+    if (mode === "paste") {
+      if (PRIVKEY_RE.test(paste)) {
+        const a = privateKeyToAccount(paste as `0x${string}`).address;
+        void setSecret(SECRET_WORKER_KEY, paste);
+        lsSet(WORKER_ADDR_STORE, a);
+        onReady(a);
+      } else {
+        onReady(null);
+      }
+    } else {
+      onReady(genAddr && funded ? genAddr : null);
+    }
+  }, [mode, paste, genAddr, funded, onReady]);
 
   if (mode === "paste") {
     return (
@@ -200,14 +235,16 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     );
   }
 
-  if (!genKey) {
+  if (!genAddr) {
     return (
       <button
         type="button"
         onClick={generate}
-        className="group flex w-full items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-medium text-primary transition-all hover:border-primary/50 hover:bg-primary/15"
+        disabled={busy}
+        className="group flex w-full items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-medium text-primary transition-all hover:border-primary/50 hover:bg-primary/15 disabled:opacity-60"
       >
-        <Wand2 className="size-4" /> Generate your worker key
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+        {busy ? "Generating..." : "Generate your worker key"}
       </button>
     );
   }
@@ -216,15 +253,15 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     <div className="space-y-3">
       <div className="rounded-xl border border-bdr-soft bg-card/60 p-3.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-sm text-content-primary">{genAddr?.slice(0, 10)}…{genAddr?.slice(-8)}</span>
+          <span className="font-mono text-sm text-content-primary">{genAddr.slice(0, 10)}…{genAddr.slice(-8)}</span>
           <span className="flex items-center gap-3">
             {genAddr && <CopyBtn value={genAddr} />}
-            <button type="button" onClick={() => setReveal((r) => !r)} className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary">
+            <button type="button" onClick={toggleReveal} className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary">
               {reveal ? <EyeOff className="size-3" /> : <Eye className="size-3" />} key
             </button>
             <button
               type="button"
-              onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten - back it up first if it holds funds.")) generate(); }}
+              onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten - back it up first if it holds funds.")) void generate(); }}
               className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
             >
               new
@@ -233,8 +270,8 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         </div>
         {reveal && (
           <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg bg-warning/10 px-2.5 py-2">
-            <code className="truncate font-mono text-[11px] text-content-default">{genKey}</code>
-            <CopyBtn value={genKey} />
+            <code className="truncate font-mono text-[11px] text-content-default">{revealedKey || "…"}</code>
+            {revealedKey && <CopyBtn value={revealedKey} />}
           </div>
         )}
         <p className="mt-2.5 flex items-start gap-1.5 text-[11px] text-warning">
@@ -269,7 +306,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         {funded ? (
           <span className="inline-flex items-center gap-1.5 font-semibold text-success"><CheckCircle2 className="size-4" /> Funded</span>
         ) : isConnected && onChain ? (
-          <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={() => genAddr && sendTransaction({ to: genAddr, value: need, chainId: net.chainId })}>
+          <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={() => genAddrTyped && sendTransaction({ to: genAddrTyped, value: need, chainId: net.chainId })}>
             {isPending || confirming ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Fund {net.fundLcai.toLocaleString()} from wallet
           </Button>
         ) : isConnected ? (
@@ -307,7 +344,9 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   const [os, setOs] = useState<OS>("macos");
   const [pw, setPw] = useState("");
   const [mode, setMode] = useState<FundMode>("wallet");
-  const [funderKey, setFunderKey] = useState<string | null>(null);
+  // The worker ADDRESS once a key exists + is funded (the raw key lives in the
+  // keychain/localStorage, not here). Null until ready.
+  const [ready, setReady] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
@@ -350,23 +389,23 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     );
   }
 
-  const valid = pw.length >= 6 && !!funderKey;
+  const valid = pw.length >= 6 && !!ready;
   const hint = pw.length < 6 ? "Set a password (6+ characters)" : "Fund the worker address";
 
   const run = async () => {
-    if (!funderKey) return;
+    if (!ready) return;
     setPhase("running");
     setLog([]);
-    // Make sure the keychain holds the key + password, then let the native
-    // runner inject them by NAME (desktop) - the command string + web layer
-    // never carry the secret values. On web, fall back to passing them via env.
-    await setSecret(SECRET_WORKER_KEY, funderKey);
+    // The key already lives in the keychain (desktop) / localStorage (web) from
+    // generation; just make sure the password is stored too. On desktop the
+    // native runner injects both by NAME (the web layer never carries the raw
+    // values); on web we fall back to passing them via env.
     await setSecret(SECRET_WORKER_PW, pw);
     const baseEnv = { NETWORK: network, SUPPORTED_MODELS: model };
+    const secretEnv = hasNativeSecrets() ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
     const env = hasNativeSecrets()
       ? baseEnv
-      : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: funderKey };
-    const secretEnv = hasNativeSecrets() ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
+      : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: (await getSecret(SECRET_WORKER_KEY)) || "" };
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, model),
       env,
@@ -446,7 +485,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
               </div>
             }
           >
-            <FunderSetup network={network} mode={mode} onReady={setFunderKey} />
+            <FunderSetup network={network} mode={mode} onReady={setReady} />
           </StepCard>
 
           <p className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/5 px-3.5 py-2.5 text-xs text-content-soft">
