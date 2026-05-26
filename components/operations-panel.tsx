@@ -173,44 +173,68 @@ export function OperationsPanel() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {OPS.map((op) => (
-          <div
-            key={op.key}
-            className={cn(
-              "rounded-xl border bg-card/50 p-4",
-              op.danger ? "border-destructive/30" : "border-bdr-soft",
-            )}
-          >
-            <div className="mb-2 flex items-center gap-2">
-              {op.danger ? (
-                <span className="grid size-8 place-items-center rounded-lg bg-destructive/15 text-destructive">
-                  <op.icon className="size-4" />
-                </span>
-              ) : (
-                <IconChip icon={op.icon} size="sm" />
-              )}
-              <div>
-                <div className="text-sm font-medium text-content-primary">{op.label}</div>
-                <div className="text-[11px] text-content-soft">{op.desc}</div>
-              </div>
-            </div>
+        {OPS.map((op) => {
+          const isActive = active === op.key;
+          const blocked = !!op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest);
+          const Icon = op.icon;
 
-            {desktop ? (
-              <Button
-                variant={op.danger ? "destructive" : "outline"}
-                size="sm"
-                className="mt-1 w-full"
-                disabled={active === op.key || (op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest))}
-                onClick={() => runOp(op)}
+          // Web: can't run locally, so the card carries a copy-command action.
+          if (!desktop) {
+            return (
+              <div
+                key={op.key}
+                className={cn("rounded-xl border bg-card/50 p-4", op.danger ? "border-destructive/30" : "border-bdr-soft")}
               >
-                {active === op.key ? <Loader2 className="animate-spin" /> : <op.icon />}
-                {op.label}
-              </Button>
-            ) : (
-              <CopyCommand value={baseCmd(op)} />
-            )}
-          </div>
-        ))}
+                <div className="mb-2 flex items-center gap-2.5">
+                  {op.danger ? (
+                    <span className="grid size-9 place-items-center rounded-xl bg-destructive/15 text-destructive">
+                      <Icon className="size-4" />
+                    </span>
+                  ) : (
+                    <IconChip icon={Icon} size="sm" />
+                  )}
+                  <div>
+                    <div className="text-sm font-medium text-content-primary">{op.label}</div>
+                    <div className="text-[11px] text-content-soft">{op.desc}</div>
+                  </div>
+                </div>
+                <CopyCommand value={baseCmd(op)} />
+              </div>
+            );
+          }
+
+          // Desktop: the whole card is the button (no duplicate control).
+          return (
+            <button
+              key={op.key}
+              type="button"
+              disabled={isActive || blocked}
+              onClick={() => runOp(op)}
+              title={blocked ? "Enter a payout address above first" : undefined}
+              className={cn(
+                "group flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50",
+                op.danger
+                  ? "border-destructive/30 hover:border-destructive/60 hover:bg-destructive/5"
+                  : "border-bdr-soft bg-card/50 hover:border-primary/40 hover:bg-card/80",
+              )}
+            >
+              <span
+                className={cn(
+                  "grid size-10 shrink-0 place-items-center rounded-xl transition-transform group-hover:scale-105 group-disabled:scale-100",
+                  op.danger
+                    ? "bg-destructive/15 text-destructive"
+                    : "bg-gradient-primary text-white shadow-[0_6px_16px_-6px_rgba(112,100,233,0.6)]",
+                )}
+              >
+                {isActive ? <Loader2 className="size-5 animate-spin" /> : <Icon className="size-5" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-content-primary">{op.label}</span>
+                <span className="block text-[11px] leading-snug text-content-soft">{op.desc}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {desktop && log.length > 0 && (

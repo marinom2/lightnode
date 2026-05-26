@@ -111,7 +111,7 @@ export function MachineCheck({
               <span className="font-medium text-content-primary">Auto-detected your machine.</span>{" "}
               {detected.gpuLabel ? `GPU: ${detected.gpuLabel}. ` : ""}
               {detected.unified
-                ? `Apple Silicon with ${Math.max(m.ramGb, m.vramGb)}GB unified memory - eligible. The GPU and CPU share one pool, so the PC-style "16GB RAM + 8GB VRAM" split doesn't apply; llama3-8b fits comfortably.`
+                ? `Apple Silicon, ${Math.max(m.ramGb, m.vramGb)}GB unified memory. llama3-8b fits comfortably.`
                 : `Inferred ~${m.vramGb}GB VRAM.`}{" "}
               <button onClick={() => setShowEdit((s) => !s)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
                 <Pencil className="size-3" /> {showEdit ? "Hide" : "Adjust"}
@@ -268,8 +268,7 @@ export function MachineCheck({
             />
           </label>
           <p className="mt-2 text-[11px] leading-relaxed text-content-soft">
-            {fmt(reward.perJobLcai, 3)} LCAI per completed job (80% of the 0.02 fee). Actual earnings depend on
-            network demand and routing - this is an estimate, not a guarantee.
+            {fmt(reward.perJobLcai, 3)} LCAI per job · varies with demand &amp; routing.
           </p>
 
           <div className="mt-4 border-t border-bdr-light pt-3">
