@@ -132,7 +132,7 @@ describe("desktopInstallCommand (smart install)", () => {
     expect(unix).toContain("systemctl"); // linux
   });
   it("short-circuits when the worker is already running", () => {
-    expect(unix).toContain("worker already running — nothing to reinstall");
+    expect(unix).toContain("worker already running - nothing to reinstall");
   });
   it("funds the worker directly: no funder key, no generate/fund phases", () => {
     expect(unix).not.toContain("$FUNDER_PRIVKEY"); // never reads a funder key

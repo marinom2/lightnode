@@ -28,7 +28,7 @@ type Health = "live" | "down";
  * release cycle (≈hourly, up to ~8h). So lifetime reward ≈ `jobs_completed ×
  * per-job share`; the part not yet in `total_earned` is "pending release".
  * (Verified identical on testnet + mainnet: Completed jobs read share 0,
- * Released jobs read the real 0.016 LCAI — it's a lifecycle state, not a gap.)
+ * Released jobs read the real 0.016 LCAI - it's a lifecycle state, not a gap.)
  */
 export function earningsOf(worker: Worker): { settled: number; pending: number; expected: number } {
   const settled = fromWei(worker.total_earned);
@@ -37,7 +37,7 @@ export function earningsOf(worker: Worker): { settled: number; pending: number; 
   return { settled, pending, expected };
 }
 
-// The subgraph's last_seen_at is NOT a real-time heartbeat — it tracks last
+// The subgraph's last_seen_at is NOT a real-time heartbeat - it tracks last
 // on-chain activity, so even busy workers (200+ jobs) read "stale" for long
 // stretches. So health is based on the reliable signal: on-chain status. Use
 // Operations → Status to confirm the container's websocket is connected.
@@ -155,7 +155,7 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
 
       <p className="mt-3 text-[11px] leading-relaxed text-content-soft">
         {pending > 0
-          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it (about hourly, up to ~8h) — automatic, no action needed.`
+          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it (about hourly, up to ~8h) - automatic, no action needed.`
           : hasActivity
             ? "All completed jobs have settled. New rewards appear here automatically after each release cycle."
             : "No completed jobs yet. Rewards appear here once your worker serves and finishes jobs."}

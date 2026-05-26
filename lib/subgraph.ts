@@ -116,7 +116,7 @@ export async function fetchModels(network: NetworkId): Promise<ModelInfo[]> {
 }
 
 // The subgraph's last_seen_at tracks last on-chain activity, not a real-time
-// heartbeat — even busy workers read minutes/hours old. So "live" reflects the
+// heartbeat - even busy workers read minutes/hours old. So "live" reflects the
 // reliable on-chain signal (registered + active). Real container liveness is the
 // local websocket, which the subgraph can't see (use Operations → Status).
 export function isLive(w: Pick<Worker, "status" | "last_seen_at">): boolean {

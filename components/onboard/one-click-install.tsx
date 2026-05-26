@@ -26,7 +26,7 @@ const PRIVKEY_RE = /^0x[a-fA-F0-9]{64}$/;
 // password (which would orphan the stake). Cleared once install succeeds.
 const FUNDER_STORE = "lightnode.funderKey";
 const PW_STORE = "lightnode.workerPw";
-const WORKER_ADDR_STORE = "lightnode.workerAddress"; // public address — lets the dashboard find your worker
+const WORKER_ADDR_STORE = "lightnode.workerAddress"; // public address - lets the dashboard find your worker
 function lsGet(k: string): string {
   try { return window.localStorage.getItem(k) ?? ""; } catch { return ""; }
 }
@@ -218,7 +218,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
             </button>
             <button
               type="button"
-              onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten — back it up first if it holds funds.")) generate(); }}
+              onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten - back it up first if it holds funds.")) generate(); }}
               className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
             >
               new
@@ -355,7 +355,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
       (code) => {
         setPhase(code === 0 ? "done" : "failed");
         // NOTE: do NOT auto-clear the saved key/password here. "exit 0" only means
-        // the install script finished (the container was started) — the worker can
+        // the install script finished (the container was started) - the worker can
         // still crash-loop afterward. Wiping the key would orphan the staked worker
         // and make the app "forget" it. The key stays persisted so the worker is
         // always recoverable; the "new" button lets the user discard it on purpose.

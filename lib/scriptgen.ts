@@ -121,7 +121,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 echo "… waiting for the Docker engine to be ready (this can take a minute on first launch)"
 for _ in $(seq 1 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
-docker info >/dev/null 2>&1 || { echo "⛔ Docker engine didn't come up automatically — open Docker Desktop once, then re-run"; exit 1; }
+docker info >/dev/null 2>&1 || { echo "⛔ Docker engine didn't come up automatically - open Docker Desktop once, then re-run"; exit 1; }
 echo "✓ Docker engine ready"
 
 if have ollama; then echo "✓ Ollama already installed"; else
@@ -135,7 +135,7 @@ if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
 fi
 echo "… waiting for Ollama on 127.0.0.1:11434"
 for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
-curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama isn't responding on 127.0.0.1:11434 — open the Ollama app (or run 'ollama serve'), then re-run."; exit 1; }
+curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama isn't responding on 127.0.0.1:11434 - open the Ollama app (or run 'ollama serve'), then re-run."; exit 1; }
 echo "✓ Ollama server running"
 
 if have cast; then echo "✓ Foundry already installed"; else
@@ -148,7 +148,7 @@ if have cast; then echo "✓ Foundry already installed"; else
 fi
 export PATH="$HOME/.foundry/bin:$PATH"
 hash -r 2>/dev/null || true
-have cast || { echo "⛔ Foundry installed but 'cast' isn't on PATH yet — fully quit and reopen LightNode, then run again."; exit 1; }
+have cast || { echo "⛔ Foundry installed but 'cast' isn't on PATH yet - fully quit and reopen LightNode, then run again."; exit 1; }
 echo "✓ Foundry (cast) ready"`;
 
 /** Smart, idempotent install for macOS + Linux (bash). The app passes the
@@ -173,11 +173,11 @@ function unixInstall(network: NetworkId, model: string): string {
     'cd "$HOME/.lightnode"',
     "set -e",
     `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
-    `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
+    `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present - updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
     "[ -f secrets.env ] || cp secrets.example.sh secrets.env",
     // Pass secrets via the environment (the app already exported WORKER_PASSWORD +
-    // WORKER_PRIVKEY) — strip any file-set copies so they can't override, and add
+    // WORKER_PRIVKEY) - strip any file-set copies so they can't override, and add
     // the derived address. Avoids sed-escaping pitfalls with special chars.
     "grep -vE '^[[:space:]]*export (WORKER_PASSWORD|WORKER_ADDR|WORKER_PRIVKEY|FUNDER_PRIVKEY)=' secrets.env > secrets.env.tmp || true; mv secrets.env.tmp secrets.env",
     'export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY")"',
@@ -185,14 +185,14 @@ function unixInstall(network: NetworkId, model: string): string {
     // The toolkit hardcodes a 50,001 LCAI pre-flight guard; correct it to this network's minimum.
     `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
-    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then echo "✓ worker already running — nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
+    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then echo "✓ worker already running - nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
     // A keystore may already exist (our key on a re-run, or a stale key from a
     // prior worker). Skip the import if it's already ours; otherwise back up the
     // old one (never delete) so our key can be imported.
     'KS="${KEYS_DIR:-$HOME/lightchain-worker/keys}/eth-keystore"',
     'WADDR="$(printf "%s" "$WORKER_ADDR" | sed "s/^0x//" | tr "A-Z" "a-z")"',
     'SKIP_IMPORT=0',
-    'if [ -d "$KS" ] && [ -n "$(ls -A "$KS" 2>/dev/null)" ]; then if ls "$KS" | grep -qi "$WADDR"; then echo "✓ worker key already imported — skipping import"; SKIP_IMPORT=1; else echo "▶ backing up a previous worker keystore (not deleting)"; mv "$KS" "${KS}.bak-$(date +%s)"; fi; fi',
+    'if [ -d "$KS" ] && [ -n "$(ls -A "$KS" 2>/dev/null)" ]; then if ls "$KS" | grep -qi "$WADDR"; then echo "✓ worker key already imported - skipping import"; SKIP_IMPORT=1; else echo "▶ backing up a previous worker keystore (not deleting)"; mv "$KS" "${KS}.bak-$(date +%s)"; fi; fi',
     // The ECDH key (worker-encryption.key) is encrypted with the worker password.
     // A leftover from a different worker can't be decrypted with this password, so
     // back it up (via a marker recording which worker owns this keys dir) and let
@@ -202,14 +202,14 @@ function unixInstall(network: NetworkId, model: string): string {
     'if [ "$(cat "$MARKER" 2>/dev/null)" != "$WADDR" ]; then for f in "$ENCKEY" "$SESS"; do [ -f "$f" ] && { echo "▶ backing up old worker state: $(basename "$f")"; mv "$f" "${f}.bak-$(date +%s)"; }; done; fi',
     // Even if the marker matches, a session store older than the ECDH key is stale
     // (it predates this setup) and was encrypted with a different password.
-    'if [ -f "$SESS" ] && [ -f "$ENCKEY" ] && [ "$SESS" -ot "$ENCKEY" ]; then echo "▶ stale session store (older than ECDH key) — backing it up"; mv "$SESS" "${SESS}.bak-$(date +%s)"; fi',
+    'if [ -f "$SESS" ] && [ -f "$ENCKEY" ] && [ "$SESS" -ot "$ENCKEY" ]; then echo "▶ stale session store (older than ECDH key) - backing it up"; mv "$SESS" "${SESS}.bak-$(date +%s)"; fi',
     'mkdir -p "$(dirname "$MARKER")"; echo "$WADDR" > "$MARKER"',
     // The toolkit uses bash 4+ syntax (e.g. ${var,,}); macOS ships bash 3.2. Run
     // the phases with a modern bash (install via brew if the system one is old).
-    'if bash -c "declare -A _t" 2>/dev/null; then RUNBASH=bash; else echo "▶ system bash is too old for the toolkit — installing bash 4+ via brew"; brew install bash >/dev/null 2>&1 || true; RUNBASH="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
+    'if bash -c "declare -A _t" 2>/dev/null; then RUNBASH=bash; else echo "▶ system bash is too old for the toolkit - installing bash 4+ via brew"; brew install bash >/dev/null 2>&1 || true; RUNBASH="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     '"$RUNBASH" -c "declare -A _t" 2>/dev/null || { echo "⛔ The toolkit needs bash 4+. Run: brew install bash, then retry."; exit 1; }',
     'echo "✓ phase shell: $("$RUNBASH" --version | head -1)"',
-    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped — key already present)"; continue; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
     'echo "✅ worker online"',
   ].join("\n");
 }
@@ -232,7 +232,7 @@ if (-not (DockerUp)) {
 }
 Write-Host "… waiting for the Docker engine to be ready (this can take a minute on first launch)"
 for ($i=0; $i -lt 90; $i++){ if (DockerUp) { break }; Start-Sleep 2 }
-if (-not (DockerUp)) { Write-Host "⛔ Docker engine didn't come up automatically — open Docker Desktop once, then re-run"; exit 1 }
+if (-not (DockerUp)) { Write-Host "⛔ Docker engine didn't come up automatically - open Docker Desktop once, then re-run"; exit 1 }
 Write-Host "✓ Docker engine ready"
 
 if (Have ollama) { Write-Host "✓ Ollama already installed" } else { Write-Host "▶ installing Ollama"; winget install --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements }
@@ -256,7 +256,7 @@ if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-no
   schtasks /Create /TN "LightChainWorkerWatchdog" /TR "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$ko\`"" /SC MINUTE /MO 10 /F | Out-Null
   Write-Host "✓ keep-online watchdog active (Scheduled Task, every 10 min)"
 } catch { Write-Host "(keep-online watchdog skipped)" }
-if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present — updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
+if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present - updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
 Set-Location lightchain-worker-toolkit\\scripts\\powershell
 if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
 # Worker key + password come from the app via process env; derive the address.
@@ -266,13 +266,13 @@ $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
 if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace '50001', '${thr}' -replace '50,001', '${thr}' | Set-Content 07-register.ps1 }
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
-if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") { Write-Host "✓ worker already running — nothing to reinstall"; Write-Host "✅ worker online"; exit 0 }
+if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") { Write-Host "✓ worker already running - nothing to reinstall"; Write-Host "✅ worker online"; exit 0 }
 # Handle a pre-existing keystore: skip if it's already ours, else back up (never delete).
 $ks = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"
 $skipImport = $false
 if ((Test-Path $ks) -and (Get-ChildItem $ks -ErrorAction SilentlyContinue)) {
   $waddr = ($env:WORKER_ADDR -replace '^0x','').ToLower()
-  if (Get-ChildItem $ks | Where-Object { $_.Name.ToLower().Contains($waddr) }) { Write-Host "✓ worker key already imported — skipping import"; $skipImport = $true }
+  if (Get-ChildItem $ks | Where-Object { $_.Name.ToLower().Contains($waddr) }) { Write-Host "✓ worker key already imported - skipping import"; $skipImport = $true }
   else { Write-Host "▶ backing up a previous worker keystore (not deleting)"; Move-Item $ks "$ks.bak-$((Get-Date).Ticks)" }
 }
 # Stale ECDH key (different worker / old password) → back up so phase 05 regenerates.
@@ -282,11 +282,11 @@ $sess = Join-Path $keysDir "session-keys.enc"
 $marker = Join-Path $keysDir ".lightnode-worker"
 $waddr = ($env:WORKER_ADDR -replace '^0x','').ToLower()
 if ((Get-Content $marker -ErrorAction SilentlyContinue) -ne $waddr) { foreach ($f in @($enc, $sess)) { if (Test-Path $f) { Write-Host "▶ backing up old worker state: $(Split-Path $f -Leaf)"; Move-Item $f "$f.bak-$((Get-Date).Ticks)" } } }
-if ((Test-Path $sess) -and (Test-Path $enc) -and ((Get-Item $sess).LastWriteTime -lt (Get-Item $enc).LastWriteTime)) { Write-Host "▶ stale session store — backing it up"; Move-Item $sess "$sess.bak-$((Get-Date).Ticks)" }
+if ((Test-Path $sess) -and (Test-Path $enc) -and ((Get-Item $sess).LastWriteTime -lt (Get-Item $enc).LastWriteTime)) { Write-Host "▶ stale session store - backing it up"; Move-Item $sess "$sess.bak-$((Get-Date).Ticks)" }
 New-Item -ItemType Directory -Force -Path $keysDir | Out-Null
 Set-Content -Path $marker -Value $waddr
 $env:FORCE = "1"
-foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped — key present)"; continue }; Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
 Write-Host "✅ worker online"`;
 }
 
@@ -308,7 +308,7 @@ export function toolkitOpCommand(script: string, confirm?: string): string {
   return [
     "exec 2>&1",
     'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
-    'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found — install the worker first."; exit 1; }',
+    'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     run,
   ].join("\n");
@@ -410,12 +410,12 @@ export function repairWorkerCommand(os: OS): string {
   if (os === "windows") {
     return `$ErrorActionPreference = "Stop"
 Write-Host "▶ repairing lightchain-worker"
-if (-not ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$")) { Write-Host "⛔ No lightchain-worker container found — install one first."; exit 1 }
+if (-not ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$")) { Write-Host "⛔ No lightchain-worker container found - install one first."; exit 1 }
 docker stop lightchain-worker *> $null
 $sess = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\session-keys.enc"
 if (Test-Path $sess) { Move-Item $sess "$sess.bak-$((Get-Date).Ticks)"; Write-Host "✓ cleared stale session store" }
 docker start lightchain-worker
-Write-Host "✓ worker restarted — give it ~1 min, then check the dashboard"
+Write-Host "✓ worker restarted - give it ~1 min, then check the dashboard"
 docker logs --tail 20 lightchain-worker`;
   }
   return [
@@ -423,13 +423,13 @@ docker logs --tail 20 lightchain-worker`;
     'echo "▶ repairing lightchain-worker"',
     // Restart = the user wants it running, so lift any pause from a prior Stop.
     'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
-    `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No lightchain-worker container found — install one first."; exit 1; fi`,
+    `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No lightchain-worker container found - install one first."; exit 1; fi`,
     "docker stop lightchain-worker >/dev/null 2>&1 || true",
     'SESS="$HOME/lightchain-worker/keys/session-keys.enc"',
     '[ -f "$SESS" ] && mv "$SESS" "${SESS}.bak-$(date +%s)" && echo "✓ cleared stale session store"',
     "docker start lightchain-worker",
-    'echo "✓ worker restarted — watching for connection (up to ~60s)"',
-    'for _ in $(seq 1 30); do if docker logs --since 20s lightchain-worker 2>&1 | grep -qiE "websocket connected|gateway auth"; then echo "✅ worker connected — should go Live on the dashboard"; break; fi; sleep 2; done',
+    'echo "✓ worker restarted - watching for connection (up to ~60s)"',
+    'for _ in $(seq 1 30); do if docker logs --since 20s lightchain-worker 2>&1 | grep -qiE "websocket connected|gateway auth"; then echo "✅ worker connected - should go Live on the dashboard"; break; fi; sleep 2; done',
     "docker logs --tail 15 lightchain-worker 2>&1",
   ].join("\n");
 }
