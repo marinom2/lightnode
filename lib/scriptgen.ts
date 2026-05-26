@@ -223,6 +223,19 @@ export function desktopInstallCommand(os: OS, network: NetworkId, model: string 
   return os === "windows" ? windowsInstall(network, model) : unixInstall(network, model);
 }
 
+/** Run a toolkit script natively from the app: find the toolkit (the install
+ *  clones it to ~/.lightnode), use bash 4+ (macOS ships 3.2), surface stderr. */
+export function toolkitOpCommand(script: string, confirm?: string): string {
+  const run = confirm ? `echo ${confirm} | FORCE=1 "$RB" ${script}` : `FORCE=1 "$RB" ${script}`;
+  return [
+    "exec 2>&1",
+    'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
+    'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found — install the worker first."; exit 1; }',
+    'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
+    run,
+  ].join("\n");
+}
+
 /**
  * Repair an already-installed worker without the UI needing its key: stop the
  * (possibly crash-looping) container, clear a stale session store, restart it.

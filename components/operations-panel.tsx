@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, toolkitOpCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +46,6 @@ function CopyCommand({ value }: { value: string }) {
   );
 }
 
-const TK = "cd lightchain-worker-toolkit/scripts/bash";
-
 type Op = {
   key: string;
   label: string;
@@ -61,9 +59,9 @@ type Op = {
 };
 
 const OPS: Op[] = [
-  { key: "status", label: "Status", desc: "Stake, model, on-chain health", icon: Activity, cmd: () => `${TK} && bash status.sh` },
+  { key: "status", label: "Status", desc: "Local container health + recent log", icon: Activity, cmd: () => 'docker ps -a --filter name=lightchain-worker --format "container: {{.Status}}"; echo "--- recent log ---"; docker logs --tail 25 lightchain-worker 2>&1' },
   { key: "restart", label: "Restart", desc: "Recover a stalled worker (clears stale session, restarts)", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
-  { key: "stop", label: "Stop", desc: "Stop the worker (stake stays staked)", icon: Square, cmd: () => `${TK} && bash stop.sh` },
+  { key: "stop", label: "Stop", desc: "Stop the worker (stake stays staked)", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
   {
     key: "sweep",
@@ -72,7 +70,7 @@ const OPS: Op[] = [
     icon: Coins,
     needsDest: true,
     confirmWord: "sweep",
-    cmd: (dest) => `${TK} && echo sweep | bash sweep-rewards.sh ${dest || "<destination-address>"}`,
+    cmd: (dest) => toolkitOpCommand(`sweep-rewards.sh ${dest || "<destination-address>"}`, "sweep"),
   },
   {
     key: "dereg",
@@ -81,7 +79,7 @@ const OPS: Op[] = [
     icon: LogOut,
     danger: true,
     confirmWord: "deregister",
-    cmd: () => `${TK} && echo deregister | bash deregister.sh`,
+    cmd: () => toolkitOpCommand("deregister.sh", "deregister"),
   },
 ];
 
