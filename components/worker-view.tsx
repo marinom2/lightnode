@@ -17,9 +17,25 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
 import { DEFAULT_MODEL } from "@/lib/network";
+import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job } from "@/lib/subgraph";
 
 type Health = "live" | "down";
+
+/**
+ * Earnings split. A job's reward is escrowed while it sits in `Completed` and
+ * only lands in `total_earned` once it flips to `Released` on the network's
+ * release cycle (≈hourly, up to ~8h). So lifetime reward ≈ `jobs_completed ×
+ * per-job share`; the part not yet in `total_earned` is "pending release".
+ * (Verified identical on testnet + mainnet: Completed jobs read share 0,
+ * Released jobs read the real 0.016 LCAI — it's a lifecycle state, not a gap.)
+ */
+export function earningsOf(worker: Worker): { settled: number; pending: number; expected: number } {
+  const settled = fromWei(worker.total_earned);
+  const expected = (worker.jobs_completed ?? 0) * workerSharePerJob;
+  const pending = Math.max(0, expected - settled);
+  return { settled, pending, expected };
+}
 
 // The subgraph's last_seen_at is NOT a real-time heartbeat — it tracks last
 // on-chain activity, so even busy workers (200+ jobs) read "stale" for long
@@ -34,7 +50,7 @@ const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: st
   down: { tone: "danger", label: "Offline", hint: "Not active. Deregistered, deactivated, or never started." },
 };
 
-/** Cumulative-earnings sparkline from the recent jobs feed (no chart lib). */
+/** Cumulative settled-earnings sparkline (Released jobs only; no chart lib). */
 function EarningsSparkline({ jobs }: { jobs: Job[] }) {
   const points = jobs
     .filter((j) => fromWei(j.worker_share) > 0)
@@ -53,12 +69,11 @@ function EarningsSparkline({ jobs }: { jobs: Job[] }) {
   const area = `${line} L${w},${h} L0,${h} Z`;
 
   return (
-    <Card className="p-5">
-      <div className="mb-3 flex items-center justify-between">
+    <div className="mt-5 border-t border-bdr-light pt-4">
+      <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <TrendingUp className="size-4 text-content-soft" />
-          <h3 className="text-sm font-semibold text-content-primary">Earnings trend</h3>
-          <span className="text-xs text-content-soft">cumulative, recent jobs</span>
+          <span className="text-xs font-medium text-content-soft">Settled earnings trend</span>
         </div>
         <span className="text-sm font-semibold text-success">+{fmt(cum, 3)} LCAI</span>
       </div>
@@ -72,6 +87,81 @@ function EarningsSparkline({ jobs }: { jobs: Job[] }) {
         <path d={area} fill="url(#lc-spark)" />
         <path d={line} fill="none" stroke="#8c71f6" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
       </svg>
+    </div>
+  );
+}
+
+/** Hero earnings card: settled vs pending-release, with a segmented bar. */
+function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
+  const { settled, pending, expected } = earningsOf(worker);
+  const hasActivity = expected > 0;
+  const settledPct = hasActivity ? (settled / expected) * 100 : 0;
+  const jobsDone = fmt(worker.jobs_completed ?? 0, 0);
+
+  return (
+    <Card className="relative overflow-hidden p-6">
+      <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 size-52 rounded-full bg-primary/10 blur-3xl" />
+
+      <div className="mb-4 flex items-center gap-2">
+        <Coins className="size-4 text-content-soft" />
+        <h3 className="text-sm font-semibold text-content-primary">Earnings</h3>
+      </div>
+
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-xs font-medium text-content-soft">Settled</div>
+          <div className="mt-0.5 flex items-baseline gap-1.5">
+            <span className="text-4xl font-semibold tracking-tight text-success">{fmt(settled, 3)}</span>
+            <span className="text-sm text-content-soft">LCAI</span>
+          </div>
+        </div>
+        {pending > 0 && (
+          <div className="text-right">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning">
+              <Clock className="size-3.5" /> +{fmt(pending, 3)} LCAI pending
+            </span>
+            <div className="mt-1 text-[11px] text-content-soft">≈ {fmt(expected, 3)} LCAI lifetime</div>
+          </div>
+        )}
+      </div>
+
+      {hasActivity && (
+        <div className="mt-4">
+          <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-base-faint">
+            <div className="h-full bg-success transition-all duration-500" style={{ width: `${settledPct}%` }} />
+            {pending > 0 && (
+              <div
+                className="h-full transition-all duration-500"
+                style={{
+                  width: `${100 - settledPct}%`,
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, rgba(246,181,30,0.6) 0 6px, rgba(246,181,30,0.22) 6px 12px)",
+                }}
+              />
+            )}
+          </div>
+          <div className="mt-2 flex items-center gap-4 text-[11px] text-content-soft">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-success" /> Settled
+            </span>
+            {pending > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-warning/70" /> Pending release
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] leading-relaxed text-content-soft">
+        {pending > 0
+          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it (about hourly, up to ~8h) — automatic, no action needed.`
+          : hasActivity
+            ? "All completed jobs have settled. New rewards appear here automatically after each release cycle."
+            : "No completed jobs yet. Rewards appear here once your worker serves and finishes jobs."}
+      </p>
+
+      <EarningsSparkline jobs={jobs} />
     </Card>
   );
 }
@@ -94,11 +184,9 @@ export function WorkerView({
   const h = healthOf(worker);
   const meta = HEALTH[h];
   const stake = fromWei(worker.stake);
-  const earned = fromWei(worker.total_earned);
 
   const tiles = [
     { icon: CheckCircle2, label: "Jobs completed", value: fmt(worker.jobs_completed ?? 0, 0), tone: "text-content-primary" },
-    { icon: Coins, label: "LCAI earned", value: fmt(earned, 3), tone: "text-success" },
     { icon: ShieldCheck, label: "Stake (LCAI)", value: compact(stake), tone: "text-content-primary" },
     { icon: Clock, label: "Last on-chain activity", value: timeAgo(worker.last_seen_at), tone: "text-content-primary" },
   ];
@@ -128,7 +216,9 @@ export function WorkerView({
         <p className="mt-3 text-sm text-content-soft">{meta.hint}</p>
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <EarningsPanel worker={worker} jobs={jobs} />
+
+      <div className="grid grid-cols-3 gap-3">
         {tiles.map((t) => (
           <Card key={t.label} className="p-4">
             <div className="mb-2 flex items-center gap-2 text-content-soft">
@@ -139,8 +229,6 @@ export function WorkerView({
           </Card>
         ))}
       </div>
-
-      <EarningsSparkline jobs={jobs} />
 
       {(worker.jobs_timed_out ?? 0) > 0 && (
         <Card className="border-warning/30 bg-warning/10 p-4">
@@ -169,7 +257,8 @@ export function WorkerView({
           </div>
           <div className="space-y-1.5">
             {jobs.map((j) => {
-              const done = /complet/i.test(j.state);
+              const released = /releas/i.test(j.state);
+              const done = released || /complet/i.test(j.state);
               const share = fromWei(j.worker_share);
               return (
                 <div key={j.id} className="flex items-center justify-between rounded-lg bg-surface-base-faint px-3 py-2 text-xs">
@@ -183,7 +272,9 @@ export function WorkerView({
                     {done && <CheckCircle2 className="size-3.5" />}
                     {j.state}
                   </span>
-                  <span className="text-content-soft">{share > 0 ? `+${fmt(share, 3)} LCAI` : "-"}</span>
+                  <span className={cn(share > 0 ? "text-success" : "text-content-soft")}>
+                    {share > 0 ? `+${fmt(share, 3)} LCAI` : done && !released ? "pending" : "-"}
+                  </span>
                   <span className="text-content-soft">{timeAgo(j.completed_at || j.submitted_at)}</span>
                 </div>
               );
