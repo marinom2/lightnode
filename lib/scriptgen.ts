@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.5";
+const INSTALLER_REV = "2026-05-26.6";
 
 export interface ScriptBundle {
   os: OS;
@@ -130,7 +130,12 @@ function unixInstall(network: NetworkId, model: string): string {
     'WADDR="$(printf "%s" "$WORKER_ADDR" | sed "s/^0x//" | tr "A-Z" "a-z")"',
     'SKIP_IMPORT=0',
     'if [ -d "$KS" ] && [ -n "$(ls -A "$KS" 2>/dev/null)" ]; then if ls "$KS" | grep -qi "$WADDR"; then echo "✓ worker key already imported — skipping import"; SKIP_IMPORT=1; else echo "▶ backing up a previous worker keystore (not deleting)"; mv "$KS" "${KS}.bak-$(date +%s)"; fi; fi',
-    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped — key already present)"; continue; fi; echo "▶ phase $p"; FORCE=1 bash "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    // The toolkit uses bash 4+ syntax (e.g. ${var,,}); macOS ships bash 3.2. Run
+    // the phases with a modern bash (install via brew if the system one is old).
+    'if bash -c "declare -A _t" 2>/dev/null; then RUNBASH=bash; else echo "▶ system bash is too old for the toolkit — installing bash 4+ via brew"; brew install bash >/dev/null 2>&1 || true; RUNBASH="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
+    '"$RUNBASH" -c "declare -A _t" 2>/dev/null || { echo "⛔ The toolkit needs bash 4+. Run: brew install bash, then retry."; exit 1; }',
+    'echo "✓ phase shell: $("$RUNBASH" --version | head -1)"',
+    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped — key already present)"; continue; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
     'echo "✅ worker online"',
   ].join("\n");
 }
