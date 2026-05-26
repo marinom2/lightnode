@@ -54,10 +54,13 @@ export async function getSecret(name: string): Promise<string> {
   if (isDesktop()) {
     const v = await secretGet(name);
     if (v) return v;
+    // Migrate any legacy localStorage value into the keychain, and drop the
+    // local copy ONLY if the keychain round-trips (so a denied/unavailable
+    // keychain never strands the key).
     const legacy = lsGet(legacyKey);
     if (legacy) {
       const ok = await secretSet(name, legacy);
-      if (ok) lsDel(legacyKey);
+      if (ok && (await secretGet(name)) === legacy) lsDel(legacyKey);
       return legacy;
     }
     return "";
@@ -65,17 +68,22 @@ export async function getSecret(name: string): Promise<string> {
   return lsGet(legacyKey);
 }
 
-/** Store a secret in the keychain (desktop) or localStorage (web). */
+/**
+ * Store a secret in the most private place that actually works: the OS keychain
+ * on desktop. We verify it round-trips; only then do we remove the localStorage
+ * copy (keeping the key out of the web layer). If the keychain is unavailable or
+ * denied, we keep a localStorage copy so nothing is ever stranded.
+ */
 export async function setSecret(name: string, value: string): Promise<void> {
   const legacyKey = LEGACY[name] ?? name;
   if (isDesktop()) {
     const ok = await secretSet(name, value);
-    if (ok) {
-      lsDel(legacyKey); // never leave a copy in localStorage on desktop
+    if (ok && (await secretGet(name)) === value) {
+      lsDel(legacyKey); // keychain verified - keep the raw key out of localStorage
       return;
     }
   }
-  lsSet(legacyKey, value);
+  lsSet(legacyKey, value); // web, or keychain unavailable/denied: reliable fallback
 }
 
 /** Delete a secret from both backends. */

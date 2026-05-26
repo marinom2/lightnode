@@ -332,9 +332,13 @@ export function toolkitOpCommand(script: string, confirm?: string): string {
   const run = confirm ? `echo ${confirm} | FORCE=1 "$RB" ${script}` : `FORCE=1 "$RB" ${script}`;
   return [
     "exec 2>&1",
+    'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
     'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
+    // The toolkit scripts use `set -u` and require WORKER_ADDR; derive it from
+    // the key if the app didn't pass it, so they don't fail "unbound variable".
+    '[ -z "${WORKER_ADDR:-}" ] && [ -n "${WORKER_PRIVKEY:-}" ] && export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)" || true',
     run,
   ].join("\n");
 }
@@ -377,14 +381,26 @@ export function deregisterCommand(os: OS): string {
       'if (Test-Path .\\deregister.ps1) { $env:FORCE="1"; .\\deregister.ps1 } else { Write-Host "toolkit not found - install first" }',
     ].join("\n");
   }
+  // Run deregister and only tear down / claim success if it ACTUALLY succeeded
+  // (a failed script must not leave a false "deregistered" message or remove the
+  // watchdog while the worker is still registered).
   return [
-    toolkitOpCommand("deregister.sh", "deregister"),
-    // teardown (runs after the deregister script returns)
-    'touch "$HOME/.lightnode/keep-online.paused"',
-    'launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
-    'rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
-    `( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
-    'echo "✓ keep-online watchdog removed - worker will stay offline"',
+    "exec 2>&1",
+    'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
+    'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
+    'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
+    'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
+    '[ -z "${WORKER_ADDR:-}" ] && [ -n "${WORKER_PRIVKEY:-}" ] && export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)" || true',
+    'if echo deregister | FORCE=1 "$RB" deregister.sh; then',
+    '  touch "$HOME/.lightnode/keep-online.paused"',
+    '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
+    '  rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
+    `  ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
+    '  echo "✓ deregistered - stake returned to the worker wallet; watchdog removed. Use Withdraw to my wallet below to send it out."',
+    'else',
+    '  echo "⛔ deregister failed - your stake is STILL staked and the worker is STILL registered (nothing lost). Fix the error above and retry."',
+    '  exit 1',
+    'fi',
   ].join("\n");
 }
 

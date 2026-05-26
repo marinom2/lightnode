@@ -179,15 +179,24 @@ export function OperationsPanel() {
     let secretEnv: string[] | undefined;
     if (op.key === "sweep" || op.key === "dereg") {
       env.NETWORK = network;
+      // The worker address is public - always pass it (the toolkit needs it and
+      // also derives it from the key as a fallback).
+      try {
+        const addr = window.localStorage.getItem("lightnode.workerAddress") || "";
+        if (addr) env.WORKER_ADDR = addr;
+      } catch {
+        /* ignore */
+      }
       if (await nativeSecretsAvailable()) {
-        // touch them once so any legacy localStorage secret migrates into the keychain
+        // Private path: the native runner injects the key + password from the
+        // keychain by NAME; the web never holds them. (Touch them once so any
+        // legacy localStorage value migrates into the keychain first.)
         await getSecret(SECRET_WORKER_KEY);
         await getSecret(SECRET_WORKER_PW);
         secretEnv = [SECRET_WORKER_KEY, SECRET_WORKER_PW];
       } else {
-        // old binary / web: pass the values via env (read from keychain or localStorage)
-        const k = await getSecret(SECRET_WORKER_KEY);
-        const pw = await getSecret(SECRET_WORKER_PW);
+        // Old binary / web: pass the values via env (read from keychain or localStorage).
+        const [k, pw] = await Promise.all([getSecret(SECRET_WORKER_KEY), getSecret(SECRET_WORKER_PW)]);
         if (k) env.WORKER_PRIVKEY = k;
         if (pw) env.WORKER_PASSWORD = pw;
       }
@@ -199,17 +208,9 @@ export function OperationsPanel() {
       (code) => {
         setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]);
         setActive(null); // clear the tile's loading state once the command finishes
-        // After deregister the unstaked LCAI is returned to the WORKER wallet,
-        // and only the worker key can move it out - so we must NOT wipe the key
-        // here. Prompt the user to withdraw it first; the key is wiped only
-        // after the Withdraw empties the wallet.
-        if (op.key === "dereg" && code === 0) {
-          setLog((l) => [
-            ...l,
-            "✓ deregistered - your stake was returned to the worker wallet.",
-            "→ Use 'Withdraw to my wallet' below to send it out; the local key is wiped only after that.",
-          ]);
-        }
+        // (Deregister prints its own accurate success/failure - and only on real
+        // success does it remove the watchdog. The key is wiped via Withdraw,
+        // never here, so the returned stake stays reachable.)
       },
       secretEnv,
     );
