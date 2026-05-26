@@ -16,11 +16,9 @@ const models: ModelInfo[] = [
 ];
 
 describe("isLive", () => {
-  it("is true for an active worker seen within 20m", () => {
+  it("is true for any active worker, regardless of last_seen (subgraph last_seen isn't a real-time heartbeat)", () => {
     expect(isLive({ status: "active", last_seen_at: now - 60 })).toBe(true);
-  });
-  it("is false when stale (>20m)", () => {
-    expect(isLive({ status: "active", last_seen_at: now - 7200 })).toBe(false);
+    expect(isLive({ status: "active", last_seen_at: now - 7200 })).toBe(true);
   });
   it("is false for non-active status", () => {
     expect(isLive({ status: "deregistered", last_seen_at: now })).toBe(false);
@@ -32,7 +30,7 @@ describe("summarize", () => {
   it("counts total / active / live correctly", () => {
     expect(s.total).toBe(3);
     expect(s.active).toBe(2);
-    expect(s.live).toBe(1); // only 0xA is fresh + active
+    expect(s.live).toBe(2); // both active workers (0xA, 0xB); last_seen no longer matters
   });
   it("counts only enabled+whitelisted models", () => {
     expect(s.models).toBe(2);
