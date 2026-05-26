@@ -128,7 +128,10 @@ export function OperationsPanel() {
       runCmd(op),
       {},
       (line) => setLog((l) => [...l, line]),
-      (code) => setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]),
+      (code) => {
+        setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]);
+        setActive(null); // clear the tile's loading state once the command finishes
+      },
     );
   };
 
