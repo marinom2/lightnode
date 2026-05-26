@@ -30,9 +30,6 @@ function lsGet(k: string): string {
 function lsSet(k: string, v: string): void {
   try { window.localStorage.setItem(k, v); } catch { /* storage unavailable */ }
 }
-function clearInflightSecrets(): void {
-  try { window.localStorage.removeItem(FUNDER_STORE); window.localStorage.removeItem(PW_STORE); } catch { /* ignore */ }
-}
 
 /** Cryptographically-strong keystore password. */
 function strongPassword(len = 20): string {
@@ -321,13 +318,11 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
       (line) => setLog((l) => [...l, line]),
       (code) => {
         setPhase(code === 0 ? "done" : "failed");
-        // Only wipe secrets once it actually worked; on failure keep them so a
-        // retry doesn't lose the already-funded key.
-        if (code === 0) {
-          clearInflightSecrets();
-          setPw("");
-          setFunderKey(null);
-        }
+        // NOTE: do NOT auto-clear the saved key/password here. "exit 0" only means
+        // the install script finished (the container was started) — the worker can
+        // still crash-loop afterward. Wiping the key would orphan the staked worker
+        // and make the app "forget" it. The key stays persisted so the worker is
+        // always recoverable; the "new" button lets the user discard it on purpose.
       },
     );
   };
