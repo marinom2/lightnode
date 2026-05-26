@@ -21,6 +21,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
+import { useNetwork } from "@/lib/network-context";
 import { cn } from "@/lib/utils";
 
 function CopyCommand({ value }: { value: string }) {
@@ -84,15 +85,37 @@ const OPS: Op[] = [
 ];
 
 export function OperationsPanel() {
+  const { network } = useNetwork();
   const [desktop, setDesktop] = useState(false);
   const [os, setOs] = useState<OS>("macos");
   const [active, setActive] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [dest, setDest] = useState("");
+  const [activeJobs, setActiveJobs] = useState(0);
   const stopRef = useRef<(() => void) | null>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDesktop(isDesktop()), []);
+
+  // Track in-flight jobs for YOUR worker, so Stop/Deregister can warn before
+  // stranding acked jobs (an acked-then-abandoned job is the slash-risk case).
+  useEffect(() => {
+    let addr = "";
+    try { addr = window.localStorage.getItem("lightnode.workerAddress") || ""; } catch { /* ignore */ }
+    if (!desktop || !/^0x[a-fA-F0-9]{40}$/.test(addr)) return;
+    let on = true;
+    const check = () =>
+      fetch(`/api/worker?net=${network}&address=${addr}`)
+        .then((r) => r.json())
+        .then((j) => on && j.ok && j.worker && setActiveJobs(j.worker.active_job_count ?? 0))
+        .catch(() => {});
+    check();
+    const t = setInterval(check, 20_000);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, [network, desktop]);
   useEffect(() => {
     const d = detectClientOS();
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
@@ -120,7 +143,16 @@ export function OperationsPanel() {
 
   const runOp = async (op: Op) => {
     if (op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest)) return;
-    if (op.danger && !window.confirm(`This will ${op.label.toLowerCase()} your worker. Continue?`)) return;
+    // Warn before stopping/deregistering with jobs in flight - that's what
+    // strands acked jobs (they can't finish, won't pay, and risk a slash).
+    const stranding = (op.key === "stop" || op.danger) && activeJobs > 0;
+    if (op.danger || stranding) {
+      const lead = op.danger ? `This will ${op.label.toLowerCase()} your worker (withdraws stake). ` : "";
+      const jobs = stranding
+        ? `⚠ Your worker has ${activeJobs} job(s) in flight - ${op.danger ? "deregistering" : "stopping"} now strands them (they can't finish, won't pay, and an acked job risks a slash). `
+        : "";
+      if (!window.confirm(`${lead}${jobs}Continue?`)) return;
+    }
     stopRef.current?.();
     setActive(op.key);
     setLog([`$ ${op.label.toLowerCase()}...`]);
