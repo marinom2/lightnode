@@ -22,7 +22,7 @@ import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
-import { getSecret, hasNativeSecrets, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { cn } from "@/lib/utils";
 
 function CopyCommand({ value }: { value: string }) {
@@ -179,12 +179,13 @@ export function OperationsPanel() {
     let secretEnv: string[] | undefined;
     if (op.key === "sweep" || op.key === "dereg") {
       env.NETWORK = network;
-      if (hasNativeSecrets()) {
+      if (await nativeSecretsAvailable()) {
         // touch them once so any legacy localStorage secret migrates into the keychain
         await getSecret(SECRET_WORKER_KEY);
         await getSecret(SECRET_WORKER_PW);
         secretEnv = [SECRET_WORKER_KEY, SECRET_WORKER_PW];
       } else {
+        // old binary / web: pass the values via env (read from keychain or localStorage)
         const k = await getSecret(SECRET_WORKER_KEY);
         const pw = await getSecret(SECRET_WORKER_PW);
         if (k) env.WORKER_PRIVKEY = k;

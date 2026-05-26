@@ -16,7 +16,7 @@ import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
-import { getSecret, setSecret, hasNativeSecrets, SECRET_WORKER_KEY, SECRET_WORKER_PW, WORKER_ADDR_STORE } from "@/lib/secrets";
+import { getSecret, setSecret, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW, WORKER_ADDR_STORE } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 
 type Phase = "idle" | "running" | "done" | "failed";
@@ -162,7 +162,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     setRevealedKey("");
     try {
       let addr: string;
-      if (hasNativeSecrets()) {
+      if (await nativeSecretsAvailable()) {
         // Key is created + kept in the keychain natively; only the address returns.
         const native = await generateWorkerKey(SECRET_WORKER_KEY);
         if (!native) throw new Error("native key generation unavailable");
@@ -402,8 +402,9 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     // values); on web we fall back to passing them via env.
     await setSecret(SECRET_WORKER_PW, pw);
     const baseEnv = { NETWORK: network, SUPPORTED_MODELS: model };
-    const secretEnv = hasNativeSecrets() ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
-    const env = hasNativeSecrets()
+    const native = await nativeSecretsAvailable();
+    const secretEnv = native ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
+    const env = native
       ? baseEnv
       : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: (await getSecret(SECRET_WORKER_KEY)) || "" };
     stopRef.current = await runSetupStreamed(

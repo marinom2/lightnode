@@ -91,6 +91,24 @@ export async function detectNativeHardware(): Promise<NativeHardware | null> {
  * Service). Only available in the desktop shell - on the web these return
  * null/false so callers fall back to localStorage.
  */
+// The desktop app loads the hosted UI, so a freshly-deployed web build can run
+// inside an OLDER binary that lacks the keychain commands. Probe once for the
+// real capability (not just isDesktop) so callers fall back to env-passing on
+// old binaries instead of relying on keychain injection that can't happen.
+let _secretsProbe: boolean | null = null;
+export async function nativeSecretsAvailable(): Promise<boolean> {
+  const invoke = getInvoke();
+  if (!invoke) return false;
+  if (_secretsProbe !== null) return _secretsProbe;
+  try {
+    await invoke("secret_get", { name: "__lightnode_probe__" }); // resolves (null) if the command exists
+    _secretsProbe = true;
+  } catch {
+    _secretsProbe = false; // old binary: command not registered / not allowed
+  }
+  return _secretsProbe;
+}
+
 export async function secretSet(name: string, value: string): Promise<boolean> {
   const invoke = getInvoke();
   if (!invoke) return false;

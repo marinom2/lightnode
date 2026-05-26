@@ -9,7 +9,11 @@
  * can pull them straight from the keychain by name (see runSetupStreamed's
  * `secretEnv`) without the web ever holding the value.
  */
-import { isDesktop, secretGet, secretSet, secretDelete } from "./tauri";
+import { isDesktop, secretGet, secretSet, secretDelete, nativeSecretsAvailable } from "./tauri";
+
+// Real capability probe (not just isDesktop): true only when the running binary
+// actually has the keychain commands. Use this to decide secretEnv injection.
+export { nativeSecretsAvailable };
 
 export const SECRET_WORKER_KEY = "WORKER_PRIVKEY";
 export const SECRET_WORKER_PW = "WORKER_PASSWORD";
