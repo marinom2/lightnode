@@ -10,6 +10,9 @@ export type OS = "macos" | "linux" | "windows";
 
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
+// Bump on every install-script change so the log shows which version actually ran.
+const INSTALLER_REV = "2026-05-26.2";
+
 export interface ScriptBundle {
   os: OS;
   network: NetworkId;
@@ -92,6 +95,7 @@ function unixInstall(network: NetworkId, model: string): string {
   const thr = NETWORKS[network].minStakeLcai + 1; // toolkit's pre-flight guard, per network
   return [
     "set -e",
+    `echo "▶ LightNode installer rev ${INSTALLER_REV} (${network})"`,
     SMART_PREREQS,
     `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present — updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
@@ -118,6 +122,7 @@ function windowsInstall(network: NetworkId, model: string): string {
   const thr = NETWORKS[network].minStakeLcai + 1;
   const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   return `$ErrorActionPreference = "Stop"
+Write-Host "▶ LightNode installer rev ${INSTALLER_REV} (${network})"
 function Have($c){ $null -ne (Get-Command $c -ErrorAction SilentlyContinue) }
 function DockerUp { docker info *> $null; return ($LASTEXITCODE -eq 0) }
 

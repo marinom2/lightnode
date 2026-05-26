@@ -19,7 +19,16 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    // The desktop WebView aggressively caches the page HTML, which can pin it to
+    // an old JS bundle (stale install script). Force the document routes to
+    // revalidate so a relaunch always runs the latest code. Hashed /_next/static
+    // assets stay immutable, so this is cheap.
+    const noStore = [{ key: "Cache-Control", value: "no-store, must-revalidate" }];
+    const pages = ["/", "/onboard", "/dashboard", "/network", "/worker/:address*"];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      ...pages.map((source) => ({ source, headers: noStore })),
+    ];
   },
   webpack(config) {
     config.resolve = config.resolve ?? {};
