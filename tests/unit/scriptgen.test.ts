@@ -55,15 +55,24 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
 
 describe("benchmark (capacity/power test vs the job deadline)", () => {
   it("unix runs a real inference and compares worst-case to the deadline", () => {
-    const cmd = benchmarkCommand("macos");
+    const cmd = benchmarkCommand("macos", 120);
     expect(cmd).toContain("/api/generate");
     expect(cmd).toContain("eval_count");
     expect(cmd).toContain("eval_duration");
+    expect(cmd).toContain("prompt_eval_duration"); // measures prefill, not just decode
     expect(cmd).toContain("tok/s");
     expect(cmd).toContain("$HOME/.lightnode/model"); // benchmarks the model the worker actually serves
+    expect(cmd).toContain('"keep_alive\\":0'); // forces a cold start for an honest worst case
+  });
+  it("uses the real on-chain deadline budget passed in", () => {
+    expect(benchmarkCommand("macos", 90)).toContain("BUDGET=90");
+    expect(benchmarkCommand("windows", 90)).toContain("$budget = 90");
+  });
+  it("defaults to the 120s budget when none is supplied", () => {
+    expect(benchmarkCommand("macos")).toContain("BUDGET=120");
   });
   it("windows benchmark uses Invoke-RestMethod and the same verdict logic", () => {
-    const win = benchmarkCommand("windows");
+    const win = benchmarkCommand("windows", 120);
     expect(win).toContain("Invoke-RestMethod");
     expect(win).toContain("eval_count");
     expect(win).toContain("tok/s");

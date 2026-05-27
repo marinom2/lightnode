@@ -118,7 +118,7 @@ export function WithdrawWorker() {
     <Card className="p-6">
       <div className="mb-1 flex items-center gap-2">
         <Send className="size-4 text-content-soft" />
-        <h3 className="text-sm font-semibold text-content-primary">Withdraw to my wallet</h3>
+        <h3 className="text-sm font-semibold text-content-primary">Withdraw Funds</h3>
       </div>
       <p className="mb-4 text-xs text-content-soft">
         Sends your worker wallet&apos;s spendable LCAI (returned stake after deregister + leftover gas) to a wallet you
@@ -163,7 +163,7 @@ export function WithdrawWorker() {
         onClick={send}
       >
         {phase === "sending" ? <Loader2 className="animate-spin" /> : <Send />}
-        {phase === "sending" ? "Sending..." : "Send all to my wallet"}
+        {phase === "sending" ? "Sending..." : "Withdraw all funds"}
       </Button>
 
       {error && (

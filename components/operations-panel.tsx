@@ -21,8 +21,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, settleJobsCommand, benchmarkCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
+import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
@@ -83,22 +84,13 @@ const OPS: Op[] = [
     cmd: () => "",
   },
   {
-    key: "sweep",
-    label: "Sweep rewards",
-    desc: "Send earnings to your wallet",
-    icon: Coins,
-    needsDest: true,
-    confirmWord: "sweep",
-    cmd: (dest) => toolkitOpCommand(`sweep-rewards.sh ${dest || "<destination-address>"}`, "sweep"),
-  },
-  {
     key: "dereg",
     label: "Deregister",
     desc: "Exit + withdraw stake",
     icon: LogOut,
     danger: true,
     confirmWord: "deregister",
-    cmd: () => toolkitOpCommand("deregister.sh", "deregister"),
+    cmd: () => "",
   },
 ];
 
@@ -118,7 +110,7 @@ export function OperationsPanel() {
   const [os, setOs] = useState<OS>("macos");
   const [active, setActive] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const [dest, setDest] = useState("");
+  const [budgetSec, setBudgetSec] = useState(120);
   const [activeJobs, setActiveJobs] = useState(0);
   const [completedJobs, setCompletedJobs] = useState<number[]>([]);
   const [workerAddr, setWorkerAddr] = useState("");
@@ -134,6 +126,17 @@ export function OperationsPanel() {
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDesktop(isDesktop()), []);
+
+  // The Speed test compares this machine against the REAL on-chain inference
+  // deadline (deadline - acknowledged from a recent settled job), so it stays
+  // honest if LightChain ever retunes it. Best-effort; defaults to 120s.
+  useEffect(() => {
+    let on = true;
+    fetchInferenceBudgetSec(network).then((b) => on && setBudgetSec(b));
+    return () => {
+      on = false;
+    };
+  }, [network]);
 
   // Track in-flight jobs for YOUR worker, so Stop/Deregister can warn before
   // stranding acked jobs (an acked-then-abandoned job is the slash-risk case).
@@ -206,9 +209,8 @@ export function OperationsPanel() {
     if (op.key === "stop") return stopWorkerCommand(os);
     if (op.key === "dereg") return deregisterCommand(os, network, completedJobs);
     if (op.key === "settle") return settleJobsCommand(os, network, completedJobs);
-    if (op.key === "bench") return benchmarkCommand(os);
-    if (op.key === "sweep") return sweepCommand(os, dest);
-    return op.cmd(dest);
+    if (op.key === "bench") return benchmarkCommand(os, budgetSec);
+    return op.cmd();
   };
   // Desktop execution wraps docker ops so they survive the launched-app
   // environment (PATH + reachable socket + auto-start Docker). The copy-to-clipboard
@@ -229,7 +231,6 @@ export function OperationsPanel() {
   };
 
   const requestOp = (op: Op) => {
-    if (op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest)) return;
     if (needsConfirm(op)) {
       setConfirmOp(op);
       return;
@@ -265,7 +266,7 @@ export function OperationsPanel() {
     // holds the value); on web we fall back to passing them via env.
     const env: Record<string, string> = {};
     const secretEnv: string[] | undefined = undefined;
-    if (op.key === "sweep" || op.key === "dereg" || op.key === "settle") {
+    if (op.key === "dereg" || op.key === "settle") {
       env.NETWORK = network;
       // The op decrypts the worker key from the on-disk keystore using the
       // PASSWORD, so the raw key never has to pass through the web. We supply
@@ -372,23 +373,10 @@ export function OperationsPanel() {
         </div>
       )}
 
-      {/* sweep destination (shared) */}
-      <div className="mb-3">
-        <label className="text-xs text-content-soft">
-          Sweep / payout destination
-          <input
-            value={dest}
-            onChange={(e) => setDest(e.target.value.trim())}
-            placeholder="0x... your personal wallet (for Sweep rewards)"
-            className="mt-1 h-9 w-full rounded-lg border border-bdr-soft bg-surface-base-subtle px-2.5 font-mono text-sm text-content-primary outline-none focus:border-primary"
-          />
-        </label>
-      </div>
-
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {OPS.map((op) => {
           const isActive = active === op.key;
-          const blocked = !!op.needsDest && !/^0x[a-fA-F0-9]{40}$/.test(dest);
+          const blocked = false;
           const Icon = op.icon;
 
           // Web: can't run locally, so the card carries a copy-command action.
@@ -462,8 +450,8 @@ export function OperationsPanel() {
       )}
 
       <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
-        <ShieldAlert className="size-3.5 text-warning" /> Sweep and Deregister move funds / exit the network. Stake stays
-        locked until you deregister.
+        <ShieldAlert className="size-3.5 text-warning" /> Deregister exits the network and unlocks your stake. To move
+        funds out, use Withdraw Funds below. Stake stays locked until you deregister.
       </p>
 
       {/* In-app confirmation (window.confirm is a no-op in the desktop webview). */}

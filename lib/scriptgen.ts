@@ -396,46 +396,72 @@ export function stopWorkerCommand(os: OS): string {
   ].join("\n");
 }
 
+/** A representative judging prompt (no double quotes, so it embeds cleanly in
+ *  the JSON body on both shells). Long enough to exercise prompt prefill the way
+ *  a real challenge-evaluation job does, not just token decode. */
+const BENCH_PROMPT =
+  "You are verifying a fitness challenge submission. The athlete claims a 10km run in 48 minutes. Their GPS trace records 9.91km over 47m52s with a 12 second pause near kilometre six. Decide whether the claim is valid, explain your reasoning step by step, then output a JSON verdict with the fields valid, confidence and reason.";
+
 /**
- * Real capacity test: run an actual inference through the local Ollama and
- * measure cold-load time + tokens/sec, then project the worst-case full job
- * (cold load + a full 2048-token output) against the ~120s job deadline. Tells
- * an operator up-front whether their machine risks timed-out jobs (= slashes).
+ * Real capacity test: run an ACTUAL inference through the local Ollama and
+ * measure the three things that decide whether a job beats the deadline -
+ * cold model-load time, prompt-prefill speed, and token-decode speed. It first
+ * forces a cold start (unload the model) so the load figure is the true worst
+ * case (a job arriving on an idle worker), then projects a worst-case job
+ * (cold load + a 2048-token prompt + a 1024-token answer) against the real
+ * on-chain deadline (`budgetSec`, read live from a recent job; defaults 120s).
+ * Verdict: comfortable (< 70% of budget), tight (< budget), or over budget.
  */
-export function benchmarkCommand(os: OS): string {
+export function benchmarkCommand(os: OS, budgetSec: number = 120): string {
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
       '$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }',
-      'Write-Host "> benchmarking $model on your machine (real inference)..."',
+      `$budget = ${budgetSec}`,
+      'Write-Host "> benchmarking $model (real inference vs the ${budget}s job deadline)..."',
       'try { $null = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/tags -TimeoutSec 5 } catch { Write-Host "Ollama not responding - install/start it first"; exit 1 }',
-      '$body = "{`"model`":`"$model`",`"prompt`":`"Write two sentences about decentralized AI.`",`"stream`":false,`"keep_alive`":-1}"',
-      '$r = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 180 -Body $body',
-      'if (-not $r.eval_count) { Write-Host "no response - model may be too slow or out of memory"; exit 1 }',
-      '$toks = [math]::Round($r.eval_count / ($r.eval_duration/1e9), 1)',
-      '$load = [math]::Round($r.load_duration/1e9, 1)',
-      '$worst = [math]::Round($r.load_duration/1e9 + 2048/$toks, 0)',
-      'Write-Host "speed: $toks tok/s | cold model load: ${load}s | worst-case full job: ~${worst}s (deadline ~120s)"',
-      'if ($worst -lt 90) { Write-Host "OK - comfortably within the job deadline (low slash risk)" } else { Write-Host "WARNING - close to/over the deadline; risk of timed-out jobs. Consider a faster GPU or a lighter model." }',
+      'Write-Host "  forcing a cold start (worst case: a job hitting an idle worker)..."',
+      'try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 30 -Body "{`"model`":`"$model`",`"keep_alive`":0}" | Out-Null } catch {}',
+      'Start-Sleep -Seconds 1',
+      'Write-Host "  running a representative judging prompt..."',
+      `$prompt = "${BENCH_PROMPT}"`,
+      '$body = "{`"model`":`"$model`",`"prompt`":`"$prompt`",`"stream`":false,`"keep_alive`":-1,`"options`":{`"num_predict`":256}}"',
+      '$r = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec ($budget+60) -Body $body',
+      'if (-not $r.eval_count) { Write-Host "no usable response - the model may be too slow or out of memory"; exit 1 }',
+      '$dec = $r.eval_count / ($r.eval_duration/1e9)',
+      '$pre = if ($r.prompt_eval_count -and $r.prompt_eval_duration) { $r.prompt_eval_count / ($r.prompt_eval_duration/1e9) } else { $dec }',
+      '$load = $r.load_duration/1e9',
+      '$worst = $load + 2048/$pre + 1024/$dec',
+      'Write-Host ("OK decode: {0:N1} tok/s | prefill: {1:N0} tok/s | cold load: {2:N1}s" -f $dec, $pre, $load)',
+      'Write-Host ("  worst-case job (cold load + 2048-token prompt + 1024-token answer): ~{0:N0}s (deadline {1}s)" -f $worst, $budget)',
+      'if ($worst -lt $budget*0.7) { Write-Host "OK - comfortably within the ${budget}s deadline (low slash risk)" } elseif ($worst -lt $budget) { Write-Host "WARNING - within the deadline but tight; a heavier prompt could time out. A faster GPU would help." } else { Write-Host "RISK - over the ${budget}s deadline; high risk of timed-out jobs (slash). Use a faster GPU or a lighter model." }',
     ].join("\n");
   }
   return [
     "exec 2>&1",
     'export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
     'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
-    'echo "▶ benchmarking $MODEL on your machine (real inference)..."',
+    `BUDGET=${budgetSec}`,
+    'echo "▶ benchmarking $MODEL (real inference vs the ${BUDGET}s job deadline)..."',
     'curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama not responding - install/start it first"; exit 1; }',
-    `RESP="$(curl -s -m 180 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"prompt\\":\\"Write two sentences about decentralized AI.\\",\\"stream\\":false,\\"keep_alive\\":-1}")"`,
+    'echo "  forcing a cold start (worst case: a job hitting an idle worker)..."',
+    `curl -s -m 30 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"keep_alive\\":0}" >/dev/null 2>&1`,
+    "sleep 1",
+    'echo "  running a representative judging prompt..."',
+    `RESP="$(curl -s -m $((BUDGET+60)) http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"prompt\\":\\"${BENCH_PROMPT}\\",\\"stream\\":false,\\"keep_alive\\":-1,\\"options\\":{\\"num_predict\\":256}}")"`,
     `EC="$(printf '%s' "$RESP" | grep -oE '"eval_count":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
     `ED="$(printf '%s' "$RESP" | grep -oE '"eval_duration":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
+    `PC="$(printf '%s' "$RESP" | grep -oE '"prompt_eval_count":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
+    `PD="$(printf '%s' "$RESP" | grep -oE '"prompt_eval_duration":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
     `LD="$(printf '%s' "$RESP" | grep -oE '"load_duration":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
-    '[ -z "$EC" ] || [ -z "$ED" ] && { echo "⛔ no usable response - the model may be too slow or out of memory on this machine"; exit 1; }',
+    '{ [ -z "$EC" ] || [ -z "$ED" ]; } && { echo "⛔ no usable response - the model may be too slow or out of memory on this machine"; exit 1; }',
     'TOKS="$(awk "BEGIN{printf \\"%.1f\\", $EC/($ED/1000000000)}")"',
+    'PREFILL="$(awk "BEGIN{p=${PC:-0}; d=${PD:-0}; if(p>0&&d>0) printf \\"%.0f\\", p/(d/1000000000); else printf \\"%.0f\\", $EC/($ED/1000000000)}")"',
     'LOADS="$(awk "BEGIN{printf \\"%.1f\\", ${LD:-0}/1000000000}")"',
-    'WORST="$(awk "BEGIN{printf \\"%.0f\\", ${LD:-0}/1000000000 + 2048/($EC/($ED/1000000000))}")"',
-    'echo "✓ speed: $TOKS tok/s | cold model load: ${LOADS}s"',
-    'echo "  worst-case full job (cold load + 2048 tokens): ~${WORST}s  (job deadline ~120s)"',
-    'awk "BEGIN{exit !(${WORST} < 90)}" && echo "✅ comfortably within the deadline - low slash risk" || echo "⚠ close to/over the deadline - risk of timed-out jobs (slash). A faster GPU or a lighter model would help."',
+    'WORST="$(awk "BEGIN{load=${LD:-0}/1000000000; dec=$EC/($ED/1000000000); p=${PC:-0}; d=${PD:-0}; pre=(p>0&&d>0)?p/(d/1000000000):dec; printf \\"%.0f\\", load + 2048/pre + 1024/dec}")"',
+    'echo "✓ decode: $TOKS tok/s · prefill: $PREFILL tok/s · cold load: ${LOADS}s"',
+    'echo "  worst-case job (cold load + 2048-token prompt + 1024-token answer): ~${WORST}s  (deadline ${BUDGET}s)"',
+    'if awk "BEGIN{exit !($WORST < $BUDGET*0.7)}"; then echo "✅ comfortably within the ${BUDGET}s deadline - low slash risk"; elif awk "BEGIN{exit !($WORST < $BUDGET)}"; then echo "⚠ within the deadline but tight - a heavier prompt could time out. A faster GPU would help."; else echo "⛔ over the ${BUDGET}s deadline - high risk of timed-out jobs (slash). Use a faster GPU or a lighter model."; fi',
   ].join("\n");
 }
 
