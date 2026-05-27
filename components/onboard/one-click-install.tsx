@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download,
-  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight,
+  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, RefreshCw,
 } from "lucide-react";
 import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain, usePublicClient } from "wagmi";
 import { parseEther, formatEther, getAddress } from "viem";
@@ -94,7 +94,8 @@ function StepCard({ n, title, aside, children }: { n: number; title: string; asi
 
 /** The keystore-password input (body only; the label + Generate live in the StepCard). */
 function PasswordField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [show, setShow] = useState(true);
+  // Masked by default - reveal only when you want to read/copy it (shoulder-surfing).
+  const [show, setShow] = useState(false);
   return (
     <div>
       <div className="relative">
@@ -273,14 +274,14 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
           <span className="flex items-center gap-3">
             {genAddr && <CopyBtn value={genAddr} />}
             <button type="button" onClick={toggleReveal} className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary">
-              {reveal ? <EyeOff className="size-3" /> : <Eye className="size-3" />} key
+              {reveal ? <EyeOff className="size-3" /> : <Eye className="size-3" />} {reveal ? "Hide key" : "Show key"}
             </button>
             <button
               type="button"
               onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten - back it up first if it holds funds.")) void generate(); }}
               className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
             >
-              new
+              <RefreshCw className="size-3" /> New key
             </button>
           </span>
         </div>
