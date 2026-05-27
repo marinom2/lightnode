@@ -18,6 +18,10 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Bake the deploy's commit SHA into the client so it can detect when a newer
+  // build is live and self-reload (the desktop WebView otherwise keeps the
+  // loaded page in memory across window close/reopen).
+  env: { NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev" },
   async headers() {
     // The desktop WebView aggressively caches the page HTML, which can pin it to
     // an old JS bundle (stale install script). Force the document routes to

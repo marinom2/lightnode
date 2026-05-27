@@ -6,6 +6,7 @@ import { WagmiProvider } from "wagmi";
 import { useState } from "react";
 import { wagmiAdapter, projectId, networks } from "@/lib/wagmi";
 import { NetworkProvider } from "@/lib/network-context";
+import { AutoUpdate } from "@/components/auto-update";
 
 // AppKit is created once at module scope (matches LightChain's own chat setup).
 createAppKit({
@@ -39,7 +40,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <NetworkProvider>{children}</NetworkProvider>
+        <NetworkProvider>
+          <AutoUpdate />
+          {children}
+        </NetworkProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
