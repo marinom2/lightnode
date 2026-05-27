@@ -37,7 +37,7 @@ function Stat({
  * on-chain subgraph can't see. Desktop only; polls the worker's local metrics via
  * the native bridge. Renders nothing on the web or when no worker is found locally.
  */
-export function WorkerHealthPanel() {
+export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: number }) {
   const [h, setH] = useState<WorkerHealth | null | undefined>(undefined);
 
   useEffect(() => {
@@ -69,6 +69,23 @@ export function WorkerHealthPanel() {
     );
   }
   if (h === null) return null; // no local worker / Docker unreachable - nothing to show
+
+  // The machine runs ONE worker container. If it serves a different network than
+  // the worker being viewed, its health isn't this worker's - say so plainly
+  // instead of showing another worker's telemetry under this one.
+  if (expectedChainId && h.chainId && h.chainId !== expectedChainId) {
+    return (
+      <Card className="p-5">
+        <div className="flex items-start gap-2.5 text-sm text-content-soft">
+          <HeartPulse className="mt-0.5 size-4 shrink-0" />
+          <span>
+            The worker running on this machine serves a different network (chain {h.chainId}). Live health is shown for
+            the worker that matches the network toggle at the top.
+          </span>
+        </div>
+      </Card>
+    );
+  }
 
   const live = h.running && h.heartbeatAgoSec != null && h.heartbeatAgoSec < 90;
   const statusTone = live ? "success" : h.running ? "warning" : "muted";

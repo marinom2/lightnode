@@ -203,11 +203,20 @@ export function WorkerView({
   const completed = worker.jobs_completed ?? 0;
   const attempted = completed + (worker.jobs_timed_out ?? 0) + (worker.disputes_lost ?? 0);
   const successRate = attempted > 0 ? `${Math.round((completed / attempted) * 100)}%` : "-";
+  // The subgraph keeps the last-registered stake on the entity even after a
+  // deregister returns it on-chain. So once deregistered, show it as returned (0)
+  // rather than the stale locked amount.
+  const stakeReturned = worker.status === "deregistered";
 
   const tiles = [
     { icon: CheckCircle2, label: "Jobs completed", value: fmt(completed, 0), tone: "text-content-primary" },
     { icon: Percent, label: "Success rate", value: successRate, tone: "text-content-primary" },
-    { icon: ShieldCheck, label: "Stake (LCAI)", value: compact(stake), tone: "text-content-primary" },
+    {
+      icon: ShieldCheck,
+      label: stakeReturned ? "Stake (returned)" : "Stake (LCAI)",
+      value: stakeReturned ? "0" : compact(stake),
+      tone: "text-content-primary",
+    },
     { icon: Clock, label: "Last on-chain activity", value: timeAgo(worker.last_seen_at), tone: "text-content-primary" },
   ];
 

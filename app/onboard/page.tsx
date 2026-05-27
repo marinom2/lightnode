@@ -71,7 +71,8 @@ export default function OnboardPage() {
   // one-click wizard below renders only inside the desktop app.)
   if (!desktop) {
     return (
-      <div className="mx-auto max-w-4xl px-5 py-12">
+      <div className="relative mx-auto max-w-4xl px-5 py-12">
+        <div className="pointer-events-none absolute inset-x-0 -top-10 h-80 glow-radial opacity-60" />
         <div className="text-center">
           <Badge tone="brand" className="mb-4">LightChain {NETWORKS[network].label}</Badge>
           <h1 className="text-4xl font-semibold tracking-tight text-content-primary">Run a worker in one click</h1>

@@ -126,7 +126,8 @@ export default function DashboardPage() {
   const net = NETWORKS[network];
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-10">
+    <div className="relative mx-auto max-w-4xl px-5 py-10">
+      <div className="pointer-events-none absolute inset-x-0 -top-10 h-80 glow-radial opacity-60" />
       <div className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight text-content-primary">Worker dashboard</h1>
         <p className="mt-2 text-content-soft">
@@ -206,7 +207,7 @@ export default function DashboardPage() {
           />
           {isMine && desktop && (
             <div className="mt-4">
-              <WorkerHealthPanel />
+              <WorkerHealthPanel expectedChainId={net.chainId} />
             </div>
           )}
         </div>

@@ -18,6 +18,7 @@ export interface WorkerHealth {
   reconcileBlock: number | null; // highest block the release reconciler scanned
   gatewayConnected: boolean;
   recentEvents: string[]; // recent worker log messages, newest first
+  chainId: number | null; // the network the running container actually serves
 }
 
 function section(raw: string, name: string): string {
@@ -37,6 +38,8 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
   const stats = section(raw, "STATS");
   const metrics = section(raw, "METRICS");
   const logs = section(raw, "LOGS");
+  const chainRaw = section(raw, "CHAIN");
+  const chainId = chainRaw && /^\d+$/.test(chainRaw) ? Number(chainRaw) : null;
 
   const running = /^Up\b/i.test(ps);
   const uptime = (ps.match(/^Up\s+(.*?)(?:\s*\(|$)/i)?.[1] ?? "").trim();
@@ -74,6 +77,7 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
     reconcileBlock: metric(metrics, "worker_release_reconcile_last_block"),
     gatewayConnected: /websocket connected to gateway|authenticated with worker-gateway/i.test(logs),
     recentEvents,
+    chainId,
   };
 }
 
@@ -85,5 +89,6 @@ export const WORKER_HEALTH_CMD = [
   'echo "===STATS==="; docker stats --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}" lightchain-worker 2>/dev/null',
   'echo "===METRICS==="; docker exec lightchain-worker sh -c "command -v curl >/dev/null && curl -s http://127.0.0.1:9101/metrics || wget -qO- http://127.0.0.1:9101/metrics" 2>/dev/null',
   'echo "===LOGS==="; docker logs --tail 10 lightchain-worker 2>&1',
+  'echo "===CHAIN==="; docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>/dev/null | grep "^CHAIN_ID=" | head -1 | cut -d= -f2',
   'echo "===END==="',
 ].join("\n");

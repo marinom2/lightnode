@@ -2,11 +2,11 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowRight,
-  Terminal,
+  Download,
+  Rocket,
   ShieldCheck,
   Coins,
   Gauge,
-  Wallet,
   Cpu,
   CheckCircle2,
   HeartPulse,
@@ -26,10 +26,10 @@ import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
 
 const STEPS = [
-  { icon: Wallet, title: "Connect your wallet", body: "Connect the wallet you'll fund the worker from. No sign-up, no API key." },
-  { icon: Gauge, title: "Check your machine", body: `We score your GPU/CPU/RAM, confirm you clear the ${HARDWARE.min.vramGb}GB-VRAM floor, and estimate rewards.` },
-  { icon: Terminal, title: "Get a tailored setup", body: "A personalized, copy-paste install for your OS - wrapping the official toolkit, gotchas pre-fixed." },
-  { icon: HeartPulse, title: "Run & watch rewards", body: "Start the node, then track jobs, earnings, and health on a live dashboard." },
+  { icon: Download, title: "Download the app", body: "Get LightNode for macOS, Windows, or Linux. No sign-up, no API key." },
+  { icon: Gauge, title: "Check your machine", body: `It auto-detects your GPU/CPU/RAM and scores you against the ${HARDWARE.min.vramGb}GB-VRAM floor, with a live reward estimate.` },
+  { icon: Rocket, title: "Install in one click", body: "Press Install - it generates your worker keys, funds and stakes from your wallet, and starts the node. No terminal." },
+  { icon: HeartPulse, title: "Earn & manage", body: "Track jobs, earnings, and health, then settle, withdraw, and keep your worker online - all in the app." },
 ];
 
 export default function Home() {
@@ -46,13 +46,13 @@ export default function Home() {
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
           Most people don&apos;t fail to run a node because they lack hardware - they fail on setup.
-          LightNode abstracts all of it: connect a wallet, check your machine, get a tailored install,
-          and start earning <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference.
+          LightNode removes all of it: download the app, press Install, and start earning{" "}
+          <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference. No terminal, no config.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link href="/onboard">
             <Button variant="gradient" size="lg">
-              Start onboarding <ArrowRight />
+              <Download /> Get the app
             </Button>
           </Link>
           <Link href="/dashboard">
@@ -134,7 +134,7 @@ export default function Home() {
       {/* HOW IT WORKS */}
       <section className="mx-auto max-w-6xl px-5 py-10">
         <h2 className="text-center text-2xl font-semibold tracking-tight text-content-primary">How it works</h2>
-        <p className="mx-auto mt-2 max-w-xl text-center text-content-soft">Four steps from wallet to earning.</p>
+        <p className="mx-auto mt-2 max-w-xl text-center text-content-soft">From download to earning - all in the app.</p>
         <div className="mt-8 grid gap-4 md:grid-cols-4">
           {STEPS.map((s, i) => (
             <Card key={s.title} className="p-6">
@@ -175,7 +175,7 @@ export default function Home() {
               <StakeAmount /> LCAI stake. This is the one-flow path - start here.
             </p>
             <ul className="mt-5 space-y-2 text-sm text-content-soft">
-              {["Guided machine check + reward estimate", "Tailored install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (
+              {["Auto machine check + reward estimate", "One-click install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (
                 <li key={x} className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-success" /> {x}
                 </li>
