@@ -10,6 +10,7 @@ import {
   toolkitOpCommand,
   settleJobsCommand,
   benchmarkCommand,
+  freeMemoryCommand,
 } from "@/lib/scriptgen";
 
 describe("Settle earnings + auto-settling deregister", () => {
@@ -76,6 +77,28 @@ describe("benchmark (capacity/power test vs the job deadline)", () => {
     expect(win).toContain("Invoke-RestMethod");
     expect(win).toContain("eval_count");
     expect(win).toContain("tok/s");
+  });
+});
+
+describe("free up memory (stop worker + unload model + quit Docker)", () => {
+  it("unix unloads the model, stops the container and quits Docker on mac", () => {
+    const cmd = freeMemoryCommand("macos");
+    expect(cmd).toContain("keep_alive"); // unloads the model from Ollama
+    expect(cmd).toContain("docker stop lightchain-worker");
+    expect(cmd).toContain('quit app "Docker"');
+    expect(cmd).toContain("keep-online.paused"); // pause marker so the watchdog won't restart it
+  });
+  it("linux skips the Docker Desktop quit (no VM to release)", () => {
+    const lin = freeMemoryCommand("linux");
+    expect(lin).toContain("docker stop lightchain-worker");
+    expect(lin).not.toContain('quit app "Docker"');
+  });
+  it("windows stops the container and kills the Docker Desktop process", () => {
+    const win = freeMemoryCommand("windows");
+    expect(win).toContain("docker stop lightchain-worker");
+    expect(win).toContain("Docker Desktop");
+    expect(win).toContain("keep_alive");
+    expect(win).toContain("keep-online.paused");
   });
 });
 

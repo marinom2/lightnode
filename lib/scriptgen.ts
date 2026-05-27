@@ -598,6 +598,52 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
 }
 
 /**
+ * Free up the machine completely: stop the worker and reclaim the RAM it holds.
+ * Deregistering only exits the chain - the model stays resident in Ollama (the
+ * big chunk, ~5 GB) and Docker keeps its VM (~4 GB on macOS), so the machine
+ * keeps lagging. This op writes the pause marker (so the keep-online watchdog
+ * won't bring it back), unloads the model from Ollama, stops the worker
+ * container, and on macOS quits Docker Desktop to release its VM. Stake and
+ * registration are untouched - Install/Restart brings the worker back.
+ */
+export function freeMemoryCommand(os: OS): string {
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      'Write-Host "> freeing up your machine (stopping the worker + reclaiming RAM)..."',
+      'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
+      '$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }',
+      'try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{`"model`":`"$model`",`"keep_alive`":0}" | Out-Null; Write-Host "OK - unloaded $model from memory (~5 GB reclaimed)" } catch {}',
+      'try { docker stop lightchain-worker | Out-Null; Write-Host "OK - stopped the worker container" } catch {}',
+      'Get-Process "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host "OK - quit Docker Desktop (released its VM memory)"',
+      'Write-Host "Done - memory freed. Your stake and registration are untouched; run Install or Restart to come back online."',
+    ].join("\n");
+  }
+  const isMac = os === "macos";
+  const lines = [
+    "exec 2>&1",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
+    'echo "▶ freeing up your machine (stopping the worker + reclaiming RAM)..."',
+    // Pause marker first: even if the worker is still registered, the watchdog
+    // must not silently restart it (and reload the model) behind our backs.
+    'mkdir -p "$HOME/.lightnode" 2>/dev/null; touch "$HOME/.lightnode/keep-online.paused"',
+    'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
+    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then',
+    `  curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"keep_alive\\":0}" >/dev/null 2>&1`,
+    '  echo "✓ unloaded $MODEL from memory (~5 GB reclaimed)"',
+    "fi",
+    'if [ -n "$(docker ps -q -f name=lightchain-worker 2>/dev/null)" ]; then docker stop lightchain-worker >/dev/null 2>&1 && echo "✓ stopped the worker container"; fi',
+  ];
+  if (isMac) {
+    lines.push("osascript -e 'quit app \"Docker\"' >/dev/null 2>&1 && echo \"✓ quit Docker Desktop (released its VM memory)\"");
+  } else {
+    lines.push('echo "  (Linux: the Docker engine runs without a VM, so there is nothing heavy to quit)"');
+  }
+  lines.push('echo "✅ memory freed. Your stake and registration are untouched - run Install or Restart to come back online."');
+  return lines.join("\n");
+}
+
+/**
  * Shell preamble (unix) that guarantees Docker is reachable from the launched
  * `.app`. The app runs as a login shell but Docker can still be unreachable for
  * two reasons we fix here:

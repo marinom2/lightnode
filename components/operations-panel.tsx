@@ -10,6 +10,7 @@ import {
   Banknote,
   Gauge,
   LogOut,
+  Power,
   Download,
   Terminal,
   Loader2,
@@ -21,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, freeMemoryCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
@@ -90,6 +91,13 @@ const OPS: Op[] = [
     icon: LogOut,
     danger: true,
     confirmWord: "deregister",
+    cmd: () => "",
+  },
+  {
+    key: "freeup",
+    label: "Free up memory",
+    desc: "Stop the worker, unload the model + quit Docker to give your machine its RAM back",
+    icon: Power,
     cmd: () => "",
   },
 ];
@@ -210,6 +218,7 @@ export function OperationsPanel() {
     if (op.key === "dereg") return deregisterCommand(os, network, completedJobs);
     if (op.key === "settle") return settleJobsCommand(os, network, completedJobs);
     if (op.key === "bench") return benchmarkCommand(os, budgetSec);
+    if (op.key === "freeup") return freeMemoryCommand(os);
     return op.cmd();
   };
   // Desktop execution wraps docker ops so they survive the launched-app
@@ -222,11 +231,14 @@ export function OperationsPanel() {
   // Stop/Deregister need a confirmation. We must NOT use window.confirm: in the
   // Tauri webview it returns false (no-op), which silently swallowed Deregister.
   // So we gate through an in-app confirmation panel instead.
-  const needsConfirm = (op: Op) => op.danger || (op.key === "stop" && activeJobs > 0);
+  const needsConfirm = (op: Op) => op.danger || op.key === "freeup" || (op.key === "stop" && activeJobs > 0);
 
   const confirmBody = (op: Op) => {
-    const lead = op.danger ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
     const jobs = activeJobs > 0 ? `${activeJobs} in-flight job(s) will be stranded (no pay; slash risk). ` : "";
+    if (op.key === "freeup") {
+      return `${jobs}Stops the worker, unloads the model, and quits Docker to give your machine its RAM back. Your stake and registration are untouched - run Install or Restart to come back online.`;
+    }
+    const lead = op.danger ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
     return `${lead}${jobs}`.trim();
   };
 
