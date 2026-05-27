@@ -24,6 +24,7 @@ import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerComma
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { useSavedWorkers } from "@/lib/saved-workers";
 import { cn } from "@/lib/utils";
 
 function CopyCommand({ value }: { value: string }) {
@@ -95,6 +96,20 @@ const OPS: Op[] = [
 
 export function OperationsPanel() {
   const { network } = useNetwork();
+  const { saved } = useSavedWorkers();
+
+  // Resolve the worker address: the saved address, else the first watchlisted
+  // worker. (An earlier wipe could clear lightnode.workerAddress while the
+  // watchlist still has it - the dashboard falls back the same way.)
+  const resolveWorkerAddr = (): string => {
+    try {
+      const a = window.localStorage.getItem("lightnode.workerAddress") || "";
+      if (/^0x[a-fA-F0-9]{40}$/.test(a)) return a;
+    } catch {
+      /* ignore */
+    }
+    return saved.find((s) => /^0x[a-fA-F0-9]{40}$/.test(s)) ?? "";
+  };
   const [desktop, setDesktop] = useState(false);
   const [os, setOs] = useState<OS>("macos");
   const [active, setActive] = useState<string | null>(null);
@@ -119,8 +134,7 @@ export function OperationsPanel() {
   // Track in-flight jobs for YOUR worker, so Stop/Deregister can warn before
   // stranding acked jobs (an acked-then-abandoned job is the slash-risk case).
   useEffect(() => {
-    let addr = "";
-    try { addr = window.localStorage.getItem("lightnode.workerAddress") || ""; } catch { /* ignore */ }
+    const addr = resolveWorkerAddr();
     setWorkerAddr(addr);
     if (!desktop || !/^0x[a-fA-F0-9]{40}$/.test(addr)) return;
     let on = true;
@@ -154,7 +168,8 @@ export function OperationsPanel() {
       clearInterval(t);
       clearInterval(t2);
     };
-  }, [network, desktop]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [network, desktop, saved.join(",")]);
 
   const etaText = (ts: number): string => {
     const s = ts - Math.floor(Date.now() / 1000);
@@ -221,7 +236,7 @@ export function OperationsPanel() {
   // never act on a stale/empty list if the panel just mounted).
   const fetchCompletedJobIds = async (): Promise<number[]> => {
     try {
-      const addr = window.localStorage.getItem("lightnode.workerAddress") || "";
+      const addr = resolveWorkerAddr();
       if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return completedJobs;
       const j = await fetch(`/api/worker?net=${network}&address=${addr}`).then((r) => r.json());
       if (!j.ok) return completedJobs;
@@ -254,12 +269,8 @@ export function OperationsPanel() {
       const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW), getSecret(SECRET_WORKER_KEY)]);
       if (pw) env.WORKER_PASSWORD = pw;
       if (k) env.WORKER_PRIVKEY = k;
-      try {
-        const addr = window.localStorage.getItem("lightnode.workerAddress") || "";
-        if (addr) env.WORKER_ADDR = addr;
-      } catch {
-        /* ignore */
-      }
+      const addr = resolveWorkerAddr();
+      if (addr) env.WORKER_ADDR = addr;
     }
     // Settle/Deregister act on the worker's completed jobs - fetch them fresh so
     // we never build the command with a stale/empty list.
@@ -270,8 +281,7 @@ export function OperationsPanel() {
       // Settle with nothing to release: explain WHY (network + address checked),
       // instead of a bare "no completed jobs".
       if (op.key === "settle" && ids.length === 0) {
-        let addr = "";
-        try { addr = window.localStorage.getItem("lightnode.workerAddress") || ""; } catch { /* ignore */ }
+        const addr = resolveWorkerAddr();
         setLog((l) => [
           ...l,
           `checked worker ${addr ? addr.slice(0, 10) + "…" + addr.slice(-6) : "(none saved)"} on ${network}`,
