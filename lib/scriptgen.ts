@@ -338,6 +338,11 @@ export function desktopInstallCommand(os: OS, network: NetworkId, model: string 
  */
 function keystoreDeriveUnix(): string[] {
   return [
+    'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
+    // The password lives in the worker container's env (the worker needs it).
+    // Recover it from there if the app didn't supply one - so ops never depend
+    // on the app still holding the password.
+    "if [ -z \"${WORKER_PASSWORD:-}\" ]; then export WORKER_PASSWORD=\"$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^WORKER_KEYSTORE_PASSWORD=' | head -1 | cut -d= -f2-)\"; fi",
     "KEYS_DIR=\"${KEYS_DIR:-$HOME/lightchain-worker/keys}\"; KS_DIR=\"$KEYS_DIR/eth-keystore\"; KS_NAME=\"$(ls \"$KS_DIR\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
     "if [ -z \"${WORKER_PRIVKEY:-}\" ] && [ -n \"${WORKER_PASSWORD:-}\" ] && [ -n \"$KS_NAME\" ]; then export WORKER_PRIVKEY=\"$(cast wallet decrypt-keystore \"$KS_NAME\" --keystore-dir \"$KS_DIR\" --unsafe-password \"$WORKER_PASSWORD\" 2>/dev/null | grep -oE '0x[0-9a-fA-F]{64}' | head -1)\"; fi",
     "if [ -z \"${WORKER_ADDR:-}\" ]; then if [ -n \"${WORKER_PRIVKEY:-}\" ]; then export WORKER_ADDR=\"$(cast wallet address --private-key \"$WORKER_PRIVKEY\" 2>/dev/null)\"; elif [ -n \"$KS_NAME\" ]; then export WORKER_ADDR=\"0x$(printf '%s' \"$KS_NAME\" | sed -E 's/.*--([0-9a-fA-F]{40})$/\\1/')\"; fi; fi",
@@ -388,6 +393,7 @@ export function stopWorkerCommand(os: OS): string {
 function keystoreDeriveWin(): string[] {
   return [
     '$env:PATH = "$env:USERPROFILE\\.foundry\\bin;$env:PATH"',
+    "if (-not $env:WORKER_PASSWORD) { $env:WORKER_PASSWORD = (docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null | Select-String '^WORKER_KEYSTORE_PASSWORD=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value }",
     '$ksDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"',
     "$ks = Get-ChildItem $ksDir -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'UTC--*' } | Select-Object -First 1",
     "if (-not $env:WORKER_ADDR -and $ks -and ($ks.Name -match '([0-9a-fA-F]{40})$')) { $env:WORKER_ADDR = \"0x$($Matches[1])\" }",
