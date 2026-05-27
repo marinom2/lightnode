@@ -60,6 +60,19 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
     expect(win).toContain("decrypt-keystore");
     expect(win).toContain("$LASTEXITCODE -eq 0");
   });
+  it("prefers the container keystore password over any app-supplied one", () => {
+    // The container's WORKER_KEYSTORE_PASSWORD always matches the on-disk
+    // keystore; a drifted app password must not be able to break decryption.
+    const cmd = deregisterCommand("macos", "testnet");
+    expect(cmd).toContain("PW_CT=");
+    expect(cmd).toContain('for PW in "$PW_CT" "${WORKER_PASSWORD:-}"');
+  });
+  it("refuses to sign when the on-disk worker is not the targeted worker", () => {
+    // Never sign one network's op with a different worker's key.
+    const cmd = settleJobsCommand("macos", "testnet", [1]);
+    expect(cmd).toContain("this machine hosts worker $DISK_ADDR");
+    expect(cmd).toContain("unset WORKER_PRIVKEY");
+  });
 });
 
 describe("benchmark (capacity/power test vs the job deadline)", () => {

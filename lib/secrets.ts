@@ -53,8 +53,14 @@ function lsDel(k: string): void {
   }
 }
 
-/** Read a per-network secret (keychain on desktop, else localStorage), falling
- *  back to the pre-per-network single value so existing installs still work. */
+/**
+ * Read a per-network secret (keychain on desktop, else localStorage). Strictly
+ * per-network: we do NOT fall back to a non-per-network single value, because a
+ * key/password stored for one network (e.g. a freshly funded mainnet worker)
+ * must never answer another network's read - that cross-contamination caused
+ * settle/withdraw to sign with the wrong worker. If a network has no stored
+ * secret, on-chain ops derive the key from the on-disk keystore instead.
+ */
 export async function getSecret(name: string, net: NetworkId): Promise<string> {
   const perNet = `${name}.${net}`;
   const legacyNet = `${LEGACY[name] ?? name}.${net}`;
@@ -62,14 +68,7 @@ export async function getSecret(name: string, net: NetworkId): Promise<string> {
     const v = await secretGet(perNet);
     if (v) return v;
   }
-  const ls = lsGet(legacyNet);
-  if (ls) return ls;
-  // Last resort: the old single (non-per-network) value.
-  if (isDesktop()) {
-    const old = await secretGet(name);
-    if (old) return old;
-  }
-  return lsGet(LEGACY[name] ?? name);
+  return lsGet(legacyNet);
 }
 
 /**

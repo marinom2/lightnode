@@ -348,13 +348,33 @@ export function desktopInstallCommand(os: OS, network: NetworkId, model: string 
 function keystoreDeriveUnix(): string[] {
   return [
     'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
-    // The password lives in the worker container's env (the worker needs it).
-    // Recover it from there if the app didn't supply one - so ops never depend
-    // on the app still holding the password.
-    "if [ -z \"${WORKER_PASSWORD:-}\" ]; then export WORKER_PASSWORD=\"$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^WORKER_KEYSTORE_PASSWORD=' | head -1 | cut -d= -f2-)\"; fi",
-    "KEYS_DIR=\"${KEYS_DIR:-$HOME/lightchain-worker/keys}\"; KS_DIR=\"$KEYS_DIR/eth-keystore\"; KS_NAME=\"$(ls \"$KS_DIR\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
-    "if [ -z \"${WORKER_PRIVKEY:-}\" ] && [ -n \"${WORKER_PASSWORD:-}\" ] && [ -n \"$KS_NAME\" ]; then export WORKER_PRIVKEY=\"$(cast wallet decrypt-keystore \"$KS_NAME\" --keystore-dir \"$KS_DIR\" --unsafe-password \"$WORKER_PASSWORD\" 2>/dev/null | grep -oE '0x[0-9a-fA-F]{64}' | head -1)\"; fi",
-    "if [ -z \"${WORKER_ADDR:-}\" ]; then if [ -n \"${WORKER_PRIVKEY:-}\" ]; then export WORKER_ADDR=\"$(cast wallet address --private-key \"$WORKER_PRIVKEY\" 2>/dev/null)\"; elif [ -n \"$KS_NAME\" ]; then export WORKER_ADDR=\"0x$(printf '%s' \"$KS_NAME\" | sed -E 's/.*--([0-9a-fA-F]{40})$/\\1/')\"; fi; fi",
+    'KEYS_DIR="${KEYS_DIR:-$HOME/lightchain-worker/keys}"; KS_DIR="$KEYS_DIR/eth-keystore"',
+    "KS_NAME=\"$(ls \"$KS_DIR\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
+    // Derive the worker key from the on-disk keystore - the authoritative source
+    // for the worker actually installed here. Only when the app didn't already
+    // hand us a matching key (the in-browser path passes one).
+    'if [ -z "${WORKER_PRIVKEY:-}" ] && [ -n "$KS_NAME" ]; then',
+    // Make sure Docker is reachable so we can read the container\'s keystore
+    // password (authoritative for this keystore). Soft - never fatal.
+    '  if ! docker info >/dev/null 2>&1; then for s in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock" "$HOME/.colima/default/docker.sock" "$HOME/.rd/docker.sock"; do [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1 && { export DOCKER_HOST="unix://$s"; break; }; done; fi',
+    '  if ! docker info >/dev/null 2>&1; then open -a Docker >/dev/null 2>&1 || true; for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done; fi',
+    "  PW_CT=\"$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^WORKER_KEYSTORE_PASSWORD=' | head -1 | cut -d= -f2-)\"",
+    // Try the container password first (always matches the on-disk keystore),
+    // then any app-supplied password as a fallback. Use whichever decrypts.
+    '  for PW in "$PW_CT" "${WORKER_PASSWORD:-}"; do',
+    '    [ -z "$PW" ] && continue',
+    "    K=\"$(cast wallet decrypt-keystore \"$KS_NAME\" --keystore-dir \"$KS_DIR\" --unsafe-password \"$PW\" 2>/dev/null | grep -oE '0x[0-9a-fA-F]{64}' | head -1)\"",
+    '    if [ -n "$K" ]; then export WORKER_PRIVKEY="$K"; export WORKER_PASSWORD="$PW"; break; fi',
+    "  done",
+    "fi",
+    // The worker actually present on this machine (from the derived key, else
+    // the keystore filename).
+    "DISK_ADDR=\"\"; if [ -n \"${WORKER_PRIVKEY:-}\" ]; then DISK_ADDR=\"$(cast wallet address --private-key \"$WORKER_PRIVKEY\" 2>/dev/null)\"; elif [ -n \"$KS_NAME\" ]; then DISK_ADDR=\"0x$(printf '%s' \"$KS_NAME\" | sed -E 's/.*--([0-9a-fA-F]{40})$/\\1/')\"; fi",
+    // If a specific worker was targeted, the on-disk worker MUST be it - never
+    // sign one network\'s op with a different worker\'s key.
+    'if [ -n "${WORKER_ADDR:-}" ] && [ -n "$DISK_ADDR" ] && [ "$(printf %s "$WORKER_ADDR" | tr A-Z a-z)" != "$(printf %s "$DISK_ADDR" | tr A-Z a-z)" ]; then echo "⛔ this machine hosts worker $DISK_ADDR, not the ${NETWORK:-target} worker $WORKER_ADDR. Switch the network toggle to the worker installed here, or run this where $WORKER_ADDR lives."; unset WORKER_PRIVKEY; fi',
+    // Default the target to the on-disk worker when none was supplied.
+    'if [ -z "${WORKER_ADDR:-}" ] && [ -n "$DISK_ADDR" ]; then export WORKER_ADDR="$DISK_ADDR"; fi',
   ];
 }
 
@@ -471,11 +491,22 @@ export function benchmarkCommand(os: OS, budgetSec: number = 120): string {
 function keystoreDeriveWin(): string[] {
   return [
     '$env:PATH = "$env:USERPROFILE\\.foundry\\bin;$env:PATH"',
-    "if (-not $env:WORKER_PASSWORD) { $env:WORKER_PASSWORD = (docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null | Select-String '^WORKER_KEYSTORE_PASSWORD=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value }",
     '$ksDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"',
     "$ks = Get-ChildItem $ksDir -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'UTC--*' } | Select-Object -First 1",
-    "if (-not $env:WORKER_ADDR -and $ks -and ($ks.Name -match '([0-9a-fA-F]{40})$')) { $env:WORKER_ADDR = \"0x$($Matches[1])\" }",
-    "if (-not $env:WORKER_PRIVKEY -and $env:WORKER_PASSWORD -and $ks) { $pk = ((cast wallet decrypt-keystore $ks.Name --keystore-dir $ksDir --unsafe-password $env:WORKER_PASSWORD 2>$null) | Select-String -Pattern '0x[0-9a-fA-F]{64}' | Select-Object -First 1).Matches.Value; if ($pk) { $env:WORKER_PRIVKEY = $pk } }",
+    'if (-not $env:WORKER_PRIVKEY -and $ks) {',
+    // Container password first (authoritative for this keystore), app password as fallback.
+    "  $pwCt = (docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null | Select-String '^WORKER_KEYSTORE_PASSWORD=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value",
+    '  foreach ($pw in @($pwCt, $env:WORKER_PASSWORD)) {',
+    '    if (-not $pw) { continue }',
+    "    $pk = ((cast wallet decrypt-keystore $ks.Name --keystore-dir $ksDir --unsafe-password $pw 2>$null) | Select-String -Pattern '0x[0-9a-fA-F]{64}' | Select-Object -First 1).Matches.Value",
+    '    if ($pk) { $env:WORKER_PRIVKEY = $pk; $env:WORKER_PASSWORD = $pw; break }',
+    '  }',
+    '}',
+    '$diskAddr = ""',
+    'if ($env:WORKER_PRIVKEY) { $diskAddr = (cast wallet address --private-key $env:WORKER_PRIVKEY 2>$null) } elseif ($ks -and ($ks.Name -match \'([0-9a-fA-F]{40})$\')) { $diskAddr = "0x$($Matches[1])" }',
+    // Never sign one worker\'s op with another\'s key.
+    'if ($env:WORKER_ADDR -and $diskAddr -and ($env:WORKER_ADDR.ToLower() -ne $diskAddr.ToLower())) { Write-Host "this machine hosts worker $diskAddr, not the target worker $($env:WORKER_ADDR). Switch the network toggle to the worker installed here."; $env:WORKER_PRIVKEY = $null }',
+    'if (-not $env:WORKER_ADDR -and $diskAddr) { $env:WORKER_ADDR = $diskAddr }',
   ];
 }
 
