@@ -28,6 +28,8 @@ worker_release_reconcile_last_block 319052
 {"models":[{"name":"llama3-8b:latest","size":4900000000}]}
 ===CHAIN===
 9200
+===SERVED===
+llama3-8b
 ===END===`;
 
 describe("parseWorkerHealth", () => {
@@ -47,7 +49,7 @@ describe("parseWorkerHealth", () => {
     expect(h.recentEvents[0]).toBe("websocket connected to gateway"); // newest first
     expect(h.heartbeatAgoSec).not.toBeNull(); // parsed the scientific-notation timestamp
     expect(h.chainId).toBe(9200); // which network the container serves
-    expect(h.modelName).toBe("llama3-8b:latest");
+    expect(h.servedModel).toBe("llama3-8b"); // from the container env, shown even when cold
     expect(h.modelMemBytes).toBe(4900000000); // model RAM lives in Ollama, not the container
   });
   it("returns null when Docker is unreachable", () => {

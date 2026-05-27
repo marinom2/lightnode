@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Coins } from "lucide-react";
+import { CheckCircle2, Coins, Star } from "lucide-react";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
 import type { NetworkId } from "@/lib/network";
 import type { Worker } from "@/lib/subgraph";
@@ -43,16 +43,25 @@ export function WatchGrid({
     };
   }, [addresses, network]);
 
-  if (addresses.length === 0) return null;
+  // Show a watched worker while it's loading, or once confirmed on THIS network.
+  // Hide ones that resolve to "not on this network" (e.g. a testnet worker while
+  // viewing mainnet) - they reappear when you switch to their network.
+  const visible = addresses.filter((a) => {
+    const d = data[a.toLowerCase()];
+    return !d || d.worker;
+  });
+  if (visible.length === 0) return null; // nothing on this network -> no empty header
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {addresses.map((addr) => {
+    <div className="mt-6">
+      <div className="mb-2 flex items-center gap-2">
+        <Star className="size-4 fill-warning text-warning" />
+        <h2 className="text-sm font-semibold text-content-primary">Your watchlist</h2>
+        <span className="text-xs text-content-soft">live overview · click to open</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {visible.map((addr) => {
         const d = data[addr.toLowerCase()];
-        // Hide a watched worker that isn't on the CURRENT network (e.g. a testnet
-        // worker while viewing mainnet) - it would otherwise show a misleading
-        // "not registered". It reappears when you switch to its network.
-        if (d && !d.worker) return null;
         const w = d?.worker;
         const isActive = active?.toLowerCase() === addr.toLowerCase();
         const dot = !w ? "dot-idle" : d.live ? "dot-live" : w.status === "active" ? "dot-warn" : "dot-down";
@@ -85,6 +94,7 @@ export function WatchGrid({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

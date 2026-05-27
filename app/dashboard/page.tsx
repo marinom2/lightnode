@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, Activity, AlertTriangle, RefreshCw, Star } from "lucide-react";
+import { Search, Activity, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ModelsPanel } from "@/components/models-panel";
@@ -159,24 +159,15 @@ export default function DashboardPage() {
         <code className="rounded bg-surface-base-light px-1 py-0.5">status</code> - it&apos;s the generated worker key, not your funder wallet.
       </p>
 
-      {saved.length > 0 && (
-        <div className="mt-6">
-          <div className="mb-2 flex items-center gap-2">
-            <Star className="size-4 fill-warning text-warning" />
-            <h2 className="text-sm font-semibold text-content-primary">Your watchlist</h2>
-            <span className="text-xs text-content-soft">live overview · click to open</span>
-          </div>
-          <WatchGrid
-            addresses={saved}
-            network={network}
-            active={query}
-            onSelect={(a) => {
-              setInput(a);
-              setQuery(a);
-            }}
-          />
-        </div>
-      )}
+      <WatchGrid
+        addresses={saved}
+        network={network}
+        active={query}
+        onSelect={(a) => {
+          setInput(a);
+          setQuery(a);
+        }}
+      />
 
       {error && (
         <div className="mt-5 flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">

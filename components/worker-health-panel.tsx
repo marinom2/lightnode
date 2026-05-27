@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HeartPulse, Boxes, Sparkles, Banknote, Cpu, MemoryStick, Hourglass, Radio } from "lucide-react";
+import { HeartPulse, Boxes, Sparkles, Banknote, Hourglass, Radio } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fetchWorkerHealth, type WorkerHealth } from "@/lib/tauri";
@@ -14,7 +14,7 @@ function Stat({
   sub,
   tone = "text-content-primary",
 }: {
-  icon: typeof Cpu;
+  icon: typeof Boxes;
   label: string;
   value: string;
   sub?: string;
@@ -94,6 +94,9 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
   const hb =
     h.heartbeatAgoSec == null ? "no heartbeat yet" : h.heartbeatAgoSec < 90 ? `heartbeat ${h.heartbeatAgoSec}s ago` : `last heartbeat ${Math.floor(h.heartbeatAgoSec / 60)}m ago`;
 
+  const modelWarm = h.modelMemBytes != null && h.modelMemBytes > 0;
+  const servedName = h.servedModel?.replace(/:latest$/, "") ?? null;
+
   return (
     <Card className="relative overflow-hidden p-6">
       <div
@@ -113,11 +116,17 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
       </p>
 
       <div className="relative grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <Stat icon={Boxes} label="Active jobs" value={`${h.activeJobs ?? 0} / ${h.maxJobs ?? 2}`} sub="in flight" />
         <Stat
-          icon={Boxes}
-          label="Active jobs"
-          value={`${h.activeJobs ?? 0} / ${h.maxJobs ?? 2}`}
-          sub="in flight"
+          icon={Sparkles}
+          label="Model"
+          value={modelWarm ? "warm" : h.modelMemBytes === 0 ? "cold" : h.ollamaUp ? "ready" : "-"}
+          tone={modelWarm ? "text-success" : h.modelMemBytes === 0 ? "text-warning" : "text-content-primary"}
+          sub={
+            servedName
+              ? `${servedName}${modelWarm ? ` · ${(h.modelMemBytes! / 1e9).toFixed(1)} GB` : " · loads on demand"}`
+              : "via Ollama"
+          }
         />
         <Stat
           icon={Sparkles}
@@ -128,18 +137,13 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
         />
         <Stat icon={Banknote} label="Released" value={`${h.releasedTotal ?? 0}`} sub="jobs paid out" />
         <Stat icon={Hourglass} label="Pending release" value={`${h.releasePending ?? 0}`} sub="awaiting settle" />
-        <Stat icon={Cpu} label="CPU" value={h.cpuPct == null ? "-" : `${h.cpuPct.toFixed(0)}%`} sub="worker container" />
-        <Stat
-          icon={MemoryStick}
-          label="Model in memory"
-          value={h.modelMemBytes == null ? "-" : h.modelMemBytes > 0 ? `${(h.modelMemBytes / 1e9).toFixed(1)} GB` : "not loaded"}
-          sub={h.modelName ? h.modelName.replace(/:latest$/, "") : "Ollama"}
-        />
       </div>
-      <p className="relative mt-2 text-[11px] text-content-soft">
-        The worker container is a thin client ({h.memUsed ?? "tiny"}); the model&apos;s memory lives in Ollama (above).
-      </p>
-
+      {h.modelMemBytes === 0 && (
+        <p className="relative mt-2 text-[11px] text-content-soft">
+          Model is cold (unloaded while idle). It warms on the next job or when the keep-online watchdog runs - a cold
+          first job just loads slower.
+        </p>
+      )}
       {h.recentEvents.length > 0 && (
         <div className="relative mt-4">
           <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-content-soft">
