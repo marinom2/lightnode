@@ -82,7 +82,7 @@ type Op = {
 const OPS: Op[] = [
   { key: "status", label: "Status", desc: "Local container health + recent log", icon: Activity, cmd: () => 'docker ps -a --filter name=lightchain-worker --format "container: {{.Status}}"; echo "--- recent log ---"; docker logs --tail 25 lightchain-worker 2>&1' },
   { key: "restart", label: "Restart", desc: "Recover a stalled worker + re-arm the keep-online watchdog", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
-  { key: "stop", label: "Stop", desc: "Pause the worker - stays down until you Install/Restart (stake intact)", icon: Square, cmd: () => `docker stop lightchain-worker` },
+  { key: "stop", label: "Stop", desc: "Pause the worker container - Docker + model stay loaded for a fast restart (stake intact). For RAM back, use Free up memory.", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
   {
     key: "bench",
