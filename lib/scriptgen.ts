@@ -411,14 +411,14 @@ export function stopWorkerCommand(os: OS): string {
     return [
       'New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-Null',
       'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
-      'Write-Host "worker paused - the watchdog will leave it stopped until you Install or Restart"',
+      'Write-Host "worker paused - the watchdog will leave it stopped until you Restart"',
       "docker stop lightchain-worker 2>$null",
     ].join("\n");
   }
   return [
     "exec 2>&1",
     'mkdir -p "$HOME/.lightnode" && touch "$HOME/.lightnode/keep-online.paused"',
-    'echo "✓ worker paused - the keep-online watchdog will leave it stopped until you Install or Restart"',
+    'echo "✓ worker paused - the keep-online watchdog will leave it stopped until you Restart"',
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"',
     '(docker stop lightchain-worker >/dev/null 2>&1 && echo "✓ worker stopped") || echo "(worker was not running)"',
   ].join("\n");
@@ -700,7 +700,7 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
  * keeps lagging. This op writes the pause marker (so the keep-online watchdog
  * won't bring it back), unloads the model from Ollama, stops the worker
  * container, and on macOS quits Docker Desktop to release its VM. Stake and
- * registration are untouched - Install/Restart brings the worker back.
+ * registration are untouched - Restart brings the worker back.
  */
 export function freeMemoryCommand(os: OS): string {
   if (os === "windows") {
@@ -712,7 +712,7 @@ export function freeMemoryCommand(os: OS): string {
       'try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{`"model`":`"$model`",`"keep_alive`":0}" | Out-Null; Write-Host "OK - unloaded $model from memory (~5 GB reclaimed)" } catch {}',
       'try { docker stop lightchain-worker | Out-Null; Write-Host "OK - stopped the worker container" } catch {}',
       'Get-Process "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host "OK - quit Docker Desktop (released its VM memory)"',
-      'Write-Host "Done - memory freed. Your stake and registration are untouched; run Install or Restart to come back online."',
+      'Write-Host "Done - memory freed. Your stake and registration are untouched; click Restart to come back online."',
     ].join("\n");
   }
   const isMac = os === "macos";
@@ -735,7 +735,7 @@ export function freeMemoryCommand(os: OS): string {
   } else {
     lines.push('echo "  (Linux: the Docker engine runs without a VM, so there is nothing heavy to quit)"');
   }
-  lines.push('echo "✅ memory freed. Your stake and registration are untouched - run Install or Restart to come back online."');
+  lines.push('echo "✅ memory freed. Your stake and registration are untouched - click Restart to come back online."');
   return lines.join("\n");
 }
 

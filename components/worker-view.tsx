@@ -19,6 +19,7 @@ import { fromWei, fmt, compact, timeAgo, shortAddr, stakeBelowFloor, cn } from "
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job } from "@/lib/subgraph";
+import { openExternal } from "@/lib/tauri";
 import type { LocalContainerStatus } from "@/lib/tauri";
 
 type Health = "live" | "down";
@@ -217,11 +218,9 @@ export function WorkerView({
               <Star className={cn("size-4", watched && "fill-warning text-warning")} />
               {watched ? "Watching" : "Watch"}
             </Button>
-            <a href={`${explorer}/address/${worker.id}`} target="_blank" rel="noreferrer">
-              <Button variant="outline" size="sm">
-                Explorer <ExternalLink />
-              </Button>
-            </a>
+            <Button variant="outline" size="sm" onClick={() => openExternal(`${explorer}/address/${worker.id}`)}>
+              Explorer <ExternalLink />
+            </Button>
           </div>
         </div>
         <p className="mt-3 text-sm text-content-soft">{meta.hint}</p>

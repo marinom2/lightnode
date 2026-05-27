@@ -49,6 +49,10 @@ export function WatchGrid({
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {addresses.map((addr) => {
         const d = data[addr.toLowerCase()];
+        // Hide a watched worker that isn't on the CURRENT network (e.g. a testnet
+        // worker while viewing mainnet) - it would otherwise show a misleading
+        // "not registered". It reappears when you switch to its network.
+        if (d && !d.worker) return null;
         const w = d?.worker;
         const isActive = active?.toLowerCase() === addr.toLowerCase();
         const dot = !w ? "dot-idle" : d.live ? "dot-live" : w.status === "active" ? "dot-warn" : "dot-down";

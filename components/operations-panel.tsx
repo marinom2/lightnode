@@ -274,7 +274,7 @@ export function OperationsPanel() {
   const confirmBody = (op: Op) => {
     const jobs = activeJobs > 0 ? `${activeJobs} in-flight job(s) will be stranded (no pay; slash risk). ` : "";
     if (op.key === "freeup") {
-      return `${jobs}Stops the worker, unloads the model, and quits Docker to give your machine its RAM back. Your stake and registration are untouched - run Install or Restart to come back online.`;
+      return `${jobs}Stops the worker, unloads the model, and quits Docker to give your machine its RAM back. Your stake and registration are untouched - click Restart to come back online.`;
     }
     const lead = op.danger ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
     return `${lead}${jobs}`.trim();

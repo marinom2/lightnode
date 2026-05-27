@@ -49,6 +49,32 @@ export function isDesktop(): boolean {
   return getInvoke() !== null;
 }
 
+/**
+ * Open a URL in the user's real browser. In a normal browser tab `window.open`
+ * works; the desktop webview can't spawn tabs, so we shell out to the OS opener
+ * (`open` / `xdg-open` / `Start-Process`) through the existing native runner -
+ * no extra plugin or release needed. Only http(s) URLs are allowed.
+ */
+export async function openExternal(url: string): Promise<void> {
+  if (!/^https?:\/\/[^\s"'`]+$/.test(url)) return; // guard against anything but a clean URL
+  const invoke = getInvoke();
+  if (!invoke) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const cmd = /Windows/i.test(ua)
+    ? `Start-Process "${url}"`
+    : /Mac|Macintosh/i.test(ua)
+      ? `open "${url}"`
+      : `xdg-open "${url}" >/dev/null 2>&1 || true`;
+  try {
+    await invoke("run_command_streamed", { command: cmd, env: {} });
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer"); // last-ditch fallback
+  }
+}
+
 export interface BridgeInfo {
   inDesktop: boolean;
   hasInternals: boolean;
