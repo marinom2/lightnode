@@ -62,23 +62,31 @@ Add a CI step to import your `.pfx`, then set
   `desktop/src-tauri/capabilities/default.json`). Update that URL + the
   capability if the deployment domain changes.
 
-## macOS code-signing + notarization (Developer ID)
+## macOS code-signing + notarization (Developer ID) - OPTIONAL
 
-The release builds unsigned by default. To produce a signed + notarized macOS
-build (no Gatekeeper warning, and a stable Keychain identity so the worker
-key/password store reliably), add these repo secrets (Settings -> Secrets and
-variables -> Actions). The release workflow's "Configure macOS signing" step is
-gated: with no `APPLE_CERTIFICATE` it stays unsigned, so adding them is the only
-step needed to switch it on.
+Signing is NOT required: the app is fully functional unsigned (the only costs
+are the one-time Gatekeeper "right-click -> Open" on first launch, and that
+secrets fall back to localStorage instead of the OS Keychain - still
+device-local, never networked).
+
+**Sign with the PUBLISHER's identity, not a personal one.** Whoever ships the
+app (e.g. the LightChain team) should use THEIR own Apple Developer ID - the
+signature/notarization brands the app as that owner. The workflow is
+identity-agnostic: it signs with whatever `APPLE_*` secrets are present, so the
+owner just adds their own. Until then, leave it unsigned.
+
+To enable, add these repo secrets (Settings -> Secrets and variables ->
+Actions). The "Configure macOS signing" step is gated: with no
+`APPLE_CERTIFICATE` it stays unsigned, so adding them is the only switch.
 
 - `APPLE_CERTIFICATE` - base64 of your "Developer ID Application" cert exported
   as .p12: `base64 -i cert.p12 | pbcopy` (single line is fine; multi-line ok too).
 - `APPLE_CERTIFICATE_PASSWORD` - the .p12 export password.
-- `APPLE_SIGNING_IDENTITY` - e.g. `Developer ID Application: Your Name (84SJ6FKXLJ)`.
-- `APPLE_ID` - your Apple ID email.
+- `APPLE_SIGNING_IDENTITY` - e.g. `Developer ID Application: <Publisher> (<TEAMID>)`.
+- `APPLE_ID` - the publisher's Apple ID email.
 - `APPLE_PASSWORD` - an app-specific password (appleid.apple.com -> Sign-In and
-  Security -> App-Specific Passwords), NOT your normal password.
-- `APPLE_TEAM_ID` - `84SJ6FKXLJ`.
+  Security -> App-Specific Passwords), NOT the normal password.
+- `APPLE_TEAM_ID` - the publisher's 10-char Apple Team ID.
 
 Getting the cert: Apple Developer -> Certificates -> + -> "Developer ID
 Application" -> create from a CSR (Keychain Access -> Certificate Assistant ->
