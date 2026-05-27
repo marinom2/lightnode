@@ -25,6 +25,7 @@ export interface Worker {
   active_job_count?: number;
   jobs_completed?: number;
   jobs_timed_out?: number;
+  disputes_lost?: number;
   total_earned?: string; // wei
   last_seen_at?: number; // unix seconds
   created_at?: number;
@@ -85,7 +86,7 @@ export async function fetchWorker(network: NetworkId, address: string): Promise<
   try {
     const data = await gql<{ worker: Worker | null }>(
       network,
-      `{ worker(id:"${checksum(address)}") { id status stake active_job_count jobs_completed jobs_timed_out total_earned last_seen_at created_at } }`,
+      `{ worker(id:"${checksum(address)}") { id status stake active_job_count jobs_completed jobs_timed_out disputes_lost total_earned last_seen_at created_at } }`,
     );
     return data.worker ?? null;
   } catch (e) {
@@ -113,6 +114,38 @@ export async function fetchModels(network: NetworkId): Promise<ModelInfo[]> {
     `{ modelinfos { id name fee max_output_tokens is_whitelisted is_enabled } }`,
   );
   return data.modelinfos ?? [];
+}
+
+/** A model a specific worker serves, joined to its registry info (name/fee/limit). */
+export interface ServedModel {
+  name: string;
+  fee?: string; // wei
+  maxOutput?: number;
+  active: boolean;
+}
+
+export async function fetchWorkerModels(network: NetworkId, address: string): Promise<ServedModel[]> {
+  try {
+    const [wm, models] = await Promise.all([
+      gql<{ workermodels: { model_id: string; is_active: boolean }[] }>(
+        network,
+        `{ workermodels(where:{worker:"${checksum(address)}"}) { model_id is_active } }`,
+      ),
+      fetchModels(network),
+    ]);
+    const byId = new Map(models.map((m) => [m.id.toLowerCase(), m]));
+    return (wm.workermodels ?? []).map((w) => {
+      const info = byId.get(w.model_id.toLowerCase());
+      return {
+        name: info?.name ?? `${w.model_id.slice(0, 10)}…`,
+        fee: info?.fee,
+        maxOutput: info?.max_output_tokens,
+        active: w.is_active,
+      };
+    });
+  } catch {
+    return []; // best-effort; never block the worker view
+  }
 }
 
 // The subgraph's last_seen_at tracks last on-chain activity, not a real-time

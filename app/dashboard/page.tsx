@@ -17,7 +17,7 @@ import { useSavedWorkers } from "@/lib/saved-workers";
 import { getWorkerAddr, setWorkerAddr } from "@/lib/secrets";
 import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus } from "@/lib/tauri";
 import { shortAddr, cn } from "@/lib/utils";
-import type { Worker, Job } from "@/lib/subgraph";
+import type { Worker, Job, ServedModel } from "@/lib/subgraph";
 
 export default function DashboardPage() {
   const { network } = useNetwork();
@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [query, setQuery] = useState("");
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [models, setModels] = useState<ServedModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [localStatus, setLocalStatus] = useState<LocalContainerStatus | null>(null);
@@ -50,6 +51,7 @@ export default function DashboardPage() {
         if (!r.ok) throw new Error(r.error || "lookup failed");
         setWorker(r.worker);
         setJobs(Array.isArray(r.jobs) ? r.jobs : []);
+        setModels(Array.isArray(r.models) ? r.models : []);
         // If this is one of YOUR (watchlisted) workers, tag it as this network's
         // worker so the per-network "My worker" + Operations target stay correct.
         if (r.worker && has(addr)) {
@@ -195,6 +197,7 @@ export default function DashboardPage() {
           <WorkerView
             worker={worker}
             jobs={jobs}
+            models={models}
             explorer={net.explorer}
             minStake={net.minStakeLcai}
             watched={has(worker.id)}

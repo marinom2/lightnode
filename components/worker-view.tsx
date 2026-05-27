@@ -9,8 +9,10 @@ import {
   AlertTriangle,
   RefreshCw,
   Star,
-  ListChecks,
   TrendingUp,
+  Boxes,
+  Percent,
+  History,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { fromWei, fmt, compact, timeAgo, shortAddr, stakeBelowFloor, cn } from "@/lib/utils";
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
-import type { Worker, Job } from "@/lib/subgraph";
+import type { Worker, Job, ServedModel } from "@/lib/subgraph";
 import { openExternal } from "@/lib/tauri";
 import type { LocalContainerStatus } from "@/lib/tauri";
 
@@ -177,6 +179,7 @@ const LOCAL: Record<"running" | "stopped" | "missing", { tone: "success" | "warn
 export function WorkerView({
   worker,
   jobs,
+  models = [],
   explorer,
   minStake,
   watched,
@@ -185,6 +188,7 @@ export function WorkerView({
 }: {
   worker: Worker;
   jobs: Job[];
+  models?: ServedModel[];
   explorer: string;
   minStake: number;
   watched: boolean;
@@ -196,8 +200,13 @@ export function WorkerView({
   const stake = fromWei(worker.stake);
   const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
 
+  const completed = worker.jobs_completed ?? 0;
+  const attempted = completed + (worker.jobs_timed_out ?? 0) + (worker.disputes_lost ?? 0);
+  const successRate = attempted > 0 ? `${Math.round((completed / attempted) * 100)}%` : "-";
+
   const tiles = [
-    { icon: CheckCircle2, label: "Jobs completed", value: fmt(worker.jobs_completed ?? 0, 0), tone: "text-content-primary" },
+    { icon: CheckCircle2, label: "Jobs completed", value: fmt(completed, 0), tone: "text-content-primary" },
+    { icon: Percent, label: "Success rate", value: successRate, tone: "text-content-primary" },
     { icon: ShieldCheck, label: "Stake (LCAI)", value: compact(stake), tone: "text-content-primary" },
     { icon: Clock, label: "Last on-chain activity", value: timeAgo(worker.last_seen_at), tone: "text-content-primary" },
   ];
@@ -235,7 +244,7 @@ export function WorkerView({
 
       <EarningsPanel worker={worker} jobs={jobs} />
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {tiles.map((t) => (
           <Card key={t.label} className="p-4">
             <div className="mb-2 flex items-center gap-2 text-content-soft">
@@ -266,11 +275,45 @@ export function WorkerView({
         </Card>
       )}
 
+      {models.length > 0 && (
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Boxes className="size-4 text-content-soft" />
+            <h3 className="text-sm font-semibold text-content-primary">Supported models</h3>
+            <span className="text-xs text-content-soft">what this worker serves</span>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-bdr-soft">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-bdr-soft bg-surface-base-subtle/60 px-3 py-2 text-[11px] font-medium text-content-soft">
+              <span>Model</span>
+              <span className="text-right">Fee</span>
+              <span className="text-right">Max output</span>
+              <span className="text-right">Status</span>
+            </div>
+            {models.map((m) => (
+              <div
+                key={m.name}
+                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 px-3 py-2.5 text-xs text-content-default [&:not(:last-child)]:border-b [&:not(:last-child)]:border-bdr-soft"
+              >
+                <span className="truncate font-medium text-content-primary">{m.name}</span>
+                <span className="text-right tabular-nums">{m.fee ? `${fmt(fromWei(m.fee), 3)} LCAI` : "-"}</span>
+                <span className="text-right tabular-nums text-content-soft">
+                  {m.maxOutput ? `${m.maxOutput.toLocaleString()} tok` : "-"}
+                </span>
+                <span className="text-right">
+                  <Badge tone={m.active ? "success" : "muted"}>{m.active ? "active" : "paused"}</Badge>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {jobs.length > 0 && (
         <Card className="p-5">
           <div className="mb-3 flex items-center gap-2">
-            <ListChecks className="size-4 text-content-soft" />
-            <h3 className="text-sm font-semibold text-content-primary">Recent jobs</h3>
+            <History className="size-4 text-content-soft" />
+            <h3 className="text-sm font-semibold text-content-primary">Job history</h3>
+            <span className="text-xs text-content-soft">newest first</span>
           </div>
           <div className="space-y-1.5">
             {jobs.map((j) => {
