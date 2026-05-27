@@ -13,7 +13,7 @@ import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { getWorkerAddr, setWorkerAddr } from "@/lib/secrets";
-import { isDesktop, localContainerStatus, type LocalContainerStatus } from "@/lib/tauri";
+import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus } from "@/lib/tauri";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
 
@@ -100,7 +100,13 @@ export default function DashboardPage() {
       return;
     }
     let on = true;
-    const check = () => localContainerStatus().then((s) => on && setLocalStatus(s));
+    // Skip while a streamed Operations command is running - both share the native
+    // runner's global event channel, so polling docker ps mid-command would leak
+    // "Up N minutes" lines into that command's log.
+    const check = () => {
+      if (isStreamBusy()) return;
+      localContainerStatus().then((s) => on && setLocalStatus(s));
+    };
     check();
     const t = setInterval(check, 15_000);
     return () => {

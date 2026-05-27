@@ -160,6 +160,16 @@ export async function generateWorkerKey(name: string): Promise<string | null> {
 
 export type LocalContainerStatus = "running" | "stopped" | "missing" | "unknown";
 
+// The native runner emits on shared global events (`setup-log` / `setup-exit`),
+// so only one streamed consumer may be active at a time or their output bleeds
+// together. This flag marks an in-flight `runSetupStreamed`; the status poller
+// checks it (via `isStreamBusy`) and skips, so a `docker ps` status check can't
+// leak "Up N minutes" lines into a running command's log.
+let streamBusy = false;
+export function isStreamBusy(): boolean {
+  return streamBusy;
+}
+
 /**
  * Real local state of the worker container on this machine - the one thing the
  * on-chain subgraph can't see. Runs `docker ps` natively and parses the result.
@@ -219,14 +229,34 @@ export async function runSetupStreamed(
     onExit(-1);
     return () => {};
   }
-  const un1 = await events.listen("setup-log", (e) => onLog(String(e.payload)));
-  const un2 = await events.listen("setup-exit", (e) => onExit(Number(e.payload)));
+  // Detach the listeners the instant the command ends (fire-once). Otherwise they
+  // linger on the shared global channel and pick up later commands - e.g. the
+  // 15s container-status poll, which would spam "Up N minutes" / "done." forever.
+  let done = false;
+  const unsubs: Array<() => void> = [];
+  const cleanup = () => {
+    unsubs.forEach((u) => u());
+    unsubs.length = 0;
+    streamBusy = false;
+  };
+  const un1 = await events.listen("setup-log", (e) => {
+    if (!done) onLog(String(e.payload));
+  });
+  const un2 = await events.listen("setup-exit", (e) => {
+    if (done) return;
+    done = true;
+    onExit(Number(e.payload));
+    cleanup();
+  });
+  unsubs.push(un1, un2);
+  streamBusy = true;
   // `secretEnv` is a list of secret NAMES the native side pulls from the
   // keychain into the child env - so the worker key/password never have to be
   // passed through (or held by) the web layer.
   await invoke("run_command_streamed", { command, env, secretEnv: secretEnv ?? null });
   return () => {
-    un1();
-    un2();
+    if (done) return;
+    done = true;
+    cleanup();
   };
 }
