@@ -7,6 +7,7 @@ import { detectNativeHardware, bridgeInfo, lastHardwareError } from "@/lib/tauri
 import { fmt } from "@/lib/utils";
 import type { OS } from "@/lib/scriptgen";
 import { Badge } from "@/components/ui/badge";
+import { RadialGauge } from "@/components/ui/radial-gauge";
 
 const VRAM_OPTIONS = [0, 6, 8, 12, 16, 24, 48, 80];
 const RAM_OPTIONS = [8, 16, 32, 64, 128];
@@ -98,7 +99,8 @@ export function MachineCheck({
     onResult({ eligible: a.workerEligible, vramOk: a.vramOk, os: m.os, vramGb: m.vramGb });
   }, [a.workerEligible, a.vramOk, m.os, m.vramGb, onResult]);
 
-  const ring = a.score >= 75 ? "#1fc16b" : a.score >= 45 ? "#7064e9" : "#f6b51e";
+  const grad: [string, string] =
+    a.score >= 75 ? ["#1fc16b", "#46e09a"] : a.score >= 45 ? ["#7064e9", "#b06ae0"] : ["#f6b51e", "#f7c948"];
 
   return (
     <div className="grid gap-6 md:grid-cols-[1fr_320px]">
@@ -223,17 +225,22 @@ export function MachineCheck({
 
       {/* score + rewards */}
       <div className="space-y-4">
-        <div className="rounded-2xl border border-bdr-soft bg-card/60 p-5 text-center">
+        <div className="relative overflow-hidden rounded-2xl border border-bdr-soft bg-card/60 p-6 text-center">
           <div
-            className="mx-auto grid size-28 place-items-center rounded-full"
-            style={{ background: `conic-gradient(${ring} ${a.score * 3.6}deg, var(--surface-base-faint) 0deg)` }}
-          >
-            <div className="grid size-[5.25rem] place-items-center rounded-full bg-card">
-              <span className="text-3xl font-semibold text-content-primary">{a.score}</span>
+            aria-hidden
+            className="pointer-events-none absolute -top-16 left-1/2 size-48 -translate-x-1/2 rounded-full opacity-20 blur-3xl"
+            style={{ background: `radial-gradient(circle, ${grad[1]}, transparent 70%)` }}
+          />
+          <RadialGauge value={a.score / 100} gradient={grad} size={176} className="mx-auto">
+            <div>
+              <div className="text-[2.75rem] font-semibold leading-none tracking-tight tabular-nums text-content-primary">
+                {a.score}
+              </div>
+              <div className="mt-1 text-[11px] font-medium uppercase tracking-wider text-content-soft">out of 100</div>
             </div>
-          </div>
-          <div className="mt-3 text-sm font-medium text-content-primary">Machine score</div>
-          <div className="mt-1 text-xs text-content-soft">{a.tierLabel}</div>
+          </RadialGauge>
+          <div className="mt-4 text-sm font-semibold text-content-primary">Machine score</div>
+          <div className="mt-1 text-xs leading-relaxed text-content-soft">{a.tierLabel}</div>
           <div className="mt-3">
             {a.vramOk ? (
               <Badge tone="success">✓ Worker-eligible</Badge>

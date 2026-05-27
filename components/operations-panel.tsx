@@ -29,6 +29,8 @@ import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
+import { parseSpeedTest, type SpeedTestResult } from "@/lib/speedtest";
+import { SpeedTestResultCard } from "@/components/speed-test-result";
 import { cn } from "@/lib/utils";
 
 // Does this private key control `addr`? Used to make sure we never sign a
@@ -130,6 +132,8 @@ export function OperationsPanel() {
   const [os, setOs] = useState<OS>("macos");
   const [active, setActive] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [lastOp, setLastOp] = useState<string | null>(null);
+  const [benchResult, setBenchResult] = useState<SpeedTestResult | null>(null);
   const [budgetSec, setBudgetSec] = useState(120);
   const [activeJobs, setActiveJobs] = useState(0);
   const [completedJobs, setCompletedJobs] = useState<number[]>([]);
@@ -255,6 +259,13 @@ export function OperationsPanel() {
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [log]);
 
+  // Once the Speed test prints its numbers, parse them into the result dial.
+  useEffect(() => {
+    if (lastOp !== "bench") return;
+    const r = parseSpeedTest(log.join("\n"));
+    if (r) setBenchResult(r);
+  }, [log, lastOp]);
+
   // Stop/Deregister need a confirmation. We must NOT use window.confirm: in the
   // Tauri webview it returns false (no-op), which silently swallowed Deregister.
   // So we gate through an in-app confirmation panel instead.
@@ -302,6 +313,8 @@ export function OperationsPanel() {
     const myRun = ++runId.current;
     stickToBottom.current = true;
     setActive(op.key);
+    setLastOp(op.key);
+    if (op.key === "bench") setBenchResult(null); // clear the previous dial before re-running
     setLog([`$ ${op.label.toLowerCase()}...`]);
     // Sweep/Deregister are toolkit scripts that sign on-chain with the worker
     // key - they need it (+ keystore password + network). On desktop the native
@@ -481,16 +494,30 @@ export function OperationsPanel() {
         })}
       </div>
 
-      {desktop && log.length > 0 && (
-        <div
-          ref={logBox}
-          onScroll={onLogScroll}
-          className="mt-4 max-h-56 overflow-auto overscroll-contain rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[12px] leading-relaxed text-content-default"
-        >
-          {log.map((l, i) => (
-            <div key={i} className="whitespace-pre-wrap">{l}</div>
-          ))}
+      {/* Speed test result dial (replaces the raw log once parsed). */}
+      {desktop && lastOp === "bench" && benchResult && (
+        <div className="mt-4">
+          <SpeedTestResultCard r={benchResult} />
         </div>
+      )}
+
+      {desktop && log.length > 0 && (
+        <details className="mt-3" open={!(lastOp === "bench" && benchResult)}>
+          {lastOp === "bench" && benchResult && (
+            <summary className="cursor-pointer text-[11px] text-content-soft hover:text-content-default">
+              View raw log
+            </summary>
+          )}
+          <div
+            ref={logBox}
+            onScroll={onLogScroll}
+            className="mt-2 max-h-56 overflow-auto overscroll-contain rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[12px] leading-relaxed text-content-default"
+          >
+            {log.map((l, i) => (
+              <div key={i} className="whitespace-pre-wrap">{l}</div>
+            ))}
+          </div>
+        </details>
       )}
 
       <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
