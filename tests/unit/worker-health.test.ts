@@ -24,6 +24,10 @@ worker_release_reconcile_last_block 319052
 ===LOGS===
 {"time":"2026-05-27T16:02:51Z","level":"INFO","msg":"authenticated with worker-gateway"}
 {"time":"2026-05-27T16:02:52Z","level":"INFO","msg":"websocket connected to gateway"}
+===OLLAMA===
+{"models":[{"name":"llama3-8b:latest","size":4900000000}]}
+===CHAIN===
+9200
 ===END===`;
 
 describe("parseWorkerHealth", () => {
@@ -42,6 +46,9 @@ describe("parseWorkerHealth", () => {
     expect(h.gatewayConnected).toBe(true);
     expect(h.recentEvents[0]).toBe("websocket connected to gateway"); // newest first
     expect(h.heartbeatAgoSec).not.toBeNull(); // parsed the scientific-notation timestamp
+    expect(h.chainId).toBe(9200); // which network the container serves
+    expect(h.modelName).toBe("llama3-8b:latest");
+    expect(h.modelMemBytes).toBe(4900000000); // model RAM lives in Ollama, not the container
   });
   it("returns null when Docker is unreachable", () => {
     expect(parseWorkerHealth("===NODOCKER===")).toBeNull();

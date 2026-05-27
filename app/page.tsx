@@ -18,6 +18,8 @@ import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
 import { HeroPreview } from "@/components/hero-preview";
 import { DownloadDesktop } from "@/components/download-desktop";
+import { HomeHeroCta } from "@/components/home-hero-cta";
+import { WebOnly } from "@/components/web-only";
 import { HardwareRequirements } from "@/components/hardware-requirements";
 import { IconChip } from "@/components/ui/icon-chip";
 import { StakeAmount } from "@/components/stake-amount";
@@ -46,21 +48,10 @@ export default function Home() {
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
           Most people don&apos;t fail to run a node because they lack hardware - they fail on setup.
-          LightNode removes all of it: download the app, press Install, and start earning{" "}
+          LightNode removes all of it: one click to install, and start earning{" "}
           <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference. No terminal, no config.
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Link href="/onboard">
-            <Button variant="gradient" size="lg">
-              <Download /> Get the app
-            </Button>
-          </Link>
-          <Link href="/dashboard">
-            <Button variant="outline" size="lg">
-              I already run a worker
-            </Button>
-          </Link>
-        </div>
+        <HomeHeroCta />
 
         {/* worker rig hero device - soft overhead wash, grounded, lit from within */}
         <div className="relative mx-auto mt-12 w-fit">
@@ -89,8 +80,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* DESKTOP DOWNLOAD - one click */}
-      <DownloadDesktop />
+      {/* DESKTOP DOWNLOAD - one click (web only; hidden inside the desktop app) */}
+      <WebOnly>
+        <DownloadDesktop />
+      </WebOnly>
 
       {/* WHAT WE REMOVE */}
       <section className="mx-auto max-w-6xl px-5 py-10">

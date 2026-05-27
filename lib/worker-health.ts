@@ -19,6 +19,8 @@ export interface WorkerHealth {
   gatewayConnected: boolean;
   recentEvents: string[]; // recent worker log messages, newest first
   chainId: number | null; // the network the running container actually serves
+  modelName: string | null; // model currently resident in Ollama (the heavy RAM)
+  modelMemBytes: number | null; // its resident size in bytes (0 = not loaded)
 }
 
 function section(raw: string, name: string): string {
@@ -41,6 +43,23 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
   const chainRaw = section(raw, "CHAIN");
   const chainId = chainRaw && /^\d+$/.test(chainRaw) ? Number(chainRaw) : null;
 
+  // The model resident in native Ollama is where the real RAM goes (~5 GB), not
+  // the thin worker container. Parse it from `/api/ps`.
+  let modelName: string | null = null;
+  let modelMemBytes: number | null = null;
+  try {
+    const ps = JSON.parse(section(raw, "OLLAMA") || "{}");
+    const ms: Array<{ name?: string; size?: number }> = Array.isArray(ps.models) ? ps.models : [];
+    if (ms.length) {
+      modelName = ms[0].name ?? null;
+      modelMemBytes = ms.reduce((sum, m) => sum + (Number(m.size) || 0), 0);
+    } else if (section(raw, "OLLAMA")) {
+      modelMemBytes = 0; // Ollama answered, nothing resident
+    }
+  } catch {
+    /* leave null */
+  }
+
   const running = /^Up\b/i.test(ps);
   const uptime = (ps.match(/^Up\s+(.*?)(?:\s*\(|$)/i)?.[1] ?? "").trim();
   const [cpuRaw, memRaw] = stats.split("|");
@@ -54,7 +73,7 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
     .split("\n")
     .map((l) => {
       try {
-        return (JSON.parse(l).msg as string) ?? "";
+        return ((JSON.parse(l).msg as string) ?? "").replace(/[\u2014\u2013]/g, "-"); // normalize the worker log's dashes
       } catch {
         return "";
       }
@@ -78,6 +97,8 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
     gatewayConnected: /websocket connected to gateway|authenticated with worker-gateway/i.test(logs),
     recentEvents,
     chainId,
+    modelName,
+    modelMemBytes,
   };
 }
 
@@ -89,6 +110,7 @@ export const WORKER_HEALTH_CMD = [
   'echo "===STATS==="; docker stats --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}" lightchain-worker 2>/dev/null',
   'echo "===METRICS==="; docker exec lightchain-worker sh -c "command -v curl >/dev/null && curl -s http://127.0.0.1:9101/metrics || wget -qO- http://127.0.0.1:9101/metrics" 2>/dev/null',
   'echo "===LOGS==="; docker logs --tail 10 lightchain-worker 2>&1',
+  'echo "===OLLAMA==="; curl -s -m 4 http://127.0.0.1:11434/api/ps 2>/dev/null',
   'echo "===CHAIN==="; docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>/dev/null | grep "^CHAIN_ID=" | head -1 | cut -d= -f2',
   'echo "===END==="',
 ].join("\n");

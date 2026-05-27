@@ -128,9 +128,17 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
         />
         <Stat icon={Banknote} label="Released" value={`${h.releasedTotal ?? 0}`} sub="jobs paid out" />
         <Stat icon={Hourglass} label="Pending release" value={`${h.releasePending ?? 0}`} sub="awaiting settle" />
-        <Stat icon={Cpu} label="CPU" value={h.cpuPct == null ? "-" : `${h.cpuPct.toFixed(0)}%`} sub="container" />
-        <Stat icon={MemoryStick} label="Memory" value={h.memUsed ?? "-"} sub="container" />
+        <Stat icon={Cpu} label="CPU" value={h.cpuPct == null ? "-" : `${h.cpuPct.toFixed(0)}%`} sub="worker container" />
+        <Stat
+          icon={MemoryStick}
+          label="Model in memory"
+          value={h.modelMemBytes == null ? "-" : h.modelMemBytes > 0 ? `${(h.modelMemBytes / 1e9).toFixed(1)} GB` : "not loaded"}
+          sub={h.modelName ? h.modelName.replace(/:latest$/, "") : "Ollama"}
+        />
       </div>
+      <p className="relative mt-2 text-[11px] text-content-soft">
+        The worker container is a thin client ({h.memUsed ?? "tiny"}); the model&apos;s memory lives in Ollama (above).
+      </p>
 
       {h.recentEvents.length > 0 && (
         <div className="relative mt-4">
