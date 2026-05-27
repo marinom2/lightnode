@@ -65,6 +65,13 @@ export function DownloadButton() {
       >
         All downloads &amp; checksums
       </a>
+
+      {os === "mac" && (
+        <p className="mt-1 max-w-md text-[11px] leading-relaxed text-content-soft">
+          First launch on macOS: <span className="text-content-primary">right-click the app → Open → Open</span> (one
+          time). The app isn&apos;t notarized yet, so macOS asks once - no Terminal needed.
+        </p>
+      )}
     </div>
   );
 }
