@@ -166,6 +166,7 @@ echo "✓ Foundry (cast) ready"`;
  *  wallet, so there's no separate funder and no phase 00/06. */
 function unixInstall(network: NetworkId, model: string): string {
   const thr = NETWORKS[network].minStakeLcai + 1; // toolkit's pre-flight guard, per network
+  const chainId = NETWORKS[network].chainId;
   return [
     "set -e",
     "exec 2>&1", // surface stderr (git clone, cast, etc.) in the streamed log
@@ -197,7 +198,10 @@ function unixInstall(network: NetworkId, model: string): string {
     // The toolkit hardcodes a 50,001 LCAI pre-flight guard; correct it to this network's minimum.
     `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
-    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then echo "✓ worker already running - nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
+    // Short-circuit ONLY if the running container is for THIS network. A worker
+    // for a different chain (one container/keystore per machine) must be stopped
+    // first - otherwise we'd falsely report success without installing it.
+    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "⛔ A worker is already running for a DIFFERENT network (chain $RUNCHAIN). This machine runs ONE worker at a time. Stop or Deregister that worker first (Operations), then install on ${network} (chain ${chainId})."; exit 1; fi; echo "✓ worker already running on ${network} - nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
     // A keystore may already exist (our key on a re-run, or a stale key from a
     // prior worker). Skip the import if it's already ours; otherwise back up the
     // old one (never delete) so our key can be imported.
@@ -234,6 +238,7 @@ function unixInstall(network: NetworkId, model: string): string {
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
 function windowsInstall(network: NetworkId, model: string): string {
   const thr = NETWORKS[network].minStakeLcai + 1;
+  const chainId = NETWORKS[network].chainId;
   const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   return `$ErrorActionPreference = "Stop"
 Write-Host "▶ LightNode installer rev ${INSTALLER_REV} (${network})"
@@ -288,7 +293,11 @@ $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
 if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace '50001', '${thr}' -replace '50,001', '${thr}' | Set-Content 07-register.ps1 }
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
-if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") { Write-Host "✓ worker already running - nothing to reinstall"; Write-Host "✅ worker online"; exit 0 }
+if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") {
+  $runChain = ((docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | Select-String '^CHAIN_ID=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value)
+  if ($runChain -and $runChain -ne "${chainId}") { Write-Host "⛔ A worker is already running for a DIFFERENT network (chain $runChain). This machine runs ONE worker at a time. Stop or Deregister it first, then install on ${network} (chain ${chainId})."; exit 1 }
+  Write-Host "✓ worker already running on ${network} - nothing to reinstall"; Write-Host "✅ worker online"; exit 0
+}
 # Handle a pre-existing keystore: skip if it's already ours, else back up (never delete).
 $ks = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"
 $skipImport = $false
