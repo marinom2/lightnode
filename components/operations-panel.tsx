@@ -102,6 +102,7 @@ export function OperationsPanel() {
   const [dest, setDest] = useState("");
   const [activeJobs, setActiveJobs] = useState(0);
   const [completedJobs, setCompletedJobs] = useState<number[]>([]);
+  const [workerAddr, setWorkerAddr] = useState("");
   const [confirmOp, setConfirmOp] = useState<Op | null>(null);
   const [settlement, setSettlement] = useState<{
     total: number;
@@ -120,6 +121,7 @@ export function OperationsPanel() {
   useEffect(() => {
     let addr = "";
     try { addr = window.localStorage.getItem("lightnode.workerAddress") || ""; } catch { /* ignore */ }
+    setWorkerAddr(addr);
     if (!desktop || !/^0x[a-fA-F0-9]{40}$/.test(addr)) return;
     let on = true;
     const check = () =>
@@ -265,6 +267,22 @@ export function OperationsPanel() {
     if (op.key === "settle" || op.key === "dereg") {
       const ids = await fetchCompletedJobIds();
       if (ids.length) setCompletedJobs(ids);
+      // Settle with nothing to release: explain WHY (network + address checked),
+      // instead of a bare "no completed jobs".
+      if (op.key === "settle" && ids.length === 0) {
+        let addr = "";
+        try { addr = window.localStorage.getItem("lightnode.workerAddress") || ""; } catch { /* ignore */ }
+        setLog((l) => [
+          ...l,
+          `checked worker ${addr ? addr.slice(0, 10) + "…" + addr.slice(-6) : "(none saved)"} on ${network}`,
+          settlement && settlement.total > 0
+            ? `your ${settlement.total} completed job(s) are still in the release hold - claimable ${etaText(settlement.allClaimableAt)}.`
+            : "no completed jobs found. If your worker is on a different network, switch the toggle at the top.",
+          "done.",
+        ]);
+        setActive(null);
+        return;
+      }
       command = op.key === "dereg" ? deregisterCommand(os, network, ids) : settleJobsCommand(os, network, ids);
     }
     stopRef.current = await runSetupStreamed(
@@ -294,6 +312,15 @@ export function OperationsPanel() {
           <Badge tone="muted" className="ml-auto">copy-run</Badge>
         )}
       </div>
+
+      {/* diagnostic: makes the network / worker / UI build visible so "nothing
+          to settle" is never a mystery (wrong network? stale UI? no address?) */}
+      {desktop && (
+        <p className="mb-3 font-mono text-[11px] text-content-soft">
+          diag · net:{network} · worker:{workerAddr ? `${workerAddr.slice(0, 8)}…${workerAddr.slice(-4)}` : "none"} ·
+          completed:{settlement ? settlement.total : "?"} · ui:{(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev").slice(0, 7)}
+        </p>
+      )}
 
       {!desktop && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/5 p-3 text-sm text-content-soft">
