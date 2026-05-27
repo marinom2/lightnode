@@ -183,6 +183,23 @@ export function OperationsPanel() {
     void executeOp(op);
   };
 
+  // Fetch the worker's completed (unreleased) job IDs FRESH (so Settle/Deregister
+  // never act on a stale/empty list if the panel just mounted).
+  const fetchCompletedJobIds = async (): Promise<number[]> => {
+    try {
+      const addr = window.localStorage.getItem("lightnode.workerAddress") || "";
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return completedJobs;
+      const j = await fetch(`/api/worker?net=${network}&address=${addr}`).then((r) => r.json());
+      if (!j.ok) return completedJobs;
+      return (j.jobs ?? [])
+        .filter((x: { state: string }) => /complet/i.test(x.state))
+        .map((x: { id: string }) => Number(x.id))
+        .filter((n: number) => Number.isFinite(n));
+    } catch {
+      return completedJobs;
+    }
+  };
+
   const executeOp = async (op: Op) => {
     setConfirmOp(null);
     stopRef.current?.();
@@ -210,8 +227,16 @@ export function OperationsPanel() {
         /* ignore */
       }
     }
+    // Settle/Deregister act on the worker's completed jobs - fetch them fresh so
+    // we never build the command with a stale/empty list.
+    let command = runCmd(op);
+    if (op.key === "settle" || op.key === "dereg") {
+      const ids = await fetchCompletedJobIds();
+      if (ids.length) setCompletedJobs(ids);
+      command = op.key === "dereg" ? deregisterCommand(os, network, ids) : settleJobsCommand(os, network, ids);
+    }
     stopRef.current = await runSetupStreamed(
-      runCmd(op),
+      command,
       env,
       (line) => setLog((l) => [...l, line]),
       (code) => {
