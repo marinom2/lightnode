@@ -333,21 +333,10 @@ export function OperationsPanel() {
     if (op.key === "settle" || op.key === "dereg") {
       const ids = await fetchCompletedJobIds();
       if (ids.length) setCompletedJobs(ids);
-      // Settle with nothing to release: explain WHY (network + address checked),
-      // instead of a bare "no completed jobs".
-      if (op.key === "settle" && ids.length === 0) {
-        const addr = resolveWorkerAddr();
-        setLog((l) => [
-          ...l,
-          `checked worker ${addr ? addr.slice(0, 10) + "…" + addr.slice(-6) : "(none saved)"} on ${network}`,
-          settlement && settlement.total > 0
-            ? `your ${settlement.total} completed job(s) are still in the release hold - claimable ${etaText(settlement.allClaimableAt)}.`
-            : "no completed jobs found. If your worker is on a different network, switch the toggle at the top.",
-          "done.",
-        ]);
-        setActive(null);
-        return;
-      }
+      // Always run settle even with no jobs to release: releasing only credits an
+      // internal JobRegistry balance, and the command also CLAIMS that balance
+      // (withdraw()) into the wallet - so there may be earnings to pull even when
+      // every job is already released.
       command = op.key === "dereg" ? deregisterCommand(os, network, ids) : settleJobsCommand(os, network, ids);
     }
     stopRef.current = await runSetupStreamed(

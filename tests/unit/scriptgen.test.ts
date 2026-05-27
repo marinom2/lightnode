@@ -25,7 +25,7 @@ describe("Settle earnings + auto-settling deregister", () => {
   });
   it("deregister auto-settles the completed jobs first", () => {
     const d = deregisterCommand("macos", "testnet", [55]);
-    expect(d).toContain("settling completed jobs before deregister");
+    expect(d).toContain("settling completed jobs + claiming rewards before deregister");
     expect(d).toContain("releaseJob(uint256)");
     expect(d).toContain("deregister.sh");
   });
@@ -35,6 +35,17 @@ describe("Settle earnings + auto-settling deregister", () => {
   });
   it("windows settle releases jobs via PowerShell", () => {
     expect(settleJobsCommand("windows", "testnet", [9]).toLowerCase()).toContain("releasejob");
+  });
+  it("settle also CLAIMS earnings (withdraw) - releasing only credits an internal balance", () => {
+    const cmd = settleJobsCommand("macos", "testnet", [9]);
+    expect(cmd).toContain("0x78904a35"); // getter for the claimable earnings balance
+    expect(cmd).toContain('"withdraw()"'); // pulls that balance into the worker wallet
+    expect(cmd).toContain("claimed");
+    // even with no jobs to release, the claim still runs
+    expect(settleJobsCommand("macos", "testnet", []).toLowerCase()).toContain("withdraw()");
+  });
+  it("deregister claims earnings before exiting so nothing is stranded", () => {
+    expect(deregisterCommand("macos", "testnet", [5])).toContain('"withdraw()"');
   });
   it("probes readiness with an eth_call before sending, and reports a real send failure honestly", () => {
     const cmd = settleJobsCommand("macos", "testnet", [932]);

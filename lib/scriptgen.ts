@@ -577,9 +577,44 @@ function releaseJobsWin(network: NetworkId, jobIds: number[]): string[] {
   ];
 }
 
+// Released jobs credit the worker's pay into an INTERNAL JobRegistry balance,
+// not the worker wallet. `withdraw()` (selector 0x3ccfd60b) pulls that balance
+// to the wallet; the claimable amount is read via getter 0x78904a35(address).
+// So settling must release AND claim, or the rewards sit stranded in-contract.
+function claimEarningsUnix(network: NetworkId): string[] {
+  const net = NETWORKS[network];
+  return [
+    `JOBREG="${net.jobRegistry}"; RPC_URL="${net.rpc}"`,
+    'if [ -n "${WORKER_ADDR:-}" ]; then EARNED="$(cast call "$JOBREG" "0x78904a35000000000000000000000000$(printf %s "${WORKER_ADDR#0x}" | tr A-Z a-z)" --rpc-url "$RPC_URL" 2>/dev/null)"; else EARNED=""; fi',
+    'EARNED_DEC="$(cast to-dec "${EARNED:-0x0}" 2>/dev/null || echo 0)"',
+    'if [ -n "$EARNED_DEC" ] && [ "$EARNED_DEC" != "0" ]; then',
+    '  if [ -z "${WORKER_PRIVKEY:-}" ]; then echo "  ⛔ $(cast from-wei "$EARNED_DEC") LCAI of earnings are claimable but there is no worker key to sign with"; ',
+    '  elif cast send "$JOBREG" "withdraw()" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "  ✓ claimed $(cast from-wei "$EARNED_DEC") LCAI of earnings into your worker wallet"; ',
+    '  else echo "  ⛔ earnings claim tx failed - try again"; fi',
+    'else echo "  • no unclaimed earnings sitting in the job registry"; fi',
+  ];
+}
+
+function claimEarningsWin(network: NetworkId): string[] {
+  const net = NETWORKS[network];
+  return [
+    `$JOBREG = "${net.jobRegistry}"; $RPC_URL = "${net.rpc}"`,
+    'if ($env:WORKER_ADDR) {',
+    '  $earned = (cast call $JOBREG ("0x78904a35000000000000000000000000" + $env:WORKER_ADDR.Substring(2).ToLower()) --rpc-url $RPC_URL 2>$null)',
+    '  $earnedDec = (cast to-dec $earned 2>$null)',
+    '  if ($earnedDec -and $earnedDec -ne "0") {',
+    '    if (-not $env:WORKER_PRIVKEY) { Write-Host "earnings claimable but no worker key to sign with" }',
+    '    elseif ((cast send $JOBREG "withdraw()" --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL *> $null) -or $?) { Write-Host "claimed $(cast from-wei $earnedDec) LCAI of earnings into your worker wallet" }',
+    '    else { Write-Host "earnings claim tx failed - try again" }',
+    '  } else { Write-Host "no unclaimed earnings sitting in the job registry" }',
+    '}',
+  ];
+}
+
 /**
- * Settle (release) the worker's completed jobs - pays out pending rewards on
- * demand instead of waiting blindly on the release cycle. `jobIds` are the
+ * Settle the worker's completed jobs AND claim the resulting earnings into the
+ * worker wallet. Releasing a job only credits an internal JobRegistry balance;
+ * `withdraw()` moves it to the wallet - so we always do both. `jobIds` are the
  * worker's Completed (unreleased) jobs, looked up from the subgraph by the app.
  */
 export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]): string {
@@ -587,15 +622,17 @@ export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]):
     return [
       '$ErrorActionPreference = "Continue"',
       ...keystoreDeriveWin(),
-      'Write-Host "settling completed jobs (pays your pending rewards)"',
+      'Write-Host "settling completed jobs + claiming your rewards"',
       ...releaseJobsWin(network, jobIds),
+      ...claimEarningsWin(network),
     ].join("\n");
   }
   return [
     "exec 2>&1",
     ...keystoreDeriveUnix(),
-    'echo "▶ settling completed jobs (pays your pending rewards)"',
+    'echo "▶ settling completed jobs + claiming your rewards"',
     ...releaseJobsUnix(network, jobIds),
+    ...claimEarningsUnix(network),
   ].join("\n");
 }
 
@@ -610,8 +647,9 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
       '$ErrorActionPreference = "Continue"',
       'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
-      'Write-Host "settling completed jobs before deregister..."',
+      'Write-Host "settling completed jobs + claiming rewards before deregister..."',
       ...releaseJobsWin(network, jobIds),
+      ...claimEarningsWin(network),
       '$env:FORCE = "1"',
       'if (-not (Test-Path .\\deregister.ps1)) { Write-Host "toolkit not found - install the worker first"; exit 1 }',
       '.\\deregister.ps1',
@@ -633,9 +671,11 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     ...keystoreDeriveUnix(),
-    // Settle releasable completed jobs first - they gate deregistration.
-    'echo "▶ settling completed jobs before deregister..."',
+    // Settle releasable completed jobs first - they gate deregistration - and
+    // claim the earnings into the wallet so nothing is stranded in the registry.
+    'echo "▶ settling completed jobs + claiming rewards before deregister..."',
     ...releaseJobsUnix(network, jobIds),
+    ...claimEarningsUnix(network),
     'if echo deregister | FORCE=1 "$RB" deregister.sh; then',
     '  touch "$HOME/.lightnode/keep-online.paused"',
     '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
