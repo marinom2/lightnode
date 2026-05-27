@@ -731,7 +731,7 @@ export function freeMemoryCommand(os: OS): string {
     'if [ -n "$(docker ps -q -f name=lightchain-worker 2>/dev/null)" ]; then docker stop lightchain-worker >/dev/null 2>&1 && echo "✓ stopped the worker container"; fi',
   ];
   if (isMac) {
-    lines.push("osascript -e 'quit app \"Docker\"' >/dev/null 2>&1 && echo \"✓ quit Docker Desktop (released its VM memory)\"");
+    lines.push("osascript -e 'quit app \"Docker Desktop\"' >/dev/null 2>&1 || osascript -e 'quit app \"Docker\"' >/dev/null 2>&1 || true; echo \"✓ quit Docker Desktop (released its VM memory)\"");
   } else {
     lines.push('echo "  (Linux: the Docker engine runs without a VM, so there is nothing heavy to quit)"');
   }
@@ -755,8 +755,21 @@ function dockerEnvPreambleUnix(): string {
     "exec 2>&1",
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"',
     'if ! docker info >/dev/null 2>&1; then for s in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock" "$HOME/.colima/default/docker.sock" "$HOME/.rd/docker.sock"; do if [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1; then export DOCKER_HOST="unix://$s"; break; fi; done; fi',
-    'if ! docker info >/dev/null 2>&1; then echo "▶ Docker is not running - starting Docker Desktop..."; open -a Docker 2>/dev/null || true; for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done; fi',
-    'docker info >/dev/null 2>&1 || { echo "⛔ Cannot reach Docker. Open Docker Desktop once, then try again."; exit 1; }',
+    'if ! docker info >/dev/null 2>&1; then',
+    '  echo "▶ Docker is not running - starting Docker Desktop..."',
+    '  open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true',
+    '  for _ in $(seq 1 15); do docker info >/dev/null 2>&1 && break; sleep 2; done',
+    // A plain `open` is a no-op when the Docker Desktop GUI is already running but
+    // its ENGINE is stopped (the half-state that "Free up memory" / a manual quit
+    // leaves). Detect that and relaunch cleanly so Restart/Status can recover it.
+    '  if ! docker info >/dev/null 2>&1 && pgrep -x "Docker Desktop" >/dev/null 2>&1; then',
+    '    echo "▶ Docker Desktop is open but its engine is stopped - relaunching it..."',
+    "    osascript -e 'quit app \"Docker Desktop\"' >/dev/null 2>&1 || true; sleep 2; pkill -x \"Docker Desktop\" >/dev/null 2>&1 || true; sleep 3",
+    '    open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true',
+    '    for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done',
+    '  fi',
+    "fi",
+    'docker info >/dev/null 2>&1 || { echo "⛔ Cannot reach Docker. Open Docker Desktop manually and wait for the whale icon to settle, then try again."; exit 1; }',
   ].join("\n");
 }
 
