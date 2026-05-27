@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-27.1";
+const INSTALLER_REV = "2026-05-27.2";
 
 export interface ScriptBundle {
   os: OS;
@@ -53,7 +53,20 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Do
 log(){ echo "$(date -u +%FT%TZ) $*"; }
 # Respect an intentional Stop/Deregister: while this marker exists, leave the
 # worker alone (Install or Restart clears it to re-arm).
-[ -f "$HOME/.lightnode/keep-online.paused" ] && { log "paused by user - leaving worker as-is"; exit 0; }
+AWAKE="$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist"
+if [ -f "$HOME/.lightnode/keep-online.paused" ]; then
+  log "paused by user - leaving worker as-is, allowing the machine to sleep"
+  [ "$(uname -s)" = "Darwin" ] && launchctl unload "$AWAKE" 2>/dev/null || true
+  exit 0
+fi
+# Keep the machine awake while the worker should be online - a sleep mid-job
+# drops it (acked-then-asleep = timeout = slash). macOS: a KeepAlive caffeinate
+# launchd agent; Linux: a systemd-inhibit holder.
+if [ "$(uname -s)" = "Darwin" ]; then
+  launchctl list ai.lightchain.worker-awake >/dev/null 2>&1 || launchctl load -w "$AWAKE" 2>/dev/null || true
+elif command -v systemd-inhibit >/dev/null 2>&1; then
+  pgrep -f "systemd-inhibit.*lightnode-awake" >/dev/null 2>&1 || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & )
+fi
 if ! docker info >/dev/null 2>&1; then
   log "docker down - starting"
   if [ "$(uname -s)" = "Darwin" ]; then open -a Docker 2>/dev/null || true; else systemctl --user start docker-desktop 2>/dev/null || sudo systemctl start docker 2>/dev/null || true; fi
@@ -72,6 +85,21 @@ chmod +x "$HOME/.lightnode/keep-online.sh"
 if [ "$(uname -s)" = "Darwin" ]; then
   PLIST="$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
+  # Sleep-prevention agent: a KeepAlive caffeinate holds the system awake while
+  # loaded (unloaded by Stop/Free up/Deregister, and by the watchdog when paused).
+  AWAKE="$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist"
+  cat > "$AWAKE" <<AWAKEEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.lightchain.worker-awake</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/caffeinate</string><string>-i</string><string>-s</string></array>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+AWAKEEOF
+  launchctl unload "$AWAKE" 2>/dev/null || true
+  launchctl load -w "$AWAKE" 2>/dev/null && echo "✓ sleep prevention active (machine stays awake while the worker runs)" || true
   cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -90,6 +118,14 @@ else
   ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh'; echo "*/10 * * * * /bin/bash $HOME/.lightnode/keep-online.sh >> $HOME/.lightnode/keep-online.log 2>&1" ) | crontab - 2>/dev/null && echo "✓ keep-online watchdog active (cron, every 10 min)" || true
   command -v systemctl >/dev/null 2>&1 && sudo systemctl enable docker >/dev/null 2>&1 || true
 fi`;
+
+// Sleep-prevention toggles (unix). ON = load the caffeinate agent (macOS) /
+// start a systemd-inhibit holder (Linux). OFF = the reverse, so the machine can
+// sleep again once the worker is intentionally down.
+const AWAKE_ON_UNIX =
+  'if [ "$(uname -s)" = "Darwin" ]; then launchctl load -w "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; elif command -v systemd-inhibit >/dev/null 2>&1; then pgrep -f "systemd-inhibit.*lightnode-awake" >/dev/null 2>&1 || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & ); fi';
+const AWAKE_OFF_UNIX =
+  'if [ "$(uname -s)" = "Darwin" ]; then launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; fi; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true; echo "✓ sleep prevention off - the machine can sleep again"';
 
 /** One command: clone, set the password, run all 9 phases (06 prompts for the funder key). */
 function bootstrap(os: OS, network: NetworkId, model: string): string {
@@ -421,6 +457,8 @@ export function stopWorkerCommand(os: OS): string {
     'echo "✓ worker paused - the keep-online watchdog will leave it stopped until you Restart"',
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"',
     '(docker stop lightchain-worker >/dev/null 2>&1 && echo "✓ worker stopped") || echo "(worker was not running)"',
+    // Stop holding the machine awake - it can sleep again now the worker is down.
+    AWAKE_OFF_UNIX,
   ].join("\n");
 }
 
@@ -681,6 +719,8 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
     '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     '  rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     `  ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
+    // Done with this worker - stop holding the machine awake and remove the agent.
+    '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true',
     // Stop the now-pointless container so this network's worker slot is free -
     // a deregistered worker can't earn, and the next install (e.g. mainnet)
     // refuses to run while a DIFFERENT-network container is still up.
@@ -735,6 +775,7 @@ export function freeMemoryCommand(os: OS): string {
   } else {
     lines.push('echo "  (Linux: the Docker engine runs without a VM, so there is nothing heavy to quit)"');
   }
+  lines.push(AWAKE_OFF_UNIX);
   lines.push('echo "✅ memory freed. Your stake and registration are untouched - click Restart to come back online."');
   return lines.join("\n");
 }
@@ -805,13 +846,18 @@ $sess = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\session-keys.enc"
 if (Test-Path $sess) { Move-Item $sess "$sess.bak-$((Get-Date).Ticks)"; Write-Host "✓ cleared stale session store" }
 docker start lightchain-worker
 Write-Host "✓ worker restarted - give it ~1 min, then check the dashboard"
+$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }
+Write-Host "pre-warming $model (kept resident) so the first job does not cold-load"
+try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 180 -Body "{\`"model\`":\`"$model\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" | Out-Null; Write-Host "model warm + pinned" } catch { Write-Host "(could not pre-warm now - the watchdog will warm it shortly)" }
 docker logs --tail 20 lightchain-worker`;
   }
   return [
     "exec 2>&1",
     'echo "▶ repairing lightchain-worker"',
-    // Restart = the user wants it running, so lift any pause from a prior Stop.
+    // Restart = the user wants it running, so lift any pause from a prior Stop and
+    // re-arm sleep prevention (the machine must stay awake while it serves jobs).
     'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
+    AWAKE_ON_UNIX,
     `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No lightchain-worker container found - install one first."; exit 1; fi`,
     "docker stop lightchain-worker >/dev/null 2>&1 || true",
     'SESS="$HOME/lightchain-worker/keys/session-keys.enc"',
@@ -819,6 +865,12 @@ docker logs --tail 20 lightchain-worker`;
     "docker start lightchain-worker",
     'echo "✓ worker restarted - watching for connection (up to ~60s)"',
     'for _ in $(seq 1 30); do if docker logs --since 20s lightchain-worker 2>&1 | grep -qiE "websocket connected|gateway auth"; then echo "✅ worker connected - should go Live on the dashboard"; break; fi; sleep 2; done',
+    // Pre-warm + pin the model (keep_alive:-1) exactly like the installer, so the
+    // FIRST job after a restart doesn't cold-load and miss the deadline (a
+    // cold-start timeout is the slashable case).
+    'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
+    'echo "▶ pre-warming $MODEL (kept resident) so the first job does not cold-load"',
+    `curl -s -m 180 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 && echo "✓ model warm + pinned" || echo "(could not pre-warm now - the keep-online watchdog will warm it shortly)"`,
     "docker logs --tail 15 lightchain-worker 2>&1",
   ].join("\n");
 }

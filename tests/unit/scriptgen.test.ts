@@ -151,6 +151,19 @@ describe("pause marker (intentional stop must not be auto-restarted)", () => {
     expect(repairWorkerCommand("macos")).toContain('rm -f "$HOME/.lightnode/keep-online.paused"');
     expect(desktopInstallCommand("macos", "testnet")).toContain('rm -f "$HOME/.lightnode/keep-online.paused"');
   });
+  it("Restart pre-warms the model so the first job doesn't cold-load (slash risk)", () => {
+    expect(repairWorkerCommand("macos")).toContain('"keep_alive\\":-1');
+    expect(repairWorkerCommand("macos")).toContain("pre-warming");
+    expect(repairWorkerCommand("windows")).toContain("keep_alive");
+  });
+  it("prevents the machine from sleeping while the worker runs (caffeinate), and frees it on stop", () => {
+    const install = desktopInstallCommand("macos", "mainnet");
+    expect(install).toContain("caffeinate");
+    expect(install).toContain("ai.lightchain.worker-awake");
+    // Restart re-arms it; Stop releases it so the machine can sleep again.
+    expect(repairWorkerCommand("macos")).toContain("worker-awake.plist");
+    expect(stopWorkerCommand("macos")).toContain("worker-awake.plist");
+  });
   it("Deregister pauses and removes the watchdog schedule", () => {
     const d = deregisterCommand("macos", "testnet");
     expect(d).toContain("deregister.sh");
