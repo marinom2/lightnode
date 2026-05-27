@@ -8,6 +8,7 @@ import { ModelsPanel } from "@/components/models-panel";
 import { WatchGrid } from "@/components/watch-grid";
 import { OperationsPanel } from "@/components/operations-panel";
 import { WithdrawWorker } from "@/components/withdraw-worker";
+import { DownloadButton } from "@/components/download-button";
 import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
@@ -30,6 +31,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [localStatus, setLocalStatus] = useState<LocalContainerStatus | null>(null);
+  // Worker operations (install/settle/withdraw) run in the desktop app, never via
+  // copy-paste on the web. On the web the dashboard is a read-only tracker.
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => setDesktop(isDesktop()), []);
 
   const load = useCallback(
     async (addr: string) => {
@@ -205,13 +210,32 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      <Card className="mt-8 p-6">
-        <OperationsPanel />
-      </Card>
-
-      <div className="mt-4">
-        <WithdrawWorker />
-      </div>
+      {desktop ? (
+        <>
+          <Card className="mt-8 p-6">
+            <OperationsPanel />
+          </Card>
+          <div className="mt-4">
+            <WithdrawWorker />
+          </div>
+        </>
+      ) : (
+        <Card className="mt-8 overflow-hidden p-0">
+          <div className="relative p-6">
+            <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full bg-gradient-primary opacity-15 blur-3xl" />
+            <div className="relative flex flex-wrap items-center justify-between gap-4">
+              <div className="max-w-md">
+                <h3 className="text-sm font-semibold text-content-primary">Manage your worker from the app</h3>
+                <p className="mt-1 text-sm text-content-soft">
+                  Install, settle earnings, withdraw, and keep your worker online with one click in the LightNode desktop
+                  app. This page tracks any worker live; the controls live in the app.
+                </p>
+              </div>
+              <DownloadButton />
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="mt-4 p-6">
         <ModelsPanel />

@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, ExternalLink, Rocket } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, ExternalLink, Rocket, Download, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DownloadButton } from "@/components/download-button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ConnectButton } from "@/components/connect-button";
@@ -26,6 +27,15 @@ const STEPS = [
   { id: 1, label: "Machine", icon: Gauge },
   { id: 2, label: "Setup", icon: Terminal },
   { id: 3, label: "Run", icon: HeartPulse },
+];
+
+// What the desktop app does for you - shown on the web so a visitor knows exactly
+// what they're getting before they download. No terminal, no manual steps.
+const WEB_STEPS = [
+  { icon: Download, t: "Download", d: "Get the app for your OS - macOS, Windows, or Linux." },
+  { icon: ScanLine, t: "Auto-detect", d: "It reads your real GPU, VRAM, CPU and RAM and scores your machine." },
+  { icon: Rocket, t: "One click", d: "Press Install - it generates keys, funds + stakes, and starts the node." },
+  { icon: HeartPulse, t: "Earn", d: "Your worker goes live, serves jobs, and earns $LCAI. Manage it all in-app." },
 ];
 
 export default function OnboardPage() {
@@ -55,6 +65,61 @@ export default function OnboardPage() {
   // Never hard-block on hardware: if below the 8GB-GPU bar, the user can still
   // proceed after acknowledging the risk (they may want to test on CPU/low spec).
   const canNext = (step === 0 && isConnected) || (step === 1 && (vramOk || ackRisk)) || step === 2;
+
+  // WEB: no manual steps. The whole job is done in the desktop app, so the web
+  // page's only job is to explain it and hand over a download. (The full
+  // one-click wizard below renders only inside the desktop app.)
+  if (!desktop) {
+    return (
+      <div className="mx-auto max-w-4xl px-5 py-12">
+        <div className="text-center">
+          <Badge tone="brand" className="mb-4">LightChain {NETWORKS[network].label}</Badge>
+          <h1 className="text-4xl font-semibold tracking-tight text-content-primary">Run a worker in one click</h1>
+          <p className="mx-auto mt-3 max-w-xl text-content-soft">
+            Download the LightNode app. It checks your machine, installs everything, funds and stakes your worker, and
+            keeps it online - no terminal, no config, no copy-paste.
+          </p>
+          <div className="mt-7 flex justify-center">
+            <DownloadButton />
+          </div>
+        </div>
+
+        <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {WEB_STEPS.map((s, i) => (
+            <Card key={s.t} className="p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <IconChip icon={s.icon} size="sm" />
+                <span className="font-mono text-xs text-content-soft">0{i + 1}</span>
+              </div>
+              <div className="text-sm font-semibold text-content-primary">{s.t}</div>
+              <div className="mt-1 text-xs leading-relaxed text-content-soft">{s.d}</div>
+            </Card>
+          ))}
+        </div>
+
+        <details className="mt-8 overflow-hidden rounded-2xl border border-bdr-soft bg-card/60">
+          <summary className="cursor-pointer list-none p-5 text-sm font-medium text-content-primary">
+            Will my machine qualify?{" "}
+            <span className="font-normal text-content-soft">- optional check, runs in your browser</span>
+          </summary>
+          <div className="border-t border-bdr-soft p-5">
+            <div className="mb-4">
+              <NetworkHealth />
+            </div>
+            <MachineCheck avgJobsPerLiveWorker={avgJobs} onResult={() => {}} />
+          </div>
+        </details>
+
+        <p className="mt-8 text-center text-sm text-content-soft">
+          Already running a worker?{" "}
+          <Link href="/dashboard" className="text-primary underline-offset-2 hover:underline">
+            Track it on the dashboard
+          </Link>
+          .
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-10">
