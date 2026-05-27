@@ -128,6 +128,10 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
       ) : (
         <p className="mt-2.5 text-xs text-content-soft">Encrypts your worker key on this machine. Use Generate for a strong one.</p>
       )}
+      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-content-soft">
+        <ShieldCheck className="mt-0.5 size-3 shrink-0 text-success/80" /> Kept on this device only (OS keychain +
+        encrypted keystore) and never sent to any server.
+      </p>
     </div>
   );
 }

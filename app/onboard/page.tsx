@@ -12,14 +12,12 @@ import { ConnectButton } from "@/components/connect-button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { MachineCheck } from "@/components/onboard/machine-check";
 import { ModelPicker } from "@/components/onboard/model-picker";
-import { SetupGuide } from "@/components/onboard/setup-guide";
 import { NetworkHealth } from "@/components/network-health";
 import { VerifyWorker } from "@/components/onboard/verify-worker";
 import { OneClickInstall } from "@/components/onboard/one-click-install";
 import { NETWORKS, DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { isDesktop } from "@/lib/tauri";
-import type { OS } from "@/lib/scriptgen";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
@@ -46,7 +44,6 @@ export default function OnboardPage() {
   const [vramGb, setVramGb] = useState(0);
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [ackRisk, setAckRisk] = useState(false);
-  const [os, setOS] = useState<OS>("linux");
   const [avgJobs, setAvgJobs] = useState(0);
   const [desktop, setDesktop] = useState(false);
   useEffect(() => setDesktop(isDesktop()), []);
@@ -200,7 +197,6 @@ export default function OnboardPage() {
               avgJobsPerLiveWorker={avgJobs}
               onResult={(r) => {
                 setVramOk(r.vramOk);
-                setOS(r.os);
                 setVramGb(r.vramGb);
               }}
             />
@@ -258,18 +254,25 @@ export default function OnboardPage() {
               <OneClickInstall model={model} />
             </div>
 
-            {desktop ? (
-              <details className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
-                <summary className="cursor-pointer text-sm font-medium text-content-soft hover:text-content-primary">
-                  Prefer to run it yourself? Manual / advanced install
-                </summary>
-                <div className="mt-4">
-                  <SetupGuide defaultOS={os} model={model} onModel={setModel} />
-                </div>
-              </details>
-            ) : (
-              <SetupGuide defaultOS={os} model={model} onModel={setModel} />
-            )}
+            <details className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
+              <summary className="cursor-pointer text-sm font-medium text-content-soft hover:text-content-primary">
+                Prefer to run it yourself?
+              </summary>
+              <p className="mt-3 text-xs leading-relaxed text-content-soft">
+                The one-click install above is the supported path - it sets up Docker, Ollama, the keystore,
+                registration, the keep-online watchdog, model pre-warm, and sleep prevention, and the Operations panel
+                manages settle / withdraw / deregister. If you&apos;d rather run everything by hand, use the official{" "}
+                <a
+                  href="https://github.com/lightchain-protocol/lightchain-worker-toolkit"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  lightchain-worker-toolkit
+                </a>{" "}
+                directly - it&apos;s the upstream source these commands wrap.
+              </p>
+            </details>
           </div>
         )}
 
