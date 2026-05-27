@@ -382,6 +382,37 @@ export function stopWorkerCommand(os: OS): string {
   ].join("\n");
 }
 
+/** Windows equivalent of keystoreDeriveUnix: source WORKER_PRIVKEY + WORKER_ADDR
+ *  from the on-disk keystore using WORKER_PASSWORD (cast), so the ops work
+ *  without the raw key ever living in the web layer. */
+function keystoreDeriveWin(): string[] {
+  return [
+    '$env:PATH = "$env:USERPROFILE\\.foundry\\bin;$env:PATH"',
+    '$ksDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"',
+    "$ks = Get-ChildItem $ksDir -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'UTC--*' } | Select-Object -First 1",
+    "if (-not $env:WORKER_ADDR -and $ks -and ($ks.Name -match '([0-9a-fA-F]{40})$')) { $env:WORKER_ADDR = \"0x$($Matches[1])\" }",
+    "if (-not $env:WORKER_PRIVKEY -and $env:WORKER_PASSWORD -and $ks) { $pk = ((cast wallet decrypt-keystore $ks.Name --keystore-dir $ksDir --unsafe-password $env:WORKER_PASSWORD 2>$null) | Select-String -Pattern '0x[0-9a-fA-F]{64}' | Select-Object -First 1).Matches.Value; if ($pk) { $env:WORKER_PRIVKEY = $pk } }",
+  ];
+}
+
+/**
+ * Sweep the worker wallet's balance to `dest` (this is also how you withdraw -
+ * it sends the spendable balance to the address you choose). OS-aware: bash on
+ * macOS/Linux, PowerShell on Windows. The key is sourced from the keystore.
+ */
+export function sweepCommand(os: OS, dest: string): string {
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
+      ...keystoreDeriveWin(),
+      `$env:FORCE = "1"`,
+      `if (Test-Path .\\sweep-rewards.ps1) { .\\sweep-rewards.ps1 "${dest}" } else { Write-Host "toolkit not found - install the worker first" }`,
+    ].join("\n");
+  }
+  return toolkitOpCommand(`sweep-rewards.sh ${dest}`, "sweep");
+}
+
 /**
  * Deregister + withdraw stake, then tear down the keep-online watchdog (the
  * worker is leaving the network, so it must not be auto-restarted). Pauses
@@ -390,11 +421,21 @@ export function stopWorkerCommand(os: OS): string {
 export function deregisterCommand(os: OS): string {
   if (os === "windows") {
     return [
-      'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
-      'schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
-      // The toolkit's powershell deregister (best-effort path).
+      '$ErrorActionPreference = "Continue"',
       'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
-      'if (Test-Path .\\deregister.ps1) { $env:FORCE="1"; .\\deregister.ps1 } else { Write-Host "toolkit not found - install first" }',
+      ...keystoreDeriveWin(),
+      '$env:FORCE = "1"',
+      'if (-not (Test-Path .\\deregister.ps1)) { Write-Host "toolkit not found - install the worker first"; exit 1 }',
+      '.\\deregister.ps1',
+      // Only tear down + claim success if deregister actually succeeded.
+      'if ($LASTEXITCODE -eq 0) {',
+      '  New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
+      '  schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
+      '  Write-Host "deregistered - stake returned to the worker wallet; watchdog removed. Use Sweep to send it out."',
+      '} else {',
+      '  Write-Host "deregister failed - your stake is STILL staked and the worker is STILL registered. Fix the error above and retry."',
+      '  exit 1',
+      '}',
     ].join("\n");
   }
   // Run deregister and only tear down / claim success if it ACTUALLY succeeded

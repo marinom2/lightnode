@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
@@ -134,6 +134,7 @@ export function OperationsPanel() {
     if (op.key === "restart") return repairWorkerCommand(os);
     if (op.key === "stop") return stopWorkerCommand(os);
     if (op.key === "dereg") return deregisterCommand(os);
+    if (op.key === "sweep") return sweepCommand(os, dest);
     return op.cmd(dest);
   };
   // Desktop execution wraps docker ops so they survive the launched-app

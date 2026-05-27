@@ -6,7 +6,29 @@ import {
   stopWorkerCommand,
   deregisterCommand,
   repairWorkerCommand,
+  sweepCommand,
+  toolkitOpCommand,
 } from "@/lib/scriptgen";
+
+describe("Sweep/Deregister source the key from the on-disk keystore", () => {
+  it("unix ops decrypt the key from the keystore with the password", () => {
+    const sweep = toolkitOpCommand("sweep-rewards.sh 0xabc", "sweep");
+    expect(sweep).toContain("cast wallet decrypt-keystore");
+    expect(sweep).toContain("WORKER_PASSWORD");
+    expect(deregisterCommand("macos")).toContain("cast wallet decrypt-keystore");
+  });
+  it("sweepCommand is OS-aware and sends to the destination", () => {
+    expect(sweepCommand("macos", "0xDEST")).toContain("sweep-rewards.sh 0xDEST");
+    const win = sweepCommand("windows", "0xDEST");
+    expect(win).toContain("sweep-rewards.ps1");
+    expect(win).toContain("decrypt-keystore");
+  });
+  it("windows deregister derives the key and gates on success", () => {
+    const win = deregisterCommand("windows");
+    expect(win).toContain("decrypt-keystore");
+    expect(win).toContain("$LASTEXITCODE -eq 0");
+  });
+});
 
 describe("pause marker (intentional stop must not be auto-restarted)", () => {
   it("the watchdog skips work while the pause marker exists", () => {

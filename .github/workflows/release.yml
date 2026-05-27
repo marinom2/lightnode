@@ -53,15 +53,43 @@ jobs:
         working-directory: desktop
         run: npm install
 
+      # Enable macOS Developer ID signing + notarization ONLY when the secrets
+      # are present. Tauri treats a defined-but-empty APPLE_CERTIFICATE as
+      # "sign me" and then fails, so we write the vars into $GITHUB_ENV only if a
+      # cert was actually provided. With no secrets, the build stays unsigned.
+      - name: Configure macOS signing (gated on secrets)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No APPLE_CERTIFICATE secret - building UNSIGNED (no signing/notarization)."
+            exit 0
+          fi
+          echo "Developer ID signing + notarization enabled."
+          {
+            echo "APPLE_CERTIFICATE<<__LC_EOF__"
+            echo "$APPLE_CERTIFICATE"
+            echo "__LC_EOF__"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
       - name: Build + release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NOTE: do NOT define the APPLE_* signing vars here unconditionally.
-          # Tauri's macOS bundler treats a defined-but-empty APPLE_CERTIFICATE as
-          # "sign me" and then fails on `security import` of an empty cert. To
-          # enable signing/notarization, add the env block from docs/RELEASING.md
-          # (it is gated so the keys only exist when the secrets are set).
+          # macOS signing/notarization vars are injected by the gated step above
+          # (only present when the secrets are set). See docs/RELEASING.md.
         with:
           projectPath: desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
