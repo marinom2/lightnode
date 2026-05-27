@@ -5,7 +5,7 @@ import {
   Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download,
   Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight,
 } from "lucide-react";
-import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
+import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain, usePublicClient } from "wagmi";
 import { parseEther, formatEther, getAddress } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import QRCode from "qrcode";
@@ -195,6 +195,22 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
   const genAddrTyped = genAddr ? (genAddr as `0x${string}`) : undefined;
   const { data: bal } = useBalance({ address: genAddrTyped, chainId: net.chainId, query: { enabled: !!genAddr, refetchInterval: 5000 } });
   const { sendTransaction, isPending, error: sendError, data: hash } = useSendTransaction();
+  const publicClient = usePublicClient({ chainId: net.chainId });
+
+  // Fund the worker. A plain native transfer is 21000 gas; LightChain's fee is
+  // a few WEI, which MetaMask can't auto-display ("Network fee Unavailable"), so
+  // we pass explicit gas + chain-estimated fees to make it concrete.
+  const fundWorker = async () => {
+    if (!genAddrTyped) return;
+    let fees: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint; gasPrice?: bigint } = {};
+    try {
+      const f = await publicClient?.estimateFeesPerGas();
+      if (f?.maxFeePerGas) fees = { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas };
+    } catch {
+      /* fall back to wallet estimation */
+    }
+    sendTransaction({ to: genAddrTyped, value: need, chainId: net.chainId, gas: 21_000n, ...fees });
+  };
   const { isLoading: confirming } = useWaitForTransactionReceipt({ hash, chainId: net.chainId, query: { enabled: !!hash } });
   const { switchChain, isPending: switching } = useSwitchChain();
 
@@ -306,7 +322,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         {funded ? (
           <span className="inline-flex items-center gap-1.5 font-semibold text-success"><CheckCircle2 className="size-4" /> Funded</span>
         ) : isConnected && onChain ? (
-          <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={() => genAddrTyped && sendTransaction({ to: genAddrTyped, value: need, chainId: net.chainId })}>
+          <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={fundWorker}>
             {isPending || confirming ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Fund {net.fundLcai.toLocaleString()} from wallet
           </Button>
         ) : isConnected ? (
