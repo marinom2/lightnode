@@ -110,6 +110,14 @@ Deregister) stick, so the watchdog does not undo a deliberate shutdown. Note tha
 Docker's `--restart always` does not recover a graceful `docker stop`, which is
 exactly why the watchdog exists.
 
+The watchdog also re-warms the served model (keeps it pinned in Ollama) so the
+first job never cold-loads and misses the deadline, and it **keeps the machine
+awake** while the worker should be online - a sleep mid-job drops the job (a
+timeout, which can be slashed). On macOS that is a KeepAlive `caffeinate` launchd
+agent; on Linux a `systemd-inhibit` holder. It is armed by Install and Restart,
+and released by Stop, Free up memory, and Deregister (and by the watchdog when the
+pause marker is set), so the machine can sleep again once the worker is down.
+
 ---
 
 ## Data flow

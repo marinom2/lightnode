@@ -113,14 +113,21 @@ command to copy.
 | Tile | What it does |
 |---|---|
 | **Status** | Local container health plus the most recent log lines. |
-| **Restart** | Recovers a stalled worker and re-arms the keep-online watchdog. |
-| **Stop** | Pauses the worker (writes a pause marker so the watchdog won't restart it). Stake stays intact. |
+| **Restart** | Recovers a stalled worker, pre-warms the model (so the first job doesn't cold-load), and re-arms the keep-online watchdog. |
+| **Stop** | Pauses the worker (keeps Docker + the model loaded for a fast restart). Stake stays intact. |
 | **Tail jobs** | Live-follows the worker's job log. |
 | **Speed test** | Runs a real local inference and projects the worst-case job time against the on-chain deadline, so you can see slash risk before it bites. |
 | **Settle earnings** | Releases your completed jobs and **claims** the resulting rewards into the worker wallet. |
 | **Deregister** | Settles + claims first, then exits the network and returns your stake to the worker wallet. Stops the container so you can install another network. |
 | **Free up memory** | Stops the worker, unloads the model from Ollama, and quits Docker to reclaim RAM. For when you are done, not a prerequisite for anything. |
 | **Withdraw Funds** | Sends the worker wallet's spendable LCAI to any address you choose. Signs locally with the worker key (in-browser if the app holds it, otherwise derived from the on-disk keystore). |
+
+On the desktop app, your own worker also shows a **Live health** panel - a real-time
+read of the worker on your machine (heartbeat, whether a job is being processed
+right now, the served model's warm/cold state, releases) that the on-chain data
+can't see. And while the worker is meant to be online, the app **keeps your machine
+awake** (so it can't sleep mid-job and drop it); it lets the machine sleep again
+once you Stop, Free up memory, or Deregister.
 
 ## How earnings and withdrawals work
 
@@ -162,6 +169,20 @@ once needs separate machines.
 
 Worker identities are per-network and independent: your testnet worker and your
 mainnet worker are different addresses with different keys, stakes, and earnings.
+
+## Platform support (tested status)
+
+Being honest about what has actually been run on real hardware:
+
+| OS | Status |
+|---|---|
+| **macOS** (Apple Silicon) | **Tested end-to-end** - install, run, all operations, settle, withdraw, deregister, and live payouts on both testnet and mainnet. |
+| **Linux** | Installers build in CI and the generated commands are syntax-validated, but the full worker flow has **not yet been verified on real Linux hardware**. |
+| **Windows** | Installers build in CI and the PowerShell is parse-checked, but the full worker flow has **not yet been verified on a real Windows machine**. |
+
+So macOS is the proven path today. Linux and Windows are wired up and expected to
+work, but they need a real run-through - **community testing and bug reports for
+those two are very welcome** (open an issue with your OS, what you did, and the log).
 
 ## Architecture
 
@@ -260,3 +281,11 @@ model is one worker per machine.
 is not affiliated with or endorsed by the LightChain protocol team. Review the
 official [`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit)
 for the worker runtime's own security and operational model.*
+
+## License
+
+MIT - see [LICENSE](LICENSE). Copyright (c) 2026 **KykyRykyPaloma**.
+
+You're free to use, modify, and distribute LightNode, including commercially, as
+long as you keep the copyright notice and license text. In plain terms: build on
+it, but credit stays with the author.

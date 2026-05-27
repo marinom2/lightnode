@@ -2,6 +2,14 @@
 
 Thanks for helping make joining LightChain's AI network easier.
 
+## Help especially wanted: Linux & Windows testing
+
+macOS is tested end-to-end. The Linux and Windows paths are built and
+syntax-validated but **have not been run on real hardware yet** (see the Platform
+support table in the [README](README.md)). If you run a worker on Linux or Windows,
+please open an issue with your OS/version, what you did, and the install log -
+that's the most valuable contribution right now.
+
 ## Setup
 ```bash
 npm install

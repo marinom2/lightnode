@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "LightNode - one-flow onboarding for LightChain AI workers. Connect a wallet, check your machine, get a tailored setup, and watch your rewards.",
+  "author": "KykyRykyPaloma",
+  "license": "MIT",
+  "homepage": "https://github.com/marinom2/lightnode",
+  "repository": { "type": "git", "url": "https://github.com/marinom2/lightnode.git" },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

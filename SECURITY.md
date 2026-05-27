@@ -4,6 +4,22 @@ LightNode is **non-custodial**: no private key is ever sent to, or stored on, an
 LightNode server. Everything that touches a key happens locally on the operator's
 machine. This document describes exactly where keys live and how they are used.
 
+## What leaves your machine, and what never does
+
+In plain terms:
+
+| Item | Leaves your machine? |
+|---|---|
+| Worker **private key** | **Never.** Generated locally, stored locally, signs locally. |
+| Keystore **password** | **Never.** Generated/entered locally, stored with the key, used locally. |
+| Your **funding wallet's** key | **Never.** It only reads your address and sends LCAI. |
+| Worker **public address** | Yes - it's public on-chain anyway (it's what you fund and look up). |
+| The **LCAI funding transaction** | Yes - a normal on-chain transfer you approve in your own wallet. |
+| Worker stats (jobs, stake, earnings) | Read from the public on-chain subgraph - already public. |
+
+There is no LightNode account, login, or server-side database. Nothing about you is
+stored on any server.
+
 ## Key handling
 
 ### Worker key
@@ -26,6 +42,23 @@ machine - it is never transmitted off-device.
   network's action with another network's key.
 - **Per-network isolation.** Secrets are stored strictly per network; a key or
   password for one network is never returned for another.
+
+### Keystore password
+The keystore password encrypts the worker key on disk. It is generated (or typed)
+locally, shown to you once so you can back it up, and stored alongside the key
+(keychain + the worker container's own environment). The desktop runner passes it
+to setup/operations through the child process **environment**, never inside the
+command text and never in any logged output, and it is stripped from any file that
+could be committed. Operations recover it from the running container when needed,
+so the raw key can be decrypted on-device without the password ever being typed
+into, or sent through, the web layer.
+
+### During setup
+When you create a worker the app shows you the generated **password** and the
+worker **address** (and, on request, the raw key) purely so you can back them up.
+Only two things ever go further: the worker's **public address** and the **LCAI
+funding transfer** you approve in your wallet. Both are public on-chain data. The
+key and password do not leave the machine at any point in setup.
 
 ### Funding wallet
 The wallet you connect (via Reown AppKit / WalletConnect / injected) is used only to
