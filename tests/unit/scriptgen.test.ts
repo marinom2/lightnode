@@ -29,6 +29,10 @@ describe("Settle earnings + auto-settling deregister", () => {
     expect(d).toContain("releaseJob(uint256)");
     expect(d).toContain("deregister.sh");
   });
+  it("deregister stops the container so another network can be installed directly", () => {
+    expect(deregisterCommand("macos", "testnet")).toContain("docker stop lightchain-worker");
+    expect(deregisterCommand("windows", "testnet")).toContain("docker stop lightchain-worker");
+  });
   it("windows settle releases jobs via PowerShell", () => {
     expect(settleJobsCommand("windows", "testnet", [9]).toLowerCase()).toContain("releasejob");
   });

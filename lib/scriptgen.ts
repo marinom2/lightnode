@@ -610,7 +610,8 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
       'if ($LASTEXITCODE -eq 0) {',
       '  New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
       '  schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
-      '  Write-Host "deregistered - stake returned to the worker wallet; watchdog removed. Use Sweep to send it out."',
+      '  docker stop lightchain-worker *> $null',
+      '  Write-Host "deregistered - stake returned to the worker wallet; worker stopped + watchdog removed. Use Withdraw Funds to send the stake out; you can now install on another network directly."',
       '} else {',
       '  Write-Host "deregister still blocked - usually completed jobs still inside their release window. Your stake is safe; try again after they settle."',
       '  exit 1',
@@ -632,7 +633,11 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
     '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     '  rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     `  ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
-    '  echo "✓ deregistered - stake returned to the worker wallet; watchdog removed. Use Withdraw / Sweep to send it out."',
+    // Stop the now-pointless container so this network's worker slot is free -
+    // a deregistered worker can't earn, and the next install (e.g. mainnet)
+    // refuses to run while a DIFFERENT-network container is still up.
+    '  docker stop lightchain-worker >/dev/null 2>&1 || true',
+    '  echo "✓ deregistered - stake returned to the worker wallet; worker stopped + watchdog removed. Use Withdraw Funds to send the stake out; you can now install on another network directly."',
     'else',
     '  echo "⛔ deregister still blocked - this is normal if completed jobs are still inside their release window. Your stake is SAFE and the worker is still registered. Settle again / retry once their windows pass (a few hours)."',
     '  exit 1',
