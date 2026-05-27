@@ -22,7 +22,7 @@ import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
-import { getSecret, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { cn } from "@/lib/utils";
 
 function CopyCommand({ value }: { value: string }) {
@@ -176,29 +176,21 @@ export function OperationsPanel() {
     // runner injects them straight from the keychain by NAME (the web never
     // holds the value); on web we fall back to passing them via env.
     const env: Record<string, string> = {};
-    let secretEnv: string[] | undefined;
+    const secretEnv: string[] | undefined = undefined;
     if (op.key === "sweep" || op.key === "dereg") {
       env.NETWORK = network;
-      // The worker address is public - always pass it (the toolkit needs it and
-      // also derives it from the key as a fallback).
+      // The op decrypts the worker key from the on-disk keystore using the
+      // PASSWORD, so the raw key never has to pass through the web. We supply
+      // the password (+ the public address, + the key if the app happens to
+      // still hold one); the command derives anything missing from the keystore.
+      const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW), getSecret(SECRET_WORKER_KEY)]);
+      if (pw) env.WORKER_PASSWORD = pw;
+      if (k) env.WORKER_PRIVKEY = k;
       try {
         const addr = window.localStorage.getItem("lightnode.workerAddress") || "";
         if (addr) env.WORKER_ADDR = addr;
       } catch {
         /* ignore */
-      }
-      if (await nativeSecretsAvailable()) {
-        // Private path: the native runner injects the key + password from the
-        // keychain by NAME; the web never holds them. (Touch them once so any
-        // legacy localStorage value migrates into the keychain first.)
-        await getSecret(SECRET_WORKER_KEY);
-        await getSecret(SECRET_WORKER_PW);
-        secretEnv = [SECRET_WORKER_KEY, SECRET_WORKER_PW];
-      } else {
-        // Old binary / web: pass the values via env (read from keychain or localStorage).
-        const [k, pw] = await Promise.all([getSecret(SECRET_WORKER_KEY), getSecret(SECRET_WORKER_PW)]);
-        if (k) env.WORKER_PRIVKEY = k;
-        if (pw) env.WORKER_PASSWORD = pw;
       }
     }
     stopRef.current = await runSetupStreamed(

@@ -54,36 +54,22 @@ export async function getSecret(name: string): Promise<string> {
   if (isDesktop()) {
     const v = await secretGet(name);
     if (v) return v;
-    // Migrate any legacy localStorage value into the keychain, and drop the
-    // local copy ONLY if the keychain round-trips (so a denied/unavailable
-    // keychain never strands the key).
-    const legacy = lsGet(legacyKey);
-    if (legacy) {
-      const ok = await secretSet(name, legacy);
-      if (ok && (await secretGet(name)) === legacy) lsDel(legacyKey);
-      return legacy;
-    }
-    return "";
   }
   return lsGet(legacyKey);
 }
 
 /**
- * Store a secret in the most private place that actually works: the OS keychain
- * on desktop. We verify it round-trips; only then do we remove the localStorage
- * copy (keeping the key out of the web layer). If the keychain is unavailable or
- * denied, we keep a localStorage copy so nothing is ever stranded.
+ * Store a secret. On an UNSIGNED desktop app the OS keychain is unreliable
+ * across launches (the code-signing identity isn't stable), which previously
+ * stranded the key. So we keep a reliable localStorage copy and ALSO mirror to
+ * the keychain (best effort) as defense-in-depth. The raw worker key itself is
+ * not relied upon from here for ops - those decrypt it from the on-disk
+ * keystore using the password. Full keychain-only privacy needs a signed build.
  */
 export async function setSecret(name: string, value: string): Promise<void> {
   const legacyKey = LEGACY[name] ?? name;
-  if (isDesktop()) {
-    const ok = await secretSet(name, value);
-    if (ok && (await secretGet(name)) === value) {
-      lsDel(legacyKey); // keychain verified - keep the raw key out of localStorage
-      return;
-    }
-  }
-  lsSet(legacyKey, value); // web, or keychain unavailable/denied: reliable fallback
+  if (isDesktop()) void secretSet(name, value);
+  lsSet(legacyKey, value);
 }
 
 /** Delete a secret from both backends. */

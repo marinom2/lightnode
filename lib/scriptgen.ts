@@ -328,6 +328,22 @@ export function desktopInstallCommand(os: OS, network: NetworkId, model: string 
 
 /** Run a toolkit script natively from the app: find the toolkit (the install
  *  clones it to ~/.lightnode), use bash 4+ (macOS ships 3.2), surface stderr. */
+/**
+ * Source WORKER_PRIVKEY + WORKER_ADDR from the on-disk keystore (where the
+ * worker actually keeps its key, encrypted) using WORKER_PASSWORD - independent
+ * of whatever the web app does or doesn't still hold. This is both the most
+ * robust and the most private path: the app needs only the password; the raw
+ * key is decrypted locally, on demand, from the keystore. (No-op if they're
+ * already set in the env.)
+ */
+function keystoreDeriveUnix(): string[] {
+  return [
+    "KEYS_DIR=\"${KEYS_DIR:-$HOME/lightchain-worker/keys}\"; KS_DIR=\"$KEYS_DIR/eth-keystore\"; KS_NAME=\"$(ls \"$KS_DIR\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
+    "if [ -z \"${WORKER_PRIVKEY:-}\" ] && [ -n \"${WORKER_PASSWORD:-}\" ] && [ -n \"$KS_NAME\" ]; then export WORKER_PRIVKEY=\"$(cast wallet decrypt-keystore \"$KS_NAME\" --keystore-dir \"$KS_DIR\" --unsafe-password \"$WORKER_PASSWORD\" 2>/dev/null | grep -oE '0x[0-9a-fA-F]{64}' | head -1)\"; fi",
+    "if [ -z \"${WORKER_ADDR:-}\" ]; then if [ -n \"${WORKER_PRIVKEY:-}\" ]; then export WORKER_ADDR=\"$(cast wallet address --private-key \"$WORKER_PRIVKEY\" 2>/dev/null)\"; elif [ -n \"$KS_NAME\" ]; then export WORKER_ADDR=\"0x$(printf '%s' \"$KS_NAME\" | sed -E 's/.*--([0-9a-fA-F]{40})$/\\1/')\"; fi; fi",
+  ];
+}
+
 export function toolkitOpCommand(script: string, confirm?: string): string {
   const run = confirm ? `echo ${confirm} | FORCE=1 "$RB" ${script}` : `FORCE=1 "$RB" ${script}`;
   return [
@@ -336,9 +352,9 @@ export function toolkitOpCommand(script: string, confirm?: string): string {
     'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
-    // The toolkit scripts use `set -u` and require WORKER_ADDR; derive it from
-    // the key if the app didn't pass it, so they don't fail "unbound variable".
-    '[ -z "${WORKER_ADDR:-}" ] && [ -n "${WORKER_PRIVKEY:-}" ] && export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)" || true',
+    // The toolkit scripts use `set -u` and need WORKER_PRIVKEY/WORKER_ADDR;
+    // source them from the on-disk keystore + password so they're always present.
+    ...keystoreDeriveUnix(),
     run,
   ].join("\n");
 }
@@ -390,7 +406,7 @@ export function deregisterCommand(os: OS): string {
     'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
-    '[ -z "${WORKER_ADDR:-}" ] && [ -n "${WORKER_PRIVKEY:-}" ] && export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)" || true',
+    ...keystoreDeriveUnix(),
     'if echo deregister | FORCE=1 "$RB" deregister.sh; then',
     '  touch "$HOME/.lightnode/keep-online.paused"',
     '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
