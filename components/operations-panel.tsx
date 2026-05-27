@@ -103,6 +103,13 @@ export function OperationsPanel() {
   const [activeJobs, setActiveJobs] = useState(0);
   const [completedJobs, setCompletedJobs] = useState<number[]>([]);
   const [confirmOp, setConfirmOp] = useState<Op | null>(null);
+  const [settlement, setSettlement] = useState<{
+    total: number;
+    ready: number;
+    waiting: number;
+    nextClaimableAt: number;
+    allClaimableAt: number;
+  } | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
@@ -129,13 +136,38 @@ export function OperationsPanel() {
           setCompletedJobs(done);
         })
         .catch(() => {});
+    // Settlement status: which completed jobs are in LightChain's release hold
+    // and when they unlock (a heavier on-chain read, so poll less often).
+    const checkSettlement = () =>
+      fetch(`/api/worker/settlement?net=${network}&address=${addr}`)
+        .then((r) => r.json())
+        .then((j) => on && j.ok && setSettlement({ total: j.total, ready: j.ready, waiting: j.waiting, nextClaimableAt: j.nextClaimableAt, allClaimableAt: j.allClaimableAt }))
+        .catch(() => {});
     check();
+    checkSettlement();
     const t = setInterval(check, 20_000);
+    const t2 = setInterval(checkSettlement, 60_000);
     return () => {
       on = false;
       clearInterval(t);
+      clearInterval(t2);
     };
   }, [network, desktop]);
+
+  const etaText = (ts: number): string => {
+    const s = ts - Math.floor(Date.now() / 1000);
+    if (s <= 0) return "now";
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `~${h}h ${m}m` : `~${m}m`;
+  };
+
+  // Dynamic description for the Settle tile based on the release-hold status.
+  const tileDesc = (op: Op): string => {
+    if (op.key !== "settle" || !settlement || settlement.total === 0) return op.desc;
+    if (settlement.waiting === 0) return `${settlement.ready} job(s) ready - claim your rewards now`;
+    return `${settlement.ready} ready · ${settlement.waiting} in release hold (all claimable ${etaText(settlement.allClaimableAt)})`;
+  };
   useEffect(() => {
     const d = detectClientOS();
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
@@ -277,6 +309,27 @@ export function OperationsPanel() {
         </div>
       )}
 
+      {/* release-hold status: shows completed jobs held by LightChain + when they unlock */}
+      {desktop && settlement && settlement.total > 0 && (
+        <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-bdr-soft bg-surface-base-subtle/60 p-3 text-xs text-content-default">
+          <Coins className="mt-0.5 size-4 shrink-0 text-content-soft" />
+          <span>
+            {settlement.ready > 0 && (
+              <span className="font-medium text-success">{settlement.ready} job(s) ready to settle now. </span>
+            )}
+            {settlement.waiting > 0 && (
+              <>
+                <span className="font-medium text-content-primary">{settlement.waiting} completed job(s)</span> are in
+                LightChain&apos;s release hold (dispute window) - all claimable {etaText(settlement.allClaimableAt)}.{" "}
+              </>
+            )}
+            <span className="text-content-soft">
+              ≈ {(settlement.total * 0.016).toFixed(3)} LCAI pending · Settle releases the ready ones and pays you.
+            </span>
+          </span>
+        </div>
+      )}
+
       {/* sweep destination (shared) */}
       <div className="mb-3">
         <label className="text-xs text-content-soft">
@@ -313,7 +366,7 @@ export function OperationsPanel() {
                   )}
                   <div>
                     <div className="text-sm font-medium text-content-primary">{op.label}</div>
-                    <div className="text-[11px] text-content-soft">{op.desc}</div>
+                    <div className="text-[11px] text-content-soft">{tileDesc(op)}</div>
                   </div>
                 </div>
                 <CopyCommand value={baseCmd(op)} />
@@ -349,7 +402,7 @@ export function OperationsPanel() {
               <span className="min-w-0">
                 <span className="block text-sm font-semibold text-content-primary">{op.label}</span>
                 <span className={cn("block text-[11px] leading-snug", blocked ? "text-warning" : "text-content-soft")}>
-                  {blocked ? "Enter a payout address above to enable" : op.desc}
+                  {blocked ? "Enter a payout address above to enable" : tileDesc(op)}
                 </span>
               </span>
             </button>
