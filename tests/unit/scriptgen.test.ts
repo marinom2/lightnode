@@ -9,6 +9,7 @@ import {
   sweepCommand,
   toolkitOpCommand,
   settleJobsCommand,
+  benchmarkCommand,
 } from "@/lib/scriptgen";
 
 describe("Settle earnings + auto-settling deregister", () => {
@@ -49,6 +50,23 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
     const win = deregisterCommand("windows", "testnet");
     expect(win).toContain("decrypt-keystore");
     expect(win).toContain("$LASTEXITCODE -eq 0");
+  });
+});
+
+describe("benchmark (capacity/power test vs the job deadline)", () => {
+  it("unix runs a real inference and compares worst-case to the deadline", () => {
+    const cmd = benchmarkCommand("macos");
+    expect(cmd).toContain("/api/generate");
+    expect(cmd).toContain("eval_count");
+    expect(cmd).toContain("eval_duration");
+    expect(cmd).toContain("tok/s");
+    expect(cmd).toContain("$HOME/.lightnode/model"); // benchmarks the model the worker actually serves
+  });
+  it("windows benchmark uses Invoke-RestMethod and the same verdict logic", () => {
+    const win = benchmarkCommand("windows");
+    expect(win).toContain("Invoke-RestMethod");
+    expect(win).toContain("eval_count");
+    expect(win).toContain("tok/s");
   });
 });
 

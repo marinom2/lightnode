@@ -8,6 +8,7 @@ import {
   ScrollText,
   Coins,
   Banknote,
+  Gauge,
   LogOut,
   Download,
   Terminal,
@@ -20,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, settleJobsCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, settleJobsCommand, benchmarkCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
@@ -67,6 +68,13 @@ const OPS: Op[] = [
   { key: "restart", label: "Restart", desc: "Recover a stalled worker + re-arm the keep-online watchdog", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
   { key: "stop", label: "Stop", desc: "Pause the worker - stays down until you Install/Restart (stake intact)", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
+  {
+    key: "bench",
+    label: "Speed test",
+    desc: "Benchmark this machine's inference speed against the job deadline",
+    icon: Gauge,
+    cmd: () => "",
+  },
   {
     key: "settle",
     label: "Settle earnings",
@@ -198,6 +206,7 @@ export function OperationsPanel() {
     if (op.key === "stop") return stopWorkerCommand(os);
     if (op.key === "dereg") return deregisterCommand(os, network, completedJobs);
     if (op.key === "settle") return settleJobsCommand(os, network, completedJobs);
+    if (op.key === "bench") return benchmarkCommand(os);
     if (op.key === "sweep") return sweepCommand(os, dest);
     return op.cmd(dest);
   };

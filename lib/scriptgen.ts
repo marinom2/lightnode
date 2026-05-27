@@ -396,6 +396,49 @@ export function stopWorkerCommand(os: OS): string {
   ].join("\n");
 }
 
+/**
+ * Real capacity test: run an actual inference through the local Ollama and
+ * measure cold-load time + tokens/sec, then project the worst-case full job
+ * (cold load + a full 2048-token output) against the ~120s job deadline. Tells
+ * an operator up-front whether their machine risks timed-out jobs (= slashes).
+ */
+export function benchmarkCommand(os: OS): string {
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      '$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }',
+      'Write-Host "> benchmarking $model on your machine (real inference)..."',
+      'try { $null = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/tags -TimeoutSec 5 } catch { Write-Host "Ollama not responding - install/start it first"; exit 1 }',
+      '$body = "{`"model`":`"$model`",`"prompt`":`"Write two sentences about decentralized AI.`",`"stream`":false,`"keep_alive`":-1}"',
+      '$r = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 180 -Body $body',
+      'if (-not $r.eval_count) { Write-Host "no response - model may be too slow or out of memory"; exit 1 }',
+      '$toks = [math]::Round($r.eval_count / ($r.eval_duration/1e9), 1)',
+      '$load = [math]::Round($r.load_duration/1e9, 1)',
+      '$worst = [math]::Round($r.load_duration/1e9 + 2048/$toks, 0)',
+      'Write-Host "speed: $toks tok/s | cold model load: ${load}s | worst-case full job: ~${worst}s (deadline ~120s)"',
+      'if ($worst -lt 90) { Write-Host "OK - comfortably within the job deadline (low slash risk)" } else { Write-Host "WARNING - close to/over the deadline; risk of timed-out jobs. Consider a faster GPU or a lighter model." }',
+    ].join("\n");
+  }
+  return [
+    "exec 2>&1",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
+    'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
+    'echo "▶ benchmarking $MODEL on your machine (real inference)..."',
+    'curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama not responding - install/start it first"; exit 1; }',
+    `RESP="$(curl -s -m 180 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"prompt\\":\\"Write two sentences about decentralized AI.\\",\\"stream\\":false,\\"keep_alive\\":-1}")"`,
+    `EC="$(printf '%s' "$RESP" | grep -oE '"eval_count":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
+    `ED="$(printf '%s' "$RESP" | grep -oE '"eval_duration":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
+    `LD="$(printf '%s' "$RESP" | grep -oE '"load_duration":[0-9]+' | grep -oE '[0-9]+' | head -1)"`,
+    '[ -z "$EC" ] || [ -z "$ED" ] && { echo "⛔ no usable response - the model may be too slow or out of memory on this machine"; exit 1; }',
+    'TOKS="$(awk "BEGIN{printf \\"%.1f\\", $EC/($ED/1000000000)}")"',
+    'LOADS="$(awk "BEGIN{printf \\"%.1f\\", ${LD:-0}/1000000000}")"',
+    'WORST="$(awk "BEGIN{printf \\"%.0f\\", ${LD:-0}/1000000000 + 2048/($EC/($ED/1000000000))}")"',
+    'echo "✓ speed: $TOKS tok/s | cold model load: ${LOADS}s"',
+    'echo "  worst-case full job (cold load + 2048 tokens): ~${WORST}s  (job deadline ~120s)"',
+    'awk "BEGIN{exit !(${WORST} < 90)}" && echo "✅ comfortably within the deadline - low slash risk" || echo "⚠ close to/over the deadline - risk of timed-out jobs (slash). A faster GPU or a lighter model would help."',
+  ].join("\n");
+}
+
 /** Windows equivalent of keystoreDeriveUnix: source WORKER_PRIVKEY + WORKER_ADDR
  *  from the on-disk keystore using WORKER_PASSWORD (cast), so the ops work
  *  without the raw key ever living in the web layer. */
