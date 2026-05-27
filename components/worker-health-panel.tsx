@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HeartPulse, Boxes, Sparkles, Banknote, Hourglass, Radio } from "lucide-react";
+import { HeartPulse, Boxes, Sparkles, Banknote, Hourglass, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fetchWorkerHealth, type WorkerHealth } from "@/lib/tauri";
@@ -49,7 +49,7 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
         setH((prev) => (r ? r : prev === undefined ? null : prev));
       });
     tick();
-    const t = setInterval(tick, 15_000);
+    const t = setInterval(tick, 8_000); // responsive enough to catch a job in flight
     return () => {
       on = false;
       clearInterval(t);
@@ -96,6 +96,7 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
 
   const modelWarm = h.modelMemBytes != null && h.modelMemBytes > 0;
   const servedName = h.servedModel?.replace(/:latest$/, "") ?? null;
+  const processing = (h.activeJobs ?? 0) > 0;
 
   return (
     <Card className="relative overflow-hidden p-6">
@@ -115,8 +116,37 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
         {h.gatewayConnected && " · gateway connected"}
       </p>
 
-      <div className="relative grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <Stat icon={Boxes} label="Active jobs" value={`${h.activeJobs ?? 0} / ${h.maxJobs ?? 2}`} sub="in flight" />
+      {/* the live "am I working right now" signal */}
+      <div
+        className={cn(
+          "relative mb-3 flex items-center gap-3 rounded-xl border p-4 transition-colors",
+          processing ? "border-success/40 bg-success/10" : "border-bdr-soft bg-surface-base-subtle/50",
+        )}
+      >
+        <span
+          className={cn(
+            "grid size-11 shrink-0 place-items-center rounded-xl",
+            processing ? "bg-success/20 text-success" : "bg-surface-base-light text-content-soft",
+          )}
+        >
+          {processing ? <Loader2 className="size-5 animate-spin" /> : <Boxes className="size-5" />}
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-content-primary">
+            {processing ? `Processing ${h.activeJobs} job${h.activeJobs === 1 ? "" : "s"} now` : "Idle - ready for jobs"}
+            <span className="rounded-md bg-surface-base-light px-1.5 py-0.5 font-mono text-[11px] text-content-soft">
+              {h.activeJobs ?? 0}/{h.maxJobs ?? 2} slots
+            </span>
+          </div>
+          <div className="text-xs text-content-soft">
+            {processing
+              ? "Serving inference right now - you earn once it completes and settles."
+              : "The gateway routes jobs to you automatically; this lights up when one is in flight."}
+          </div>
+        </div>
+      </div>
+
+      <div className="relative grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat
           icon={Sparkles}
           label="Model"
@@ -141,26 +171,12 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
       {h.modelMemBytes === 0 && (
         <p className="relative mt-2 text-[11px] text-content-soft">
           Model is cold (unloaded while idle). It warms on the next job or when the keep-online watchdog runs - a cold
-          first job just loads slower.
+          first job just loads a bit slower.
         </p>
       )}
-      {h.recentEvents.length > 0 && (
-        <div className="relative mt-4">
-          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-content-soft">
-            <Radio className="size-3.5" /> Recent activity
-          </div>
-          <div className="space-y-1">
-            {h.recentEvents.map((e, i) => (
-              <div key={i} className="truncate rounded-md bg-surface-base-subtle/50 px-2 py-1 text-[11px] text-content-default">
-                {e}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="relative mt-3 text-[11px] text-content-soft">
-        Live from the worker on this machine (local metrics). GPU telemetry isn&apos;t reported on this platform.
+      <p className="relative mt-2 text-[11px] text-content-soft">
+        Live from the worker on this machine, refreshed every few seconds. Jobs completed + earnings tick up in the cards
+        above.
       </p>
     </Card>
   );
