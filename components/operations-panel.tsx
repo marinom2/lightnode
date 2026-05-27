@@ -150,11 +150,8 @@ export function OperationsPanel() {
   const needsConfirm = (op: Op) => op.danger || (op.key === "stop" && activeJobs > 0);
 
   const confirmBody = (op: Op) => {
-    const lead = op.danger ? `This stops your worker and withdraws your stake - you'd re-run setup to rejoin. ` : "";
-    const jobs =
-      activeJobs > 0
-        ? `Your worker has ${activeJobs} job(s) in flight - ${op.danger ? "deregistering" : "stopping"} now strands them (they can't finish, won't pay, and an acked job risks a slash). `
-        : "";
+    const lead = op.danger ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
+    const jobs = activeJobs > 0 ? `${activeJobs} in-flight job(s) will be stranded (no pay; slash risk). ` : "";
     return `${lead}${jobs}`.trim();
   };
 
@@ -332,9 +329,10 @@ export function OperationsPanel() {
 
       {/* In-app confirmation (window.confirm is a no-op in the desktop webview). */}
       {confirmOp && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setConfirmOp(null)}>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60" onClick={() => setConfirmOp(null)}>
+          <div className="flex min-h-full items-center justify-center p-4">
           <div
-            className="w-full max-w-md rounded-2xl border border-bdr-soft bg-card p-6 shadow-2xl"
+            className="my-auto w-full max-w-md rounded-2xl border border-bdr-soft bg-card p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center gap-2.5">
@@ -361,6 +359,7 @@ export function OperationsPanel() {
                 {confirmOp.label}
               </Button>
             </div>
+          </div>
           </div>
         </div>
       )}
