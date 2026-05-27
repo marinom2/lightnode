@@ -15,7 +15,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
+import { fromWei, fmt, compact, timeAgo, shortAddr, stakeBelowFloor, cn } from "@/lib/utils";
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job } from "@/lib/subgraph";
@@ -261,7 +261,7 @@ export function WorkerView({
         </Card>
       )}
 
-      {stake < minStake && worker.status === "active" && (
+      {stakeBelowFloor(worker.stake, minStake) && worker.status === "active" && (
         <Card className="border-warning/30 bg-warning/10 p-4 text-sm text-content-default">
           Stake is below the {minStake.toLocaleString()} LCAI floor - likely slashed. Top up to stay eligible for jobs.
         </Card>

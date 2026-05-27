@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Activity, AlertTriangle, RefreshCw, Star } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,14 +62,22 @@ export default function DashboardPage() {
     [network, has],
   );
 
-  // Deep-link support: /dashboard?address=0x... (e.g. from the leaderboard).
+  // Auto-select a worker to show. A ?address= deep-link wins (e.g. from the
+  // leaderboard); otherwise default to THIS network's worker, or the first
+  // watchlisted one. Done once per network (tracked by `autoFor`) so it opens
+  // straight onto your worker instead of an empty prompt, without overriding a
+  // manual lookup or re-triggering when the watchlist changes.
+  const autoFor = useRef("");
   useEffect(() => {
-    const a = new URLSearchParams(window.location.search).get("address");
-    if (a && /^0x[a-fA-F0-9]{40}$/.test(a)) {
-      setInput(a);
-      setQuery(a);
-    }
-  }, []);
+    if (autoFor.current === network) return;
+    const valid = (a: string) => /^0x[a-fA-F0-9]{40}$/.test(a);
+    const deeplink = new URLSearchParams(window.location.search).get("address") ?? "";
+    const candidate = valid(deeplink) ? deeplink : getWorkerAddr(network) || saved.find(valid) || "";
+    if (!valid(candidate)) return;
+    autoFor.current = network;
+    setInput(candidate);
+    setQuery(candidate);
+  }, [network, saved]);
 
   useEffect(() => {
     if (!query) return;

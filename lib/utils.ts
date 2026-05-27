@@ -20,6 +20,21 @@ export function fromWei(wei?: string | bigint | null): number {
   }
 }
 
+/**
+ * True only when the on-chain stake is STRICTLY below the LCAI floor. Compared in
+ * wei (BigInt) on purpose: `Number(BigInt("50000...000")) / 1e18` is
+ * `49999.99999999999` from float rounding, so a naive `stake < min` falsely flags
+ * an exactly-at-floor worker as slashed. This compares exact integers instead.
+ */
+export function stakeBelowFloor(stakeWei?: string | bigint | null, minLcai?: number): boolean {
+  if (stakeWei == null || minLcai == null) return false;
+  try {
+    return BigInt(stakeWei) < BigInt(minLcai) * 10n ** 18n;
+  } catch {
+    return false;
+  }
+}
+
 export function compact(n?: number): string {
   if (n == null || Number.isNaN(n)) return "0";
   return n.toLocaleString("en-US", { maximumFractionDigits: 2, notation: "compact" });
