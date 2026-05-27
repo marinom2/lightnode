@@ -187,6 +187,14 @@ describe("keep model warm (avoid cold-load inference timeouts)", () => {
   it("the watchdog re-warms the model it reads from the model file", () => {
     expect(unix).toContain('cat "$HOME/.lightnode/model"');
   });
+  it("unloads the previous model when switching to a new one (frees its memory)", () => {
+    expect(unix).toContain('OLD_MODEL=');
+    expect(unix).toContain('"keep_alive\\":0'); // keep_alive:0 unloads the old model
+    expect(unix).toContain("unloaded the previous model");
+    const win = desktopInstallCommand("windows", "mainnet", "llama3-70b");
+    expect(win).toContain("$oldModel");
+    expect(win).toContain("unloaded previous model");
+  });
 });
 
 describe("keep-online watchdog (auto-installed by the desktop setup)", () => {

@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-26.9";
+const INSTALLER_REV = "2026-05-27.1";
 
 export interface ScriptBundle {
   os: OS;
@@ -174,6 +174,10 @@ function unixInstall(network: NetworkId, model: string): string {
     SMART_PREREQS,
     // The app's working dir may be "/" (non-writable). Work in a real home dir.
     'mkdir -p "$HOME/.lightnode" && cd "$HOME/.lightnode" && echo "✓ workdir: $HOME/.lightnode"',
+    // Switching models? Unload the PREVIOUS one (it's pinned with keep_alive:-1
+    // and never evicts on its own), so its memory is freed for the new model
+    // instead of both sitting resident. No manual "Free up memory" needed.
+    `OLD_MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null)"; if [ -n "$OLD_MODEL" ] && [ "$OLD_MODEL" != "${model}" ]; then curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$OLD_MODEL\\",\\"keep_alive\\":0}" >/dev/null 2>&1; echo "✓ unloaded the previous model ($OLD_MODEL) to free memory for ${model}"; fi`,
     // Record the served model so the watchdog can keep it warm in Ollama.
     `echo "${model}" > "$HOME/.lightnode/model"`,
     // Installing means the user wants the worker running - clear any pause set by
@@ -266,6 +270,10 @@ New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-N
 Set-Location "$env:USERPROFILE\\.lightnode"
 # Installing means the worker should run - clear any pause from a prior Stop/Deregister.
 Remove-Item (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused") -ErrorAction SilentlyContinue
+# Switching models? Unload the previous one (pinned with keep_alive:-1) so its
+# memory is freed for the new model instead of both staying resident.
+$oldModel = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue)
+if ($oldModel -and $oldModel -ne "${model}") { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{\`"model\`":\`"$oldModel\`",\`"keep_alive\`":0}" | Out-Null; Write-Host "unloaded previous model ($oldModel) to free memory for ${model}" } catch {} }
 # Record the served model so the watchdog can keep it warm in Ollama.
 Set-Content -Path (Join-Path $env:USERPROFILE ".lightnode\\model") -Value "${model}"
 # Keep-online watchdog: auto-start Docker + the worker on a schedule (survives reboot).
