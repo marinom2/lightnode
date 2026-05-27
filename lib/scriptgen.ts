@@ -508,12 +508,18 @@ function releaseJobsUnix(network: NetworkId, jobIds: number[]): string[] {
   const net = NETWORKS[network];
   if (!jobIds.length) return ['echo "no completed jobs to settle"'];
   return [
-    `RPC_URL="${net.rpc}"; JOBREG="${net.jobRegistry}"; SETTLED=0; WAITING=0`,
+    `RPC_URL="${net.rpc}"; JOBREG="${net.jobRegistry}"; SETTLED=0; WAITING=0; FAILED=0`,
     `for j in ${jobIds.join(" ")}; do`,
-    '  if [ -z "${WORKER_PRIVKEY:-}" ]; then echo "  ⛔ no key to sign with"; break; fi',
-    '  if cast send "$JOBREG" "releaseJob(uint256)" "$j" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "  ✓ settled job $j"; SETTLED=$((SETTLED+1)); else echo "  • job $j still in its release window (try again later)"; WAITING=$((WAITING+1)); fi',
+    // Readiness probe FIRST (eth_call, no state change) - the same signal the
+    // dashboard uses. If it reverts, the job is genuinely still in its window.
+    '  if ! cast call "$JOBREG" "releaseJob(uint256)" "$j" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "  • job $j still in its release window (try again later)"; WAITING=$((WAITING+1)); continue; fi',
+    // Ready - now send for real. Distinguish a real send failure (e.g. the
+    // signing wallet has no gas) from a window-wait, so we never mislabel it.
+    '  if [ -z "${WORKER_PRIVKEY:-}" ]; then echo "  ⛔ job $j is ready but there is no worker key to sign with"; FAILED=$((FAILED+1)); continue; fi',
+    '  ERR="$(cast send "$JOBREG" "releaseJob(uint256)" "$j" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"',
+    '  if [ $? -eq 0 ]; then echo "  ✓ settled job $j"; SETTLED=$((SETTLED+1)); else echo "  ⛔ job $j is ready but the release tx failed: $(printf %s "$ERR" | tr "\\n" " " | cut -c1-140)"; FAILED=$((FAILED+1)); fi',
     "done",
-    'echo "✓ settled $SETTLED job(s)$( [ $WAITING -gt 0 ] && echo \\", $WAITING still in their release window\\" )"',
+    'echo "✓ settled $SETTLED job(s)$( [ $WAITING -gt 0 ] && printf \', %s still in their release window\' "$WAITING" )$( [ $FAILED -gt 0 ] && printf \', %s ready but the send failed (see above)\' "$FAILED" )"',
   ];
 }
 
@@ -522,7 +528,13 @@ function releaseJobsWin(network: NetworkId, jobIds: number[]): string[] {
   if (!jobIds.length) return ['Write-Host "no completed jobs to settle"'];
   return [
     `$RPC_URL = "${net.rpc}"; $JOBREG = "${net.jobRegistry}"`,
-    `foreach ($j in @(${jobIds.join(",")})) { cast send $JOBREG "releaseJob(uint256)" $j --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL *> $null; if ($?) { Write-Host "settled job $j" } else { Write-Host "job $j still in its release window" } }`,
+    `foreach ($j in @(${jobIds.join(",")})) {`,
+    '  cast call $JOBREG "releaseJob(uint256)" $j --rpc-url $RPC_URL *> $null',
+    '  if (-not $?) { Write-Host "job $j still in its release window (try again later)"; continue }',
+    '  if (-not $env:WORKER_PRIVKEY) { Write-Host "job $j is ready but there is no worker key to sign with"; continue }',
+    '  $e = (cast send $JOBREG "releaseJob(uint256)" $j --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL 2>&1)',
+    '  if ($?) { Write-Host "settled job $j" } else { Write-Host "job $j is ready but the release tx failed: $e" }',
+    "}",
   ];
 }
 

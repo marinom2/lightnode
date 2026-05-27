@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { privateKeyToAccount } from "viem/accounts";
 import {
   Activity,
   RefreshCw,
@@ -29,6 +30,17 @@ import { useNetwork } from "@/lib/network-context";
 import { getSecret, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { cn } from "@/lib/utils";
+
+// Does this private key control `addr`? Used to make sure we never sign a
+// worker op with a key that isn't the worker we're acting on.
+function keyMatchesAddr(key: string, addr: string): boolean {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return false;
+  try {
+    return privateKeyToAccount(key as `0x${string}`).address.toLowerCase() === addr.toLowerCase();
+  } catch {
+    return false;
+  }
+}
 
 function CopyCommand({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -286,9 +298,15 @@ export function OperationsPanel() {
       // still hold one); the command derives anything missing from the keystore.
       const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW, network), getSecret(SECRET_WORKER_KEY, network)]);
       if (pw) env.WORKER_PASSWORD = pw;
-      if (k) env.WORKER_PRIVKEY = k;
       const addr = resolveWorkerAddr();
       if (addr) env.WORKER_ADDR = addr;
+      // Only pass the in-app key if it actually IS the worker we're targeting.
+      // A newer/mismatched in-app key (e.g. a freshly generated one for another
+      // network) would otherwise override the correct on-disk keystore key and
+      // sign with a wallet that has no gas - making every release fail and get
+      // mislabeled as "still in release window". When it doesn't match, we omit
+      // it so the command derives the right key from the keystore on disk.
+      if (k && /^0x[0-9a-fA-F]{64}$/.test(k) && keyMatchesAddr(k, addr)) env.WORKER_PRIVKEY = k;
     }
     // Settle/Deregister act on the worker's completed jobs - fetch them fresh so
     // we never build the command with a stale/empty list.

@@ -32,6 +32,14 @@ describe("Settle earnings + auto-settling deregister", () => {
   it("windows settle releases jobs via PowerShell", () => {
     expect(settleJobsCommand("windows", "testnet", [9]).toLowerCase()).toContain("releasejob");
   });
+  it("probes readiness with an eth_call before sending, and reports a real send failure honestly", () => {
+    const cmd = settleJobsCommand("macos", "testnet", [932]);
+    // eth_call probe distinguishes a genuine release-window wait...
+    expect(cmd).toContain('cast call "$JOBREG" "releaseJob(uint256)" "$j"');
+    expect(cmd).toContain("still in its release window");
+    // ...from a job that is ready but whose send fails (e.g. no gas / wrong key).
+    expect(cmd).toContain("is ready but the release tx failed");
+  });
 });
 
 describe("Sweep/Deregister source the key from the on-disk keystore", () => {
