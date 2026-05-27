@@ -7,6 +7,7 @@ import {
   Square,
   ScrollText,
   Coins,
+  Banknote,
   LogOut,
   Download,
   Terminal,
@@ -19,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, settleJobsCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
@@ -66,6 +67,13 @@ const OPS: Op[] = [
   { key: "stop", label: "Stop", desc: "Pause the worker - stays down until you Install/Restart (stake intact)", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
   {
+    key: "settle",
+    label: "Settle earnings",
+    desc: "Release completed jobs - pays your pending rewards now",
+    icon: Banknote,
+    cmd: () => "",
+  },
+  {
     key: "sweep",
     label: "Sweep rewards",
     desc: "Send earnings to your wallet",
@@ -93,6 +101,7 @@ export function OperationsPanel() {
   const [log, setLog] = useState<string[]>([]);
   const [dest, setDest] = useState("");
   const [activeJobs, setActiveJobs] = useState(0);
+  const [completedJobs, setCompletedJobs] = useState<number[]>([]);
   const [confirmOp, setConfirmOp] = useState<Op | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const logEnd = useRef<HTMLDivElement>(null);
@@ -109,7 +118,16 @@ export function OperationsPanel() {
     const check = () =>
       fetch(`/api/worker?net=${network}&address=${addr}`)
         .then((r) => r.json())
-        .then((j) => on && j.ok && j.worker && setActiveJobs(j.worker.active_job_count ?? 0))
+        .then((j) => {
+          if (!on || !j.ok || !j.worker) return;
+          setActiveJobs(j.worker.active_job_count ?? 0);
+          // Completed (unreleased) jobs - what Settle/Deregister will release.
+          const done = (j.jobs ?? [])
+            .filter((x: { state: string }) => /complet/i.test(x.state))
+            .map((x: { id: string }) => Number(x.id))
+            .filter((n: number) => Number.isFinite(n));
+          setCompletedJobs(done);
+        })
         .catch(() => {});
     check();
     const t = setInterval(check, 20_000);
@@ -133,7 +151,8 @@ export function OperationsPanel() {
   const baseCmd = (op: Op) => {
     if (op.key === "restart") return repairWorkerCommand(os);
     if (op.key === "stop") return stopWorkerCommand(os);
-    if (op.key === "dereg") return deregisterCommand(os);
+    if (op.key === "dereg") return deregisterCommand(os, network, completedJobs);
+    if (op.key === "settle") return settleJobsCommand(os, network, completedJobs);
     if (op.key === "sweep") return sweepCommand(os, dest);
     return op.cmd(dest);
   };
@@ -175,7 +194,7 @@ export function OperationsPanel() {
     // holds the value); on web we fall back to passing them via env.
     const env: Record<string, string> = {};
     const secretEnv: string[] | undefined = undefined;
-    if (op.key === "sweep" || op.key === "dereg") {
+    if (op.key === "sweep" || op.key === "dereg" || op.key === "settle") {
       env.NETWORK = network;
       // The op decrypts the worker key from the on-disk keystore using the
       // PASSWORD, so the raw key never has to pass through the web. We supply

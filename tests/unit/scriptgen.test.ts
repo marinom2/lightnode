@@ -8,14 +8,36 @@ import {
   repairWorkerCommand,
   sweepCommand,
   toolkitOpCommand,
+  settleJobsCommand,
 } from "@/lib/scriptgen";
+
+describe("Settle earnings + auto-settling deregister", () => {
+  it("settle releases each completed job on the right network's JobRegistry", () => {
+    const cmd = settleJobsCommand("macos", "testnet", [101, 202]);
+    expect(cmd).toContain("releaseJob(uint256)");
+    expect(cmd.toLowerCase()).toContain("0x531b3a87c5d785441b9cf55b98169f20fd9056a7"); // testnet JobRegistry
+    expect(cmd).toContain("for j in 101 202");
+  });
+  it("uses the mainnet JobRegistry on mainnet", () => {
+    expect(settleJobsCommand("macos", "mainnet", [1]).toLowerCase()).toContain("0xfb15f90298e4ccd7106e76ffb5e520315cc42b0b");
+  });
+  it("deregister auto-settles the completed jobs first", () => {
+    const d = deregisterCommand("macos", "testnet", [55]);
+    expect(d).toContain("settling completed jobs before deregister");
+    expect(d).toContain("releaseJob(uint256)");
+    expect(d).toContain("deregister.sh");
+  });
+  it("windows settle releases jobs via PowerShell", () => {
+    expect(settleJobsCommand("windows", "testnet", [9]).toLowerCase()).toContain("releasejob");
+  });
+});
 
 describe("Sweep/Deregister source the key from the on-disk keystore", () => {
   it("unix ops decrypt the key from the keystore with the password", () => {
     const sweep = toolkitOpCommand("sweep-rewards.sh 0xabc", "sweep");
     expect(sweep).toContain("cast wallet decrypt-keystore");
     expect(sweep).toContain("WORKER_PASSWORD");
-    expect(deregisterCommand("macos")).toContain("cast wallet decrypt-keystore");
+    expect(deregisterCommand("macos", "testnet")).toContain("cast wallet decrypt-keystore");
   });
   it("sweepCommand is OS-aware and sends to the destination", () => {
     expect(sweepCommand("macos", "0xDEST")).toContain("sweep-rewards.sh 0xDEST");
@@ -24,7 +46,7 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
     expect(win).toContain("decrypt-keystore");
   });
   it("windows deregister derives the key and gates on success", () => {
-    const win = deregisterCommand("windows");
+    const win = deregisterCommand("windows", "testnet");
     expect(win).toContain("decrypt-keystore");
     expect(win).toContain("$LASTEXITCODE -eq 0");
   });
@@ -44,7 +66,7 @@ describe("pause marker (intentional stop must not be auto-restarted)", () => {
     expect(desktopInstallCommand("macos", "testnet")).toContain('rm -f "$HOME/.lightnode/keep-online.paused"');
   });
   it("Deregister pauses and removes the watchdog schedule", () => {
-    const d = deregisterCommand("macos");
+    const d = deregisterCommand("macos", "testnet");
     expect(d).toContain("deregister.sh");
     expect(d).toContain("keep-online.paused");
     expect(d).toContain("launchctl unload");
@@ -52,7 +74,7 @@ describe("pause marker (intentional stop must not be auto-restarted)", () => {
   });
   it("Stop/Deregister on windows use USERPROFILE marker + schtasks delete", () => {
     expect(stopWorkerCommand("windows")).toContain("keep-online.paused");
-    expect(deregisterCommand("windows")).toContain("schtasks /Delete");
+    expect(deregisterCommand("windows", "testnet")).toContain("schtasks /Delete");
   });
 });
 

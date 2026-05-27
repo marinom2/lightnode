@@ -13,7 +13,8 @@ export async function GET(req: NextRequest) {
   try {
     const worker = await fetchWorker(net, address);
     if (!worker) return NextResponse.json({ ok: true, worker: null, jobs: [] });
-    const jobs = await fetchWorkerJobs(net, address);
+    // first=50 so Operations can see all completed (unreleased) jobs to settle.
+    const jobs = await fetchWorkerJobs(net, address, 50);
     return NextResponse.json({ ok: true, worker, live: isLive(worker), jobs });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });

@@ -420,33 +420,82 @@ export function sweepCommand(os: OS, dest: string): string {
 }
 
 /**
- * Deregister + withdraw stake, then tear down the keep-online watchdog (the
- * worker is leaving the network, so it must not be auto-restarted). Pauses
- * first, runs the toolkit deregister, then removes the launchd/cron schedule.
+ * Release (settle) completed jobs on-chain. A finished job sits in a release/
+ * dispute window before it settles; once the window passes, `releaseJob` pays
+ * the worker its share AND clears the job from the deregister gate. It's
+ * permissionless after the window, so we attempt each and skip ones still
+ * waiting. Sourcing the key from the keystore keeps it private.
  */
-export function deregisterCommand(os: OS): string {
+function releaseJobsUnix(network: NetworkId, jobIds: number[]): string[] {
+  const net = NETWORKS[network];
+  if (!jobIds.length) return ['echo "no completed jobs to settle"'];
+  return [
+    `RPC_URL="${net.rpc}"; JOBREG="${net.jobRegistry}"; SETTLED=0; WAITING=0`,
+    `for j in ${jobIds.join(" ")}; do`,
+    '  if [ -z "${WORKER_PRIVKEY:-}" ]; then echo "  ⛔ no key to sign with"; break; fi',
+    '  if cast send "$JOBREG" "releaseJob(uint256)" "$j" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "  ✓ settled job $j"; SETTLED=$((SETTLED+1)); else echo "  • job $j still in its release window (try again later)"; WAITING=$((WAITING+1)); fi',
+    "done",
+    'echo "✓ settled $SETTLED job(s)$( [ $WAITING -gt 0 ] && echo \\", $WAITING still in their release window\\" )"',
+  ];
+}
+
+function releaseJobsWin(network: NetworkId, jobIds: number[]): string[] {
+  const net = NETWORKS[network];
+  if (!jobIds.length) return ['Write-Host "no completed jobs to settle"'];
+  return [
+    `$RPC_URL = "${net.rpc}"; $JOBREG = "${net.jobRegistry}"`,
+    `foreach ($j in @(${jobIds.join(",")})) { cast send $JOBREG "releaseJob(uint256)" $j --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL *> $null; if ($?) { Write-Host "settled job $j" } else { Write-Host "job $j still in its release window" } }`,
+  ];
+}
+
+/**
+ * Settle (release) the worker's completed jobs - pays out pending rewards on
+ * demand instead of waiting blindly on the release cycle. `jobIds` are the
+ * worker's Completed (unreleased) jobs, looked up from the subgraph by the app.
+ */
+export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]): string {
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      ...keystoreDeriveWin(),
+      'Write-Host "settling completed jobs (pays your pending rewards)"',
+      ...releaseJobsWin(network, jobIds),
+    ].join("\n");
+  }
+  return [
+    "exec 2>&1",
+    ...keystoreDeriveUnix(),
+    'echo "▶ settling completed jobs (pays your pending rewards)"',
+    ...releaseJobsUnix(network, jobIds),
+  ].join("\n");
+}
+
+/**
+ * Deregister + withdraw stake. First auto-settles any releasable completed jobs
+ * (they block deregistration until released), then runs the toolkit deregister,
+ * and only on real success tears down the watchdog + reports. Per-network.
+ */
+export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] = []): string {
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
       'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
+      'Write-Host "settling completed jobs before deregister..."',
+      ...releaseJobsWin(network, jobIds),
       '$env:FORCE = "1"',
       'if (-not (Test-Path .\\deregister.ps1)) { Write-Host "toolkit not found - install the worker first"; exit 1 }',
       '.\\deregister.ps1',
-      // Only tear down + claim success if deregister actually succeeded.
       'if ($LASTEXITCODE -eq 0) {',
       '  New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
       '  schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
       '  Write-Host "deregistered - stake returned to the worker wallet; watchdog removed. Use Sweep to send it out."',
       '} else {',
-      '  Write-Host "deregister failed - your stake is STILL staked and the worker is STILL registered. Fix the error above and retry."',
+      '  Write-Host "deregister still blocked - usually completed jobs still inside their release window. Your stake is safe; try again after they settle."',
       '  exit 1',
       '}',
     ].join("\n");
   }
-  // Run deregister and only tear down / claim success if it ACTUALLY succeeded
-  // (a failed script must not leave a false "deregistered" message or remove the
-  // watchdog while the worker is still registered).
   return [
     "exec 2>&1",
     'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
@@ -454,14 +503,17 @@ export function deregisterCommand(os: OS): string {
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     ...keystoreDeriveUnix(),
+    // Settle releasable completed jobs first - they gate deregistration.
+    'echo "▶ settling completed jobs before deregister..."',
+    ...releaseJobsUnix(network, jobIds),
     'if echo deregister | FORCE=1 "$RB" deregister.sh; then',
     '  touch "$HOME/.lightnode/keep-online.paused"',
     '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     '  rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     `  ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
-    '  echo "✓ deregistered - stake returned to the worker wallet; watchdog removed. Use Withdraw to my wallet below to send it out."',
+    '  echo "✓ deregistered - stake returned to the worker wallet; watchdog removed. Use Withdraw / Sweep to send it out."',
     'else',
-    '  echo "⛔ deregister failed - your stake is STILL staked and the worker is STILL registered (nothing lost). Fix the error above and retry."',
+    '  echo "⛔ deregister still blocked - this is normal if completed jobs are still inside their release window. Your stake is SAFE and the worker is still registered. Settle again / retry once their windows pass (a few hours)."',
     '  exit 1',
     'fi',
   ].join("\n");
