@@ -143,7 +143,15 @@ export function OperationsPanel() {
     allClaimableAt: number;
   } | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
-  const logEnd = useRef<HTMLDivElement>(null);
+  const runId = useRef(0);
+  const logBox = useRef<HTMLDivElement>(null);
+  // Keep the log pinned to the bottom as lines stream in, but stop following the
+  // moment the user scrolls up to read (and resume when they scroll back down).
+  const stickToBottom = useRef(true);
+  const onLogScroll = () => {
+    const el = logBox.current;
+    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
 
   useEffect(() => setDesktop(isDesktop()), []);
 
@@ -238,7 +246,14 @@ export function OperationsPanel() {
   // path stays raw - the user's own terminal already has Docker on PATH.
   const runCmd = (op: Op) => (DOCKER_OPS.has(op.key) ? dockerOpCommand(baseCmd(op), os) : baseCmd(op));
   useEffect(() => () => stopRef.current?.(), []);
-  useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
+  // Pin to the bottom by setting scrollTop directly (instant) instead of
+  // scrollIntoView with smooth behavior - the latter stacks an animation per
+  // streamed line and yanks the surrounding page, which is the jumpy "toggling"
+  // the terminal had. Only follows when the user is already at the bottom.
+  useEffect(() => {
+    const el = logBox.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [log]);
 
   // Stop/Deregister need a confirmation. We must NOT use window.confirm: in the
   // Tauri webview it returns false (no-op), which silently swallowed Deregister.
@@ -282,6 +297,10 @@ export function OperationsPanel() {
   const executeOp = async (op: Op) => {
     setConfirmOp(null);
     stopRef.current?.();
+    // Tag this run so late output from a previous command (e.g. a Tail/Status
+    // stream that was still flushing) can't bleed into this one's log.
+    const myRun = ++runId.current;
+    stickToBottom.current = true;
     setActive(op.key);
     setLog([`$ ${op.label.toLowerCase()}...`]);
     // Sweep/Deregister are toolkit scripts that sign on-chain with the worker
@@ -334,8 +353,11 @@ export function OperationsPanel() {
     stopRef.current = await runSetupStreamed(
       command,
       env,
-      (line) => setLog((l) => [...l, line]),
+      (line) => {
+        if (runId.current === myRun) setLog((l) => [...l, line]);
+      },
       (code) => {
+        if (runId.current !== myRun) return; // a newer run superseded this one
         setLog((l) => [...l, code === 0 ? "done." : `exited (${code}).`]);
         setActive(null); // clear the tile's loading state once the command finishes
         // (Deregister prints its own accurate success/failure - and only on real
@@ -471,11 +493,14 @@ export function OperationsPanel() {
       </div>
 
       {desktop && log.length > 0 && (
-        <div className="mt-4 max-h-56 overflow-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[12px] leading-relaxed text-content-default">
+        <div
+          ref={logBox}
+          onScroll={onLogScroll}
+          className="mt-4 max-h-56 overflow-auto overscroll-contain rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[12px] leading-relaxed text-content-default"
+        >
           {log.map((l, i) => (
             <div key={i} className="whitespace-pre-wrap">{l}</div>
           ))}
-          <div ref={logEnd} />
         </div>
       )}
 
