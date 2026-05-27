@@ -154,7 +154,7 @@ More detail, including the on-chain selectors and a worked example, is in
 
 ## Networks
 
-LightNode supports both LightChain networks, switchable from the toggle in the UI.
+LightNode supports both LightChain AI networks, switchable from the toggle in the UI.
 **One worker runs per machine at a time** (the toolkit uses a single container and
 keystore), so testnet and mainnet are run sequentially on one box; running both at
 once needs separate machines.
@@ -290,8 +290,8 @@ model is one worker per machine.
 
 ---
 
-*LightNode is an independent, community-built tool for the LightChain ecosystem. It
-is not affiliated with or endorsed by the LightChain protocol team. Review the
+*LightNode is an independent, community-built tool for the LightChain AI ecosystem. It
+is not affiliated with or endorsed by the LightChain AI team. Review the
 official [`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit)
 for the worker runtime's own security and operational model.*
 

@@ -273,8 +273,14 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
           <span className="font-mono text-sm text-content-primary">{genAddr.slice(0, 10)}…{genAddr.slice(-8)}</span>
           <span className="flex items-center gap-3">
             {genAddr && <CopyBtn value={genAddr} />}
-            <button type="button" onClick={toggleReveal} className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary">
-              {reveal ? <EyeOff className="size-3" /> : <Eye className="size-3" />} {reveal ? "Hide key" : "Show key"}
+            <button
+              type="button"
+              onClick={toggleReveal}
+              title={reveal ? "Hide private key" : "Reveal private key"}
+              aria-label={reveal ? "Hide private key" : "Reveal private key"}
+              className="text-content-soft transition-colors hover:text-content-primary"
+            >
+              {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
             </button>
             <button
               type="button"
@@ -293,6 +299,11 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         )}
         <p className="mt-2.5 flex items-start gap-1.5 text-[11px] text-warning">
           <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key - it&apos;s your worker&apos;s identity and holds the staked LCAI.
+        </p>
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-content-soft">
+          <ShieldCheck className="mt-0.5 size-3 shrink-0 text-success/80" /> Your key and password are generated and kept
+          on this device only - in your OS keychain and an encrypted keystore - and are never sent to any server. Signing
+          happens locally.
         </p>
       </div>
 

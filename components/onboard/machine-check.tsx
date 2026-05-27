@@ -275,7 +275,8 @@ export function MachineCheck({
             />
           </label>
           <p className="mt-2 text-[11px] leading-relaxed text-content-soft">
-            {fmt(reward.perJobLcai, 3)} LCAI per job · varies with demand &amp; routing.
+            {fmt(reward.perJobLcai, 3)} LCAI per job · the slider defaults to the current network average; a brand-new
+            worker usually starts lower and ramps up as the gateway routes it more volume.
           </p>
 
           <div className="mt-4 border-t border-bdr-light pt-3">
@@ -313,8 +314,9 @@ export function MachineCheck({
               </span>
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-content-soft">
-              Net profit = {fmt(reward.dailyLcai, 2)} LCAI/day minus ${fmt(energyCost, 2)} energy - positive once LCAI
-              clears your power cost. (We don&apos;t price LCAI here.)
+              You&apos;d earn ~{fmt(reward.dailyLcai, 2)} LCAI/day and spend ~${fmt(energyCost, 2)}/day on power. We
+              don&apos;t quote an LCAI price, so check today&apos;s rate: you&apos;re ahead once a day&apos;s
+              {" "}{fmt(reward.dailyLcai, 2)} LCAI is worth more than ${fmt(energyCost, 2)}.
             </p>
           </div>
         </div>

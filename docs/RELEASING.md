@@ -69,11 +69,15 @@ are the one-time Gatekeeper "right-click -> Open" on first launch, and that
 secrets fall back to localStorage instead of the OS Keychain - still
 device-local, never networked).
 
-**Sign with the PUBLISHER's identity, not a personal one.** Whoever ships the
-app (e.g. the LightChain team) should use THEIR own Apple Developer ID - the
-signature/notarization brands the app as that owner. The workflow is
-identity-agnostic: it signs with whatever `APPLE_*` secrets are present, so the
-owner just adds their own. Until then, leave it unsigned.
+**Whoever publishes a given build signs it with their own Apple Developer ID.**
+A code signature simply brands a build as coming from the account that signed it;
+it has nothing to do with who owns the project. This project is authored and owned
+by KykyRykyPaloma - if you publish the official builds, add your own `APPLE_*`
+credentials below and they get signed under your identity. If a build is ever
+published by someone else under a different brand, that publisher uses their own
+credentials for their own builds; that does not transfer ownership of this project.
+The workflow is identity-agnostic: it signs with whatever `APPLE_*` secrets are
+present, and stays unsigned until they're added.
 
 To enable, add these repo secrets (Settings -> Secrets and variables ->
 Actions). The "Configure macOS signing" step is gated: with no

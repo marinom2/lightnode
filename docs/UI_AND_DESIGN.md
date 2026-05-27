@@ -9,7 +9,7 @@ including withdrawing funds).
 
 ## Design language and provenance
 
-LightNode is built to feel **native to the LightChain ecosystem**, so a worker
+LightNode is built to feel **native to the LightChain AI ecosystem**, so a worker
 operator never feels like they left LightChain to use a third-party tool. The
 visual language - dark-first surfaces, the indigo accent, and the signature
 purple-to-magenta gradient - is adapted to match LightChain's own product look
@@ -28,7 +28,7 @@ purple-to-magenta gradient - is adapted to match LightChain's own product look
 > LightChain project; LightNode only adapts the *visual language* to fit in. The
 > hero device renders in `public/images/` are exported assets, and the glow/ray
 > effects are hand-built CSS. LightNode's own source is MIT-licensed
-> (see [LICENSE](../LICENSE)); the LightChain branding is not claimed under it.
+> (see [LICENSE](../LICENSE)); the LightChain AI branding is not claimed under it.
 
 ### Where the design lives
 All design tokens are CSS variables in [`app/globals.css`](../app/globals.css)

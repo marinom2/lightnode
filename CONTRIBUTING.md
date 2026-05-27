@@ -1,6 +1,6 @@
 # Contributing to LightNode
 
-Thanks for helping make joining LightChain's AI network easier.
+Thanks for helping make joining the LightChain AI worker network easier.
 
 ## Help especially wanted: Linux & Windows testing
 
