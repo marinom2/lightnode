@@ -16,7 +16,7 @@ import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
-import { getSecret, setSecret, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW, WORKER_ADDR_STORE } from "@/lib/secrets";
+import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 
 type Phase = "idle" | "running" | "done" | "failed";
@@ -152,7 +152,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
   // exists in the keychain/localStorage. The raw key is fetched only on an
   // explicit "reveal for backup".
   useEffect(() => {
-    const a = lsGet(WORKER_ADDR_STORE);
+    const a = getWorkerAddr(network);
     if (/^0x[a-fA-F0-9]{40}$/.test(a)) setGenAddr(a);
   }, []);
 
@@ -169,11 +169,11 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         addr = getAddress(native);
       } else {
         const k = generatePrivateKey();
-        await setSecret(SECRET_WORKER_KEY, k); // localStorage on web
+        await setSecret(SECRET_WORKER_KEY, k, network); // localStorage on web
         addr = privateKeyToAccount(k).address;
       }
       setGenAddr(addr);
-      lsSet(WORKER_ADDR_STORE, addr); // public - powers the dashboard "My worker"
+      setWorkerAddr(network, addr); // public - powers the dashboard "My worker"
       savedWorkers.add(addr);
     } catch {
       /* leave prior state */
@@ -188,7 +188,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
       setRevealedKey("");
       return;
     }
-    setRevealedKey(await getSecret(SECRET_WORKER_KEY)); // explicit backup action
+    setRevealedKey(await getSecret(SECRET_WORKER_KEY, network)); // explicit backup action
     setReveal(true);
   };
 
@@ -223,8 +223,8 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     if (mode === "paste") {
       if (PRIVKEY_RE.test(paste)) {
         const a = privateKeyToAccount(paste as `0x${string}`).address;
-        void setSecret(SECRET_WORKER_KEY, paste);
-        lsSet(WORKER_ADDR_STORE, a);
+        void setSecret(SECRET_WORKER_KEY, paste, network);
+        setWorkerAddr(network, a);
         onReady(a);
       } else {
         onReady(null);
@@ -375,7 +375,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   }, []);
   useEffect(() => {
     let on = true;
-    getSecret(SECRET_WORKER_PW).then((saved) => on && saved && setPw(saved));
+    getSecret(SECRET_WORKER_PW, network).then((saved) => on && saved && setPw(saved));
     return () => {
       on = false;
     };
@@ -384,7 +384,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
   const updatePw = (v: string) => {
     setPw(v);
-    void setSecret(SECRET_WORKER_PW, v); // keychain on desktop, localStorage on web
+    void setSecret(SECRET_WORKER_PW, v, network); // keychain on desktop, localStorage on web
   };
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
@@ -416,13 +416,13 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     // generation; just make sure the password is stored too. On desktop the
     // native runner injects both by NAME (the web layer never carries the raw
     // values); on web we fall back to passing them via env.
-    await setSecret(SECRET_WORKER_PW, pw);
+    await setSecret(SECRET_WORKER_PW, pw, network);
     const baseEnv = { NETWORK: network, SUPPORTED_MODELS: model };
     const native = await nativeSecretsAvailable();
     const secretEnv = native ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
     const env = native
       ? baseEnv
-      : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: (await getSecret(SECRET_WORKER_KEY)) || "" };
+      : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: (await getSecret(SECRET_WORKER_KEY, network)) || "" };
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, model),
       env,

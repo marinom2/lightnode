@@ -10,20 +10,26 @@
  * `secretEnv`) without the web ever holding the value.
  */
 import { isDesktop, secretGet, secretSet, secretDelete, nativeSecretsAvailable } from "./tauri";
+import type { NetworkId } from "./network";
 
 // Real capability probe (not just isDesktop): true only when the running binary
 // actually has the keychain commands. Use this to decide secretEnv injection.
 export { nativeSecretsAvailable };
 
+// Base secret names (also the env-var names the toolkit expects). Storage is
+// keyed PER NETWORK (`<name>.<net>`) so a testnet and a mainnet worker can coexist
+// without overwriting each other - toggling the network points at the right one.
 export const SECRET_WORKER_KEY = "WORKER_PRIVKEY";
 export const SECRET_WORKER_PW = "WORKER_PASSWORD";
-export const WORKER_ADDR_STORE = "lightnode.workerAddress"; // public, always localStorage
+export const WORKER_ADDR_STORE = "lightnode.workerAddress"; // legacy single key (fallback only)
 
-// Pre-keychain builds stored these in localStorage; migrate them on first read.
+// Pre-keychain builds stored these in localStorage; still read them as a fallback.
 const LEGACY: Record<string, string> = {
   [SECRET_WORKER_KEY]: "lightnode.funderKey",
   [SECRET_WORKER_PW]: "lightnode.workerPw",
 };
+
+const addrKey = (net: NetworkId) => `${WORKER_ADDR_STORE}.${net}`;
 
 function lsGet(k: string): string {
   try {
@@ -47,42 +53,60 @@ function lsDel(k: string): void {
   }
 }
 
-/** Read a secret. On desktop, migrates any legacy localStorage value into the
- *  keychain (then clears it) so old installs upgrade transparently. */
-export async function getSecret(name: string): Promise<string> {
-  const legacyKey = LEGACY[name] ?? name;
+/** Read a per-network secret (keychain on desktop, else localStorage), falling
+ *  back to the pre-per-network single value so existing installs still work. */
+export async function getSecret(name: string, net: NetworkId): Promise<string> {
+  const perNet = `${name}.${net}`;
+  const legacyNet = `${LEGACY[name] ?? name}.${net}`;
   if (isDesktop()) {
-    const v = await secretGet(name);
+    const v = await secretGet(perNet);
     if (v) return v;
   }
-  return lsGet(legacyKey);
+  const ls = lsGet(legacyNet);
+  if (ls) return ls;
+  // Last resort: the old single (non-per-network) value.
+  if (isDesktop()) {
+    const old = await secretGet(name);
+    if (old) return old;
+  }
+  return lsGet(LEGACY[name] ?? name);
 }
 
 /**
- * Store a secret. On an UNSIGNED desktop app the OS keychain is unreliable
- * across launches (the code-signing identity isn't stable), which previously
- * stranded the key. So we keep a reliable localStorage copy and ALSO mirror to
- * the keychain (best effort) as defense-in-depth. The raw worker key itself is
- * not relied upon from here for ops - those decrypt it from the on-disk
- * keystore using the password. Full keychain-only privacy needs a signed build.
+ * Store a per-network secret. On an UNSIGNED desktop app the OS keychain is
+ * unreliable across launches, so we keep a reliable localStorage copy and ALSO
+ * mirror to the keychain (best effort). Ops mostly derive the key from the
+ * on-disk keystore anyway; this is for the in-app withdraw + non-native fallback.
  */
-export async function setSecret(name: string, value: string): Promise<void> {
-  const legacyKey = LEGACY[name] ?? name;
-  if (isDesktop()) void secretSet(name, value);
-  lsSet(legacyKey, value);
+export async function setSecret(name: string, value: string, net: NetworkId): Promise<void> {
+  const perNet = `${name}.${net}`;
+  const legacyNet = `${LEGACY[name] ?? name}.${net}`;
+  if (isDesktop()) void secretSet(perNet, value);
+  lsSet(legacyNet, value);
 }
 
-/** Delete a secret from both backends. */
-export async function deleteSecret(name: string): Promise<void> {
-  if (isDesktop()) await secretDelete(name);
-  lsDel(LEGACY[name] ?? name);
+/** Delete a per-network secret from both backends. */
+export async function deleteSecret(name: string, net: NetworkId): Promise<void> {
+  if (isDesktop()) await secretDelete(`${name}.${net}`);
+  lsDel(`${LEGACY[name] ?? name}.${net}`);
 }
 
-/** Wipe all worker secrets + the (public) address. */
-export async function wipeWorkerSecrets(): Promise<void> {
-  await deleteSecret(SECRET_WORKER_KEY);
-  await deleteSecret(SECRET_WORKER_PW);
-  lsDel(WORKER_ADDR_STORE);
+/** Wipe a network's worker secrets + its (public) address. */
+export async function wipeWorkerSecrets(net: NetworkId): Promise<void> {
+  await deleteSecret(SECRET_WORKER_KEY, net);
+  await deleteSecret(SECRET_WORKER_PW, net);
+  lsDel(addrKey(net));
+}
+
+/** The (public) worker address for a network - per-network, with a fallback to
+ *  the old single value. */
+export function getWorkerAddr(net: NetworkId): string {
+  return lsGet(addrKey(net)) || lsGet(WORKER_ADDR_STORE);
+}
+
+/** Record the (public) worker address for a network. */
+export function setWorkerAddr(net: NetworkId, addr: string): void {
+  lsSet(addrKey(net), addr);
 }
 
 /** True when the command runner can inject secrets from the keychain by name. */

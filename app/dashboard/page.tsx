@@ -12,6 +12,7 @@ import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
+import { getWorkerAddr, setWorkerAddr } from "@/lib/secrets";
 import { isDesktop, localContainerStatus, type LocalContainerStatus } from "@/lib/tauri";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
@@ -20,9 +21,8 @@ export default function DashboardPage() {
   const { network } = useNetwork();
   const { saved, add, remove, has } = useSavedWorkers();
   const [myWorker, setMyWorker] = useState("");
-  useEffect(() => {
-    try { const w = window.localStorage.getItem("lightnode.workerAddress"); if (w) setMyWorker(w); } catch { /* ignore */ }
-  }, []);
+  // Per-network: the "My worker" for testnet vs mainnet are different workers.
+  useEffect(() => setMyWorker(getWorkerAddr(network)), [network]);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
@@ -44,6 +44,12 @@ export default function DashboardPage() {
         if (!r.ok) throw new Error(r.error || "lookup failed");
         setWorker(r.worker);
         setJobs(Array.isArray(r.jobs) ? r.jobs : []);
+        // If this is one of YOUR (watchlisted) workers, tag it as this network's
+        // worker so the per-network "My worker" + Operations target stay correct.
+        if (r.worker && has(addr)) {
+          setWorkerAddr(network, addr);
+          setMyWorker(addr);
+        }
       } catch (e) {
         setError((e as Error).message);
         setWorker(undefined);
@@ -52,7 +58,8 @@ export default function DashboardPage() {
         setLoading(false);
       }
     },
-    [network],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [network, has],
   );
 
   // Deep-link support: /dashboard?address=0x... (e.g. from the leaderboard).

@@ -23,7 +23,7 @@ import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, toolkitOpCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, sweepCommand, settleJobsCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { useNetwork } from "@/lib/network-context";
-import { getSecret, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { cn } from "@/lib/utils";
 
@@ -102,12 +102,8 @@ export function OperationsPanel() {
   // worker. (An earlier wipe could clear lightnode.workerAddress while the
   // watchlist still has it - the dashboard falls back the same way.)
   const resolveWorkerAddr = (): string => {
-    try {
-      const a = window.localStorage.getItem("lightnode.workerAddress") || "";
-      if (/^0x[a-fA-F0-9]{40}$/.test(a)) return a;
-    } catch {
-      /* ignore */
-    }
+    const a = getWorkerAddr(network); // per-network address for the current toggle
+    if (/^0x[a-fA-F0-9]{40}$/.test(a)) return a;
     return saved.find((s) => /^0x[a-fA-F0-9]{40}$/.test(s)) ?? "";
   };
   const [desktop, setDesktop] = useState(false);
@@ -266,7 +262,7 @@ export function OperationsPanel() {
       // PASSWORD, so the raw key never has to pass through the web. We supply
       // the password (+ the public address, + the key if the app happens to
       // still hold one); the command derives anything missing from the keystore.
-      const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW), getSecret(SECRET_WORKER_KEY)]);
+      const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW, network), getSecret(SECRET_WORKER_KEY, network)]);
       if (pw) env.WORKER_PASSWORD = pw;
       if (k) env.WORKER_PRIVKEY = k;
       const addr = resolveWorkerAddr();

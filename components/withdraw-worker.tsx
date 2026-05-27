@@ -37,7 +37,9 @@ export function WithdrawWorker() {
 
   useEffect(() => {
     let on = true;
-    getSecret(SECRET_WORKER_KEY).then((k) => {
+    setKey("");
+    setAddr("");
+    getSecret(SECRET_WORKER_KEY, network).then((k) => {
       if (on && PRIVKEY_RE.test(k)) {
         setKey(k);
         setAddr(privateKeyToAccount(k as `0x${string}`).address);
@@ -46,7 +48,7 @@ export function WithdrawWorker() {
     return () => {
       on = false;
     };
-  }, []);
+  }, [network]);
   useEffect(() => {
     if (connected && !dest) setDest(connected);
   }, [connected, dest]);
@@ -105,7 +107,7 @@ export function WithdrawWorker() {
   };
 
   const wipeKey = async () => {
-    await wipeWorkerSecrets();
+    await wipeWorkerSecrets(network);
     setWiped(true);
     setKey("");
   };
