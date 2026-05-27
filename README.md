@@ -119,7 +119,7 @@ command to copy.
 | **Speed test** | Runs a real local inference and projects the worst-case job time against the on-chain deadline, so you can see slash risk before it bites. |
 | **Settle earnings** | Releases your completed jobs and **claims** the resulting rewards into the worker wallet. |
 | **Deregister** | Settles + claims first, then exits the network and returns your stake to the worker wallet. Stops the container so you can install another network. |
-| **Free up memory** | Stops the worker, unloads the model from Ollama, and quits Docker to reclaim RAM. For when you are done, not a prerequisite for anything. |
+| **Free up memory** | Gives your machine its RAM back: stops the worker, unloads the model from Ollama, and quits Docker. A worker pins its model (~5 GB) plus a Docker VM even when stopped, so this is the "I want my machine back" button. Stake + registration are untouched - Restart brings it back. |
 | **Withdraw Funds** | Sends the worker wallet's spendable LCAI to any address you choose. Signs locally with the worker key (in-browser if the app holds it, otherwise derived from the on-disk keystore). |
 
 On the desktop app, your own worker also shows a **Live health** panel - a real-time
@@ -202,7 +202,9 @@ those two are very welcome** (open an issue with your OS, what you did, and the 
   This is why payouts work even if the app's cached key drifts, and why the app
   refuses to sign one network's action with another network's worker key.
 
-A deeper write-up is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+A deeper write-up is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the UI /
+design language (including the LightChain-derived look and a screen-by-screen
+walkthrough) is in [docs/UI_AND_DESIGN.md](docs/UI_AND_DESIGN.md).
 
 ## Security and key handling
 
@@ -249,8 +251,19 @@ lib/            network constants, subgraph client, hardware scoring, secrets,
                 and scriptgen.ts - the single source for every generated shell command
 desktop/        Tauri v2 shell (src-tauri: Rust commands, capabilities, build config)
 tests/unit/     Vitest    tests/e2e/  Playwright
-docs/           Architecture, worker lifecycle, and release docs
+docs/           Architecture, worker lifecycle, UI/design, and release docs
 ```
+
+### Documentation
+- [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md) - the operator's manual:
+  install, earning, settling, withdrawing, deregistering, switching network/model.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - how the web + desktop apps fit
+  together, the keystore-as-source-of-truth, staying online + sleep prevention.
+- [docs/UI_AND_DESIGN.md](docs/UI_AND_DESIGN.md) - the design language (LightChain
+  look) and a screen-by-screen UI walkthrough (model picker, withdraw, etc.).
+- [SECURITY.md](SECURITY.md) - the key/privacy model · [DEPLOY.md](DEPLOY.md) - web
+  deploy · [docs/RELEASING.md](docs/RELEASING.md) - desktop releases ·
+  [CONTRIBUTING.md](CONTRIBUTING.md).
 
 The most important module is [`lib/scriptgen.ts`](lib/scriptgen.ts): every command
 the app runs or tells you to copy is generated there, so behavior is testable and
