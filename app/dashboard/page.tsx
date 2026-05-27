@@ -9,6 +9,7 @@ import { WatchGrid } from "@/components/watch-grid";
 import { OperationsPanel } from "@/components/operations-panel";
 import { WithdrawWorker } from "@/components/withdraw-worker";
 import { DownloadButton } from "@/components/download-button";
+import { WorkerHealthPanel } from "@/components/worker-health-panel";
 import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
@@ -200,6 +201,11 @@ export default function DashboardPage() {
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
             localStatus={localStatus}
           />
+          {isMine && desktop && (
+            <div className="mt-4">
+              <WorkerHealthPanel />
+            </div>
+          )}
         </div>
       )}
 

@@ -7,6 +7,10 @@
  * present, preferring internals. On the web both are absent → no-ops/null.
  */
 
+import { parseWorkerHealth, WORKER_HEALTH_CMD, type WorkerHealth } from "./worker-health";
+
+export type { WorkerHealth };
+
 export interface NativeHardware {
   os: "macos" | "linux" | "windows";
   cores: number;
@@ -205,11 +209,12 @@ export function isStreamBusy(): boolean {
 export async function localContainerStatus(): Promise<LocalContainerStatus> {
   const invoke = getInvoke();
   const events = win()?.__TAURI__?.event;
-  if (!invoke || !events) return "unknown";
+  if (!invoke || !events || streamBusy) return "unknown"; // never share the channel with another reader/command
   const cmd =
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"; ' +
     'docker info >/dev/null 2>&1 || { echo "__NODOCKER__"; exit 0; }; ' +
     "docker ps -a --filter name=lightchain-worker --format '{{.Status}}' 2>/dev/null";
+  streamBusy = true;
   return new Promise<LocalContainerStatus>((resolve) => {
     let out = "";
     let settled = false;
@@ -217,6 +222,7 @@ export async function localContainerStatus(): Promise<LocalContainerStatus> {
     const finish = (v: LocalContainerStatus) => {
       if (settled) return;
       settled = true;
+      streamBusy = false;
       unsubs.forEach((u) => u());
       resolve(v);
     };
@@ -236,6 +242,42 @@ export async function localContainerStatus(): Promise<LocalContainerStatus> {
       invoke("run_command_streamed", { command: cmd, env: {} }).catch(() => finish("unknown"));
     });
     setTimeout(() => finish("unknown"), 8000);
+  });
+}
+
+/**
+ * Live worker health for the desktop "my worker" view: container uptime/CPU/mem,
+ * the worker's local Prometheus metrics (active jobs, Ollama, heartbeat, releases)
+ * read via `docker exec`, and recent log events. One combined read, serialized on
+ * the shared channel (skips while a command/another read is in flight). Returns
+ * null off-desktop or when Docker is unreachable.
+ */
+export async function fetchWorkerHealth(): Promise<WorkerHealth | null> {
+  const invoke = getInvoke();
+  const events = win()?.__TAURI__?.event;
+  if (!invoke || !events || streamBusy) return null;
+  streamBusy = true;
+  return new Promise<WorkerHealth | null>((resolve) => {
+    let out = "";
+    let settled = false;
+    const unsubs: Array<() => void> = [];
+    const finish = (v: WorkerHealth | null) => {
+      if (settled) return;
+      settled = true;
+      streamBusy = false;
+      unsubs.forEach((u) => u());
+      resolve(v);
+    };
+    Promise.all([
+      events.listen("setup-log", (e) => {
+        out += String(e.payload) + "\n";
+      }),
+      events.listen("setup-exit", () => finish(parseWorkerHealth(out))),
+    ]).then((u) => {
+      unsubs.push(...u);
+      invoke("run_command_streamed", { command: WORKER_HEALTH_CMD, env: {} }).catch(() => finish(null));
+    });
+    setTimeout(() => finish(out ? parseWorkerHealth(out) : null), 12000);
   });
 }
 
