@@ -22,7 +22,7 @@ Object.defineProperty(globalThis, "window", {
   configurable: true,
 });
 
-import { migrateBareWorkerKey, getSecret, setWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
+import { migrateBareWorkerKey, archiveRetiredWorker, listRetiredWorkers, getSecret, setWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
 
 // anvil account 0 (well-known test keypair)
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -52,5 +52,23 @@ describe("migrateBareWorkerKey (recover a legacy single-name key into the per-ne
     setWorkerAddr("mainnet", ADDR);
     await migrateBareWorkerKey("mainnet");
     expect(await getSecret(SECRET_WORKER_KEY, "mainnet")).toBe(KEY);
+  });
+});
+
+describe("archiveRetiredWorker (never lose a replaced key - it may still control a stake)", () => {
+  beforeEach(() => store.clear());
+
+  it("keeps every replaced key recoverable, without duplicates", async () => {
+    await archiveRetiredWorker("mainnet", ADDR, KEY, "pw1");
+    await archiveRetiredWorker("mainnet", ADDR, KEY, "pw1"); // same key again - no dup
+    await archiveRetiredWorker("mainnet", "0x000000000000000000000000000000000000dEaD", "0xabc", "pw2");
+    const list = listRetiredWorkers("mainnet");
+    expect(list).toHaveLength(2);
+    expect(list.map((e) => e.key).sort()).toEqual([KEY, "0xabc"].sort());
+  });
+
+  it("ignores an empty key (nothing to lose)", async () => {
+    await archiveRetiredWorker("testnet", ADDR, "", "pw");
+    expect(listRetiredWorkers("testnet")).toHaveLength(0);
   });
 });

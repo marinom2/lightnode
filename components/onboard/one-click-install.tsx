@@ -16,7 +16,7 @@ import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
-import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, migrateBareWorkerKey, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { fetchWorker } from "@/lib/subgraph";
 
@@ -203,9 +203,17 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
 
   const generate = async () => {
     setBusy(true);
-    setReveal(false);
-    setRevealedKey("");
+    setConfirmNew(false);
     try {
+      // Never silently lose a key: archive the current one (with its password +
+      // address) before it's replaced, so a staked worker stays recoverable even
+      // if this regenerate was a mistake.
+      const oldKey = await getSecret(SECRET_WORKER_KEY, network);
+      if (oldKey) {
+        await archiveRetiredWorker(network, getWorkerAddr(network), oldKey, await getSecret(SECRET_WORKER_PW, network));
+      }
+      setReveal(false);
+      setRevealedKey("");
       let addr: string;
       if (await nativeSecretsAvailable()) {
         // Key is created + kept in the keychain natively, under a PER-NETWORK name
@@ -331,7 +339,15 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
             </button>
             <button
               type="button"
-              onClick={() => setConfirmNew(true)}
+              onClick={async () => {
+                setConfirmNew(true);
+                // For a STAKED worker, reveal the current key right away so the
+                // user can copy it before it's replaced (losing it strands the stake).
+                if (registered) {
+                  setRevealedKey(await getSecret(SECRET_WORKER_KEY, network));
+                  setReveal(true);
+                }
+              }}
               className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
             >
               <RefreshCw className="size-3" /> New key
@@ -339,18 +355,32 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
           </span>
         </div>
         {confirmNew && (
-          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px]">
-            <span className="flex items-start gap-1.5 text-warning">
-              <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Replace this key? The current one is forgotten - back it up first if it holds funds.
-            </span>
-            <span className="flex items-center gap-3">
+          <div className="mt-2.5 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px]">
+            {registered ? (
+              <p className="flex items-start gap-1.5 text-warning">
+                <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                <span>
+                  <span className="font-semibold text-content-primary">
+                    This worker has a {net.minStakeLcai.toLocaleString()} LCAI stake locked on-chain.
+                  </span>{" "}
+                  A new key points the app at a different worker. The stake stays on-chain, but you need <span className="font-semibold">this</span> key
+                  to ever recover it - copy it (revealed above) somewhere safe first. To get the stake back instead, Deregister this worker.
+                  A copy is also archived on this device.
+                </span>
+              </p>
+            ) : (
+              <p className="flex items-start gap-1.5 text-warning">
+                <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Replace this key? The current one is forgotten - back it up first if it holds funds.
+              </p>
+            )}
+            <div className="mt-2 flex items-center justify-end gap-3">
               <button type="button" onClick={() => { setConfirmNew(false); void generate(); }} className="font-medium text-destructive transition-colors hover:underline">
-                Replace key
+                {registered ? "I saved it - replace key" : "Replace key"}
               </button>
               <button type="button" onClick={() => setConfirmNew(false)} className="text-content-soft transition-colors hover:underline">
                 Cancel
               </button>
-            </span>
+            </div>
           </div>
         )}
         {reveal && (

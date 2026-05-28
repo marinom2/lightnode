@@ -115,6 +115,53 @@ export async function migrateBareWorkerKey(net: NetworkId): Promise<void> {
   if (want && addr === want) await setSecret(SECRET_WORKER_KEY, bare, net);
 }
 
+interface RetiredWorker {
+  addr: string;
+  key: string;
+  pw: string;
+  ts: number;
+}
+
+const retiredKey = (net: NetworkId) => `lightnode.retired.${net}`;
+
+/**
+ * Archive a worker key+password that is being retired (e.g. the user generated a
+ * replacement) so a STAKED worker's key is never silently lost - losing it would
+ * strand the on-chain stake. Append-only per network in localStorage, and mirrored
+ * to the keychain on desktop, keyed by address so retirements never collide.
+ */
+export async function archiveRetiredWorker(net: NetworkId, addr: string, key: string, pw: string): Promise<void> {
+  if (!key) return;
+  const lk = retiredKey(net);
+  let list: RetiredWorker[] = [];
+  try {
+    const parsed: unknown = JSON.parse(lsGet(lk) || "[]");
+    if (Array.isArray(parsed)) list = parsed as RetiredWorker[];
+  } catch {
+    list = [];
+  }
+  if (!list.some((e) => e.key === key)) {
+    list.push({ addr, key, pw, ts: Date.now() });
+    lsSet(lk, JSON.stringify(list));
+  }
+  if (isDesktop() && addr) {
+    const a = addr.toLowerCase();
+    void secretSet(`${SECRET_WORKER_KEY}.${net}.retired.${a}`, key);
+    if (pw) void secretSet(`${SECRET_WORKER_PW}.${net}.retired.${a}`, pw);
+  }
+}
+
+/** Retired (replaced) worker keys for a network, newest first - so the user can
+ *  recover a key they replaced and reclaim a stranded stake. */
+export function listRetiredWorkers(net: NetworkId): RetiredWorker[] {
+  try {
+    const parsed: unknown = JSON.parse(lsGet(retiredKey(net)) || "[]");
+    return Array.isArray(parsed) ? (parsed as RetiredWorker[]).slice().sort((a, b) => b.ts - a.ts) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Wipe a network's worker secrets + its (public) address. */
 export async function wipeWorkerSecrets(net: NetworkId): Promise<void> {
   await deleteSecret(SECRET_WORKER_KEY, net);
