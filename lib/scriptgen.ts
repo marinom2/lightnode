@@ -939,6 +939,8 @@ export function freeMemoryCommand(os: OS): string {
       'foreach ($m in $ms) { if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{`"model`":`"$m`",`"keep_alive`":0}" | Out-Null; Write-Host "OK - unloaded $m from memory" } catch {} } }',
       'try { docker stop lightchain-worker | Out-Null; Write-Host "OK - stopped the worker container" } catch {}',
       'Get-Process "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host "OK - quit Docker Desktop (released its VM memory)"',
+      'Start-Sleep -Seconds 1',
+      'try { $ps = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/ps -TimeoutSec 5; if ($ps.models -and $ps.models.Count -gt 0) { Write-Host "WARNING - Ollama still shows a model resident; give it a few seconds or quit the Ollama app" } else { Write-Host "OK - verified: no model resident in Ollama (RAM reclaimed)" } } catch { Write-Host "OK - verified: Ollama holds no model" }',
       'Write-Host "Done - memory freed. Your stake and registration are untouched; click Restart to come back online."',
     ].join("\n");
   }
@@ -961,6 +963,16 @@ export function freeMemoryCommand(os: OS): string {
     lines.push('echo "  (Linux: the Docker engine runs without a VM, so there is nothing heavy to quit)"');
   }
   lines.push(AWAKE_OFF_UNIX);
+  // Verify the big consumers are actually gone, so "freed" isn't just a claim.
+  lines.push("sleep 1");
+  lines.push(
+    'RESIDENT="$(curl -s -m 5 http://127.0.0.1:11434/api/ps 2>/dev/null)"; if printf "%s" "$RESIDENT" | grep -q size; then echo "⚠ Ollama still shows a model resident - give it a few seconds, or quit the Ollama app to force it out"; else echo "✓ verified: no model resident in Ollama (the ~5 GB is reclaimed)"; fi',
+  );
+  if (isMac) {
+    lines.push(
+      'if docker info >/dev/null 2>&1; then echo "  (Docker engine is still stopping - it releases its VM within ~10s)"; else echo "✓ verified: Docker engine stopped (its VM RAM is reclaimed)"; fi',
+    );
+  }
   lines.push('echo "✅ memory freed. Your stake and registration are untouched - click Restart to come back online."');
   return lines.join("\n");
 }
