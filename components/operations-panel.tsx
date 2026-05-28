@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, freeMemoryCommand, type OS } from "@/lib/scriptgen";
+import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
@@ -358,7 +359,7 @@ export function OperationsPanel() {
       command,
       env,
       (line) => {
-        if (runId.current === myRun) setLog((l) => [...l, line]);
+        if (runId.current === myRun) setLog((l) => appendCleanLog(l, line));
       },
       (code) => {
         if (runId.current !== myRun) return; // a newer run superseded this one

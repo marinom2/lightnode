@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Boxes, Loader2, CheckCircle2, XCircle, Terminal } from "lucide-react";
+import { Boxes, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { privateKeyToAccount } from "viem/accounts";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ModelPicker } from "@/components/onboard/model-picker";
+import { InstallProgress } from "@/components/onboard/install-progress";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL } from "@/lib/network";
 import { addModelsCommand, desktopInstallCommand, type OS } from "@/lib/scriptgen";
+import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
 import { runSetupStreamed, detectNativeHardware } from "@/lib/tauri";
 import { getSecret, getWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
@@ -38,7 +40,6 @@ export function UpdateModels() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
-  const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const d = detectClientOS();
@@ -55,10 +56,9 @@ export function UpdateModels() {
     const cur = getServedModels(network);
     setSel(cur.length ? cur : [DEFAULT_MODEL]);
   }, [network]);
-  useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
   useEffect(() => () => stopRef.current?.(), []);
 
-  const append = (line: string) => setLog((l) => [...l, line]);
+  const append = (line: string) => setLog((l) => appendCleanLog(l, line));
 
   const current = getServedModels(network);
   const additions = sel.filter((m) => !current.includes(m));
@@ -147,11 +147,9 @@ export function UpdateModels() {
         </p>
       )}
 
-      {log.length > 0 && (
-        <div className="mt-4 max-h-56 overflow-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
-          <div className="mb-1.5 flex items-center gap-1.5 text-content-soft"><Terminal className="size-3" /> log</div>
-          {log.map((l, i) => (<div key={i} className="whitespace-pre-wrap">{l}</div>))}
-          <div ref={logEnd} />
+      {log.length > 0 && phase !== "idle" && (
+        <div className="mt-4">
+          <InstallProgress log={log} phase={phase} />
         </div>
       )}
     </Card>

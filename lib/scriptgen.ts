@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.10";
+const INSTALLER_REV = "2026-05-28.11";
 
 export interface ScriptBundle {
   os: OS;
@@ -231,7 +231,27 @@ function unixInstall(network: NetworkId, models: string[]): string {
     // toolkit's phase 02 only handles llama3-8b, so pull + alias any others here.
     // The pull tag is the on-chain name with the size turned back into a tag
     // (llama3-70b -> llama3:70b); already-present models are skipped.
-    `for M in ${shellList}; do TAG="$(printf '%s' "$M" | sed -E 's/-([0-9.]+[bB])$/:\\1/')"; if ollama list 2>/dev/null | grep -qiE "(^|[[:space:]])$M(:latest)?([[:space:]]|$)"; then echo "✓ model $M present"; else echo "▶ pulling $M (as $TAG)"; ollama pull "$TAG" || true; [ "$TAG" != "$M" ] && ollama cp "$TAG" "$M" >/dev/null 2>&1 && echo "✓ aliased $TAG -> $M" || true; fi; done`,
+    //
+    // Pull with THROTTLED progress: ollama assumes a TTY and emits thousands of
+    // escape-coded progress frames per download. Streamed verbatim that floods the
+    // app's log channel (and on a multi-GB model can choke the install). Piping the
+    // pull to a file makes ollama emit terse non-TTY output; we sample the percent
+    // every couple of seconds, so the app sees a handful of clean lines.
+    "pull_model() {",
+    '  PM_NAME="$1"; PM_TAG="$2"; PM_LOG="$HOME/.lightnode/.pull.log"; : > "$PM_LOG"',
+    '  echo "▶ downloading $PM_NAME - a multi-GB model can take several minutes"',
+    '  ( ollama pull "$PM_TAG" > "$PM_LOG" 2>&1; echo "__PULLRC__:$?" >> "$PM_LOG" ) &',
+    '  PM_PID=$!; PM_LAST=""',
+    '  while kill -0 "$PM_PID" 2>/dev/null; do',
+    "    PM_PCT=\"$(tr '\\r' '\\n' < \"$PM_LOG\" 2>/dev/null | grep -oE '[0-9]+%' | tail -1)\"",
+    '    [ -n "$PM_PCT" ] && [ "$PM_PCT" != "$PM_LAST" ] && { echo "  downloading $PM_NAME $PM_PCT"; PM_LAST="$PM_PCT"; } || true',
+    "    sleep 2",
+    "  done",
+    '  wait "$PM_PID" 2>/dev/null || true',
+    "  PM_RC=\"$(grep -oE '__PULLRC__:[0-9]+' \"$PM_LOG\" | tail -1 | cut -d: -f2)\"; rm -f \"$PM_LOG\"",
+    '  if [ "${PM_RC:-1}" = "0" ]; then echo "✓ downloaded $PM_NAME"; else echo "⚠ $PM_NAME download exited ${PM_RC:-?} (continuing)"; fi',
+    "}",
+    `for M in ${shellList}; do TAG="$(printf '%s' "$M" | sed -E 's/-([0-9.]+[bB])$/:\\1/')"; if ollama list 2>/dev/null | grep -qiE "(^|[[:space:]])$M(:latest)?([[:space:]]|$)"; then echo "✓ model $M present"; else pull_model "$M" "$TAG"; [ "$TAG" != "$M" ] && ollama cp "$TAG" "$M" >/dev/null 2>&1 && echo "✓ aliased $TAG -> $M" || true; fi; done`,
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present - updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
     "[ -f secrets.env ] || cp secrets.example.sh secrets.env",
@@ -359,10 +379,28 @@ if (-not $env:WORKER_ADDR) { Write-Host "⛔ no worker address or key available 
 $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${supported}"
 # Ensure each selected model is in Ollama under its exact on-chain name (phase 02
 # only handles llama3-8b). Pull tag = name with the size turned back into a tag.
+# Throttled progress: ollama's raw progress is thousands of escape-coded frames
+# that flood the app's log channel; redirect the pull to a file and sample the
+# percent so the app gets a handful of clean lines instead.
+function Pull-Model($name, $tag) {
+  Write-Host "▶ downloading $name - a multi-GB model can take several minutes"
+  $plog = Join-Path $env:USERPROFILE ".lightnode\\.pull.out"
+  $perr = Join-Path $env:USERPROFILE ".lightnode\\.pull.err"
+  $proc = Start-Process ollama -ArgumentList @("pull", $tag) -NoNewWindow -PassThru -RedirectStandardOutput $plog -RedirectStandardError $perr
+  $last = ""
+  while (-not $proc.HasExited) {
+    $txt = ((Get-Content $plog -ErrorAction SilentlyContinue) + (Get-Content $perr -ErrorAction SilentlyContinue)) -join "\`n"
+    $mm = [regex]::Matches($txt, '(\\d{1,3})%')
+    if ($mm.Count -gt 0) { $p = $mm[$mm.Count - 1].Value; if ($p -ne $last) { Write-Host "  downloading $name $p"; $last = $p } }
+    Start-Sleep -Seconds 2
+  }
+  Remove-Item $plog, $perr -ErrorAction SilentlyContinue
+  if ($proc.ExitCode -eq 0) { Write-Host "✓ downloaded $name" } else { Write-Host "⚠ $name download exited $($proc.ExitCode) (continuing)" }
+}
 foreach ($m in ${psList}) {
   $tag = ($m -replace '-([0-9.]+[bB])$', ':$1')
   if (ollama list 2>$null | Select-String -SimpleMatch $m -Quiet) { Write-Host "✓ model $m present" }
-  else { Write-Host "▶ pulling $m (as $tag)"; ollama pull $tag; if ($tag -ne $m) { ollama cp $tag $m *> $null } }
+  else { Pull-Model $m $tag; if ($tag -ne $m) { ollama cp $tag $m *> $null } }
 }
 # Per-network keystore dir so installing one network never touches another's keys
 # (a mainnet operator can set up testnet without risking their mainnet key). The

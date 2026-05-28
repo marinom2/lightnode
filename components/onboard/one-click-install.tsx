@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download,
-  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, RefreshCw, Gauge, KeyRound,
+  Rocket, Loader2, CheckCircle2, XCircle, ShieldCheck, Download,
+  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, ArrowUpRight, RefreshCw, Gauge, KeyRound,
 } from "lucide-react";
 import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain, usePublicClient } from "wagmi";
 import { parseEther, formatEther, getAddress } from "viem";
@@ -15,6 +15,8 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
+import { appendCleanLog } from "@/lib/install-log";
+import { InstallProgress } from "@/components/onboard/install-progress";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, openExternal, type LocalWorkerInfo } from "@/lib/tauri";
 import { shortAddr } from "@/lib/utils";
@@ -410,15 +412,39 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
         )}
       </div>
 
-      {isPending && !funded && (
+      {isPending && !hash && (
         <p className="text-xs text-warning">Approve the transfer in your wallet. On mobile, open the MetaMask app to see the request.</p>
       )}
-      {hash && !funded && (
-        <p className="text-xs text-content-soft">
-          Sent. Confirming on-chain…{" "}
-          <button type="button" onClick={() => openExternal(`${net.explorer}/tx/${hash}`)} className="text-primary hover:underline">view</button>
-        </p>
-      )}
+      {/* Persistent transfer confirmation. The View Tx link stays put after the
+          balance confirms (it used to vanish the instant `funded` flipped true). */}
+      {hash ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-bdr-light bg-surface-base-subtle/60 px-3.5 py-2.5 text-xs">
+          <span className="inline-flex items-center gap-1.5 text-content-soft">
+            {confirming && !funded ? (
+              <><Loader2 className="size-3.5 animate-spin" /> Confirming your transfer on-chain…</>
+            ) : (
+              <><CheckCircle2 className="size-4 text-success" /> Transfer confirmed</>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => openExternal(`${net.explorer}/tx/${hash}`)}
+            className="inline-flex items-center gap-1 font-medium text-primary transition-colors hover:underline"
+          >
+            View Tx <ArrowUpRight className="size-3.5" />
+          </button>
+        </div>
+      ) : funded ? (
+        <div className="flex justify-end text-xs">
+          <button
+            type="button"
+            onClick={() => openExternal(`${net.explorer}/address/${genAddr}`)}
+            className="inline-flex items-center gap-1 font-medium text-primary transition-colors hover:underline"
+          >
+            View worker on explorer <ArrowUpRight className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
       {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
     </div>
   );
@@ -531,14 +557,6 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
-  const logBox = useRef<HTMLDivElement>(null);
-  // Follow the log as it streams, but stop the instant the user scrolls up to
-  // read (resume when they scroll back to the bottom).
-  const stickToBottom = useRef(true);
-  const onLogScroll = () => {
-    const el = logBox.current;
-    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-  };
 
   useEffect(() => setDesktop(isDesktop()), []);
   useEffect(() => {
@@ -601,13 +619,6 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
     setPw(v);
     void setSecret(SECRET_WORKER_PW, v, network); // keychain on desktop, localStorage on web
   };
-  // Pin to the bottom by setting scrollTop directly (instant) - scrollIntoView
-  // with smooth behavior stacks an animation per streamed line and makes the
-  // terminal (and page) float/jump. Only follows when already at the bottom.
-  useEffect(() => {
-    const el = logBox.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [log]);
   // Tell the parent whether this is an existing worker, so the onboard step can
   // drop the install chrome (model picker etc.) and just show the manage panel.
   const alreadyAWorker = registered && !forceFresh;
@@ -674,7 +685,7 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, installModels),
       env,
-      (line) => setLog((l) => [...l, line]),
+      (line) => setLog((l) => appendCleanLog(l, line)),
       (code) => {
         setPhase(code === 0 ? "done" : "failed");
         // NOTE: do NOT auto-clear the saved key/password here. "exit 0" only means
@@ -789,15 +800,12 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
 
       {phase !== "idle" && (
         <div className="relative">
-          <div className="mb-3 flex items-center gap-2 text-sm">
-            {phase === "running" && <span className="inline-flex items-center gap-2 text-content-primary"><Loader2 className="size-4 animate-spin" /> Installing your worker...</span>}
+          <div className="mb-4 flex items-center gap-2 text-sm">
+            {phase === "running" && <span className="inline-flex items-center gap-2 text-content-primary"><Loader2 className="size-4 animate-spin" /> Setting up your worker…</span>}
             {phase === "done" && <span className="inline-flex items-center gap-2 font-medium text-success"><CheckCircle2 className="size-4" /> Worker online. Track it on the dashboard.</span>}
-            {phase === "failed" && <span className="inline-flex items-center gap-2 font-medium text-destructive"><XCircle className="size-4" /> Install stopped. See the log.</span>}
+            {phase === "failed" && <span className="inline-flex items-center gap-2 font-medium text-destructive"><XCircle className="size-4" /> Install stopped. Open the details below.</span>}
           </div>
-          <div ref={logBox} onScroll={onLogScroll} className="max-h-64 overflow-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
-            <div className="mb-1.5 flex items-center gap-1.5 text-content-soft"><Terminal className="size-3" /> install log</div>
-            {log.map((l, i) => (<div key={i} className="whitespace-pre-wrap">{l}</div>))}
-          </div>
+          <InstallProgress log={log} phase={phase} />
         </div>
       )}
     </div>
