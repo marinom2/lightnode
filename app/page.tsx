@@ -20,6 +20,7 @@ import { HeroPreview } from "@/components/hero-preview";
 import { DownloadDesktop } from "@/components/download-desktop";
 import { HomeHeroCta } from "@/components/home-hero-cta";
 import { WebOnly } from "@/components/web-only";
+import { DesktopHomeRedirect } from "@/components/desktop-home-redirect";
 import { HardwareRequirements } from "@/components/hardware-requirements";
 import { IconChip } from "@/components/ui/icon-chip";
 import { StakeAmount } from "@/components/stake-amount";
@@ -37,6 +38,7 @@ const STEPS = [
 export default function Home() {
   return (
     <div className="relative">
+      <DesktopHomeRedirect />
       {/* ambient hero glow + grid */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[640px] glow-radial" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-grid opacity-60" />
