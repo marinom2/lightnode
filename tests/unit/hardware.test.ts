@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, modelRequirement, type MachineInput } from "@/lib/hardware";
+import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, modelRequirement, modelsMemoryGb, modelsFit, type MachineInput } from "@/lib/hardware";
+
+describe("multi-model memory gate", () => {
+  it("sums the resident footprint of a model set", () => {
+    expect(modelsMemoryGb(["llama3-8b"])).toBe(8);
+    expect(modelsMemoryGb(["llama3-8b", "llama3-70b"])).toBe(8 + 48);
+  });
+  it("fits only when the machine can hold the whole set warm", () => {
+    expect(modelsFit(["llama3-8b"], 16)).toBe(true);
+    expect(modelsFit(["llama3-8b", "llama3-70b"], 24)).toBe(false); // needs 56, has 24
+    expect(modelsFit(["llama3-8b", "llama3-70b"], 64)).toBe(true);
+    expect(modelsFit([], 64)).toBe(false); // nothing selected
+    expect(modelsFit(["llama3-8b"], 0)).toBe(false); // unknown machine
+  });
+});
 
 describe("modelRequirement", () => {
   it("reads the param count from the model name", () => {

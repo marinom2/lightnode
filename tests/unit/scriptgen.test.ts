@@ -11,6 +11,7 @@ import {
   settleJobsCommand,
   benchmarkCommand,
   freeMemoryCommand,
+  updateModelsCommand,
 } from "@/lib/scriptgen";
 
 describe("Settle earnings + auto-settling deregister", () => {
@@ -280,16 +281,48 @@ describe("keep model warm (avoid cold-load inference timeouts)", () => {
     expect(unix).toContain("keep_alive");
     expect(unix).toContain("pre-warming");
   });
-  it("the watchdog re-warms the model it reads from the model file", () => {
-    expect(unix).toContain('cat "$HOME/.lightnode/model"');
+  it("the watchdog re-warms every served model it reads from the model file", () => {
+    expect(unix).toContain('done < "$HOME/.lightnode/model"');
   });
-  it("unloads the previous model when switching to a new one (frees its memory)", () => {
-    expect(unix).toContain('OLD_MODEL=');
-    expect(unix).toContain('"keep_alive\\":0'); // keep_alive:0 unloads the old model
-    expect(unix).toContain("unloaded the previous model");
-    const win = desktopInstallCommand("windows", "mainnet", "llama3-70b");
-    expect(win).toContain("$oldModel");
-    expect(win).toContain("unloaded previous model");
+  it("unloads any previously-served model that is no longer in the new set", () => {
+    expect(unix).toContain('for OM in $(cat "$HOME/.lightnode/model"');
+    expect(unix).toContain('"keep_alive\\":0'); // keep_alive:0 unloads it
+    expect(unix).toContain("no longer served");
+    const win = desktopInstallCommand("windows", "mainnet", ["llama3-70b"]);
+    expect(win).toContain("$newSet");
+    expect(win).toContain("no longer served");
+  });
+});
+
+describe("multi-model worker (serve more than one model on one machine)", () => {
+  it("joins the picked models into SUPPORTED_MODELS and stores them one per line", () => {
+    const unix = desktopInstallCommand("macos", "mainnet", ["llama3-8b", "llama3-70b"]);
+    expect(unix).toContain("SUPPORTED_MODELS=llama3-8b,llama3-70b");
+    expect(unix).toContain(`printf '%s\\n' "llama3-8b" "llama3-70b" > "$HOME/.lightnode/model"`);
+  });
+  it("ensures each model is pulled + aliased to its exact on-chain name", () => {
+    const unix = desktopInstallCommand("macos", "mainnet", ["llama3-8b", "llama3-70b"]);
+    expect(unix).toContain('for M in "llama3-8b" "llama3-70b"');
+    expect(unix).toContain("ollama pull");
+    expect(unix).toContain("ollama cp"); // alias the pulled tag to the on-chain name
+  });
+  it("pre-warms each served model (not just one)", () => {
+    const unix = desktopInstallCommand("macos", "mainnet", ["llama3-8b", "llama3-70b"]);
+    expect(unix).toContain("pre-warming llama3-8b, llama3-70b");
+  });
+  it("windows joins SUPPORTED_MODELS and uses a PS array for the set", () => {
+    const win = desktopInstallCommand("windows", "mainnet", ["llama3-8b", "llama3-70b"]);
+    expect(win).toContain(`$env:SUPPORTED_MODELS = "llama3-8b,llama3-70b"`);
+    expect(win).toContain(`$newSet = @('llama3-8b','llama3-70b')`);
+  });
+  it("updateModelsCommand calls updateWorkerModels on-chain with the new set, signed by the worker key", () => {
+    const unix = updateModelsCommand("macos", "mainnet", ["llama3-8b", "llama3-70b"]);
+    expect(unix).toContain('"updateWorkerModels(string[])"');
+    expect(unix).toContain('["llama3-8b","llama3-70b"]');
+    expect(unix).toContain("cast wallet decrypt-keystore"); // derives the worker key to sign
+    const win = updateModelsCommand("windows", "testnet", ["llama3-8b"]);
+    expect(win).toContain('"updateWorkerModels(string[])"');
+    expect(win).toContain('["llama3-8b"]');
   });
 });
 

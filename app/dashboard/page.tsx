@@ -9,6 +9,7 @@ import { ModelsPanel } from "@/components/models-panel";
 import { WatchGrid } from "@/components/watch-grid";
 import { OperationsPanel } from "@/components/operations-panel";
 import { WithdrawWorker } from "@/components/withdraw-worker";
+import { UpdateModels } from "@/components/update-models";
 import { DownloadButton } from "@/components/download-button";
 import { WorkerHealthPanel } from "@/components/worker-health-panel";
 import { WorkerView } from "@/components/worker-view";
@@ -220,6 +221,11 @@ export default function DashboardPage() {
           <div className="mt-4">
             <WithdrawWorker />
           </div>
+          {isMine && (
+            <div className="mt-4">
+              <UpdateModels />
+            </div>
+          )}
           <Link
             href="/recover"
             className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-bdr-soft bg-card/50 px-4 py-3 text-sm transition-colors hover:border-bdr-light"

@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.4";
+const INSTALLER_REV = "2026-05-28.5";
 
 export interface ScriptBundle {
   os: OS;
@@ -76,10 +76,9 @@ docker info >/dev/null 2>&1 || { log "docker still down - retry next tick"; exit
 if docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
   docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$' || { log "worker stopped - starting"; docker start lightchain-worker >/dev/null 2>&1 && log "worker started"; }
 fi
-# Keep the served model pinned in Ollama (keep_alive:-1) so it never cold-loads
-# mid-job. Reads the current model from a file so a model change is picked up.
-MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null)"
-[ -n "$MODEL" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\"model\":\"$MODEL\",\"prompt\":\"ok\",\"keep_alive\":-1,\"stream\":false}" >/dev/null 2>&1 &
+# Keep every served model pinned in Ollama (keep_alive:-1) so none cold-loads
+# mid-job. Reads the set from a file (one per line) so a model change is picked up.
+while IFS= read -r M; do [ -n "$M" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 & done < "$HOME/.lightnode/model" 2>/dev/null || true
 KEEPEOF
 chmod +x "$HOME/.lightnode/keep-online.sh"
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -200,9 +199,12 @@ echo "✓ Foundry (cast) ready"`;
 /** Smart, idempotent install for macOS + Linux (bash). The app passes the
  *  WORKER key + password via env; we fund the worker directly from the user's
  *  wallet, so there's no separate funder and no phase 00/06. */
-function unixInstall(network: NetworkId, model: string): string {
+function unixInstall(network: NetworkId, models: string[]): string {
   const thr = NETWORKS[network].minStakeLcai + 1; // toolkit's pre-flight guard, per network
   const chainId = NETWORKS[network].chainId;
+  const list = models.length ? models : [DEFAULT_MODEL];
+  const supported = list.join(","); // SUPPORTED_MODELS the worker advertises
+  const shellList = list.map((m) => `"${m}"`).join(" "); // for `for M in ...` loops
   return [
     "set -e",
     "exec 2>&1", // surface stderr (git clone, cast, etc.) in the streamed log
@@ -210,12 +212,13 @@ function unixInstall(network: NetworkId, model: string): string {
     SMART_PREREQS,
     // The app's working dir may be "/" (non-writable). Work in a real home dir.
     'mkdir -p "$HOME/.lightnode" && cd "$HOME/.lightnode" && echo "✓ workdir: $HOME/.lightnode"',
-    // Switching models? Unload the PREVIOUS one (it's pinned with keep_alive:-1
-    // and never evicts on its own), so its memory is freed for the new model
-    // instead of both sitting resident. No manual "Free up memory" needed.
-    `OLD_MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null)"; if [ -n "$OLD_MODEL" ] && [ "$OLD_MODEL" != "${model}" ]; then curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$OLD_MODEL\\",\\"keep_alive\\":0}" >/dev/null 2>&1; echo "✓ unloaded the previous model ($OLD_MODEL) to free memory for ${model}"; fi`,
-    // Record the served model so the watchdog can keep it warm in Ollama.
-    `echo "${model}" > "$HOME/.lightnode/model"`,
+    // Changing the served set? Unload any previously-served model that is NOT in
+    // the new set (each is pinned with keep_alive:-1 and never evicts on its own),
+    // so its memory is freed instead of sitting resident.
+    `NEWSET="${list.join(" ")}"`,
+    'for OM in $(cat "$HOME/.lightnode/model" 2>/dev/null); do case " $NEWSET " in *" $OM "*) : ;; *) curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$OM\\",\\"keep_alive\\":0}" >/dev/null 2>&1; echo "✓ unloaded $OM (no longer served)";; esac; done',
+    // Record the served set (one model per line) so the watchdog warms each.
+    `printf '%s\\n' ${shellList} > "$HOME/.lightnode/model"`,
     // Installing means the user wants the worker running - clear any pause set by
     // a previous Stop/Deregister so the watchdog resumes guarding it.
     'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
@@ -225,7 +228,11 @@ function unixInstall(network: NetworkId, model: string): string {
     KEEP_ONLINE_UNIX,
     'cd "$HOME/.lightnode"',
     "set -e",
-    `if ollama list 2>/dev/null | grep -qi "^${model}"; then echo "✓ model ${model} already pulled"; fi`,
+    // Ensure EACH selected model is in Ollama under its exact on-chain name. The
+    // toolkit's phase 02 only handles llama3-8b, so pull + alias any others here.
+    // The pull tag is the on-chain name with the size turned back into a tag
+    // (llama3-70b -> llama3:70b); already-present models are skipped.
+    `for M in ${shellList}; do TAG="$(printf '%s' "$M" | sed -E 's/-([0-9.]+[bB])$/:\\1/')"; if ollama list 2>/dev/null | grep -qiE "(^|[[:space:]])$M(:latest)?([[:space:]]|$)"; then echo "✓ model $M present"; else echo "▶ pulling $M (as $TAG)"; ollama pull "$TAG" || true; [ "$TAG" != "$M" ] && ollama cp "$TAG" "$M" >/dev/null 2>&1 && echo "✓ aliased $TAG -> $M" || true; fi; done`,
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present - updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
     "[ -f secrets.env ] || cp secrets.example.sh secrets.env",
@@ -238,7 +245,7 @@ function unixInstall(network: NetworkId, model: string): string {
     // run without the raw key in the app (the on-disk keystore holds it).
     'export WORKER_ADDR="${WORKER_ADDR:-$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)}"',
     '[ -n "$WORKER_ADDR" ] || { echo "⛔ no worker address or key available to install - generate/select a worker first."; exit 1; }',
-    `export NETWORK=${network} SUPPORTED_MODELS=${model}`,
+    `export NETWORK=${network} SUPPORTED_MODELS=${supported}`,
     // Per-network keystore dir so installing one network never touches another's
     // keys (a mainnet operator can set up testnet without risking their mainnet
     // key). The legacy ~/lightchain-worker/keys is still read by key derivation.
@@ -275,20 +282,23 @@ function unixInstall(network: NetworkId, model: string): string {
     '"$RUNBASH" -c "declare -A _t" 2>/dev/null || { echo "⛔ The toolkit needs bash 4+. Run: brew install bash, then retry."; exit 1; }',
     'echo "✓ phase shell: $("$RUNBASH" --version | head -1)"',
     `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then ST="$(WORKER_PASSWORD="$WORKER_PASSWORD" "$RUNBASH" status.sh 2>&1 || true)"; if printf '%s\\n' "$ST" | grep -qi "registered" && ! printf '%s\\n' "$ST" | grep -qiE "not[ _-]*registered"; then echo "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue; fi; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
-    // Pre-warm: load the model and pin it (keep_alive:-1) so the first real job
-    // doesn't pay a cold-load that could exceed the inference timeout.
-    `echo "▶ pre-warming ${model} (kept resident to avoid cold-load timeouts)"`,
-    `curl -s -m 120 http://127.0.0.1:11434/api/generate -d '{"model":"${model}","prompt":"ok","keep_alive":-1,"stream":false}' >/dev/null 2>&1 || true`,
+    // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
+    // real job doesn't pay a cold-load that could exceed the inference timeout.
+    `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
+    `for M in ${shellList}; do curl -s -m 120 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 || true; done`,
     'echo "✅ worker online"',
   ].join("\n");
 }
 
 /** Smart, idempotent install for Windows (PowerShell). Auto-starts Docker
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
-function windowsInstall(network: NetworkId, model: string): string {
+function windowsInstall(network: NetworkId, models: string[]): string {
   const thr = NETWORKS[network].minStakeLcai + 1;
   const chainId = NETWORKS[network].chainId;
   const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
+  const list = models.length ? models : [DEFAULT_MODEL];
+  const supported = list.join(",");
+  const psList = "@(" + list.map((m) => `'${m}'`).join(",") + ")";
   return `$ErrorActionPreference = "Stop"
 Write-Host "▶ LightNode installer rev ${INSTALLER_REV} (${network})"
 function Have($c){ $null -ne (Get-Command $c -ErrorAction SilentlyContinue) }
@@ -315,12 +325,13 @@ New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\\.lightnode" | Out-N
 Set-Location "$env:USERPROFILE\\.lightnode"
 # Installing means the worker should run - clear any pause from a prior Stop/Deregister.
 Remove-Item (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused") -ErrorAction SilentlyContinue
-# Switching models? Unload the previous one (pinned with keep_alive:-1) so its
-# memory is freed for the new model instead of both staying resident.
-$oldModel = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue)
-if ($oldModel -and $oldModel -ne "${model}") { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{\`"model\`":\`"$oldModel\`",\`"keep_alive\`":0}" | Out-Null; Write-Host "unloaded previous model ($oldModel) to free memory for ${model}" } catch {} }
-# Record the served model so the watchdog can keep it warm in Ollama.
-Set-Content -Path (Join-Path $env:USERPROFILE ".lightnode\\model") -Value "${model}"
+# Changing the served set? Unload any previously-served model not in the new set
+# (each is pinned with keep_alive:-1) so its memory is freed.
+$newSet = ${psList}
+$old = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue)
+foreach ($om in $old) { if ($om -and ($newSet -notcontains $om)) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{\`"model\`":\`"$om\`",\`"keep_alive\`":0}" | Out-Null; Write-Host "unloaded $om (no longer served)" } catch {} } }
+# Record the served set (one model per line) so the watchdog warms each.
+Set-Content -Path (Join-Path $env:USERPROFILE ".lightnode\\model") -Value $newSet
 # Keep-online watchdog: auto-start Docker + the worker on a schedule (survives reboot).
 try {
   $ko = Join-Path $env:USERPROFILE ".lightnode\\keep-online.ps1"
@@ -330,8 +341,8 @@ docker info *> $null
 if (-not $?) { Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0;$i -lt 45;$i++){ docker info *> $null; if($?){break}; Start-Sleep 2 } }
 docker info *> $null; if (-not $?) { exit 0 }
 if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null } }
-$m = Get-Content (Join-Path $env:USERPROFILE ".lightnode\model") -ErrorAction SilentlyContinue
-if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 5 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
+$ms = Get-Content (Join-Path $env:USERPROFILE ".lightnode\model") -ErrorAction SilentlyContinue
+foreach ($m in $ms) { if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 5 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} } }
 '@ | Set-Content -Path $ko -Encoding ASCII
   schtasks /Create /TN "LightChainWorkerWatchdog" /TR "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$ko\`"" /SC MINUTE /MO 10 /F | Out-Null
   Write-Host "✓ keep-online watchdog active (Scheduled Task, every 10 min)"
@@ -343,7 +354,14 @@ if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
 # app passed (a switch-back may run without the raw key); else derive it.
 if (-not $env:WORKER_ADDR -and $env:WORKER_PRIVKEY) { $env:WORKER_ADDR = (cast wallet address --private-key $env:WORKER_PRIVKEY) }
 if (-not $env:WORKER_ADDR) { Write-Host "⛔ no worker address or key available to install - generate/select a worker first."; exit 1 }
-$env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
+$env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${supported}"
+# Ensure each selected model is in Ollama under its exact on-chain name (phase 02
+# only handles llama3-8b). Pull tag = name with the size turned back into a tag.
+foreach ($m in ${psList}) {
+  $tag = ($m -replace '-([0-9.]+[bB])$', ':$1')
+  if (ollama list 2>$null | Select-String -SimpleMatch $m -Quiet) { Write-Host "✓ model $m present" }
+  else { Write-Host "▶ pulling $m (as $tag)"; ollama pull $tag; if ($tag -ne $m) { ollama cp $tag $m *> $null } }
+}
 # Per-network keystore dir so installing one network never touches another's keys
 # (a mainnet operator can set up testnet without risking their mainnet key). The
 # legacy keys dir is still read by key derivation.
@@ -388,9 +406,9 @@ New-Item -ItemType Directory -Force -Path $keysDir | Out-Null
 Set-Content -Path $marker -Value $waddr
 $env:FORCE = "1"
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = (& .\\status.ps1 2>$null | Out-String); if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue } }; Write-Host "▶ phase $p"; & $p; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p"; exit 1 } }
-# Pre-warm the model and pin it so the first job doesn't pay a cold load.
-Write-Host "▶ pre-warming ${model} (kept resident to avoid cold-load timeouts)"
-try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"${model}\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {}
+# Pre-warm each served model and pin it so the first job doesn't pay a cold load.
+Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
+foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
 Write-Host "✅ worker online"`;
 }
 
@@ -401,8 +419,9 @@ Write-Host "✅ worker online"`;
  * WORKER_PRIVKEY from the process env (passed securely by the app, never here);
  * the worker is funded directly from the user's wallet, so there's no funder key.
  */
-export function desktopInstallCommand(os: OS, network: NetworkId, model: string = DEFAULT_MODEL): string {
-  return os === "windows" ? windowsInstall(network, model) : unixInstall(network, model);
+export function desktopInstallCommand(os: OS, network: NetworkId, models: string[] = [DEFAULT_MODEL]): string {
+  const list = models.length ? models : [DEFAULT_MODEL];
+  return os === "windows" ? windowsInstall(network, list) : unixInstall(network, list);
 }
 
 /** Run a toolkit script natively from the app: find the toolkit (the install
@@ -523,7 +542,7 @@ export function benchmarkCommand(os: OS, budgetSec: number = 120): string {
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
-      '$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }',
+      '$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue | Select-Object -First 1); if (-not $model) { $model = "llama3-8b" }',
       `$budget = ${budgetSec}`,
       'Write-Host "> benchmarking $model (real inference vs the ${budget}s job deadline)..."',
       'try { $null = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/tags -TimeoutSec 5 } catch { Write-Host "Ollama not responding - install/start it first"; exit 1 }',
@@ -547,7 +566,7 @@ export function benchmarkCommand(os: OS, budgetSec: number = 120): string {
   return [
     "exec 2>&1",
     'export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
-    'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
+    'MODEL="$(head -1 "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
     `BUDGET=${budgetSec}`,
     'echo "▶ benchmarking $MODEL (real inference vs the ${BUDGET}s job deadline)..."',
     'curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama not responding - install/start it first"; exit 1; }',
@@ -799,6 +818,40 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
 }
 
 /**
+ * Change the set of models an EXISTING registered worker serves, on-chain, with
+ * no re-register or re-stake. Calls `updateWorkerModels(string[])` on the worker
+ * registry signed by the worker key (sourced from the on-disk keystore). After
+ * this, `modelsReady` is false until the worker restarts and re-attests, so the
+ * caller follows up with a reinstall (which pulls/warms the new set + restarts).
+ */
+export function updateModelsCommand(os: OS, network: NetworkId, models: string[]): string {
+  const net = NETWORKS[network];
+  const arr = JSON.stringify(models); // ["llama3-8b","llama3-70b"]
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
+      ...keystoreDeriveWin(),
+      'if (-not $env:WORKER_PRIVKEY) { Write-Host "⛔ no worker key available to sign - run this on the machine that hosts the worker."; exit 1 }',
+      `Write-Host "updating on-chain served models to ${models.join(", ")}..."`,
+      `$r = (cast send ${net.workerRegistry} "updateWorkerModels(string[])" '${arr}' --private-key $env:WORKER_PRIVKEY --rpc-url ${net.rpc} 2>&1)`,
+      `if ($?) { Write-Host "on-chain models updated - reinstalling to restart with the new set" } else { Write-Host "update failed: $r"; exit 1 }`,
+    ].join("\n");
+  }
+  return [
+    "exec 2>&1",
+    'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
+    'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
+    'cd "$TK" 2>/dev/null || true',
+    ...keystoreDeriveUnix(),
+    '[ -n "${WORKER_PRIVKEY:-}" ] || { echo "⛔ no worker key available to sign - run this on the machine that hosts the worker."; exit 1; }',
+    `echo "▶ updating on-chain served models to ${models.join(", ")}..."`,
+    `ERR="$(cast send ${net.workerRegistry} "updateWorkerModels(string[])" '${arr}' --private-key "$WORKER_PRIVKEY" --rpc-url ${net.rpc} 2>&1 >/dev/null)"`,
+    `if [ $? -eq 0 ]; then echo "✓ on-chain models updated - reinstalling to restart with the new set"; else echo "⛔ update failed: $(printf %s "$ERR" | tr '\\n' ' ' | cut -c1-160)"; exit 1; fi`,
+  ].join("\n");
+}
+
+/**
  * Free up the machine completely: stop the worker and reclaim the RAM it holds.
  * Deregistering only exits the chain - the model stays resident in Ollama (the
  * big chunk, ~5 GB) and Docker keeps its VM (~4 GB on macOS), so the machine
@@ -813,8 +866,8 @@ export function freeMemoryCommand(os: OS): string {
       '$ErrorActionPreference = "Continue"',
       'Write-Host "> freeing up your machine (stopping the worker + reclaiming RAM)..."',
       'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
-      '$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }',
-      'try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{`"model`":`"$model`",`"keep_alive`":0}" | Out-Null; Write-Host "OK - unloaded $model from memory (~5 GB reclaimed)" } catch {}',
+      '$ms = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $ms) { $ms = @("llama3-8b") }',
+      'foreach ($m in $ms) { if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{`"model`":`"$m`",`"keep_alive`":0}" | Out-Null; Write-Host "OK - unloaded $m from memory" } catch {} } }',
       'try { docker stop lightchain-worker | Out-Null; Write-Host "OK - stopped the worker container" } catch {}',
       'Get-Process "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host "OK - quit Docker Desktop (released its VM memory)"',
       'Write-Host "Done - memory freed. Your stake and registration are untouched; click Restart to come back online."',
@@ -828,10 +881,8 @@ export function freeMemoryCommand(os: OS): string {
     // Pause marker first: even if the worker is still registered, the watchdog
     // must not silently restart it (and reload the model) behind our backs.
     'mkdir -p "$HOME/.lightnode" 2>/dev/null; touch "$HOME/.lightnode/keep-online.paused"',
-    'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
     'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then',
-    `  curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"keep_alive\\":0}" >/dev/null 2>&1`,
-    '  echo "✓ unloaded $MODEL from memory (~5 GB reclaimed)"',
+    '  while IFS= read -r M; do [ -n "$M" ] && curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"keep_alive\\":0}" >/dev/null 2>&1 && echo "✓ unloaded $M from memory"; done < "$HOME/.lightnode/model" 2>/dev/null || true',
     "fi",
     'if [ -n "$(docker ps -q -f name=lightchain-worker 2>/dev/null)" ]; then docker stop lightchain-worker >/dev/null 2>&1 && echo "✓ stopped the worker container"; fi',
   ];
@@ -911,9 +962,9 @@ $sess = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\session-keys.enc"
 if (Test-Path $sess) { Move-Item $sess "$sess.bak-$((Get-Date).Ticks)"; Write-Host "✓ cleared stale session store" }
 docker start lightchain-worker
 Write-Host "✓ worker restarted - give it ~1 min, then check the dashboard"
-$model = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $model) { $model = "llama3-8b" }
-Write-Host "pre-warming $model (kept resident) so the first job does not cold-load"
-try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 180 -Body "{\`"model\`":\`"$model\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" | Out-Null; Write-Host "model warm + pinned" } catch { Write-Host "(could not pre-warm now - the watchdog will warm it shortly)" }
+$ms = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue); if (-not $ms) { $ms = @("llama3-8b") }
+Write-Host "pre-warming each served model (kept resident) so the first job does not cold-load"
+foreach ($m in $ms) { if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 180 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" | Out-Null; Write-Host "$m warm + pinned" } catch { Write-Host "(could not pre-warm $m now - the watchdog will warm it shortly)" } } }
 docker logs --tail 20 lightchain-worker`;
   }
   return [
@@ -933,9 +984,8 @@ docker logs --tail 20 lightchain-worker`;
     // Pre-warm + pin the model (keep_alive:-1) exactly like the installer, so the
     // FIRST job after a restart doesn't cold-load and miss the deadline (a
     // cold-start timeout is the slashable case).
-    'MODEL="$(cat "$HOME/.lightnode/model" 2>/dev/null || echo llama3-8b)"',
-    'echo "▶ pre-warming $MODEL (kept resident) so the first job does not cold-load"',
-    `curl -s -m 180 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$MODEL\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 && echo "✓ model warm + pinned" || echo "(could not pre-warm now - the keep-online watchdog will warm it shortly)"`,
+    'echo "▶ pre-warming each served model (kept resident) so the first job does not cold-load"',
+    'while IFS= read -r M; do [ -n "$M" ] && { curl -s -m 180 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 && echo "✓ $M warm + pinned" || echo "(could not pre-warm $M now - the watchdog will warm it shortly)"; }; done < "$HOME/.lightnode/model" 2>/dev/null || true',
     "docker logs --tail 15 lightchain-worker 2>&1",
   ].join("\n");
 }

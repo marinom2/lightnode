@@ -180,6 +180,23 @@ export function setWorkerAddr(net: NetworkId, addr: string): void {
   lsSet(addrKey(net), addr);
 }
 
+const modelsKey = (net: NetworkId) => `lightnode.servedModels.${net}`;
+
+/** The model set this network's worker serves (public). Empty if unknown. */
+export function getServedModels(net: NetworkId): string[] {
+  try {
+    const parsed: unknown = JSON.parse(lsGet(modelsKey(net)) || "[]");
+    return Array.isArray(parsed) ? (parsed as string[]).filter((m) => typeof m === "string" && m) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record the model set this network's worker serves. */
+export function setServedModels(net: NetworkId, models: string[]): void {
+  lsSet(modelsKey(net), JSON.stringify(models));
+}
+
 /** True when the command runner can inject secrets from the keychain by name. */
 export function hasNativeSecrets(): boolean {
   return isDesktop();

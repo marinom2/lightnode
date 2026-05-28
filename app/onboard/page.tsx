@@ -42,7 +42,7 @@ export default function OnboardPage() {
   const [step, setStep] = useState(0);
   const [vramOk, setVramOk] = useState(false);
   const [vramGb, setVramGb] = useState(0);
-  const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
   const [ackRisk, setAckRisk] = useState(false);
   const [avgJobs, setAvgJobs] = useState(0);
   const [desktop, setDesktop] = useState(false);
@@ -251,12 +251,12 @@ export default function OnboardPage() {
 
             {!(alreadyAWorker && desktop) && (
               <div className="mb-6 rounded-2xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
-                <ModelPicker network={network} vramGb={vramGb} value={model} onChange={setModel} />
+                <ModelPicker network={network} vramGb={vramGb} value={models} onChange={setModels} />
               </div>
             )}
 
             <div className="mb-6">
-              <OneClickInstall model={model} onAlready={setAlreadyAWorker} />
+              <OneClickInstall models={models} onAlready={setAlreadyAWorker} />
             </div>
 
             <details hidden={alreadyAWorker && desktop} className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">

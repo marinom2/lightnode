@@ -19,7 +19,7 @@ import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, type LocalWorkerInfo } from "@/lib/tauri";
 import { shortAddr } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, getServedModels, setServedModels, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { fetchWorker } from "@/lib/subgraph";
 
@@ -502,7 +502,7 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
  * keystore password + a dedicated funding key (fundable from the connected
  * wallet), passes them as process env to the native runner, and streams the log.
  */
-export function OneClickInstall({ model = DEFAULT_MODEL, onAlready }: { model?: string; onAlready?: (already: boolean) => void }) {
+export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready }: { models?: string[]; onAlready?: (already: boolean) => void }) {
   const { network } = useNetwork();
   const net = NETWORKS[network];
   const [desktop, setDesktop] = useState(false);
@@ -638,15 +638,19 @@ export function OneClickInstall({ model = DEFAULT_MODEL, onAlready }: { model?: 
     const pwVal = pw || (await getSecret(SECRET_WORKER_PW, network));
     if (pwVal) await setSecret(SECRET_WORKER_PW, pwVal, network);
     const k = await getSecret(SECRET_WORKER_KEY, network);
+    // Fresh install uses the picked set; bringing an existing worker back online
+    // reuses its recorded set (so we don't silently change what it serves).
+    const installModels = showAlready ? (getServedModels(network).length ? getServedModels(network) : [DEFAULT_MODEL]) : models;
+    setServedModels(network, installModels);
     const env: Record<string, string> = {
       NETWORK: network,
-      SUPPORTED_MODELS: model,
+      SUPPORTED_MODELS: installModels.join(","),
       WORKER_PASSWORD: pwVal,
       WORKER_ADDR: target,
       ...(k ? { WORKER_PRIVKEY: k } : {}),
     };
     stopRef.current = await runSetupStreamed(
-      desktopInstallCommand(os, network, model),
+      desktopInstallCommand(os, network, installModels),
       env,
       (line) => setLog((l) => [...l, line]),
       (code) => {

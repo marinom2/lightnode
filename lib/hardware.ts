@@ -150,6 +150,17 @@ export function modelRequirement(name: string): ModelRequirement {
   return { paramsB, vramGb: 48, tier: "server", tierLabel: "Server-class - needs a 48GB+ GPU" };
 }
 
+/** Total resident memory (GB) needed to keep a set of models warm at once. */
+export function modelsMemoryGb(names: string[]): number {
+  return names.reduce((sum, n) => sum + modelRequirement(n).vramGb, 0);
+}
+
+/** Whether a machine with `availGb` (discrete VRAM, or the unified pool on Apple
+ *  Silicon) can keep the whole set resident at once. */
+export function modelsFit(names: string[], availGb: number): boolean {
+  return availGb > 0 && names.length > 0 && modelsMemoryGb(names) <= availGb;
+}
+
 export interface Detected {
   input: Partial<MachineInput>;
   vramInferred: boolean;
