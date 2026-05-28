@@ -16,7 +16,7 @@ import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
-import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, type LocalWorkerInfo } from "@/lib/tauri";
+import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, openExternal, type LocalWorkerInfo } from "@/lib/tauri";
 import { shortAddr } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, getServedModels, setServedModels, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
@@ -411,7 +411,7 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
       {hash && !funded && (
         <p className="text-xs text-content-soft">
           Sent. Confirming on-chain…{" "}
-          <a href={`${net.explorer}/tx/${hash}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">view</a>
+          <button type="button" onClick={() => openExternal(`${net.explorer}/tx/${hash}`)} className="text-primary hover:underline">view</button>
         </p>
       )}
       {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}

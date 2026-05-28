@@ -39,7 +39,8 @@ subgraph.
 Anyone who wants to contribute GPU/CPU time to LightChain's decentralized AI
 inference network and earn LCAI for completed jobs. A worker:
 
-- serves an open model (default `llama3-8b`) through a local Docker container,
+- serves one or more open models (default `llama3-8b`) through a local Docker
+  container, as long as the machine can keep them all in memory at once,
 - is identified on-chain by a generated worker key with a staked deposit,
 - gets paid a share of each job's fee once the job is released.
 
@@ -121,6 +122,8 @@ command to copy.
 | **Deregister** | Settles + claims first, then exits the network and returns your stake to the worker wallet. Stops the container so you can install another network. |
 | **Free up memory** | Gives your machine its RAM back: stops the worker, unloads the model from Ollama, and quits Docker. A worker pins its model (~5 GB) plus a Docker VM even when stopped, so this is the "I want my machine back" button. Stake + registration are untouched - Restart brings it back. |
 | **Withdraw Funds** | Sends the worker wallet's spendable LCAI to any address you choose. Signs locally with the worker key (in-browser if the app holds it, otherwise derived from the on-disk keystore). |
+| **Models this worker serves** | Add or remove served models live. Updates the model set on-chain (no re-stake), then restarts the worker with the new set. The picker enforces the same memory check as setup. |
+| **Recover a replaced key** | Lists worker keys you replaced (archived on this device when you generate a new one), flags any still holding a stake on-chain, and restores one as your active worker. So a staked worker is never lost. |
 
 On the desktop app, your own worker also shows a **Live health** panel - a real-time
 read of the worker on your machine (heartbeat, whether a job is being processed

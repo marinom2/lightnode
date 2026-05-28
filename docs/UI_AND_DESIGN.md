@@ -58,11 +58,13 @@ it's the real one-click flow:
    shows a reward estimate. A **Speed test** runs a real local inference and draws a
    gauge of your worst-case job time against the on-chain deadline, so you see slash
    risk *before* going live.
-3. **Pick the model to serve** - the **model picker** lists the network's *live,
+3. **Pick the model(s) to serve** - the **model picker** lists the network's *live,
    whitelisted* models (so testnet and mainnet show their own, and the list grows
-   automatically as LightChain adds models). Each option shows its per-job fee, max
-   output, and whether it fits your hardware; the app pre-selects the lightest model
-   that fits. Your worker serves only the model you pick.
+   automatically as LightChain adds models). It is multi-select: a worker can serve
+   several models at once. Each option shows its per-job fee and rough memory need,
+   and the picker sums the footprints of your selection and warns when the set won't
+   stay resident in your machine's memory (every served model has to be loaded at the
+   same time). The app pre-selects the lightest model that fits.
 4. **Set the keystore password + fund the worker** - generate (or type) a password
    that encrypts your worker key (masked by default; reveal to back it up), then
    fund the generated worker address by scanning the prefilled QR with a phone
@@ -98,6 +100,8 @@ log; on the web it hands you the exact command to copy.
 | **Settle earnings** | Releases your completed jobs and claims the rewards into the worker wallet. |
 | **Deregister** | Settles + claims, exits the network, returns your stake, stops the container. |
 | **Free up memory** | Stops the worker, unloads the model, and quits Docker to give the machine its RAM back. |
+| **Models this worker serves** | Add/remove served models live: updates the set on-chain (no re-stake), then restarts with it. Same memory gate as setup. |
+| **Recover a replaced key** | Lists keys you replaced (archived on-device), flags any still staked on-chain, and restores one as the active worker. |
 
 **Why "Free up memory" exists (and why operators like it):** a worker keeps its
 model **pinned in Ollama** (often ~5 GB) so jobs never cold-load, and Docker keeps a

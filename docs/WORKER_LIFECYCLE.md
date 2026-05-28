@@ -181,11 +181,24 @@ for workers created before per-network isolation: ops also scan the legacy share
 `~/lightchain-worker/keys` directory, so an older worker can still be settled,
 withdrawn, and deregistered.
 
-## Switching the served model
+## Serving one or more models
 
-Pick a different model and re-install. The install unloads the previously pinned
-model from Ollama before warming the new one, so you do not end up with two models
-resident at once. No Free up memory step is needed.
+A worker can serve a single model or several at once. The model picker is
+multi-select; it sums each model's rough resident footprint and warns when the set
+won't fit your machine's memory (every served model has to stay loaded at the same
+time, and a cold-load between jobs is what gets a worker slashed). Each model has
+its own fee, so a multi-model worker earns from more job types, but it only makes
+sense on a machine with enough VRAM (or unified memory) to keep them all warm.
+
+The install advertises the whole set on-chain, pulls each model under its exact
+registered name, and pre-warms and pins all of them. The keep-online watchdog warms
+every model in the set; dropping a model from the set unloads it to free its memory.
+
+**Changing the set on a running worker:** use **Models this worker serves** on the
+dashboard. It updates the model set on-chain (no re-stake), then restarts the worker
+with the new set so it re-attests. Switching to a fresh single model during setup
+works the same way - the install unloads any model no longer in the set, so you
+never end up with two resident by accident.
 
 ---
 

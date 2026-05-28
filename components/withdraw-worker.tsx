@@ -11,7 +11,7 @@ import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, wipeWorkerSecrets, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
-import { isDesktop, runSetupStreamed } from "@/lib/tauri";
+import { isDesktop, runSetupStreamed, openExternal } from "@/lib/tauri";
 import { detectClientOS } from "@/lib/os-detect";
 import { sweepCommand, type OS } from "@/lib/scriptgen";
 import { fmt, shortAddr } from "@/lib/utils";
@@ -271,9 +271,9 @@ export function WithdrawWorker() {
           ) : (
             "Confirming on-chain… "
           )}{" "}
-          <a href={`${net.explorer}/tx/${hash}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+          <button type="button" onClick={() => openExternal(`${net.explorer}/tx/${hash}`)} className="text-primary hover:underline">
             view transaction
-          </a>
+          </button>
         </p>
       )}
 

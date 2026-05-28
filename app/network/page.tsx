@@ -9,6 +9,7 @@ import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
 import { useNetwork } from "@/lib/network-context";
 import { NETWORKS } from "@/lib/network";
+import { openExternal } from "@/lib/tauri";
 import { fmt, compact, shortAddr, timeAgo, cn } from "@/lib/utils";
 
 interface Row {
@@ -87,9 +88,9 @@ export default function NetworkPage() {
               <span className="w-28 text-right font-medium text-success">{r ? `${fmt(r.earnedLcai, 2)} LCAI` : "-"}</span>
               <span className="hidden w-20 text-right text-content-soft md:block">{r ? timeAgo(r.last_seen_at) : ""}</span>
               {r && (
-                <a href={`${explorer}/address/${r.id}`} target="_blank" rel="noreferrer" className="text-content-soft hover:text-content-primary" aria-label="Explorer">
+                <button type="button" onClick={() => openExternal(`${explorer}/address/${r.id}`)} className="text-content-soft hover:text-content-primary" aria-label="Explorer">
                   <ExternalLink className="size-3.5" />
-                </a>
+                </button>
               )}
             </div>
           ))}

@@ -17,7 +17,7 @@ import { VerifyWorker } from "@/components/onboard/verify-worker";
 import { OneClickInstall } from "@/components/onboard/one-click-install";
 import { NETWORKS, DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
-import { isDesktop } from "@/lib/tauri";
+import { isDesktop, openExternal } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
@@ -130,9 +130,9 @@ export default function OnboardPage() {
             <>
               {" "}
               Need test LCAI?{" "}
-              <a href={NETWORKS.testnet.faucet} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">
+              <button type="button" onClick={() => openExternal(NETWORKS.testnet.faucet!)} className="text-primary underline-offset-2 hover:underline">
                 Use the faucet
-              </a>
+              </button>
               .
             </>
           )}
@@ -267,14 +267,13 @@ export default function OnboardPage() {
                 The one-click install above is the supported path. It sets up Docker, Ollama, the keystore,
                 registration, the keep-online watchdog, model pre-warm, and sleep prevention, and the Operations panel
                 manages settle, withdraw, and deregister. If you&apos;d rather run everything by hand, use the official{" "}
-                <a
-                  href="https://github.com/lightchain-protocol/lightchain-worker-toolkit"
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => openExternal("https://github.com/lightchain-protocol/lightchain-worker-toolkit")}
                   className="text-primary underline-offset-2 hover:underline"
                 >
                   lightchain-worker-toolkit
-                </a>{" "}
+                </button>{" "}
                 directly. It is the upstream source these commands wrap.
               </p>
             </details>
@@ -288,13 +287,12 @@ export default function OnboardPage() {
             </span>
             <h2 className="text-xl font-semibold text-content-primary">You&apos;re live. Now watch it earn</h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-content-soft">
-              After <code className="rounded bg-surface-base-light px-1.5 py-0.5 text-xs">08-run-worker</code>, your terminal
-              prints your <span className="text-content-primary">worker address</span> (and{" "}
-              <code className="rounded bg-surface-base-light px-1.5 py-0.5 text-xs">status</code> shows it too). Paste it into
-              the dashboard to track jobs, earnings, and health in real time.
+              {desktop
+                ? "Your worker is registered and running on this machine. We're confirming it on-chain below, then track jobs, earnings, and health on the dashboard."
+                : "After 08-run-worker, your terminal prints your worker address (status shows it too). Paste it below to track jobs, earnings, and health in real time."}
             </p>
             <div className="mx-auto mt-6 max-w-lg">
-              <p className="mb-2 text-sm font-medium text-content-primary">Verify it&apos;s live</p>
+              <p className="mb-2 text-sm font-medium text-content-primary">{desktop ? "Confirming it's live" : "Verify it's live"}</p>
               <VerifyWorker />
             </div>
 
@@ -315,11 +313,9 @@ export default function OnboardPage() {
                   Open dashboard <ArrowRight />
                 </Button>
               </Link>
-              <a href="https://github.com/lightchain-protocol/lightchain-worker-toolkit" target="_blank" rel="noreferrer">
-                <Button variant="outline" size="lg">
-                  Toolkit docs <ExternalLink />
-                </Button>
-              </a>
+              <Button variant="outline" size="lg" onClick={() => openExternal("https://github.com/lightchain-protocol/lightchain-worker-toolkit")}>
+                Toolkit docs <ExternalLink />
+              </Button>
             </div>
           </div>
         )}
