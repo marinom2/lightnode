@@ -214,7 +214,7 @@ export function MachineCheck({
         </div>
         <p className="text-xs text-content-soft">
           {showEdit
-            ? "A browser can't read VRAM/RAM directly - confirm the values above. Full no-input auto-detection is coming in the LightNode desktop app."
+            ? "A browser can't read VRAM/RAM directly - confirm the values above, or run the LightNode desktop app for exact, no-input detection read straight from your OS."
             : "Detected automatically from your browser. Wrong GPU? Hit Adjust."}
         </p>
         {diag && (
