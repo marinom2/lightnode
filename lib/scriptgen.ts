@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.3";
+const INSTALLER_REV = "2026-05-28.4";
 
 export interface ScriptBundle {
   os: OS;
@@ -233,7 +233,11 @@ function unixInstall(network: NetworkId, model: string): string {
     // WORKER_PRIVKEY) - strip any file-set copies so they can't override, and add
     // the derived address. Avoids sed-escaping pitfalls with special chars.
     "grep -vE '^[[:space:]]*export (WORKER_PASSWORD|WORKER_ADDR|WORKER_PRIVKEY|FUNDER_PRIVKEY)=' secrets.env > secrets.env.tmp || true; mv secrets.env.tmp secrets.env",
-    'export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY")"',
+    // Prefer the address the app passed (public, always known). Only derive it
+    // from the key when absent - a switch-back to an already-registered worker may
+    // run without the raw key in the app (the on-disk keystore holds it).
+    'export WORKER_ADDR="${WORKER_ADDR:-$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)}"',
+    '[ -n "$WORKER_ADDR" ] || { echo "⛔ no worker address or key available to install - generate/select a worker first."; exit 1; }',
     `export NETWORK=${network} SUPPORTED_MODELS=${model}`,
     // Per-network keystore dir so installing one network never touches another's
     // keys (a mainnet operator can set up testnet without risking their mainnet
@@ -335,8 +339,10 @@ if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Meth
 if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present - updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
 Set-Location lightchain-worker-toolkit\\scripts\\powershell
 if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
-# Worker key + password come from the app via process env; derive the address.
-$env:WORKER_ADDR = (cast wallet address --private-key $env:WORKER_PRIVKEY)
+# Worker key + password come from the app via process env. Prefer the address the
+# app passed (a switch-back may run without the raw key); else derive it.
+if (-not $env:WORKER_ADDR -and $env:WORKER_PRIVKEY) { $env:WORKER_ADDR = (cast wallet address --private-key $env:WORKER_PRIVKEY) }
+if (-not $env:WORKER_ADDR) { Write-Host "⛔ no worker address or key available to install - generate/select a worker first."; exit 1 }
 $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
 # Per-network keystore dir so installing one network never touches another's keys
 # (a mainnet operator can set up testnet without risking their mainnet key). The

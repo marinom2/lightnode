@@ -16,7 +16,7 @@ import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
-import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, migrateBareWorkerKey, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { fetchWorker } from "@/lib/subgraph";
 
@@ -175,6 +175,9 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
       setRegistered(false);
       return;
     }
+    // Recover a key stored by an older build under the single (non-per-network)
+    // name, so the reveal + install find it for this network.
+    void migrateBareWorkerKey(network);
     fetchWorker(network, genAddr)
       .then((w) => {
         if (on) setRegistered(!!w && w.status !== "deregistered");
@@ -194,8 +197,10 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     try {
       let addr: string;
       if (await nativeSecretsAvailable()) {
-        // Key is created + kept in the keychain natively; only the address returns.
-        const native = await generateWorkerKey(SECRET_WORKER_KEY);
+        // Key is created + kept in the keychain natively, under a PER-NETWORK name
+        // so a second network's worker never overwrites the first; only the
+        // address returns to the UI.
+        const native = await generateWorkerKey(`${SECRET_WORKER_KEY}.${network}`);
         if (!native) throw new Error("native key generation unavailable");
         addr = getAddress(native);
       } else {
@@ -432,7 +437,12 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   }, []);
   useEffect(() => {
     let on = true;
-    getSecret(SECRET_WORKER_PW, network).then((saved) => on && saved && setPw(saved));
+    // Load THIS network's saved password, and clear when it has none - otherwise
+    // toggling networks would leave the previous network's password on screen
+    // (misleading: the two workers have different keystore passwords).
+    getSecret(SECRET_WORKER_PW, network).then((saved) => {
+      if (on) setPw(saved || "");
+    });
     return () => {
       on = false;
     };
@@ -469,17 +479,23 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     if (!ready) return;
     setPhase("running");
     setLog([]);
-    // The key already lives in the keychain (desktop) / localStorage (web) from
-    // generation; just make sure the password is stored too. On desktop the
-    // native runner injects both by NAME (the web layer never carries the raw
-    // values); on web we fall back to passing them via env.
+    // Persist this network's password, then pass THIS network's secrets to the
+    // installer by value (read from the per-network keychain/localStorage). We
+    // pass them per-network rather than by bare keychain name, because the native
+    // by-name injection can't carry a per-network name - using it would feed the
+    // wrong network's worker. The values are device-local (in-app + native runner),
+    // never networked. WORKER_PRIVKEY may be absent for a switch-back to a worker
+    // whose key isn't in the app; WORKER_ADDR (public) then identifies it and the
+    // installer/keystore supplies the key.
     await setSecret(SECRET_WORKER_PW, pw, network);
-    const baseEnv = { NETWORK: network, SUPPORTED_MODELS: model };
-    const native = await nativeSecretsAvailable();
-    const secretEnv = native ? [SECRET_WORKER_KEY, SECRET_WORKER_PW] : undefined;
-    const env = native
-      ? baseEnv
-      : { ...baseEnv, WORKER_PASSWORD: pw, WORKER_PRIVKEY: (await getSecret(SECRET_WORKER_KEY, network)) || "" };
+    const k = await getSecret(SECRET_WORKER_KEY, network);
+    const env: Record<string, string> = {
+      NETWORK: network,
+      SUPPORTED_MODELS: model,
+      WORKER_PASSWORD: pw,
+      WORKER_ADDR: getWorkerAddr(network),
+      ...(k ? { WORKER_PRIVKEY: k } : {}),
+    };
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, model),
       env,
@@ -492,7 +508,6 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
         // and make the app "forget" it. The key stays persisted so the worker is
         // always recoverable; the "new" button lets the user discard it on purpose.
       },
-      secretEnv,
     );
   };
 

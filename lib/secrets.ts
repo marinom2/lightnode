@@ -9,6 +9,7 @@
  * can pull them straight from the keychain by name (see runSetupStreamed's
  * `secretEnv`) without the web ever holding the value.
  */
+import { privateKeyToAccount } from "viem/accounts";
 import { isDesktop, secretGet, secretSet, secretDelete, nativeSecretsAvailable } from "./tauri";
 import type { NetworkId } from "./network";
 
@@ -88,6 +89,30 @@ export async function setSecret(name: string, value: string, net: NetworkId): Pr
 export async function deleteSecret(name: string, net: NetworkId): Promise<void> {
   if (isDesktop()) await secretDelete(`${name}.${net}`);
   lsDel(`${LEGACY[name] ?? name}.${net}`);
+}
+
+/**
+ * One-time migration of the worker key. Early builds stored the key under a
+ * single, non-per-network name (`WORKER_PRIVKEY`), so generating a second
+ * network's worker overwrote the first, and a per-network read misses it
+ * entirely (the key reveal shows nothing). If a bare key exists and its address
+ * matches the address recorded for THIS network, copy it into the per-network
+ * slot. Address-matched so it can only ever land on the network it belongs to.
+ */
+export async function migrateBareWorkerKey(net: NetworkId): Promise<void> {
+  // Already have a per-network key? Nothing to do.
+  if (await getSecret(SECRET_WORKER_KEY, net)) return;
+  const bareLegacy = LEGACY[SECRET_WORKER_KEY];
+  const bare = isDesktop() ? await secretGet(SECRET_WORKER_KEY) : lsGet(bareLegacy);
+  if (!bare || !/^0x[0-9a-fA-F]{64}$/.test(bare)) return;
+  let addr = "";
+  try {
+    addr = privateKeyToAccount(bare as `0x${string}`).address.toLowerCase();
+  } catch {
+    return; // not a usable key
+  }
+  const want = getWorkerAddr(net).toLowerCase();
+  if (want && addr === want) await setSecret(SECRET_WORKER_KEY, bare, net);
 }
 
 /** Wipe a network's worker secrets + its (public) address. */
