@@ -465,7 +465,7 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
   const canBringOnline = !runningHere && !otherNetRunning;
 
   const desc = runningHere
-    ? "It's running on this machine and serving jobs, so there's nothing to do here. Manage it (settle, restart, health, deregister) from the dashboard."
+    ? "It's running on this machine and serving jobs, so there's nothing to do here. Manage it from the dashboard - add models, settle earnings, restart, check health, or deregister."
     : otherNetRunning
       ? `A worker for the other network is running on this machine right now. This ${net.label} worker is registered but offline here. Stop the other one first (on the dashboard), then come back to bring this one online.`
       : stoppedHere

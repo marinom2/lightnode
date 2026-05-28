@@ -227,7 +227,11 @@ export default function DashboardPage() {
           <div className="mt-4">
             <WithdrawWorker />
           </div>
-          {isMine && worker && worker.status !== "deregistered" && (
+          {/* Show the models panel when this is YOUR worker and it's set up: either
+              on-chain active, OR a container exists here (running/stopped). The public
+              subgraph can lag a (re)registration and wrongly report "deregistered",
+              which used to hide model management entirely for a live local worker. */}
+          {isMine && worker && (worker.status !== "deregistered" || localStatus === "running" || localStatus === "stopped") && (
             <div className="mt-4">
               <UpdateModels />
             </div>
