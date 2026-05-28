@@ -57,7 +57,7 @@ describe("deriveInstallView", () => {
       "⛔ stopped at 07-register",
     ];
     const hint = diagnoseFailure(log)!;
-    expect(hint).toMatch(/rejected this model/i);
+    expect(hint).toMatch(/Models this worker serves/i);
     expect(hint).toMatch(/llama3-8b/);
     expect(hint).toMatch(/not lost/i);
   });

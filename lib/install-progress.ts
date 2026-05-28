@@ -92,10 +92,11 @@ export function diagnoseFailure(cleaned: string[]): string | null {
   const text = cleaned.join("\n");
   if (/AddSupportedModel\b.*\brevert/i.test(text)) {
     return (
-      "The network rejected this model during registration (the on-chain AddSupportedModel step reverted). " +
-      "Your stake is locked on-chain - the worker registered, so it is not lost. " +
-      "llama3-8b is the reliable testnet model: open the dashboard and add it from “Models this worker serves” " +
-      "(no re-stake needed), or deregister this worker and reinstall picking llama3-8b."
+      "Your worker staked and registered on-chain (your stake is locked, not lost), but adding the model " +
+      "during setup failed - the one-shot install tries to add the model the instant after staking, and that " +
+      "step reverts before it confirms. Finish from the dashboard instead: open “Models this worker serves” and " +
+      "add your model there. That uses a separate step that works on an already-registered worker - no re-stake " +
+      "or reinstall needed. (If it still won’t take, llama3-8b is the safe fallback.)"
     );
   }
   if (/stopped at 07-register/i.test(text) && /less than|insufficient|balance/i.test(text)) {
