@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, ExternalLink, Rocket, Download, ScanLine } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, Rocket, Download, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DownloadButton } from "@/components/download-button";
 import { Card } from "@/components/ui/card";
@@ -110,7 +110,11 @@ export default function OnboardPage() {
         </details>
 
         <p className="mt-8 text-center text-sm text-content-soft">
-          Already running a worker?{" "}
+          New here?{" "}
+          <Link href="/guide" className="text-primary underline-offset-2 hover:underline">
+            How it works
+          </Link>
+          . Already running a worker?{" "}
           <Link href="/dashboard" className="text-primary underline-offset-2 hover:underline">
             Track it on the dashboard
           </Link>
@@ -294,9 +298,11 @@ export default function OnboardPage() {
                   Open dashboard <ArrowRight />
                 </Button>
               </Link>
-              <Button variant="outline" size="lg" onClick={() => openExternal("https://github.com/lightchain-protocol/lightchain-worker-toolkit")}>
-                Toolkit docs <ExternalLink />
-              </Button>
+              <Link href="/guide">
+                <Button variant="outline" size="lg">
+                  How it works <ArrowRight />
+                </Button>
+              </Link>
             </div>
           </div>
         )}

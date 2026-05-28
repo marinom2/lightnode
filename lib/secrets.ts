@@ -180,6 +180,27 @@ export function setWorkerAddr(net: NetworkId, addr: string): void {
   lsSet(addrKey(net), addr);
 }
 
+/**
+ * The address of the worker the app MANAGES for a network: the one whose private
+ * key it holds. The key is the source of truth (the public address record can
+ * drift - e.g. viewing another watchlisted worker), so we derive the address from
+ * the stored key and re-sync the public record. Falls back to the recorded address
+ * when the app holds no key for the network.
+ */
+export async function resolveManagedWorkerAddr(net: NetworkId): Promise<string> {
+  const k = await getSecret(SECRET_WORKER_KEY, net);
+  if (k && /^0x[0-9a-fA-F]{64}$/.test(k)) {
+    try {
+      const a = privateKeyToAccount(k as `0x${string}`).address;
+      if (getWorkerAddr(net).toLowerCase() !== a.toLowerCase()) setWorkerAddr(net, a);
+      return a;
+    } catch {
+      /* not a usable key - fall back */
+    }
+  }
+  return getWorkerAddr(net);
+}
+
 const modelsKey = (net: NetworkId) => `lightnode.servedModels.${net}`;
 
 /** The model set this network's worker serves (public). Empty if unknown. */

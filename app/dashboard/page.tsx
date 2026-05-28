@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Search, Activity, AlertTriangle, RefreshCw, KeyRound, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ModelsPanel } from "@/components/models-panel";
 import { WatchGrid } from "@/components/watch-grid";
 import { OperationsPanel } from "@/components/operations-panel";
 import { WithdrawWorker } from "@/components/withdraw-worker";
@@ -16,7 +15,7 @@ import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
-import { getWorkerAddr, setWorkerAddr } from "@/lib/secrets";
+import { getWorkerAddr, resolveManagedWorkerAddr } from "@/lib/secrets";
 import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus } from "@/lib/tauri";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
@@ -25,8 +24,17 @@ export default function DashboardPage() {
   const { network } = useNetwork();
   const { saved, add, remove, has } = useSavedWorkers();
   const [myWorker, setMyWorker] = useState("");
-  // Per-network: the "My worker" for testnet vs mainnet are different workers.
-  useEffect(() => setMyWorker(getWorkerAddr(network)), [network]);
+  // Per-network "My worker" = the worker the app holds the key for (the key is
+  // authoritative; the public record can drift if you view another watchlisted
+  // worker). Re-derives + heals on every network toggle.
+  useEffect(() => {
+    let on = true;
+    setMyWorker("");
+    resolveManagedWorkerAddr(network).then((a) => on && setMyWorker(a));
+    return () => {
+      on = false;
+    };
+  }, [network]);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
@@ -54,12 +62,10 @@ export default function DashboardPage() {
         setWorker(r.worker);
         setJobs(Array.isArray(r.jobs) ? r.jobs : []);
         setModels(Array.isArray(r.models) ? r.models : []);
-        // If this is one of YOUR (watchlisted) workers, tag it as this network's
-        // worker so the per-network "My worker" + Operations target stay correct.
-        if (r.worker && has(addr)) {
-          setWorkerAddr(network, addr);
-          setMyWorker(addr);
-        }
+        // NOTE: viewing a worker here does NOT make it "My worker". The managed
+        // worker is the one the app holds the key for (resolved above); viewing
+        // any watchlisted worker is read-only, so it can't clobber the address
+        // your Operations + funding target.
       } catch (e) {
         setError((e as Error).message);
         setWorker(undefined);
@@ -254,10 +260,6 @@ export default function DashboardPage() {
           </div>
         </Card>
       )}
-
-      <Card className="mt-4 p-6">
-        <ModelsPanel />
-      </Card>
     </div>
   );
 }

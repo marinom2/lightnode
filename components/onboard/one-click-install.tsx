@@ -19,7 +19,7 @@ import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, openExternal, type LocalWorkerInfo } from "@/lib/tauri";
 import { shortAddr } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, getServedModels, setServedModels, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { fetchWorker } from "@/lib/subgraph";
 
@@ -160,13 +160,18 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
   const savedWorkers = useSavedWorkers();
   const onChain = chainId === net.chainId;
 
-  // Restore from the public ADDRESS (never the key) - if it's stored, a key
-  // exists in the keychain/localStorage. The raw key is fetched only on an
-  // explicit "reveal for backup". Re-runs on network toggle so the shown worker
-  // matches the selected network.
+  // Show the worker the app actually holds the key for (the key is authoritative;
+  // the public address record can drift, e.g. after viewing another watchlisted
+  // worker). Derives from the stored key and re-syncs the record. Re-runs on
+  // network toggle so the shown worker + its balance match the selected network.
   useEffect(() => {
-    const a = getWorkerAddr(network);
-    setGenAddr(/^0x[a-fA-F0-9]{40}$/.test(a) ? a : "");
+    let on = true;
+    resolveManagedWorkerAddr(network).then((a) => {
+      if (on) setGenAddr(/^0x[a-fA-F0-9]{40}$/.test(a) ? a : "");
+    });
+    return () => {
+      on = false;
+    };
   }, [network]);
 
   const generate = async () => {
@@ -551,19 +556,20 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready }: { model
   useEffect(() => {
     let on = true;
     setForceFresh(false);
-    const a = getWorkerAddr(network);
-    const valid = /^0x[a-fA-F0-9]{40}$/.test(a);
-    setWorkerAddrState(valid ? a : "");
-    if (!valid) {
-      setRegistered(false);
-      return;
-    }
     // Recover a key stored by an older build under the single (non-per-network)
-    // name, so the reveal + install find it for this network.
-    void migrateBareWorkerKey(network);
-    fetchWorker(network, a)
-      .then((w) => on && setRegistered(!!w && w.status !== "deregistered"))
-      .catch(() => on && setRegistered(false));
+    // name first, so the address resolves to the worker the app actually holds.
+    void migrateBareWorkerKey(network).then(() => resolveManagedWorkerAddr(network)).then((a) => {
+      if (!on) return;
+      const valid = /^0x[a-fA-F0-9]{40}$/.test(a);
+      setWorkerAddrState(valid ? a : "");
+      if (!valid) {
+        setRegistered(false);
+        return;
+      }
+      fetchWorker(network, a)
+        .then((w) => on && setRegistered(!!w && w.status !== "deregistered"))
+        .catch(() => on && setRegistered(false));
+    });
     return () => {
       on = false;
     };
