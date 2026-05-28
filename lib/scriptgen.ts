@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.2";
+const INSTALLER_REV = "2026-05-28.3";
 
 export interface ScriptBundle {
   os: OS;
@@ -734,6 +734,10 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
+      // Bring the Docker engine up before deregister (it runs a docker container),
+      // so one click completes instead of just starting Docker on the first pass.
+      'docker info *> $null; if (-not $?) { Write-Host "> starting Docker Desktop..."; Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0; $i -lt 45; $i++) { docker info *> $null; if ($?) { break }; Start-Sleep 2 } }',
+      'docker info *> $null; if (-not $?) { Write-Host "Cannot reach Docker. Open Docker Desktop once, then try again."; exit 1 }',
       'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
       'Write-Host "settling completed jobs + claiming rewards before deregister..."',
@@ -754,7 +758,11 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
     ].join("\n");
   }
   return [
-    "exec 2>&1",
+    // Ensure the Docker engine is fully up FIRST (with the half-state recovery +
+    // wait). deregister.sh runs `invoke_worker deregister` as a `docker run`, so
+    // without this a single click would only start Docker and the deregister step
+    // would fail on that pass, forcing a second click.
+    dockerEnvPreambleUnix(),
     'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
     'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
     'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',

@@ -75,6 +75,16 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
     expect(win).toContain("decrypt-keystore");
     expect(win).toContain("$LASTEXITCODE -eq 0");
   });
+  it("deregister waits for the Docker engine first so it completes in one click", () => {
+    // deregister.sh runs `invoke_worker deregister` as a docker container; without
+    // an upfront engine-up wait, the first click would only start Docker.
+    const unix = deregisterCommand("macos", "testnet");
+    expect(unix).toContain("Docker is not running - starting Docker Desktop");
+    expect(unix).toContain("Cannot reach Docker");
+    const win = deregisterCommand("windows", "testnet");
+    expect(win).toContain("starting Docker Desktop");
+    expect(win).toContain("Cannot reach Docker");
+  });
   it("prefers the container keystore password over any app-supplied one", () => {
     // The container's WORKER_KEYSTORE_PASSWORD always matches the on-disk
     // keystore; a drifted app password must not be able to break decryption.

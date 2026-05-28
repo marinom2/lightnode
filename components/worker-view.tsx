@@ -24,7 +24,7 @@ import type { Worker, Job, ServedModel } from "@/lib/subgraph";
 import { openExternal } from "@/lib/tauri";
 import type { LocalContainerStatus } from "@/lib/tauri";
 
-type Health = "live" | "down";
+type Health = "live" | "inactive" | "down";
 
 /**
  * Earnings split. A job's reward is escrowed while it sits in `Completed` and
@@ -46,12 +46,17 @@ export function earningsOf(worker: Worker): { settled: number; pending: number; 
 // stretches. So health is based on the reliable signal: on-chain status. Use
 // Operations → Status to confirm the container's websocket is connected.
 export function healthOf(w: Worker): Health {
-  return w.status === "active" ? "live" : "down";
+  if (w.status === "active") return "live";
+  // Deactivated = still registered (stake locked) but not currently eligible -
+  // usually the stake fell below the minimum after a slash, or it went offline.
+  if (w.status === "deactivated") return "inactive";
+  return "down"; // deregistered (stake returned) or never registered
 }
 
 const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: string; hint: string }> = {
   live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running - that's the local status." },
-  down: { tone: "danger", label: "Not registered", hint: "Not active on-chain. Deregistered, deactivated, or never started." },
+  inactive: { tone: "warning", label: "Registered · inactive", hint: "Registered on-chain - your stake is still locked - but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
+  down: { tone: "danger", label: "Not registered", hint: "Not registered on-chain - either deregistered (stake returned) or never started." },
 };
 
 /** Cumulative settled-earnings sparkline (Released jobs only; no chart lib). */
@@ -225,7 +230,7 @@ export function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={cn("dot", h === "live" ? "dot-live" : "dot-down")} />
+            <span className={cn("dot", h === "live" ? "dot-live" : h === "inactive" ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {local && <Badge tone={local.tone}>{local.label}</Badge>}
@@ -278,9 +283,22 @@ export function WorkerView({
         </Card>
       )}
 
-      {stakeBelowFloor(worker.stake, minStake) && worker.status === "active" && (
+      {stakeBelowFloor(worker.stake, minStake) && worker.status !== "deregistered" && (
         <Card className="border-warning/30 bg-warning/10 p-4 text-sm text-content-default">
-          Stake is below the {minStake.toLocaleString()} LCAI floor - likely slashed. Top up to stay eligible for jobs.
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+            <span>
+              <span className="font-medium text-content-primary">
+                Stake is below the {minStake.toLocaleString()} LCAI minimum
+                {worker.status === "deactivated" ? " - this is why the worker shows inactive" : " (likely slashed)"}.
+              </span>{" "}
+              This worker holds {compact(stake)} LCAI. Send about{" "}
+              <span className="font-semibold tabular-nums">{compact(Math.max(0, minStake - stake))} LCAI</span> to the worker
+              wallet to reach the minimum
+              {worker.status === "deactivated" ? " so the network can reactivate it" : " and stay eligible for jobs"}. Your
+              registration and remaining stake are intact - nothing was deregistered.
+            </span>
+          </div>
         </Card>
       )}
 

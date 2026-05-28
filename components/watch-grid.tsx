@@ -64,7 +64,9 @@ export function WatchGrid({
         const d = data[addr.toLowerCase()];
         const w = d?.worker;
         const isActive = active?.toLowerCase() === addr.toLowerCase();
-        const dot = !w ? "dot-idle" : d.live ? "dot-live" : w.status === "active" ? "dot-warn" : "dot-down";
+        // Registered-but-not-live (active idle, or deactivated/slashed) shows amber;
+        // only a deregistered/missing worker shows red.
+        const dot = !w ? "dot-idle" : d.live ? "dot-live" : w.status !== "deregistered" ? "dot-warn" : "dot-down";
         return (
           <button
             key={addr}
