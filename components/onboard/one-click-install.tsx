@@ -700,12 +700,28 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
       WORKER_ADDR: target,
       ...(k ? { WORKER_PRIVKEY: k } : {}),
     };
+    // The final phase (08-run-worker) starts the container detached and then
+    // TAILS its logs (`docker logs -f`), which never returns - so the install
+    // command would otherwise stream forever and never "finish". The worker is
+    // live the moment it connects to the gateway, so treat that log marker as
+    // success: mark done and stop the stream (the container keeps running detached).
+    let online = false;
+    const ONLINE_RE = /websocket connected to gateway|worker sidecar running|worker service initialized|✅ worker online/i;
     stopRef.current = await runSetupStreamed(
       desktopInstallCommand(os, network, installModels),
       env,
-      (line) => setLog((l) => appendCleanLog(l, line)),
+      (line) => {
+        setLog((l) => appendCleanLog(l, line));
+        if (!online && ONLINE_RE.test(line)) {
+          online = true;
+          setPhase("done");
+          // Let the final lines render, then detach the tail (worker stays up).
+          setTimeout(() => stopRef.current?.(), 150);
+        }
+      },
       (code) => {
-        setPhase(code === 0 ? "done" : "failed");
+        // If we already saw the worker go online, ignore the tail's exit code.
+        setPhase((p) => (online || p === "done" ? "done" : code === 0 ? "done" : "failed"));
         // NOTE: do NOT auto-clear the saved key/password here. "exit 0" only means
         // the install script finished (the container was started) - the worker can
         // still crash-loop afterward. Wiping the key would orphan the staked worker
