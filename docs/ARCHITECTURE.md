@@ -9,7 +9,7 @@ UI, how worker actions are signed safely, and where the moving parts live.
 ## One UI, two shells
 
 ```
-                  Next.js UI (lightnode.vercel.app)
+                  Next.js UI (lightnode.app)
               landing  .  onboard wizard  .  dashboard
                        /                      \
                       /                        \
@@ -33,7 +33,7 @@ only what each can do locally:
 
 ### Why the desktop app loads the hosted UI
 
-The Tauri window points at `https://lightnode.vercel.app` rather than bundling a
+The Tauri window points at `https://lightnode.app` rather than bundling a
 build. The practical consequence: **web-side changes reach the desktop app on its
 next launch via a normal `vercel --prod` deploy** - no new installer needed. Only
 changes to the compiled layer (Rust commands, `tauri.conf.json`, or the capability

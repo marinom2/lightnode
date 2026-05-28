@@ -23,7 +23,7 @@ no protocol changes, no consensus work. It wraps the toolkit's shell scripts and
 the worker's own Docker image, and reads live state from the LightChain workers
 subgraph.
 
-- **Web app:** <https://lightnode.vercel.app> - browse the network, score your
+- **Web app:** <https://lightnode.app> - browse the network, score your
   machine, and copy ready-to-run setup commands.
 - **Desktop app:** the same UI in a native shell that can run those commands for
   you (one-click install, status, settle, deregister, withdraw). Download from
@@ -83,7 +83,7 @@ or a discrete 8 GB+ GPU is comfortable for `llama3-8b`), and enough LCAI to stak
 
 1. **Get the app.** Download the desktop build for your OS from
    [Releases](https://github.com/marinom2/lightnode/releases), or open
-   <https://lightnode.vercel.app> in a browser.
+   <https://lightnode.app> in a browser.
 2. **Connect a wallet.** This is only used to read your address and fund the
    worker; it never signs worker payouts.
 3. **Check your machine.** The onboarding wizard scores your hardware against the

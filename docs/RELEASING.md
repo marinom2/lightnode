@@ -57,7 +57,7 @@ Add a CI step to import your `.pfx`, then set
 `desktop/src-tauri/tauri.conf.json`. EV/OV certs remove the SmartScreen warning.
 
 ## Notes
-- The app loads the hosted web UI (`lightnode.vercel.app`) in its window and
+- The app loads the hosted web UI (`lightnode.app`) in its window and
   talks to the native layer over Tauri IPC (allowed for that origin via
   `desktop/src-tauri/capabilities/default.json`). Update that URL + the
   capability if the deployment domain changes.
