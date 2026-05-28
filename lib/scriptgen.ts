@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.11";
+const INSTALLER_REV = "2026-05-28.12";
 
 export interface ScriptBundle {
   os: OS;
@@ -146,43 +146,22 @@ function bootstrap(os: OS, network: NetworkId, model: string): string {
 
 /** Idempotent prerequisite checks: install a tool only when it's missing. */
 const SMART_PREREQS = `have(){ command -v "$1" >/dev/null 2>&1; }
+# Put tool dirs on PATH up front so an already-installed Foundry / Docker / Ollama
+# is detected and we SKIP re-running their installers (foundryup is a network call
+# that otherwise ran on every install even when cast was already present).
+export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
 OS="$(uname -s)"
 if [ "$OS" = "Darwin" ] && ! have brew; then echo "⛔ Install Homebrew first: https://brew.sh"; exit 1; fi
 
+# 1) Install only what's missing (idempotent; each is a no-op when present).
 if have docker; then echo "✓ Docker already installed"; else
   echo "▶ installing Docker"
   if [ "$OS" = "Darwin" ]; then brew install --cask docker; else curl -fsSL https://get.docker.com | sh; fi
 fi
-if ! docker info >/dev/null 2>&1; then
-  echo "▶ starting the Docker engine"
-  if [ "$OS" = "Darwin" ]; then open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true;
-  else sudo systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || true; fi
-fi
-echo "… waiting for the Docker engine to be ready (this can take a minute on first launch)"
-for _ in $(seq 1 90); do docker info >/dev/null 2>&1 && break; sleep 2; done
-docker info >/dev/null 2>&1 || { echo "⛔ Docker engine didn't come up automatically - open Docker Desktop once, then re-run"; exit 1; }
-echo "✓ Docker engine ready"
-
 if have ollama; then echo "✓ Ollama already installed"; else
   echo "▶ installing Ollama"
   if [ "$OS" = "Darwin" ]; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi
 fi
-# Keep the model resident (no idle eviction) so it never cold-loads mid-job -
-# cold loads under memory pressure are what blow past the inference timeout and
-# fail jobs. Applies to Ollama we start below; a running instance is pinned by
-# the warm-up request (keep_alive:-1) at the end of the install + the watchdog.
-export OLLAMA_KEEP_ALIVE=-1
-[ "$OS" = "Darwin" ] && { launchctl setenv OLLAMA_KEEP_ALIVE -1 2>/dev/null || true; }
-if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-  echo "▶ starting the Ollama server"
-  if [ "$OS" = "Darwin" ]; then open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &)
-  else sudo systemctl start ollama 2>/dev/null || systemctl --user start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &); fi
-fi
-echo "… waiting for Ollama on 127.0.0.1:11434"
-for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
-curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama isn't responding on 127.0.0.1:11434 - open the Ollama app (or run 'ollama serve'), then re-run."; exit 1; }
-echo "✓ Ollama server running"
-
 if have cast; then echo "✓ Foundry already installed"; else
   echo "▶ installing Foundry"
   # foundryup installs the binaries fine but can return non-zero (e.g. libusb
@@ -191,6 +170,55 @@ if have cast; then echo "✓ Foundry already installed"; else
   export PATH="$HOME/.foundry/bin:$PATH"
   foundryup || true
 fi
+hash -r 2>/dev/null || true
+
+# 2) Start Docker AND Ollama TOGETHER so Ollama boots during Docker's (much slower)
+# cold start instead of after it. Keep the model resident (no idle eviction) so it
+# never cold-loads mid-job - set before starting the server so it's picked up.
+export OLLAMA_KEEP_ALIVE=-1
+[ "$OS" = "Darwin" ] && { launchctl setenv OLLAMA_KEEP_ALIVE -1 2>/dev/null || true; }
+if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+  echo "▶ starting the Ollama server"
+  if [ "$OS" = "Darwin" ]; then open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &)
+  else sudo systemctl start ollama 2>/dev/null || systemctl --user start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &); fi
+fi
+# Engine not on the default socket? Try the common alternates (Docker Desktop /
+# Colima / Rancher) and pin DOCKER_HOST to whichever answers, before starting it.
+if ! docker info >/dev/null 2>&1; then
+  for s in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock" "$HOME/.colima/default/docker.sock" "$HOME/.rd/docker.sock"; do
+    if [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1; then export DOCKER_HOST="unix://$s"; break; fi
+  done
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "▶ starting the Docker engine"
+  if [ "$OS" = "Darwin" ]; then open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true;
+  else sudo systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || true; fi
+fi
+
+# 3) Wait for Docker (the slow one) with a one-time clean relaunch for the macOS
+# half-state, then Ollama (which booted in parallel, so this is usually instant).
+echo "… waiting for the Docker engine (a cold start - e.g. right after 'Free up memory' - can take 1-2 min; approve any Docker permission dialog if it appears)"
+for i in $(seq 1 120); do
+  docker info >/dev/null 2>&1 && break
+  # macOS half-state: the GUI is open but the engine never started (common right
+  # after 'Free up memory' quit Docker, where a plain 'open' is a no-op). If still
+  # down at ~90s, relaunch it cleanly once - a normal cold boot is up well before then.
+  if [ "$OS" = "Darwin" ] && [ "$i" = "45" ] && ! docker info >/dev/null 2>&1 && pgrep -x "Docker Desktop" >/dev/null 2>&1; then
+    echo "▶ Docker is open but its engine hasn't come up - relaunching it..."
+    osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || true; sleep 2; pkill -x "Docker Desktop" >/dev/null 2>&1 || true; sleep 3
+    open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true
+  fi
+  [ $((i % 15)) -eq 0 ] && echo "… still waiting for Docker ($((i * 2))s elapsed)"
+  sleep 2
+done
+docker info >/dev/null 2>&1 || { echo "⛔ Docker engine didn't come up. Open Docker Desktop manually (approve any permission prompt), wait for the whale icon in the menu bar to settle, then run install again."; exit 1; }
+echo "✓ Docker engine ready"
+echo "… waiting for Ollama on 127.0.0.1:11434"
+for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama isn't responding on 127.0.0.1:11434 - open the Ollama app (or run 'ollama serve'), then re-run."; exit 1; }
+echo "✓ Ollama server running"
+
+# 4) Foundry must be on PATH for the cast calls in the toolkit phases.
 export PATH="$HOME/.foundry/bin:$PATH"
 hash -r 2>/dev/null || true
 have cast || { echo "⛔ Foundry installed but 'cast' isn't on PATH yet - fully quit and reopen LightNode, then run again."; exit 1; }
