@@ -50,6 +50,7 @@ describe("parseWorkerHealth", () => {
     expect(h.heartbeatAgoSec).not.toBeNull(); // parsed the scientific-notation timestamp
     expect(h.chainId).toBe(9200); // which network the container serves
     expect(h.servedModel).toBe("llama3-8b"); // from the container env, shown even when cold
+    expect(h.servedModels).toEqual(["llama3-8b"]); // full SUPPORTED_MODELS set
     expect(h.modelMemBytes).toBe(4900000000); // model RAM lives in Ollama, not the container
   });
   it("returns null when Docker is unreachable", () => {

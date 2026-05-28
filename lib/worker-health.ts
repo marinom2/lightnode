@@ -19,7 +19,8 @@ export interface WorkerHealth {
   gatewayConnected: boolean;
   recentEvents: string[]; // recent worker log messages, newest first
   chainId: number | null; // the network the running container actually serves
-  servedModel: string | null; // the model this worker is configured to serve
+  servedModel: string | null; // the FIRST model this worker is configured to serve
+  servedModels: string[]; // the full set this worker is configured to serve (SUPPORTED_MODELS)
   modelMemBytes: number | null; // model resident size in Ollama, bytes (0 = cold/not loaded)
 }
 
@@ -43,10 +44,13 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
   const chainRaw = section(raw, "CHAIN");
   const chainId = chainRaw && /^\d+$/.test(chainRaw) ? Number(chainRaw) : null;
 
-  // The model the worker serves (from its container env), so the name shows even
-  // when the model is cold/unloaded.
+  // The model(s) the worker serves (from its container env SUPPORTED_MODELS), so
+  // the set shows even when a model is cold/unloaded. This is authoritative for
+  // what the worker is actually configured to serve - the app's local record can
+  // drift if a model-change install was interrupted after recording its intent.
   const servedRaw = section(raw, "SERVED");
-  const servedModel = servedRaw ? servedRaw.split(",")[0].trim() || null : null;
+  const servedModels = servedRaw ? servedRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const servedModel = servedModels[0] ?? null;
 
   // The model resident in native Ollama is where the real RAM goes (~5 GB), not
   // the thin worker container. Parse it from `/api/ps` (0 = cold/unloaded).
@@ -98,6 +102,7 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
     recentEvents,
     chainId,
     servedModel,
+    servedModels,
     modelMemBytes,
   };
 }

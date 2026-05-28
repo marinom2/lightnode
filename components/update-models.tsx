@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button";
 import { ModelPicker } from "@/components/onboard/model-picker";
 import { InstallProgress } from "@/components/onboard/install-progress";
 import { useNetwork } from "@/lib/network-context";
-import { DEFAULT_MODEL } from "@/lib/network";
+import { DEFAULT_MODEL, NETWORKS } from "@/lib/network";
 import { addModelsCommand, desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
-import { runSetupStreamed, detectNativeHardware } from "@/lib/tauri";
+import { runSetupStreamed, detectNativeHardware, fetchWorkerHealth } from "@/lib/tauri";
 import { getSecret, getWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 
 type Phase = "idle" | "running" | "done" | "failed";
@@ -37,6 +37,12 @@ export function UpdateModels() {
   const [os, setOs] = useState<OS>("macos");
   const [vramGb, setVramGb] = useState(0);
   const [sel, setSel] = useState<string[]>([]);
+  // The set the worker ACTUALLY serves right now (the locked/can't-remove base the
+  // picker adds onto). Authoritative source is the running container's
+  // SUPPORTED_MODELS; we seed from the local record for an instant render, then
+  // reconcile - the local record can drift if a model-change install was
+  // interrupted after recording its intended (not-yet-applied) set.
+  const [current, setCurrent] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
@@ -51,16 +57,46 @@ export function UpdateModels() {
       setVramGb(hw.unified ? Math.max(hw.ram_gb || 0, hw.vram_gb || 0) : hw.vram_gb || 0);
     });
   }, []);
-  // Seed the selection from this network's recorded set.
+  // Seed from this network's recorded set for an instant render, then reconcile
+  // with the worker actually running here (its container SUPPORTED_MODELS is the
+  // truth - the local record can show a set a prior interrupted install intended
+  // but never applied, e.g. showing a model as "serving" that the worker never
+  // switched to).
   useEffect(() => {
-    const cur = getServedModels(network);
-    setSel(cur.length ? cur : [DEFAULT_MODEL]);
+    const recorded = getServedModels(network);
+    const seed = recorded.length ? recorded : [DEFAULT_MODEL];
+    setCurrent(seed);
+    setSel(seed);
+    let on = true;
+    let tries = 0;
+    // fetchWorkerHealth shares one native channel with the dashboard's health
+    // poller and returns null while that's mid-read (or Docker is down). Retry a
+    // few times so a momentary collision doesn't leave the stale local set showing.
+    const reconcile = () => {
+      if (!on) return;
+      fetchWorkerHealth().then((h) => {
+        if (!on) return;
+        if (!h) {
+          if (++tries < 4) setTimeout(reconcile, 1500);
+          return;
+        }
+        if (h.servedModels.length === 0) return;
+        // Only trust the running container if it's THIS network's worker.
+        if (h.chainId != null && h.chainId !== NETWORKS[network].chainId) return;
+        setCurrent(h.servedModels);
+        setSel(h.servedModels);
+        setServedModels(network, h.servedModels); // heal the drifted local record
+      });
+    };
+    reconcile();
+    return () => {
+      on = false;
+    };
   }, [network]);
   useEffect(() => () => stopRef.current?.(), []);
 
   const append = (line: string) => setLog((l) => appendCleanLog(l, line));
 
-  const current = getServedModels(network);
   const additions = sel.filter((m) => !current.includes(m));
   const removals = current.filter((m) => !sel.includes(m));
   // You can ADD models live; removing one isn't safe live (the gateway could still
