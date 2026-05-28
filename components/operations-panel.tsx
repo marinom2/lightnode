@@ -524,7 +524,14 @@ export function OperationsPanel() {
           {(() => {
             const opLabel = OPS.find((o) => o.key === lastOp)?.label ?? "Operation";
             const running = active !== null;
-            const failed = !running && log.some((l) => /^exited \(|⛔|did not complete|failed/i.test(l.trim()));
+            // Key off the authoritative exit line the runner appends ("exited (N)."
+            // for a non-zero exit; "done." for success) plus our own ⛔ hard-error
+            // marker. A substring like /failed/ wrongly tripped on metric NAMES in
+            // Status output (e.g. "worker_release_failed_total").
+            const failed = !running && log.some((l) => {
+              const t = l.trim();
+              return t.startsWith("exited (") || t.startsWith("⛔");
+            });
             // Ops whose output IS the point (live logs, per-job settle/deregister
             // results) stay open; simple action ops (restart/stop/free up) collapse
             // to the clean status line on success.
