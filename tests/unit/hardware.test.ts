@@ -81,6 +81,16 @@ describe("assessMachine", () => {
     expect(a.vramOk).toBe(true);
     expect(a.workerEligible).toBe(true);
     expect(a.notes.some((n) => /below the .*minimum/i.test(n))).toBe(false);
+    // Honest about unified memory: the model fits, but it's "eligible", not
+    // "comfortably", and we flag that real speed depends on the chip.
+    expect(a.tier).toBe("eligible");
+    expect(a.tierLabel).toMatch(/fits/i);
+    expect(a.notes.some((n) => /speed depends on your chip/i.test(n))).toBe(true);
+  });
+
+  it("still calls a DISCRETE 12GB+ GPU strong (real compute headroom)", () => {
+    const a = assessMachine({ ...base, vramGb: 16 });
+    expect(a.tier).toBe("strong");
   });
 
   it("still flags low RAM on a discrete (non-unified) machine", () => {

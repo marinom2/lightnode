@@ -44,18 +44,10 @@ export default function OnboardPage() {
   const [vramGb, setVramGb] = useState(0);
   const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
   const [ackRisk, setAckRisk] = useState(false);
-  const [avgJobs, setAvgJobs] = useState(0);
   const [desktop, setDesktop] = useState(false);
   const [alreadyAWorker, setAlreadyAWorker] = useState(false);
   const [installed, setInstalled] = useState(false);
   useEffect(() => setDesktop(isDesktop()), []);
-
-  useEffect(() => {
-    fetch(`/api/network?net=${network}`)
-      .then((r) => r.json())
-      .then((j) => j.ok && setAvgJobs(j.avgJobsPerLiveWorker ?? 0))
-      .catch(() => {});
-  }, [network]);
 
   useEffect(() => {
     if (isConnected && step === 0) setStep(1);
@@ -114,7 +106,7 @@ export default function OnboardPage() {
             <div className="mb-4">
               <NetworkHealth />
             </div>
-            <MachineCheck avgJobsPerLiveWorker={avgJobs} onResult={() => {}} />
+            <MachineCheck onResult={() => {}} />
           </div>
         </details>
 
@@ -208,7 +200,6 @@ export default function OnboardPage() {
               <NetworkHealth />
             </div>
             <MachineCheck
-              avgJobsPerLiveWorker={avgJobs}
               onResult={(r) => {
                 setVramOk(r.vramOk);
                 setVramGb(r.vramGb);

@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, Coins, ScanLine, Pencil, Zap } from "lucide-react";
-import { assessMachine, autodetect, estimateRewards, energyCostPerDay, type MachineInput } from "@/lib/hardware";
+import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, ScanLine, Pencil } from "lucide-react";
+import { assessMachine, autodetect, type MachineInput } from "@/lib/hardware";
 import { detectNativeHardware, bridgeInfo, lastHardwareError } from "@/lib/tauri";
-import { fmt } from "@/lib/utils";
 import type { OS } from "@/lib/scriptgen";
 import { Badge } from "@/components/ui/badge";
 import { RadialGauge } from "@/components/ui/radial-gauge";
@@ -29,10 +28,8 @@ const selectCls =
 
 export function MachineCheck({
   onResult,
-  avgJobsPerLiveWorker,
 }: {
   onResult: (r: { eligible: boolean; vramOk: boolean; os: OS; vramGb: number }) => void;
-  avgJobsPerLiveWorker: number;
 }) {
   const [m, setM] = useState<MachineInput>({
     cores: 8,
@@ -42,7 +39,6 @@ export function MachineCheck({
     os: "linux",
     gpuName: "",
   });
-  const [jobsPerDay, setJobsPerDay] = useState(50);
   const [detected, setDetected] = useState<{ vramInferred: boolean; unified: boolean; gpuLabel?: string } | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [diag, setDiag] = useState<{ env: "web" | "desktop"; detail: string } | null>(null);
@@ -57,7 +53,6 @@ export function MachineCheck({
     }));
     setDetected({ vramInferred: d.vramInferred, unified: d.unified, gpuLabel: d.gpuLabel });
     setShowEdit(!d.vramInferred && !d.unified); // open the form only if we couldn't infer VRAM
-    if (avgJobsPerLiveWorker > 0) setJobsPerDay(Math.min(200, Math.max(10, Math.round(avgJobsPerLiveWorker / 7))));
 
     // In the desktop shell: real OS-level detection (true VRAM) overrides guesses.
     const info = bridgeInfo();
@@ -86,21 +81,13 @@ export function MachineCheck({
       setDetected({ vramInferred: nat.vram_gb != null, unified: nat.unified, gpuLabel: nat.gpu });
       setShowEdit(false);
     });
-  }, [avgJobsPerLiveWorker]);
-
-  const [watts, setWatts] = useState(200);
-  const [pricePerKwh, setPricePerKwh] = useState(0.15);
+  }, []);
 
   const a = useMemo(() => assessMachine(m), [m]);
-  const reward = useMemo(() => estimateRewards(jobsPerDay), [jobsPerDay]);
-  const energyCost = useMemo(() => energyCostPerDay(watts, pricePerKwh), [watts, pricePerKwh]);
 
   useEffect(() => {
     onResult({ eligible: a.workerEligible, vramOk: a.vramOk, os: m.os, vramGb: m.vramGb });
   }, [a.workerEligible, a.vramOk, m.os, m.vramGb, onResult]);
-
-  const grad: [string, string] =
-    a.score >= 75 ? ["#1fc16b", "#46e09a"] : a.score >= 45 ? ["#7064e9", "#b06ae0"] : ["#f6b51e", "#f7c948"];
 
   return (
     <div className="grid gap-6 md:grid-cols-[1fr_320px]">
@@ -228,10 +215,10 @@ export function MachineCheck({
         <div className="relative overflow-hidden rounded-2xl border border-bdr-soft bg-card/60 p-6 text-center">
           <div
             aria-hidden
-            className="pointer-events-none absolute -top-16 left-1/2 size-48 -translate-x-1/2 rounded-full opacity-20 blur-3xl"
-            style={{ background: `radial-gradient(circle, ${grad[1]}, transparent 70%)` }}
+            className="pointer-events-none absolute -top-16 left-1/2 size-48 -translate-x-1/2 rounded-full opacity-25 blur-3xl"
+            style={{ background: "radial-gradient(circle, #7064e9, #dd00ac 45%, transparent 72%)" }}
           />
-          <RadialGauge value={a.score / 100} gradient={grad} size={176} className="mx-auto">
+          <RadialGauge value={a.score / 100} size={176} className="mx-auto">
             <div>
               <div className="text-[2.75rem] font-semibold leading-none tracking-tight tabular-nums text-content-primary">
                 {a.score}
@@ -249,75 +236,6 @@ export function MachineCheck({
             ) : (
               <Badge tone="danger">Below minimum</Badge>
             )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-bdr-soft bg-card/60 p-5">
-          <div className="flex items-center gap-2 text-content-soft">
-            <Coins className="size-4" />
-            <span className="text-xs font-medium">Reward estimate</span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-1">
-            <span className="text-2xl font-semibold text-content-primary">{fmt(reward.dailyLcai, 2)}</span>
-            <span className="text-sm text-content-soft">LCAI / day</span>
-          </div>
-          <div className="text-xs text-content-soft">≈ {fmt(reward.monthlyLcai, 0)} LCAI / month</div>
-
-          <label className="mt-4 block text-xs text-content-soft">
-            Assumed jobs/day: <span className="font-medium text-content-primary">{jobsPerDay}</span>
-            <input
-              type="range"
-              min={5}
-              max={400}
-              value={jobsPerDay}
-              onChange={(e) => setJobsPerDay(Number(e.target.value))}
-              className="mt-1.5 w-full accent-[var(--primary)]"
-            />
-          </label>
-          <p className="mt-2 text-[11px] leading-relaxed text-content-soft">
-            {fmt(reward.perJobLcai, 3)} LCAI per job · the slider defaults to the current network average; a brand-new
-            worker usually starts lower and ramps up as the gateway routes it more volume.
-          </p>
-
-          <div className="mt-4 border-t border-bdr-light pt-3">
-            <div className="flex items-center gap-2 text-content-soft">
-              <Zap className="size-3.5" />
-              <span className="text-xs font-medium">Running cost</span>
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-content-soft">
-                GPU draw (W)
-                <input
-                  type="number"
-                  min={0}
-                  value={watts}
-                  onChange={(e) => setWatts(Number(e.target.value) || 0)}
-                  className="mt-1 h-8 w-full rounded-md border border-bdr-soft bg-surface-base-subtle px-2 text-sm text-content-primary outline-none focus:border-primary"
-                />
-              </label>
-              <label className="text-[11px] text-content-soft">
-                $/kWh
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={pricePerKwh}
-                  onChange={(e) => setPricePerKwh(Number(e.target.value) || 0)}
-                  className="mt-1 h-8 w-full rounded-md border border-bdr-soft bg-surface-base-subtle px-2 text-sm text-content-primary outline-none focus:border-primary"
-                />
-              </label>
-            </div>
-            <div className="mt-2 flex items-baseline justify-between text-xs">
-              <span className="text-content-soft">Energy ≈</span>
-              <span className="font-medium text-content-primary">
-                ${fmt(energyCost, 2)}/day · ${fmt(energyCost * 30, 0)}/mo
-              </span>
-            </div>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-content-soft">
-              You&apos;d earn ~{fmt(reward.dailyLcai, 2)} LCAI/day and spend ~${fmt(energyCost, 2)}/day on power. We
-              don&apos;t quote an LCAI price, so check today&apos;s rate: you&apos;re ahead once a day&apos;s
-              {" "}{fmt(reward.dailyLcai, 2)} LCAI is worth more than ${fmt(energyCost, 2)}.
-            </p>
           </div>
         </div>
       </div>

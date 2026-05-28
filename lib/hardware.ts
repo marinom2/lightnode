@@ -62,12 +62,17 @@ export function assessMachine(m: MachineInput): MachineAssessment {
   if (m.vramGb >= HARDWARE.rec.vramGb) {
     tier = "premium";
     tierLabel = "Premium - headroom for larger models";
-  } else if (m.vramGb >= 12) {
+  } else if (!m.unified && m.vramGb >= 12) {
+    // A DISCRETE GPU with 12GB+ has real compute headroom for an 8B model.
     tier = "strong";
     tierLabel = "Strong - comfortably serves llama3-8b";
   } else if (vramOk) {
     tier = "eligible";
-    tierLabel = "Eligible - meets the 8GB minimum";
+    // On unified memory, enough memory only proves the model FITS - GPU compute
+    // (and so speed) varies a lot by chip, so we don't claim "comfortably".
+    tierLabel = m.unified
+      ? "Eligible - llama3-8b fits; real speed depends on your chip"
+      : "Eligible - meets the 8GB minimum";
   } else {
     tier = "below";
     tierLabel = cpuFallback ? "Below GPU minimum - CPU fallback only (slow)" : "Below minimum spec";
@@ -80,6 +85,12 @@ export function assessMachine(m: MachineInput): MachineAssessment {
   // separate system-RAM stick that's missing).
   if (!m.unified && m.ramGb < HARDWARE.min.ramGb) notes.push(`RAM is below the ${HARDWARE.min.ramGb}GB minimum.`);
   if (m.storageGb < HARDWARE.min.storageGb) notes.push(`Storage is below the ${HARDWARE.min.storageGb}GB minimum.`);
+  // Apple Silicon below the "premium" pool: the model fits, but compute (speed)
+  // is the real question, and only a live benchmark answers it honestly.
+  if (m.unified && vramOk && m.vramGb < HARDWARE.rec.vramGb)
+    notes.push(
+      "On Apple Silicon the model fits in your unified memory, but inference speed depends on your chip (base vs Pro/Max). After install, run the Speed test to confirm you beat the job deadline.",
+    );
   if (m.vramGb >= HARDWARE.rec.vramGb)
     notes.push("Enough VRAM to be a candidate for future premium models (e.g. 70B-class) if they're whitelisted.");
 

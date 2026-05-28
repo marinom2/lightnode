@@ -32,10 +32,10 @@ function StepIcon({ status }: { status: StepStatus }) {
 }
 
 /**
- * Apple-style install progress: a short milestone checklist + a download bar,
- * with the raw terminal log tucked behind a "technical details" disclosure
- * (auto-opened only when something fails). `log` must already be cleaned via
- * appendCleanLog so the disclosure never shows ANSI/spinner spam.
+ * Install progress as a short milestone checklist + a download bar, with the raw
+ * terminal log tucked behind a "technical details" disclosure (auto-opened only
+ * when something fails). `log` must already be cleaned via appendCleanLog so the
+ * disclosure never shows ANSI/spinner spam.
  */
 export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase }) {
   const view = deriveInstallView(log, phase);
