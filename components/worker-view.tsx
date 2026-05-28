@@ -201,9 +201,21 @@ export function WorkerView({
   localStatus?: LocalContainerStatus | null;
 }) {
   const h = healthOf(worker);
-  const meta = HEALTH[h];
   const stake = fromWei(worker.stake);
   const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
+
+  // The public subgraph lags a fresh (re)registration by minutes. If the worker is
+  // running here it IS registered on-chain (it can't reach the gateway otherwise),
+  // so don't alarm with "Not registered" - show a syncing state until the subgraph
+  // catches up. A freshly registered worker holds exactly the network minimum stake.
+  const syncing = h === "down" && localStatus === "running";
+  const meta = syncing
+    ? {
+        tone: "warning" as const,
+        label: "Registering · syncing",
+        hint: "Your worker is running and connected to the gateway on this machine, which means it is registered on-chain - the public subgraph just hasn't indexed it yet (it can lag a few minutes). This will flip to Registered shortly; the Live health panel below shows the real, on-chain-validated state.",
+      }
+    : HEALTH[h];
 
   const completed = worker.jobs_completed ?? 0;
   const attempted = completed + (worker.jobs_timed_out ?? 0) + (worker.disputes_lost ?? 0);
@@ -211,7 +223,7 @@ export function WorkerView({
   // The subgraph keeps the last-registered stake on the entity even after a
   // deregister returns it on-chain. So once deregistered, show it as returned (0)
   // rather than the stale locked amount.
-  const stakeReturned = worker.status === "deregistered";
+  const stakeReturned = worker.status === "deregistered" && !syncing;
 
   const tiles = [
     { icon: CheckCircle2, label: "Jobs completed", value: fmt(completed, 0), tone: "text-content-primary" },
@@ -219,7 +231,9 @@ export function WorkerView({
     {
       icon: ShieldCheck,
       label: stakeReturned ? "Stake (returned)" : "Stake (LCAI)",
-      value: stakeReturned ? "0" : compact(stake),
+      // While syncing the subgraph's stake is unreliable; a fresh registration
+      // locks the network minimum, so show that rather than a stale 0.
+      value: syncing ? compact(minStake) : stakeReturned ? "0" : compact(stake),
       tone: "text-content-primary",
     },
     { icon: Clock, label: "Last on-chain activity", value: timeAgo(worker.last_seen_at), tone: "text-content-primary" },
@@ -230,7 +244,7 @@ export function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={cn("dot", h === "live" ? "dot-live" : h === "inactive" ? "dot-warn" : "dot-down")} />
+            <span className={cn("dot", h === "live" ? "dot-live" : h === "inactive" || syncing ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {local && <Badge tone={local.tone}>{local.label}</Badge>}
