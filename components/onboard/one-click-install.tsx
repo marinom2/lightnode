@@ -599,10 +599,14 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
       on = false;
     };
   }, [network]);
-  // Read the local container's state once we know this network's worker is
-  // registered - to distinguish "already running here" from "registered but offline".
+  // Read the local container's state whenever we know this network's worker
+  // address - NOT gated on the subgraph saying "registered". The public subgraph
+  // can lag a (re)registration by minutes, but a container that exists HERE for
+  // THIS network is authoritative proof the worker is already set up on this
+  // machine. We use it both to pick the right "already a worker" badge and to
+  // surface the manage panel even while the subgraph is catching up.
   useEffect(() => {
-    if (!desktop || !registered) {
+    if (!desktop || !workerAddr) {
       setLocal(null);
       return;
     }
@@ -613,15 +617,22 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
     return () => {
       on = false;
     };
-  }, [desktop, registered, network]);
+  }, [desktop, workerAddr, network]);
 
   const updatePw = (v: string) => {
     setPw(v);
     void setSecret(SECRET_WORKER_PW, v, network); // keychain on desktop, localStorage on web
   };
+  // A container for THIS network on this machine is authoritative proof the worker
+  // is already set up here - true even when the public subgraph still reports the
+  // worker as unregistered/deregistered because it hasn't indexed a recent
+  // (re)registration yet. Treat it like an existing worker so we don't show the
+  // fund-from-scratch wizard (and block its install button on a low gas balance)
+  // for a worker that is in fact already staked.
+  const installedHere = !!local && (local.status === "running" || local.status === "stopped") && local.chainId === net.chainId;
   // Tell the parent whether this is an existing worker, so the onboard step can
   // drop the install chrome (model picker etc.) and just show the manage panel.
-  const alreadyAWorker = registered && !forceFresh;
+  const alreadyAWorker = (registered || installedHere) && !forceFresh;
   useEffect(() => onAlready?.(alreadyAWorker), [alreadyAWorker, onAlready]);
   // Tell the parent when the install has actually finished, so the wizard's
   // "Continue" can stay disabled until the worker is really set up.
