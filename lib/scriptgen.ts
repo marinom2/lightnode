@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.5";
+const INSTALLER_REV = "2026-05-28.6";
 
 export interface ScriptBundle {
   os: OS;
@@ -253,11 +253,12 @@ function unixInstall(network: NetworkId, models: string[]): string {
     // The toolkit hardcodes a 50,001 LCAI pre-flight guard; correct it to this network's minimum.
     `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
-    // Short-circuit ONLY if the running container is for THIS network. A worker
-    // for a different chain (one container per machine - keys are isolated, but the
-    // single container is not) must be stopped first - otherwise we'd falsely
-    // report success without installing it.
-    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "⛔ A worker is already running for a DIFFERENT network (chain $RUNCHAIN). This machine runs ONE worker at a time. Stop or Deregister that worker first (Operations), then install on ${network} (chain ${chainId})."; exit 1; fi; echo "✓ worker already running on ${network} - nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
+    // This machine runs ONE worker container at a time. If a container for THIS
+    // network is already running, nothing to do. If it's for a DIFFERENT network,
+    // the user explicitly chose to install this one, so stop the other and carry
+    // on (phase 08 removes + recreates it). Its stake + per-network keystore are
+    // intact, so a later reinstall of that network brings it right back.
+    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "▶ a worker for the other network (chain $RUNCHAIN) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."; docker stop lightchain-worker >/dev/null 2>&1 || true; else echo "✓ worker already running on ${network} - nothing to reinstall"; echo "✅ worker online"; exit 0; fi; fi`,
     // A keystore may already exist (our key on a re-run, or a stale key from a
     // prior worker). Skip the import if it's already ours; otherwise back up the
     // old one (never delete) so our key can be imported.
@@ -383,8 +384,12 @@ Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
 if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") {
   $runChain = ((docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | Select-String '^CHAIN_ID=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value)
-  if ($runChain -and $runChain -ne "${chainId}") { Write-Host "⛔ A worker is already running for a DIFFERENT network (chain $runChain). This machine runs ONE worker at a time. Stop or Deregister it first, then install on ${network} (chain ${chainId})."; exit 1 }
-  Write-Host "✓ worker already running on ${network} - nothing to reinstall"; Write-Host "✅ worker online"; exit 0
+  if ($runChain -and $runChain -ne "${chainId}") {
+    Write-Host "> a worker for the other network (chain $runChain) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."
+    docker stop lightchain-worker *> $null
+  } else {
+    Write-Host "✓ worker already running on ${network} - nothing to reinstall"; Write-Host "✅ worker online"; exit 0
+  }
 }
 # Handle a pre-existing keystore: skip if it's already ours, else back up (never delete).
 $ks = Join-Path $env:USERPROFILE "lightchain-worker\\keys-${network}\\eth-keystore"

@@ -402,10 +402,11 @@ describe("desktopInstallCommand (smart install)", () => {
     expect(unix).toContain("open -a Docker"); // macOS
     expect(unix).toContain("systemctl"); // linux
   });
-  it("short-circuits when the worker is already running", () => {
+  it("short-circuits only for the SAME network; stops the other network's worker to switch", () => {
     expect(unix).toContain("worker already running on testnet - nothing to reinstall");
-    // and it must NOT falsely short-circuit a different-network container
-    expect(unix).toContain("DIFFERENT network");
+    // a different-network container is stopped (not an error), so the user isn't stuck
+    expect(unix).toContain("a worker for the other network");
+    expect(unix).toContain("docker stop lightchain-worker");
   });
   it("funds the worker directly: no funder key, no generate/fund phases", () => {
     expect(unix).not.toContain("$FUNDER_PRIVKEY"); // never reads a funder key
