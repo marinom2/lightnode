@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, modelRequirement, modelsMemoryGb, modelsFit, type MachineInput } from "@/lib/hardware";
+import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, modelRequirement, modelsMemoryGb, modelsFit, detectWebGpu, type MachineInput } from "@/lib/hardware";
+
+describe("detectWebGpu", () => {
+  it("resolves to an empty result when no WebGPU adapter is available", async () => {
+    // No navigator.gpu in the test env - it must degrade gracefully, never throw.
+    await expect(detectWebGpu()).resolves.toEqual({});
+  });
+});
 
 describe("multi-model memory gate", () => {
   it("sums the resident footprint of a model set", () => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, ScanLine, Pencil } from "lucide-react";
-import { assessMachine, autodetect, type MachineInput } from "@/lib/hardware";
+import { assessMachine, autodetect, detectWebGpu, type MachineInput } from "@/lib/hardware";
 import { detectNativeHardware, bridgeInfo, lastHardwareError } from "@/lib/tauri";
 import type { OS } from "@/lib/scriptgen";
 import { Badge } from "@/components/ui/badge";
@@ -58,14 +58,44 @@ export function MachineCheck({
     const info = bridgeInfo();
     detectNativeHardware().then((nat) => {
       if (!nat) {
-        setDiag(
-          info.inDesktop
-            ? {
-                env: "desktop",
-                detail: `Desktop detected (internals:${info.hasInternals} global:${info.hasGlobal}) but the hardware read failed${lastHardwareError() ? ` - ${lastHardwareError()}` : ""}.`,
-              }
-            : { env: "web", detail: "Running in a web browser - open the LightNode desktop app for full no-input auto-detection." },
-        );
+        if (info.inDesktop) {
+          setDiag({
+            env: "desktop",
+            detail: `Desktop detected (internals:${info.hasInternals} global:${info.hasGlobal}) but the hardware read failed${lastHardwareError() ? ` - ${lastHardwareError()}` : ""}.`,
+          });
+          return;
+        }
+        // Web: browsers sandbox exact RAM/VRAM, so we infer from cores +
+        // WebGL/WebGPU GPU id + a RAM floor. Try WebGPU as a second GPU source
+        // (WebGL's renderer is masked on some browsers); fill gaps only, never
+        // override a value WebGL already inferred.
+        setDiag({
+          env: "web",
+          detail:
+            "Web browser: cores + GPU are detected, but browsers don't expose exact RAM/VRAM. Confirm below, or open the desktop app for exact specs read from the OS.",
+        });
+        detectWebGpu().then((w) => {
+          if (!w.gpuLabel && !w.unified && w.vramGb == null) return;
+          setM((prev) => {
+            const unified = prev.unified || !!w.unified;
+            return {
+              ...prev,
+              gpuName: prev.gpuName || w.gpuLabel || prev.gpuName,
+              unified,
+              vramGb: unified ? Math.max(prev.vramGb, prev.ramGb, 16) : prev.vramGb || w.vramGb || prev.vramGb,
+            };
+          });
+          setDetected((prev) =>
+            prev
+              ? {
+                  vramInferred: prev.vramInferred || w.vramGb != null || !!w.unified,
+                  unified: prev.unified || !!w.unified,
+                  gpuLabel: prev.gpuLabel || w.gpuLabel,
+                }
+              : prev,
+          );
+          if (w.unified || w.vramGb != null) setShowEdit(false);
+        });
         return;
       }
       setDiag({ env: "desktop", detail: "Auto-detected from the desktop app." });

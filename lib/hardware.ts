@@ -225,6 +225,48 @@ export function autodetect(): Detected {
   return { input, vramInferred, unified, gpuLabel };
 }
 
+// Minimal WebGPU adapter typings (the DOM lib does not ship them everywhere).
+interface GpuAdapterInfo {
+  vendor?: string;
+  architecture?: string;
+  device?: string;
+  description?: string;
+}
+interface GpuAdapter {
+  info?: GpuAdapterInfo;
+  requestAdapterInfo?: () => Promise<GpuAdapterInfo>;
+}
+interface NavigatorGpu {
+  requestAdapter: (opts?: { powerPreference?: "high-performance" | "low-power" }) => Promise<GpuAdapter | null>;
+}
+
+/**
+ * Second-source GPU detection via WebGPU, used to complement the WebGL renderer
+ * string (some browsers mask WebGL's renderer but expose a WebGPU adapter). It can
+ * confirm the GPU vendor/architecture and Apple Silicon's shared memory.
+ *
+ * It does NOT and cannot return real VRAM or total RAM: browsers sandbox those for
+ * privacy, and WebGPU's `limits` are spec-mandated caps, not device memory. VRAM
+ * here is still the same name-based inference as WebGL. Exact specs require the
+ * native desktop app (it reads them from the OS).
+ */
+export async function detectWebGpu(): Promise<{ gpuLabel?: string; vramGb?: number; unified?: boolean }> {
+  if (typeof navigator === "undefined") return {};
+  const gpu = (navigator as Navigator & { gpu?: NavigatorGpu }).gpu;
+  if (!gpu?.requestAdapter) return {};
+  try {
+    const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) return {};
+    const info = adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : undefined);
+    const desc = [info?.vendor, info?.architecture, info?.device, info?.description].filter(Boolean).join(" ").trim();
+    if (!desc) return {};
+    const g = inferGpu(desc);
+    return { gpuLabel: g.clean || desc, vramGb: g.vramGb, unified: g.unified || /apple/i.test(desc) || undefined };
+  } catch {
+    return {};
+  }
+}
+
 const WORKER_FEE_LCAI = 0.02;
 const WORKER_SHARE = 0.8; // 80% of the fee goes to the worker
 
