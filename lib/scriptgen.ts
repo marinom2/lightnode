@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.7";
+const INSTALLER_REV = "2026-05-28.8";
 
 export interface ScriptBundle {
   os: OS;
@@ -826,36 +826,45 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
 }
 
 /**
- * Change the set of models an EXISTING registered worker serves, on-chain, with
- * no re-register or re-stake. Calls `updateWorkerModels(string[])` on the worker
- * registry signed by the worker key (sourced from the on-disk keystore). After
- * this, `modelsReady` is false until the worker restarts and re-attests, so the
- * caller follows up with a reinstall (which pulls/warms the new set + restarts).
+ * ADD models to an EXISTING registered worker, on-chain, with no re-register or
+ * re-stake. Uses the worker binary's `add-models` subcommand (which knows the real
+ * registry contract + calldata - a raw cast to the predeploy doesn't work, its ABI
+ * differs). `models` is the set to ADD; the binary signs from the on-disk keystore
+ * using the recovered password. The caller then reinstalls so the worker restarts
+ * advertising the full set and pulls/warms the new model. There is no live "remove"
+ * (the network could still route a removed model's jobs) - drop a model by
+ * deregistering + reinstalling with the smaller set.
  */
-export function updateModelsCommand(os: OS, network: NetworkId, models: string[]): string {
-  const net = NETWORKS[network];
-  const arr = JSON.stringify(models); // ["llama3-8b","llama3-70b"]
+export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string[]): string {
+  const supported = modelsToAdd.join(",");
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
-      'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
+      'Set-Location "$env:USERPROFILE\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null; Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
-      'if (-not $env:WORKER_PRIVKEY) { Write-Host "⛔ no worker key available to sign - run this on the machine that hosts the worker."; exit 1 }',
-      `Write-Host "updating on-chain served models to ${models.join(", ")}..."`,
-      `$r = (cast send ${net.workerRegistry} "updateWorkerModels(string[])" '${arr}' --private-key $env:WORKER_PRIVKEY --rpc-url ${net.rpc} 2>&1)`,
-      `if ($?) { Write-Host "on-chain models updated - reinstalling to restart with the new set" } else { Write-Host "update failed: $r"; exit 1 }`,
+      'if (-not $env:WORKER_PASSWORD) { Write-Host "couldn\'t unlock the worker keystore (need its password) - reinstall and retry."; exit 1 }',
+      `$env:NETWORK = "${network}"; $env:KEYS_DIR = "$env:USERPROFILE\\lightchain-worker\\keys-${network}"; $env:SUPPORTED_MODELS = "${supported}"`,
+      `Write-Host "adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
+      '. .\\common.ps1; Invoke-Worker -Subcommand "add-models"; if ($LASTEXITCODE -ne 0) { Write-Host "add-models failed - see above"; exit 1 }',
+      // Stop the container so the follow-up reinstall recreates it with the new
+      // model set (the install short-circuits on a same-network worker that's Up).
+      'docker stop lightchain-worker *> $null; Write-Host "added on-chain - restarting the worker with the new set"',
     ].join("\n");
   }
   return [
     "exec 2>&1",
     'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
     'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
-    'cd "$TK" 2>/dev/null || true',
+    'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
+    'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     ...keystoreDeriveUnix(),
-    '[ -n "${WORKER_PRIVKEY:-}" ] || { echo "⛔ no worker key available to sign - run this on the machine that hosts the worker."; exit 1; }',
-    `echo "▶ updating on-chain served models to ${models.join(", ")}..."`,
-    `ERR="$(cast send ${net.workerRegistry} "updateWorkerModels(string[])" '${arr}' --private-key "$WORKER_PRIVKEY" --rpc-url ${net.rpc} 2>&1 >/dev/null)"`,
-    `if [ $? -eq 0 ]; then echo "✓ on-chain models updated - reinstalling to restart with the new set"; else echo "⛔ update failed: $(printf %s "$ERR" | tr '\\n' ' ' | cut -c1-160)"; exit 1; fi`,
+    '[ -n "${WORKER_PASSWORD:-}" ] || { echo "⛔ couldn\'t unlock the worker keystore (need its password) - reinstall and retry."; exit 1; }',
+    `export NETWORK=${network} KEYS_DIR="$HOME/lightchain-worker/keys-${network}" SUPPORTED_MODELS=${supported}`,
+    `echo "▶ adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
+    // Stop the container after a successful add so the follow-up reinstall actually
+    // recreates it with the new model set (the install short-circuits on a
+    // same-network worker that's still Up).
+    `if "$RB" -c 'source ./common.sh && invoke_worker add-models'; then echo "✓ added on-chain - restarting the worker with the new set"; docker stop lightchain-worker >/dev/null 2>&1 || true; else echo "⛔ add-models failed - see the error above"; exit 1; fi`,
   ].join("\n");
 }
 

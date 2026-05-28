@@ -11,7 +11,7 @@ import {
   settleJobsCommand,
   benchmarkCommand,
   freeMemoryCommand,
-  updateModelsCommand,
+  addModelsCommand,
 } from "@/lib/scriptgen";
 
 describe("Settle earnings + auto-settling deregister", () => {
@@ -315,14 +315,15 @@ describe("multi-model worker (serve more than one model on one machine)", () => 
     expect(win).toContain(`$env:SUPPORTED_MODELS = "llama3-8b,llama3-70b"`);
     expect(win).toContain(`$newSet = @('llama3-8b','llama3-70b')`);
   });
-  it("updateModelsCommand calls updateWorkerModels on-chain with the new set, signed by the worker key", () => {
-    const unix = updateModelsCommand("macos", "mainnet", ["llama3-8b", "llama3-70b"]);
-    expect(unix).toContain('"updateWorkerModels(string[])"');
-    expect(unix).toContain('["llama3-8b","llama3-70b"]');
-    expect(unix).toContain("cast wallet decrypt-keystore"); // derives the worker key to sign
-    const win = updateModelsCommand("windows", "testnet", ["llama3-8b"]);
-    expect(win).toContain('"updateWorkerModels(string[])"');
-    expect(win).toContain('["llama3-8b"]');
+  it("addModelsCommand adds models via the worker binary's add-models (not a raw cast), with the models to add in SUPPORTED_MODELS", () => {
+    const unix = addModelsCommand("macos", "mainnet", ["llama3-70b"]);
+    expect(unix).toContain("invoke_worker add-models");
+    expect(unix).toContain("SUPPORTED_MODELS=llama3-70b");
+    expect(unix).toContain("cast wallet decrypt-keystore"); // unlocks the keystore password
+    expect(unix).not.toContain("updateWorkerModels"); // the raw cast call was wrong (predeploy ABI differs)
+    const win = addModelsCommand("windows", "testnet", ["gemma4:e2b"]);
+    expect(win).toContain('Invoke-Worker -Subcommand "add-models"');
+    expect(win).toContain('$env:SUPPORTED_MODELS = "gemma4:e2b"');
   });
 });
 
