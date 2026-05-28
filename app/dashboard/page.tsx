@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, Activity, AlertTriangle, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Search, Activity, AlertTriangle, RefreshCw, KeyRound, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ModelsPanel } from "@/components/models-panel";
@@ -219,6 +220,16 @@ export default function DashboardPage() {
           <div className="mt-4">
             <WithdrawWorker />
           </div>
+          <Link
+            href="/recover"
+            className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-bdr-soft bg-card/50 px-4 py-3 text-sm transition-colors hover:border-bdr-light"
+          >
+            <span className="flex items-center gap-2.5 text-content-soft">
+              <KeyRound className="size-4 text-primary" />
+              <span><span className="font-medium text-content-primary">Recover a replaced key</span> - get back a worker you replaced (and its stake)</span>
+            </span>
+            <ChevronRight className="size-4 text-content-soft" />
+          </Link>
         </>
       ) : (
         <Card className="mt-8 overflow-hidden p-0">

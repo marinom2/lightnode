@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Rocket, Loader2, CheckCircle2, XCircle, Terminal, ShieldCheck, Download,
-  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, RefreshCw,
+  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, RefreshCw, Gauge, KeyRound,
 } from "lucide-react";
 import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain, usePublicClient } from "wagmi";
 import { parseEther, formatEther, getAddress } from "viem";
@@ -15,7 +16,9 @@ import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
 import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
-import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
+import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, type LocalWorkerInfo } from "@/lib/tauri";
+import { shortAddr } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { fetchWorker } from "@/lib/subgraph";
@@ -140,7 +143,7 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
 /** Funding source body: generate a dedicated key + fund it from the connected
  *  wallet, or paste an existing funder key. (Mode toggle lives in the StepCard
  *  aside.) Reports the chosen key once it holds enough. */
-function FunderSetup({ network, mode, onReady, onRegistered }: { network: NetworkId; mode: FundMode; onReady: (ready: string | null) => void; onRegistered?: (registered: boolean) => void }) {
+function FunderSetup({ network, mode, onReady, registered }: { network: NetworkId; mode: FundMode; onReady: (ready: string | null) => void; registered: boolean }) {
   const net = NETWORKS[network];
   const need = parseEther(String(net.fundLcai));
   const [genAddr, setGenAddr] = useState("");
@@ -151,10 +154,6 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
   // Inline confirm for "New key" - the desktop webview has no native confirm()
   // dialog, so we ask in-app before discarding the current key.
   const [confirmNew, setConfirmNew] = useState(false);
-  // True when this worker already holds a stake on-chain (status active or
-  // deactivated, i.e. registered). Then no funding is needed - reinstalling just
-  // recreates the container for this network (the install skips 07-register).
-  const [registered, setRegistered] = useState(false);
 
   const { isConnected } = useAccount();
   const chainId = useChainId();
@@ -169,37 +168,6 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
     const a = getWorkerAddr(network);
     setGenAddr(/^0x[a-fA-F0-9]{40}$/.test(a) ? a : "");
   }, [network]);
-
-  // Detect whether the shown worker is already registered on-chain. If so, a
-  // switch-back doesn't need re-funding - the locked stake persists.
-  useEffect(() => {
-    let on = true;
-    if (!/^0x[a-fA-F0-9]{40}$/.test(genAddr)) {
-      setRegistered(false);
-      onRegistered?.(false);
-      return;
-    }
-    // Recover a key stored by an older build under the single (non-per-network)
-    // name, so the reveal + install find it for this network.
-    void migrateBareWorkerKey(network);
-    fetchWorker(network, genAddr)
-      .then((w) => {
-        const reg = !!w && w.status !== "deregistered";
-        if (on) {
-          setRegistered(reg);
-          onRegistered?.(reg);
-        }
-      })
-      .catch(() => {
-        if (on) {
-          setRegistered(false);
-          onRegistered?.(false);
-        }
-      });
-    return () => {
-      on = false;
-    };
-  }, [genAddr, network, onRegistered]);
 
   const generate = async () => {
     setBusy(true);
@@ -285,10 +253,9 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
         onReady(null);
       }
     } else {
-      // Ready when funded (first-time) OR already registered (switch-back, stake locked).
-      onReady(genAddr && (funded || registered) ? genAddr : null);
+      onReady(genAddr && funded ? genAddr : null);
     }
-  }, [mode, paste, genAddr, funded, registered, onReady]);
+  }, [mode, paste, genAddr, funded, onReady]);
 
   if (mode === "paste") {
     return (
@@ -399,19 +366,6 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
         </p>
       </div>
 
-      {registered && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-success/20 bg-success/5 p-4 text-xs leading-relaxed text-content-soft">
-          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-          <span>
-            <span className="font-medium text-content-primary">Already registered on {net.label}.</span> Your{" "}
-            {net.minStakeLcai.toLocaleString()} LCAI stake is locked on-chain - no funding needed. Reinstalling just
-            recreates the worker container for this network (the install skips re-registration). Use this to bring a worker
-            back online after testing the other network.
-          </span>
-        </div>
-      )}
-
-      {!registered && (<>
       <div className="flex items-start gap-4 rounded-xl border border-bdr-light bg-card/40 p-4">
         {genAddr && <FundingQr uri={`ethereum:${genAddr}@${net.chainId}?value=${need.toString()}`} />}
         <div className="text-xs leading-relaxed text-content-soft">
@@ -461,7 +415,84 @@ function FunderSetup({ network, mode, onReady, onRegistered }: { network: Networ
         </p>
       )}
       {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
-      </>)}
+    </div>
+  );
+}
+
+/**
+ * Shown instead of the fund-and-install wizard when this network's worker is
+ * already registered on-chain. It's not a fresh install - the worker exists, so
+ * this points you to the dashboard to manage it and (only when it isn't already
+ * running here) offers to bring it back online.
+ */
+function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { network: NetworkId; addr: string; local: LocalWorkerInfo | null; onBringOnline: () => void; onReplace: () => void }) {
+  const net = NETWORKS[network];
+  const runningHere = local?.status === "running" && local.chainId === net.chainId;
+  const otherNetRunning = local?.status === "running" && local.chainId != null && local.chainId !== net.chainId;
+  const stoppedHere = local?.status === "stopped";
+  const missingHere = local?.status === "missing";
+  const canBringOnline = !runningHere && !otherNetRunning;
+
+  const desc = runningHere
+    ? "It's running on this machine and serving jobs - nothing to do here. Manage it (settle, restart, health, deregister) from the dashboard."
+    : otherNetRunning
+      ? `A worker for the other network is running on this machine right now. This ${net.label} worker is registered but offline here. Stop the other one first (on the dashboard), then come back to bring this one online.`
+      : stoppedHere
+        ? "Its container is stopped on this machine. Restart it from the dashboard, or bring it back online here."
+        : missingHere
+          ? "It's registered on-chain but not installed on this machine right now. Bring it back online to recreate the worker container here."
+          : "It's registered on-chain. Manage it from the dashboard.";
+
+  const localBadge = runningHere ? (
+    <Badge tone="success">Running on this machine</Badge>
+  ) : otherNetRunning ? (
+    <Badge tone="warning">Offline here (other network running)</Badge>
+  ) : stoppedHere ? (
+    <Badge tone="warning">Stopped on this machine</Badge>
+  ) : missingHere ? (
+    <Badge tone="default">Not installed here</Badge>
+  ) : null;
+
+  return (
+    <div className="relative space-y-4">
+      <div className="rounded-xl border border-success/20 bg-success/5 p-4">
+        <div className="mb-1.5 flex items-center gap-2">
+          <CheckCircle2 className="size-5 text-success" />
+          <span className="font-semibold text-content-primary">You already run a worker on {net.label}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-mono text-content-primary">{shortAddr(addr)}</span>
+          <Badge tone="success">Registered · stake locked</Badge>
+          {localBadge}
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-content-soft">{desc}</p>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <Link href="/dashboard">
+          <Button variant="gradient" size="lg">
+            <Gauge /> Open dashboard <ArrowRight />
+          </Button>
+        </Link>
+        {canBringOnline && (
+          <Button variant="outline" size="lg" onClick={onBringOnline}>
+            <Rocket /> Bring it back online
+          </Button>
+        )}
+      </div>
+
+      <p className="text-xs leading-relaxed text-content-soft">
+        To exit this worker and get your stake back, use <span className="text-content-primary">Deregister</span> on the
+        dashboard.{" "}
+        <button type="button" onClick={onReplace} className="font-medium text-content-soft underline-offset-2 transition-colors hover:text-content-primary hover:underline">
+          Use a different worker instead
+        </button>{" "}
+        - the current one stays staked and is archived so you never lose it.
+      </p>
+
+      <Link href="/recover" className="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:underline">
+        <KeyRound className="size-3.5" /> Recover a replaced key
+      </Link>
     </div>
   );
 }
@@ -481,9 +512,17 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   // The worker ADDRESS once a key exists + is funded (the raw key lives in the
   // keychain/localStorage, not here). Null until ready.
   const [ready, setReady] = useState<string | null>(null);
-  // Whether the selected network's worker is already registered on-chain - then
-  // this is a reinstall (recreate the container), not a fresh install.
+  // This network's stored (public) worker address + whether it is already
+  // registered on-chain. Owned here (not in FunderSetup) so it re-evaluates on
+  // every network toggle, even while the "already a worker" panel is showing.
+  const [workerAddr, setWorkerAddrState] = useState("");
   const [registered, setRegistered] = useState(false);
+  // Escape hatch: from the "already a worker" panel, choose to set up a different
+  // worker (shows the fund wizard despite an existing registration).
+  const [forceFresh, setForceFresh] = useState(false);
+  // Local container state for an already-registered worker (running here / stopped
+  // / not installed), so we can show the right "you already have a worker" panel.
+  const [local, setLocal] = useState<LocalWorkerInfo | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
@@ -507,6 +546,43 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     };
   }, [network]);
   useEffect(() => () => stopRef.current?.(), []);
+  // Detect this network's worker + whether it's registered on-chain. Re-runs on
+  // every network toggle (the panel that needs it may already be showing).
+  useEffect(() => {
+    let on = true;
+    setForceFresh(false);
+    const a = getWorkerAddr(network);
+    const valid = /^0x[a-fA-F0-9]{40}$/.test(a);
+    setWorkerAddrState(valid ? a : "");
+    if (!valid) {
+      setRegistered(false);
+      return;
+    }
+    // Recover a key stored by an older build under the single (non-per-network)
+    // name, so the reveal + install find it for this network.
+    void migrateBareWorkerKey(network);
+    fetchWorker(network, a)
+      .then((w) => on && setRegistered(!!w && w.status !== "deregistered"))
+      .catch(() => on && setRegistered(false));
+    return () => {
+      on = false;
+    };
+  }, [network]);
+  // Read the local container's state once we know this network's worker is
+  // registered - to distinguish "already running here" from "registered but offline".
+  useEffect(() => {
+    if (!desktop || !registered) {
+      setLocal(null);
+      return;
+    }
+    let on = true;
+    localWorkerInfo().then((info) => {
+      if (on) setLocal(info);
+    });
+    return () => {
+      on = false;
+    };
+  }, [desktop, registered, network]);
 
   const updatePw = (v: string) => {
     setPw(v);
@@ -531,15 +607,18 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     );
   }
 
+  // The "already a worker" panel shows for a registered worker unless the user
+  // explicitly chose to set up a different one.
+  const showAlready = registered && !forceFresh;
+  // The worker this install acts on: the existing registered one (bring online),
+  // else the freshly funded/generated one from the wizard.
+  const target = showAlready ? workerAddr : ready ?? "";
   const valid = pw.length >= 6 && !!ready;
-  const hint = pw.length < 6 ? "Set a password (6+ characters)" : registered ? "Preparing your worker" : "Fund the worker address";
-  // Already-registered worker: this is a reinstall (recreate the container), not
-  // a fresh fund-and-stake. Reflect that in the copy + CTA.
-  const ctaLabel = registered ? "Reinstall - bring my worker online" : "Install & run my worker";
-  const headingSub = registered ? "Bring your already-registered worker back online." : "Set a password, fund your worker, go live.";
+  const hint = pw.length < 6 ? "Set a password (6+ characters)" : "Fund the worker address";
+  const ctaLabel = forceFresh ? "Install my new worker" : "Install & run my worker";
 
   const run = async () => {
-    if (!ready) return;
+    if (!target) return;
     setPhase("running");
     setLog([]);
     // Persist this network's password, then pass THIS network's secrets to the
@@ -550,13 +629,16 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     // never networked. WORKER_PRIVKEY may be absent for a switch-back to a worker
     // whose key isn't in the app; WORKER_ADDR (public) then identifies it and the
     // installer/keystore supplies the key.
-    await setSecret(SECRET_WORKER_PW, pw, network);
+    // Use the typed password if set, else this network's stored one (the
+    // already-registered "bring online" panel hides the field and relies on it).
+    const pwVal = pw || (await getSecret(SECRET_WORKER_PW, network));
+    if (pwVal) await setSecret(SECRET_WORKER_PW, pwVal, network);
     const k = await getSecret(SECRET_WORKER_KEY, network);
     const env: Record<string, string> = {
       NETWORK: network,
       SUPPORTED_MODELS: model,
-      WORKER_PASSWORD: pw,
-      WORKER_ADDR: getWorkerAddr(network),
+      WORKER_PASSWORD: pwVal,
+      WORKER_ADDR: target,
       ...(k ? { WORKER_PRIVKEY: k } : {}),
     };
     stopRef.current = await runSetupStreamed(
@@ -583,8 +665,14 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
         <div className="flex items-center gap-3">
           <IconChip icon={Rocket} size="md" />
           <div>
-            <h3 className="text-base font-semibold tracking-tight text-content-primary">One-click install</h3>
-            <p className="text-xs text-content-soft">{headingSub}</p>
+            <h3 className="text-base font-semibold tracking-tight text-content-primary">{showAlready ? "Your worker" : "One-click install"}</h3>
+            <p className="text-xs text-content-soft">
+              {showAlready
+                ? `Already set up on ${net.label} - manage it below.`
+                : forceFresh
+                  ? "Set up a different worker."
+                  : "Set a password, fund your worker, go live."}
+            </p>
           </div>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium text-content-soft">
@@ -592,7 +680,11 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
         </span>
       </div>
 
-      {phase === "idle" && (
+      {phase === "idle" && showAlready && (
+        <AlreadyAWorker network={network} addr={workerAddr} local={local} onBringOnline={run} onReplace={() => setForceFresh(true)} />
+      )}
+
+      {phase === "idle" && !showAlready && (
         <div className="relative space-y-4">
           <div className="flex items-start gap-2.5 rounded-xl border border-bdr-soft bg-surface-base-subtle/60 px-3.5 py-3 text-xs leading-relaxed text-content-soft">
             <Wallet className="mt-0.5 size-4 shrink-0 text-content-soft" />
@@ -621,14 +713,12 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
           <StepCard
             n={2}
-            title={registered ? "Your worker" : "Fund your worker"}
+            title="Fund your worker"
             aside={
               <div className="flex items-center gap-3">
-                {!registered && (
-                  <span className="rounded-full bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium tabular-nums text-content-soft">
-                    {net.fundLcai.toLocaleString()} LCAI
-                  </span>
-                )}
+                <span className="rounded-full bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium tabular-nums text-content-soft">
+                  {net.fundLcai.toLocaleString()} LCAI
+                </span>
                 <button
                   type="button"
                   onClick={() => setMode((m) => (m === "wallet" ? "paste" : "wallet"))}
@@ -639,8 +729,17 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
               </div>
             }
           >
-            <FunderSetup network={network} mode={mode} onReady={setReady} onRegistered={setRegistered} />
+            <FunderSetup network={network} mode={mode} onReady={setReady} registered={registered} />
           </StepCard>
+          {forceFresh && (
+            <button
+              type="button"
+              onClick={() => setForceFresh(false)}
+              className="text-xs text-content-soft underline-offset-2 transition-colors hover:text-content-primary hover:underline"
+            >
+              ← Back to my existing worker
+            </button>
+          )}
 
           <p className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/5 px-3.5 py-2.5 text-xs text-content-soft">
             <ShieldCheck className="size-4 shrink-0 text-success" /> Keys stay in memory and on your machine - passed to the

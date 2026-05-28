@@ -115,7 +115,7 @@ export async function migrateBareWorkerKey(net: NetworkId): Promise<void> {
   if (want && addr === want) await setSecret(SECRET_WORKER_KEY, bare, net);
 }
 
-interface RetiredWorker {
+export interface RetiredWorker {
   addr: string;
   key: string;
   pw: string;

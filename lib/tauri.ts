@@ -245,6 +245,63 @@ export async function localContainerStatus(): Promise<LocalContainerStatus> {
   });
 }
 
+export interface LocalWorkerInfo {
+  status: LocalContainerStatus;
+  chainId: number | null; // the running/last container's CHAIN_ID, if readable
+}
+
+/**
+ * One read of the local worker container: its status (running/stopped/missing) AND
+ * the chain it's configured for, so the UI can tell "running on this machine for
+ * THIS network" apart from a container left over from the other network. Read-only
+ * (does not auto-start Docker). "unknown" off-desktop or when Docker is unreachable.
+ */
+export async function localWorkerInfo(): Promise<LocalWorkerInfo> {
+  const invoke = getInvoke();
+  const events = win()?.__TAURI__?.event;
+  if (!invoke || !events || streamBusy) return { status: "unknown", chainId: null };
+  const cmd =
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"; ' +
+    'docker info >/dev/null 2>&1 || { echo "__NODOCKER__"; exit 0; }; ' +
+    'echo "STATUS:$(docker ps -a --filter name=lightchain-worker --format \'{{.Status}}\' 2>/dev/null)"; ' +
+    'echo "CHAIN:$(docker inspect lightchain-worker --format \'{{range .Config.Env}}{{println .}}{{end}}\' 2>/dev/null | grep \'^CHAIN_ID=\' | head -1 | cut -d= -f2)"';
+  streamBusy = true;
+  return new Promise<LocalWorkerInfo>((resolve) => {
+    let out = "";
+    let settled = false;
+    const unsubs: Array<() => void> = [];
+    const finish = (v: LocalWorkerInfo) => {
+      if (settled) return;
+      settled = true;
+      streamBusy = false;
+      unsubs.forEach((u) => u());
+      resolve(v);
+    };
+    const classify = () => {
+      if (/__NODOCKER__/.test(out)) return finish({ status: "unknown", chainId: null });
+      const statusLine = (out.match(/STATUS:(.*)/)?.[1] ?? "").trim();
+      const chainStr = (out.match(/CHAIN:(.*)/)?.[1] ?? "").trim();
+      const chainId = /^\d+$/.test(chainStr) ? Number(chainStr) : null;
+      const status: LocalContainerStatus = /^Up\b/i.test(statusLine)
+        ? "running"
+        : /\b(Exited|Created)\b/i.test(statusLine)
+          ? "stopped"
+          : "missing";
+      finish({ status, chainId });
+    };
+    Promise.all([
+      events.listen("setup-log", (e) => {
+        out += String(e.payload) + "\n";
+      }),
+      events.listen("setup-exit", classify),
+    ]).then((u) => {
+      unsubs.push(...u);
+      invoke("run_command_streamed", { command: cmd, env: {} }).catch(() => finish({ status: "unknown", chainId: null }));
+    });
+    setTimeout(() => finish({ status: "unknown", chainId: null }), 8000);
+  });
+}
+
 /**
  * Live worker health for the desktop "my worker" view: container uptime/CPU/mem,
  * the worker's local Prometheus metrics (active jobs, Ollama, heartbeat, releases)
