@@ -16,12 +16,8 @@
 Connect a wallet, check your machine, install in one click, and manage the whole
 lifecycle - earnings, payouts, and exit - without ever touching a terminal.
 
-LightNode is an independent ecosystem tool (not an official LightChain product). It
-builds on the official
-[`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit)
-and the worker's own Docker image as the underlying runtime - no protocol changes,
-no consensus work - but it is far more than a script wrapper. On top of that runtime
-it adds the entire operator experience:
+LightNode is the complete, no-terminal way to run a LightChain AI worker - it handles
+everything an operator needs, end to end:
 
 - **Real machine readiness** - native CPU/RAM/GPU/VRAM detection, a capacity score,
   and a **Speed test** that runs an actual inference and projects it against the live
@@ -42,7 +38,9 @@ it adds the entire operator experience:
   (heartbeat, in-flight jobs, model warm/cold) the on-chain subgraph can't see.
 
 It reads live network and worker state from the LightChain workers subgraph, and runs
-as both a web app and a native desktop app from one codebase.
+as both a web app and a native desktop app from one codebase. Running a worker is the
+first flow - validator onboarding and multi-worker fleets are next (see
+[Roadmap](#scope-and-roadmap)).
 
 - **Web app:** <https://lightnode.app> - browse the network, score your
   machine, and copy ready-to-run setup commands.
@@ -325,10 +323,23 @@ with a matching test, design tokens over hardcoded colors, and conventional comm
 
 ## Scope and roadmap
 
-Worker onboarding ships first. Validator onboarding (a much heavier, capital-gated
-path with a full node) is intentionally deferred. Multi-worker on a single powerful
-machine (multiple containers / keystores / stakes) is a known future item; today the
-model is one worker per machine.
+Today LightNode is a complete, proven **worker** product - the full one-flow,
+no-terminal experience from machine check to earning and exit. The same model is
+built to extend across the rest of running LightChain infrastructure:
+
+- **Validator onboarding** - the heavier, capital-gated path (full-node sync, a
+  validator client, a larger deposit, monitoring and backups) brought into the same
+  guided install -> manage -> earn flow, so securing the chain at the consensus layer
+  is as approachable as running a worker.
+- **Multi-worker fleets** - run and manage several workers (their own containers,
+  keystores, and stakes) on one powerful machine; the model today is one worker per
+  machine.
+- **Deeper operations** - richer earnings analytics, proactive alerting, and
+  automated recovery, building on the live health monitoring and on-chain
+  reconciliation the app already does.
+
+Worker onboarding is what ships and is battle-tested today; the rest is the direction
+it's heading.
 
 ---
 
