@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.12";
+const INSTALLER_REV = "2026-05-28.13";
 
 export interface ScriptBundle {
   os: OS;
@@ -153,6 +153,17 @@ export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/b
 OS="$(uname -s)"
 if [ "$OS" = "Darwin" ] && ! have brew; then echo "⛔ Install Homebrew first: https://brew.sh"; exit 1; fi
 
+# 0) Disk guard. A near-full startup disk makes Docker Desktop's backend crash while
+# writing its lock files, into an unrecoverable state ("no space left on device").
+# Fail fast with a clear message BEFORE we ever start Docker. (df -k is portable;
+# col 4 = available KB; /1048576 = GiB.)
+FREE_G="$(df -k / 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"
+if [ -n "$FREE_G" ] && [ "$FREE_G" -lt 5 ]; then
+  echo "⛔ Only ~$FREE_G GB free on your startup disk. Docker needs headroom to start safely (a near-full disk crashes its backend into an unrecoverable state), and the AI model needs several GB more. Free up space, then run install again."
+  exit 1
+fi
+[ -n "$FREE_G" ] && [ "$FREE_G" -lt 15 ] && echo "⚠ Only ~$FREE_G GB free - the model download alone needs several GB; you may run low."
+
 # 1) Install only what's missing (idempotent; each is a no-op when present).
 if have docker; then echo "✓ Docker already installed"; else
   echo "▶ installing Docker"
@@ -189,29 +200,58 @@ if ! docker info >/dev/null 2>&1; then
     if [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1; then export DOCKER_HOST="unix://$s"; break; fi
   done
 fi
+DOCKER_BACKEND_LOG="$HOME/Library/Containers/com.docker.docker/Data/log/host/com.docker.backend.log"
 if ! docker info >/dev/null 2>&1; then
-  echo "▶ starting the Docker engine"
-  if [ "$OS" = "Darwin" ]; then open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true;
-  else sudo systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || true; fi
+  if [ "$OS" = "Darwin" ]; then
+    # A crashed session can leave com.docker.backend processes running while the
+    # daemon is dead - a graceful quit won't clear them, and a new launch collides
+    # with the zombies. If any are alive while docker is down, clear them first
+    # (TERM, then KILL - the parent backend often survives SIGTERM).
+    if pgrep -f com.docker.backend >/dev/null 2>&1; then
+      echo "▶ Docker looks wedged (leftover backend from a crashed session) - clearing it first"
+      osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || true
+      pkill -f "Docker.app/Contents/MacOS/com.docker.backend" 2>/dev/null || true
+      pkill -f "Docker Desktop.app" 2>/dev/null || true
+      sleep 2
+      BPIDS="$(pgrep -f com.docker.backend 2>/dev/null)"; [ -n "$BPIDS" ] && kill -9 $BPIDS 2>/dev/null; true
+      sleep 2
+    fi
+    echo "▶ starting the Docker engine"
+    open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true
+  else
+    echo "▶ starting the Docker engine"
+    sudo systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || true
+  fi
 fi
 
-# 3) Wait for Docker (the slow one) with a one-time clean relaunch for the macOS
-# half-state, then Ollama (which booted in parallel, so this is usually instant).
+# 3) Wait for Docker (the slow one), then Ollama (which booted in parallel, so this
+# is usually instant). One clean recovery at ~90s covers both the macOS half-state
+# (GUI open, engine never started) and a wedged/zombie backend.
 echo "… waiting for the Docker engine (a cold start - e.g. right after 'Free up memory' - can take 1-2 min; approve any Docker permission dialog if it appears)"
 for i in $(seq 1 120); do
   docker info >/dev/null 2>&1 && break
-  # macOS half-state: the GUI is open but the engine never started (common right
-  # after 'Free up memory' quit Docker, where a plain 'open' is a no-op). If still
-  # down at ~90s, relaunch it cleanly once - a normal cold boot is up well before then.
-  if [ "$OS" = "Darwin" ] && [ "$i" = "45" ] && ! docker info >/dev/null 2>&1 && pgrep -x "Docker Desktop" >/dev/null 2>&1; then
-    echo "▶ Docker is open but its engine hasn't come up - relaunching it..."
-    osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || true; sleep 2; pkill -x "Docker Desktop" >/dev/null 2>&1 || true; sleep 3
+  if [ "$OS" = "Darwin" ] && [ "$i" = "45" ] && ! docker info >/dev/null 2>&1; then
+    echo "▶ Docker still not up - restarting it cleanly (clearing any stuck backend)..."
+    osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || true; sleep 2
+    BPIDS="$(pgrep -f com.docker.backend 2>/dev/null)"; [ -n "$BPIDS" ] && kill -9 $BPIDS 2>/dev/null; true
+    pkill -x "Docker Desktop" 2>/dev/null || true; sleep 3
     open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true
   fi
   [ $((i % 15)) -eq 0 ] && echo "… still waiting for Docker ($((i * 2))s elapsed)"
   sleep 2
 done
-docker info >/dev/null 2>&1 || { echo "⛔ Docker engine didn't come up. Open Docker Desktop manually (approve any permission prompt), wait for the whale icon in the menu bar to settle, then run install again."; exit 1; }
+if ! docker info >/dev/null 2>&1; then
+  # Surface the REAL cause from Docker's own backend log, not a generic message.
+  if [ "$OS" = "Darwin" ] && [ -f "$DOCKER_BACKEND_LOG" ] && tail -n 60 "$DOCKER_BACKEND_LOG" 2>/dev/null | grep -qiE "no space left|writing locks"; then
+    echo "⛔ Docker can't start: your startup disk is full - its backend crashed writing lock files. Free up several GB, then run install again."
+  elif [ "$OS" = "Darwin" ] && [ -f "$DOCKER_BACKEND_LOG" ] && tail -n 60 "$DOCKER_BACKEND_LOG" 2>/dev/null | grep -qi "backend crashed"; then
+    echo "⛔ Docker's backend crashed on startup. Open Docker Desktop manually; if it offers 'Reset to factory defaults', use it, then run install again."
+    echo "   last backend error:"; tail -n 2 "$DOCKER_BACKEND_LOG" 2>/dev/null | sed 's/^/   /'
+  else
+    echo "⛔ Docker engine didn't come up. Open Docker Desktop manually (approve any permission prompt), wait for the whale icon in the menu bar to settle, then run install again."
+  fi
+  exit 1
+fi
 echo "✓ Docker engine ready"
 echo "… waiting for Ollama on 127.0.0.1:11434"
 for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
