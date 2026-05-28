@@ -507,7 +507,7 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
  * keystore password + a dedicated funding key (fundable from the connected
  * wallet), passes them as process env to the native runner, and streams the log.
  */
-export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready }: { models?: string[]; onAlready?: (already: boolean) => void }) {
+export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstalled }: { models?: string[]; onAlready?: (already: boolean) => void; onInstalled?: (done: boolean) => void }) {
   const { network } = useNetwork();
   const net = NETWORKS[network];
   const [desktop, setDesktop] = useState(false);
@@ -531,7 +531,14 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready }: { model
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
-  const logEnd = useRef<HTMLDivElement>(null);
+  const logBox = useRef<HTMLDivElement>(null);
+  // Follow the log as it streams, but stop the instant the user scrolls up to
+  // read (resume when they scroll back to the bottom).
+  const stickToBottom = useRef(true);
+  const onLogScroll = () => {
+    const el = logBox.current;
+    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
 
   useEffect(() => setDesktop(isDesktop()), []);
   useEffect(() => {
@@ -594,11 +601,20 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready }: { model
     setPw(v);
     void setSecret(SECRET_WORKER_PW, v, network); // keychain on desktop, localStorage on web
   };
-  useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
+  // Pin to the bottom by setting scrollTop directly (instant) - scrollIntoView
+  // with smooth behavior stacks an animation per streamed line and makes the
+  // terminal (and page) float/jump. Only follows when already at the bottom.
+  useEffect(() => {
+    const el = logBox.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [log]);
   // Tell the parent whether this is an existing worker, so the onboard step can
   // drop the install chrome (model picker etc.) and just show the manage panel.
   const alreadyAWorker = registered && !forceFresh;
   useEffect(() => onAlready?.(alreadyAWorker), [alreadyAWorker, onAlready]);
+  // Tell the parent when the install has actually finished, so the wizard's
+  // "Continue" can stay disabled until the worker is really set up.
+  useEffect(() => onInstalled?.(phase === "done"), [phase, onInstalled]);
 
   if (!desktop) {
     return (
@@ -778,10 +794,9 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready }: { model
             {phase === "done" && <span className="inline-flex items-center gap-2 font-medium text-success"><CheckCircle2 className="size-4" /> Worker online. Track it on the dashboard.</span>}
             {phase === "failed" && <span className="inline-flex items-center gap-2 font-medium text-destructive"><XCircle className="size-4" /> Install stopped. See the log.</span>}
           </div>
-          <div className="max-h-64 overflow-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
+          <div ref={logBox} onScroll={onLogScroll} className="max-h-64 overflow-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
             <div className="mb-1.5 flex items-center gap-1.5 text-content-soft"><Terminal className="size-3" /> install log</div>
             {log.map((l, i) => (<div key={i} className="whitespace-pre-wrap">{l}</div>))}
-            <div ref={logEnd} />
           </div>
         </div>
       )}

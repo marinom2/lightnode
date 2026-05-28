@@ -47,6 +47,7 @@ export default function OnboardPage() {
   const [avgJobs, setAvgJobs] = useState(0);
   const [desktop, setDesktop] = useState(false);
   const [alreadyAWorker, setAlreadyAWorker] = useState(false);
+  const [installed, setInstalled] = useState(false);
   useEffect(() => setDesktop(isDesktop()), []);
 
   useEffect(() => {
@@ -60,9 +61,17 @@ export default function OnboardPage() {
     if (isConnected && step === 0) setStep(1);
   }, [isConnected, step]);
 
+  // A fresh network needs its own install before "Continue" re-enables.
+  useEffect(() => setInstalled(false), [network]);
+
   // Never hard-block on hardware: if below the 8GB-GPU bar, the user can still
   // proceed after acknowledging the risk (they may want to test on CPU/low spec).
-  const canNext = (step === 0 && isConnected) || (step === 1 && (vramOk || ackRisk)) || step === 2;
+  // Step 2 (Setup) only advances once the install has actually finished, or when
+  // the worker is already set up - not while it's still running.
+  const canNext =
+    (step === 0 && isConnected) ||
+    (step === 1 && (vramOk || ackRisk)) ||
+    (step === 2 && (installed || alreadyAWorker));
 
   // WEB: no manual steps. The whole job is done in the desktop app, so the web
   // page's only job is to explain it and hand over a download. (The full
@@ -242,27 +251,8 @@ export default function OnboardPage() {
             )}
 
             <div className="mb-6">
-              <OneClickInstall models={models} onAlready={setAlreadyAWorker} />
+              <OneClickInstall models={models} onAlready={setAlreadyAWorker} onInstalled={setInstalled} />
             </div>
-
-            <details hidden={alreadyAWorker} className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
-              <summary className="cursor-pointer text-sm font-medium text-content-soft hover:text-content-primary">
-                Prefer to run it yourself?
-              </summary>
-              <p className="mt-3 text-xs leading-relaxed text-content-soft">
-                The one-click install above is the supported path. It sets up Docker, Ollama, the keystore,
-                registration, the keep-online watchdog, model pre-warm, and sleep prevention, and the Operations panel
-                manages settle, withdraw, and deregister. If you&apos;d rather run everything by hand, use the official{" "}
-                <button
-                  type="button"
-                  onClick={() => openExternal("https://github.com/lightchain-protocol/lightchain-worker-toolkit")}
-                  className="text-primary underline-offset-2 hover:underline"
-                >
-                  lightchain-worker-toolkit
-                </button>{" "}
-                directly. It is the upstream source these commands wrap.
-              </p>
-            </details>
           </div>
         )}
 

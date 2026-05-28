@@ -415,9 +415,14 @@ describe("desktopInstallCommand (smart install)", () => {
     expect(unix).not.toContain("06-fund-worker");
     expect(unix).toContain("07-register");
   });
-  it("patches the stale stake guard to the network minimum (testnet 5001, mainnet 50001)", () => {
-    expect(desktopInstallCommand("macos", "testnet")).toContain("s/50001/5001/g");
-    expect(desktopInstallCommand("macos", "mainnet")).toContain("s/50001/50001/g");
+  it("replaces the toolkit's hardcoded stake amount with 'the network minimum' (no baked-in number; the real stake is read from AIConfig) on every OS", () => {
+    for (const os of ["macos", "linux"] as const) {
+      expect(desktopInstallCommand(os, "testnet")).toContain("STAKE the network minimum");
+      expect(desktopInstallCommand(os, "mainnet")).toContain("STAKE the network minimum");
+    }
+    expect(desktopInstallCommand("windows", "testnet")).toContain("STAKE the network minimum");
+    // and we no longer bake a per-network amount into the replacement
+    expect(desktopInstallCommand("macos", "testnet")).not.toContain("STAKE 5,000 LCAI");
   });
   it("emits PowerShell (not bash) for Windows, auto-starting Docker Desktop", () => {
     expect(win).toContain("$ErrorActionPreference");

@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.6";
+const INSTALLER_REV = "2026-05-28.7";
 
 export interface ScriptBundle {
   os: OS;
@@ -200,7 +200,6 @@ echo "✓ Foundry (cast) ready"`;
  *  WORKER key + password via env; we fund the worker directly from the user's
  *  wallet, so there's no separate funder and no phase 00/06. */
 function unixInstall(network: NetworkId, models: string[]): string {
-  const thr = NETWORKS[network].minStakeLcai + 1; // toolkit's pre-flight guard, per network
   const chainId = NETWORKS[network].chainId;
   const list = models.length ? models : [DEFAULT_MODEL];
   const supported = list.join(","); // SUPPORTED_MODELS the worker advertises
@@ -250,8 +249,11 @@ function unixInstall(network: NetworkId, models: string[]): string {
     // keys (a mainnet operator can set up testnet without risking their mainnet
     // key). The legacy ~/lightchain-worker/keys is still read by key derivation.
     `export KEYS_DIR="$HOME/lightchain-worker/keys-${network}"`,
-    // The toolkit hardcodes a 50,001 LCAI pre-flight guard; correct it to this network's minimum.
-    `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
+    // The toolkit prints a hardcoded "STAKE 50,000 LCAI" line, but the real stake
+    // is read live from AIConfig at register time (the binary logs the actual
+    // amount). Don't assert a number ourselves - just say "the network minimum" so
+    // it's honest on every network without baking in a value that could drift.
+    `sed -i.bak "s/STAKE 50,000 LCAI/STAKE the network minimum/g" 07-register.sh && rm -f 07-register.sh.bak`,
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
     // This machine runs ONE worker container at a time. If a container for THIS
     // network is already running, nothing to do. If it's for a DIFFERENT network,
@@ -294,7 +296,6 @@ function unixInstall(network: NetworkId, models: string[]): string {
 /** Smart, idempotent install for Windows (PowerShell). Auto-starts Docker
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
 function windowsInstall(network: NetworkId, models: string[]): string {
-  const thr = NETWORKS[network].minStakeLcai + 1;
   const chainId = NETWORKS[network].chainId;
   const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   const list = models.length ? models : [DEFAULT_MODEL];
@@ -378,8 +379,10 @@ if ((Test-Path env.ps1) -and -not (Select-String -Path env.ps1 -SimpleMatch 'if 
   $c = $c.Replace('$env:SUPPORTED_MODELS = "llama3-8b"', 'if (-not $env:SUPPORTED_MODELS) { $env:SUPPORTED_MODELS = "llama3-8b" }')
   Set-Content -Path env.ps1 -Value $c
 }
-# Correct the toolkit's hardcoded 50,001 stake guard to this network's minimum.
-if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace '50001', '${thr}' -replace '50,001', '${thr}' | Set-Content 07-register.ps1 }
+# The toolkit prints a hardcoded "STAKE 50,000 LCAI" line, but the real stake is
+# read live from AIConfig at register time. Don't assert a number - just say "the
+# network minimum" so it's honest on every network.
+if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace 'STAKE 50,000 LCAI', 'STAKE the network minimum' | Set-Content 07-register.ps1 }
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
 if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") {
