@@ -44,12 +44,12 @@ export default function Home() {
       {/* HERO */}
       <section className="relative mx-auto max-w-6xl px-5 pt-24 pb-16 text-center">
         <h1 className="mx-auto max-w-3xl text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-content-primary md:text-6xl">
-          Become a LightChain AI worker in <span className="text-gradient">one flow</span>.
+          Run a LightChain AI worker in <span className="text-gradient">one flow</span>.
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
-          Most people don&apos;t fail to run a node because they lack hardware - they fail on setup.
-          LightNode removes all of it: one click to install, and start earning{" "}
-          <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference. No terminal, no config.
+          Check your machine, fund and stake from your wallet, and go live in one click - then track
+          earnings, settle, and exit, all without touching a terminal. LightNode is the complete way to
+          earn <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference.
         </p>
         <HomeHeroCta />
 
@@ -168,7 +168,7 @@ export default function Home() {
               <StakeAmount /> LCAI stake. This is the one-flow path - start here.
             </p>
             <ul className="mt-5 space-y-2 text-sm text-content-soft">
-              {["Auto machine check + reward estimate", "One-click install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (
+              {["Auto machine check + a real slash-risk Speed test", "One-click install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (
                 <li key={x} className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-success" /> {x}
                 </li>
