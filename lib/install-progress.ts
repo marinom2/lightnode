@@ -82,6 +82,31 @@ function headlineFor(active: InstallMilestone | undefined, phase: RunPhase, down
   return `${active.label}…`;
 }
 
+/**
+ * Turn a known install failure into one plain-English, actionable sentence (shown
+ * above the technical log on failure). Reacts to the actual on-chain error text -
+ * no model is hard-coded as "bad", so it stays correct if the chain changes.
+ * Returns null when we don't recognize the failure (the raw log is enough).
+ */
+export function diagnoseFailure(cleaned: string[]): string | null {
+  const text = cleaned.join("\n");
+  if (/AddSupportedModel\b.*\brevert/i.test(text)) {
+    return (
+      "The network rejected this model during registration (the on-chain AddSupportedModel step reverted). " +
+      "Your stake is locked on-chain - the worker registered, so it is not lost. " +
+      "llama3-8b is the reliable testnet model: open the dashboard and add it from “Models this worker serves” " +
+      "(no re-stake needed), or deregister this worker and reinstall picking llama3-8b."
+    );
+  }
+  if (/stopped at 07-register/i.test(text) && /less than|insufficient|balance/i.test(text)) {
+    return "Registration needs a little more LCAI for the stake plus gas. Top up the worker address shown above, then run install again.";
+  }
+  if (/Docker engine didn.?t come up|Docker.*not.*running/i.test(text)) {
+    return "Docker did not start in time. Open Docker Desktop once so it is running, then run install again.";
+  }
+  return null;
+}
+
 /** Build the friendly view from the cleaned log lines + the current run phase. */
 export function deriveInstallView(cleaned: string[], phase: RunPhase): InstallView {
   const text = cleaned.join("\n");

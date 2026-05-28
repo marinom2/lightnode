@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveInstallView, latestDownloadPercent } from "@/lib/install-progress";
+import { deriveInstallView, latestDownloadPercent, diagnoseFailure } from "@/lib/install-progress";
 
 const PREP = [
   "▶ LightNode installer rev x (testnet)",
@@ -46,6 +46,29 @@ describe("deriveInstallView", () => {
     // earlier steps stay done, later steps stay pending
     expect(v.milestones.find((m) => m.id === "prepare")!.status).toBe("done");
     expect(v.milestones.find((m) => m.id === "register")!.status).toBe("pending");
+  });
+
+  it("diagnoses a model-add revert (the gemma-on-testnet failure) with actionable guidance", () => {
+    const log = [
+      "▶ phase 07-register",
+      "worker registered on-chain",
+      "AddSupportedModel failed, rolling back registration",
+      "registration: add supported model at index 0: AddSupportedModel transaction: execution reverted",
+      "⛔ stopped at 07-register",
+    ];
+    const hint = diagnoseFailure(log)!;
+    expect(hint).toMatch(/rejected this model/i);
+    expect(hint).toMatch(/llama3-8b/);
+    expect(hint).toMatch(/not lost/i);
+  });
+
+  it("diagnoses an insufficient-balance register failure", () => {
+    const hint = diagnoseFailure(["⛔ stopped at 07-register", "Worker has less than 5001 LCAI"])!;
+    expect(hint).toMatch(/more LCAI/i);
+  });
+
+  it("returns null for an unrecognized failure", () => {
+    expect(diagnoseFailure(["some unrelated error"])).toBeNull();
   });
 
   it("advances later milestones when their markers appear even if an earlier marker was skipped", () => {

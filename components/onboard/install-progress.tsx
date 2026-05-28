@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Check, Loader2, X, Terminal } from "lucide-react";
-import { deriveInstallView, type RunPhase, type StepStatus } from "@/lib/install-progress";
+import { Check, Loader2, X, Terminal, AlertTriangle } from "lucide-react";
+import { deriveInstallView, diagnoseFailure, type RunPhase, type StepStatus } from "@/lib/install-progress";
 import { cn } from "@/lib/utils";
 
 function StepIcon({ status }: { status: StepStatus }) {
@@ -39,6 +39,7 @@ function StepIcon({ status }: { status: StepStatus }) {
  */
 export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase }) {
   const view = deriveInstallView(log, phase);
+  const failureHint = phase === "failed" ? diagnoseFailure(log) : null;
   const logBox = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const onLogScroll = () => {
@@ -84,6 +85,13 @@ export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase
           </li>
         ))}
       </ol>
+
+      {failureHint && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-3 text-xs leading-relaxed text-content-default">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+          <span>{failureHint}</span>
+        </div>
+      )}
 
       {log.length > 0 && (
         <details className="group" open={phase === "failed"}>
