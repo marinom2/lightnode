@@ -54,9 +54,9 @@ export function healthOf(w: Worker): Health {
 }
 
 const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: string; hint: string }> = {
-  live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running - that's the local status." },
-  inactive: { tone: "warning", label: "Registered · inactive", hint: "Registered on-chain - your stake is still locked - but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
-  down: { tone: "danger", label: "Not registered", hint: "Not registered on-chain - either deregistered (stake returned) or never started." },
+  live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running; that's the local status." },
+  inactive: { tone: "warning", label: "Registered · inactive", hint: "Registered on-chain (your stake is still locked) but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
+  down: { tone: "danger", label: "Not registered", hint: "Not registered on-chain: either deregistered (stake returned) or never started." },
 };
 
 /** Cumulative settled-earnings sparkline (Released jobs only; no chart lib). */
@@ -164,7 +164,7 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
 
       <p className="mt-3 text-[11px] leading-relaxed text-content-soft">
         {pending > 0
-          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it (about hourly, up to ~8h) - automatic, no action needed.`
+          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it (about hourly, up to ~8h). This is automatic, no action needed.`
           : hasActivity
             ? "All completed jobs have settled. New rewards appear here automatically after each release cycle."
             : "No completed jobs yet. Rewards appear here once your worker serves and finishes jobs."}
@@ -250,7 +250,7 @@ export function WorkerView({
         {local && localStatus === "stopped" && (
           <p className="mt-2 flex items-start gap-2 text-sm text-warning">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            Your stake is still registered, but the container is stopped on this machine - so it is not earning. Use
+            Your stake is still registered, but the container is stopped on this machine, so it is not earning. Use
             Operations → Restart to bring it back online.
           </p>
         )}
@@ -290,13 +290,13 @@ export function WorkerView({
             <span>
               <span className="font-medium text-content-primary">
                 Stake is below the {minStake.toLocaleString()} LCAI minimum
-                {worker.status === "deactivated" ? " - this is why the worker shows inactive" : " (likely slashed)"}.
+                {worker.status === "deactivated" ? " (this is why the worker shows inactive)" : " (likely slashed)"}.
               </span>{" "}
               This worker holds {compact(stake)} LCAI. Send about{" "}
               <span className="font-semibold tabular-nums">{compact(Math.max(0, minStake - stake))} LCAI</span> to the worker
               wallet to reach the minimum
               {worker.status === "deactivated" ? " so the network can reactivate it" : " and stay eligible for jobs"}. Your
-              registration and remaining stake are intact - nothing was deregistered.
+              registration and remaining stake are intact. Nothing was deregistered.
             </span>
           </div>
         </Card>

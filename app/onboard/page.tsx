@@ -30,9 +30,9 @@ const STEPS = [
 // What the desktop app does for you - shown on the web so a visitor knows exactly
 // what they're getting before they download. No terminal, no manual steps.
 const WEB_STEPS = [
-  { icon: Download, t: "Download", d: "Get the app for your OS - macOS, Windows, or Linux." },
+  { icon: Download, t: "Download", d: "Get the app for your OS: macOS, Windows, or Linux." },
   { icon: ScanLine, t: "Auto-detect", d: "It reads your real GPU, VRAM, CPU and RAM and scores your machine." },
-  { icon: Rocket, t: "One click", d: "Press Install - it generates keys, funds + stakes, and starts the node." },
+  { icon: Rocket, t: "One click", d: "Press Install. It generates keys, funds and stakes, and starts the node." },
   { icon: HeartPulse, t: "Earn", d: "Your worker goes live, serves jobs, and earns $LCAI. Manage it all in-app." },
 ];
 
@@ -46,6 +46,7 @@ export default function OnboardPage() {
   const [ackRisk, setAckRisk] = useState(false);
   const [avgJobs, setAvgJobs] = useState(0);
   const [desktop, setDesktop] = useState(false);
+  const [alreadyAWorker, setAlreadyAWorker] = useState(false);
   useEffect(() => setDesktop(isDesktop()), []);
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export default function OnboardPage() {
           <h1 className="text-4xl font-semibold tracking-tight text-content-primary">Run a worker in one click</h1>
           <p className="mx-auto mt-3 max-w-xl text-content-soft">
             Download the LightNode app. It checks your machine, installs everything, funds and stakes your worker, and
-            keeps it online - no terminal, no config, no copy-paste.
+            keeps it online. No terminal, no config, no copy-paste.
           </p>
           <div className="mt-7 flex justify-center">
             <DownloadButton />
@@ -179,7 +180,7 @@ export default function OnboardPage() {
               onClick={() => setStep(1)}
               className="mx-auto mt-4 block text-sm text-content-soft underline-offset-4 hover:text-content-primary hover:underline"
             >
-              Skip - during setup you can scan a QR or send from any wallet
+              Skip. During setup you can scan a QR or send from any wallet
             </button>
           </div>
         )}
@@ -210,7 +211,7 @@ export default function OnboardPage() {
                 />
                 <span>
                   <span className="font-medium text-content-primary">Run anyway (below the {HARDWARE.min.vramGb}GB-GPU bar).</span> Inference
-                  will be slow on CPU and may miss the completion deadline - which can cost a small{" "}
+                  will be slow on CPU and may miss the completion deadline, which can cost a small{" "}
                   <span className="text-warning">stake slash</span>. Fine for testing; not ideal for earning. I understand
                   and want to continue.
                 </span>
@@ -222,12 +223,14 @@ export default function OnboardPage() {
         {step === 2 && (
           <div>
             <h2 className="mb-1 text-xl font-semibold text-content-primary">
-              {desktop ? "Install & run your worker" : "One command to set it all up"}
+              {alreadyAWorker && desktop ? "You already have a worker here" : desktop ? "Install & run your worker" : "One command to set it all up"}
             </h2>
             <p className="mb-5 text-sm text-content-soft">
-              {desktop
-                ? "One click. We generate your worker keys, fund + stake from your connected wallet, then start the node and keep it alive."
-                : "Tailored to your OS & chosen model - clones, configures, and runs everything. It only asks for a password and your funder key."}
+              {alreadyAWorker && desktop
+                ? "This network's worker is already set up. Manage it from the dashboard, or bring it back online if it is stopped."
+                : desktop
+                  ? "One click. We generate your worker keys, fund and stake from your connected wallet, then start the node and keep it alive."
+                  : "Tailored to your OS and chosen model. It clones, configures, and runs everything, asking only for a password and your funder key."}
             </p>
 
             {!desktop && (
@@ -246,22 +249,24 @@ export default function OnboardPage() {
               </div>
             )}
 
-            <div className="mb-6 rounded-2xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
-              <ModelPicker network={network} vramGb={vramGb} value={model} onChange={setModel} />
-            </div>
+            {!(alreadyAWorker && desktop) && (
+              <div className="mb-6 rounded-2xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
+                <ModelPicker network={network} vramGb={vramGb} value={model} onChange={setModel} />
+              </div>
+            )}
 
             <div className="mb-6">
-              <OneClickInstall model={model} />
+              <OneClickInstall model={model} onAlready={setAlreadyAWorker} />
             </div>
 
-            <details className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
+            <details hidden={alreadyAWorker && desktop} className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
               <summary className="cursor-pointer text-sm font-medium text-content-soft hover:text-content-primary">
                 Prefer to run it yourself?
               </summary>
               <p className="mt-3 text-xs leading-relaxed text-content-soft">
-                The one-click install above is the supported path - it sets up Docker, Ollama, the keystore,
+                The one-click install above is the supported path. It sets up Docker, Ollama, the keystore,
                 registration, the keep-online watchdog, model pre-warm, and sleep prevention, and the Operations panel
-                manages settle / withdraw / deregister. If you&apos;d rather run everything by hand, use the official{" "}
+                manages settle, withdraw, and deregister. If you&apos;d rather run everything by hand, use the official{" "}
                 <a
                   href="https://github.com/lightchain-protocol/lightchain-worker-toolkit"
                   target="_blank"
@@ -270,7 +275,7 @@ export default function OnboardPage() {
                 >
                   lightchain-worker-toolkit
                 </a>{" "}
-                directly - it&apos;s the upstream source these commands wrap.
+                directly. It is the upstream source these commands wrap.
               </p>
             </details>
           </div>
@@ -281,7 +286,7 @@ export default function OnboardPage() {
             <span className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-gradient-primary text-white">
               <HeartPulse className="size-6" />
             </span>
-            <h2 className="text-xl font-semibold text-content-primary">You&apos;re live - now watch it earn</h2>
+            <h2 className="text-xl font-semibold text-content-primary">You&apos;re live. Now watch it earn</h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-content-soft">
               After <code className="rounded bg-surface-base-light px-1.5 py-0.5 text-xs">08-run-worker</code>, your terminal
               prints your <span className="text-content-primary">worker address</span> (and{" "}

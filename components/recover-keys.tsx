@@ -108,7 +108,7 @@ export function RecoverKeys() {
           <ShieldCheck className="mx-auto mb-2 size-6 text-success" />
           <p className="text-sm text-content-primary">No replaced keys for {net.label}.</p>
           <p className="mx-auto mt-1 max-w-md text-xs text-content-soft">
-            If you ever click &quot;New key&quot; over an existing worker, the old key is archived here automatically - so you can
+            If you ever click &quot;New key&quot; over an existing worker, the old key is archived here automatically, so you can
             always get back to a staked worker.
           </p>
         </Card>
@@ -163,7 +163,7 @@ export function RecoverKeys() {
                   </button>
                   {restoredNow ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success">
-                      <Check className="size-4" /> Restored - it&apos;s now your active {net.label} worker
+                      <Check className="size-4" /> Restored. It&apos;s now your active {net.label} worker
                     </span>
                   ) : (
                     <Button variant="outline" size="sm" onClick={() => restore(e)}>

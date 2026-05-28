@@ -127,14 +127,14 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
       </div>
       {value ? (
         <p className="mt-2.5 flex items-start gap-1.5 text-xs text-warning">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> Save this - it decrypts your worker key and can&apos;t be recovered.
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> Save this. It decrypts your worker key and can&apos;t be recovered.
         </p>
       ) : (
         <p className="mt-2.5 text-xs text-content-soft">Encrypts your worker key on this machine. Use Generate for a strong one.</p>
       )}
       <p className="mt-2 flex items-start gap-1.5 text-[11px] text-content-soft">
-        <ShieldCheck className="mt-0.5 size-3 shrink-0 text-success/80" /> Kept on this device only (OS keychain +
-        encrypted keystore) and never sent to any server.
+        <ShieldCheck className="mt-0.5 size-3 shrink-0 text-success/80" /> Kept on this device only, in the OS keychain and an
+        encrypted keystore. It is never sent to any server.
       </p>
     </div>
   );
@@ -331,18 +331,18 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
                     This worker has a {net.minStakeLcai.toLocaleString()} LCAI stake locked on-chain.
                   </span>{" "}
                   A new key points the app at a different worker. The stake stays on-chain, but you need <span className="font-semibold">this</span> key
-                  to ever recover it - copy it (revealed above) somewhere safe first. To get the stake back instead, Deregister this worker.
+                  to ever recover it, so copy it (revealed above) somewhere safe first. To get the stake back instead, deregister this worker.
                   A copy is also archived on this device.
                 </span>
               </p>
             ) : (
               <p className="flex items-start gap-1.5 text-warning">
-                <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Replace this key? The current one is forgotten - back it up first if it holds funds.
+                <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Replace this key? The current one is forgotten, so back it up first if it holds funds.
               </p>
             )}
             <div className="mt-2 flex items-center justify-end gap-3">
               <button type="button" onClick={() => { setConfirmNew(false); void generate(); }} className="font-medium text-destructive transition-colors hover:underline">
-                {registered ? "I saved it - replace key" : "Replace key"}
+                {registered ? "I saved it, replace key" : "Replace key"}
               </button>
               <button type="button" onClick={() => setConfirmNew(false)} className="text-content-soft transition-colors hover:underline">
                 Cancel
@@ -357,11 +357,11 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
           </div>
         )}
         <p className="mt-2.5 flex items-start gap-1.5 text-[11px] text-warning">
-          <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key - it&apos;s your worker&apos;s identity and holds the staked LCAI.
+          <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Back up this key. It&apos;s your worker&apos;s identity and holds the staked LCAI.
         </p>
         <p className="mt-2 flex items-start gap-1.5 text-[11px] text-content-soft">
           <ShieldCheck className="mt-0.5 size-3 shrink-0 text-success/80" /> Your key and password are generated and kept
-          on this device only - in your OS keychain and an encrypted keystore - and are never sent to any server. Signing
+          on this device only, in your OS keychain and an encrypted keystore. They are never sent to any server, and signing
           happens locally.
         </p>
       </div>
@@ -370,7 +370,7 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
         {genAddr && <FundingQr uri={`ethereum:${genAddr}@${net.chainId}?value=${need.toString()}`} />}
         <div className="text-xs leading-relaxed text-content-soft">
           <span className="font-medium text-content-primary">Scan with your phone wallet</span> to send{" "}
-          {net.fundLcai.toLocaleString()} LCAI - recipient, amount and network are prefilled. The balance updates
+          {net.fundLcai.toLocaleString()} LCAI. The recipient, amount and network are prefilled, and the balance updates
           automatically. (Or use the button below and approve in your wallet.)
           {isConnected && (
             <button
@@ -406,11 +406,11 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
       </div>
 
       {isPending && !funded && (
-        <p className="text-xs text-warning">Approve the transfer in your wallet - on mobile, open the MetaMask app to see the request.</p>
+        <p className="text-xs text-warning">Approve the transfer in your wallet. On mobile, open the MetaMask app to see the request.</p>
       )}
       {hash && !funded && (
         <p className="text-xs text-content-soft">
-          Sent - confirming on-chain…{" "}
+          Sent. Confirming on-chain…{" "}
           <a href={`${net.explorer}/tx/${hash}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">view</a>
         </p>
       )}
@@ -434,7 +434,7 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
   const canBringOnline = !runningHere && !otherNetRunning;
 
   const desc = runningHere
-    ? "It's running on this machine and serving jobs - nothing to do here. Manage it (settle, restart, health, deregister) from the dashboard."
+    ? "It's running on this machine and serving jobs, so there's nothing to do here. Manage it (settle, restart, health, deregister) from the dashboard."
     : otherNetRunning
       ? `A worker for the other network is running on this machine right now. This ${net.label} worker is registered but offline here. Stop the other one first (on the dashboard), then come back to bring this one online.`
       : stoppedHere
@@ -486,8 +486,8 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
         dashboard.{" "}
         <button type="button" onClick={onReplace} className="font-medium text-content-soft underline-offset-2 transition-colors hover:text-content-primary hover:underline">
           Use a different worker instead
-        </button>{" "}
-        - the current one stays staked and is archived so you never lose it.
+        </button>
+        . The current one stays staked and is archived so you never lose it.
       </p>
 
       <Link href="/recover" className="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:underline">
@@ -502,7 +502,7 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
  * keystore password + a dedicated funding key (fundable from the connected
  * wallet), passes them as process env to the native runner, and streams the log.
  */
-export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
+export function OneClickInstall({ model = DEFAULT_MODEL, onAlready }: { model?: string; onAlready?: (already: boolean) => void }) {
   const { network } = useNetwork();
   const net = NETWORKS[network];
   const [desktop, setDesktop] = useState(false);
@@ -589,6 +589,10 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     void setSecret(SECRET_WORKER_PW, v, network); // keychain on desktop, localStorage on web
   };
   useEffect(() => logEnd.current?.scrollIntoView({ behavior: "smooth" }), [log]);
+  // Tell the parent whether this is an existing worker, so the onboard step can
+  // drop the install chrome (model picker etc.) and just show the manage panel.
+  const alreadyAWorker = registered && !forceFresh;
+  useEffect(() => onAlready?.(alreadyAWorker), [alreadyAWorker, onAlready]);
 
   if (!desktop) {
     return (
@@ -609,7 +613,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
   // The "already a worker" panel shows for a registered worker unless the user
   // explicitly chose to set up a different one.
-  const showAlready = registered && !forceFresh;
+  const showAlready = alreadyAWorker;
   // The worker this install acts on: the existing registered one (bring online),
   // else the freshly funded/generated one from the wizard.
   const target = showAlready ? workerAddr : ready ?? "";
@@ -668,7 +672,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
             <h3 className="text-base font-semibold tracking-tight text-content-primary">{showAlready ? "Your worker" : "One-click install"}</h3>
             <p className="text-xs text-content-soft">
               {showAlready
-                ? `Already set up on ${net.label} - manage it below.`
+                ? `Already set up on ${net.label}. Manage it below.`
                 : forceFresh
                   ? "Set up a different worker."
                   : "Set a password, fund your worker, go live."}
@@ -691,7 +695,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
             <span>
               <span className="font-medium text-content-primary">No wallet connection needed to fund.</span> This desktop app
               runs in its own browser, so it can&apos;t use your Chrome MetaMask extension. Just send the amount to the funding
-              address from any wallet - the balance updates automatically.
+              address from any wallet. The balance updates automatically.
             </span>
           </div>
 
@@ -742,8 +746,8 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
           )}
 
           <p className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/5 px-3.5 py-2.5 text-xs text-content-soft">
-            <ShieldCheck className="size-4 shrink-0 text-success" /> Keys stay in memory and on your machine - passed to the
-            local installer, never stored or sent anywhere.
+            <ShieldCheck className="size-4 shrink-0 text-success" /> Your keys stay on this machine and go straight to the
+            local installer. They are never stored or sent anywhere.
           </p>
 
           <Button variant="gradient" size="lg" className="w-full" disabled={!valid} onClick={run}>
@@ -761,8 +765,8 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
         <div className="relative">
           <div className="mb-3 flex items-center gap-2 text-sm">
             {phase === "running" && <span className="inline-flex items-center gap-2 text-content-primary"><Loader2 className="size-4 animate-spin" /> Installing your worker...</span>}
-            {phase === "done" && <span className="inline-flex items-center gap-2 font-medium text-success"><CheckCircle2 className="size-4" /> Worker online - track it on the dashboard.</span>}
-            {phase === "failed" && <span className="inline-flex items-center gap-2 font-medium text-destructive"><XCircle className="size-4" /> Install stopped - see the log.</span>}
+            {phase === "done" && <span className="inline-flex items-center gap-2 font-medium text-success"><CheckCircle2 className="size-4" /> Worker online. Track it on the dashboard.</span>}
+            {phase === "failed" && <span className="inline-flex items-center gap-2 font-medium text-destructive"><XCircle className="size-4" /> Install stopped. See the log.</span>}
           </div>
           <div className="max-h-64 overflow-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
             <div className="mb-1.5 flex items-center gap-1.5 text-content-soft"><Terminal className="size-3" /> install log</div>

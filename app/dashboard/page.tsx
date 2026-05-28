@@ -157,7 +157,7 @@ export default function DashboardPage() {
       </form>
       <p className="mt-2 text-xs text-content-soft">
         Tip: your worker address is printed by <code className="rounded bg-surface-base-light px-1 py-0.5">08-run-worker</code> /{" "}
-        <code className="rounded bg-surface-base-light px-1 py-0.5">status</code> - it&apos;s the generated worker key, not your funder wallet.
+        <code className="rounded bg-surface-base-light px-1 py-0.5">status</code>. It&apos;s the generated worker key, not your funder wallet.
       </p>
 
       <WatchGrid
@@ -226,7 +226,7 @@ export default function DashboardPage() {
           >
             <span className="flex items-center gap-2.5 text-content-soft">
               <KeyRound className="size-4 text-primary" />
-              <span><span className="font-medium text-content-primary">Recover a replaced key</span> - get back a worker you replaced (and its stake)</span>
+              <span><span className="font-medium text-content-primary">Recover a replaced key.</span> Get back a worker you replaced, and its stake.</span>
             </span>
             <ChevronRight className="size-4 text-content-soft" />
           </Link>
