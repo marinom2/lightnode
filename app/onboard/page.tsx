@@ -223,33 +223,15 @@ export default function OnboardPage() {
         {step === 2 && (
           <div>
             <h2 className="mb-1 text-xl font-semibold text-content-primary">
-              {alreadyAWorker && desktop ? "You already have a worker here" : desktop ? "Install & run your worker" : "One command to set it all up"}
+              {alreadyAWorker ? "You already have a worker here" : "Install & run your worker"}
             </h2>
             <p className="mb-5 text-sm text-content-soft">
-              {alreadyAWorker && desktop
+              {alreadyAWorker
                 ? "This network's worker is already set up. Manage it from the dashboard, or bring it back online if it is stopped."
-                : desktop
-                  ? "One click. We generate your worker keys, fund and stake from your connected wallet, then start the node and keep it alive."
-                  : "Tailored to your OS and chosen model. It clones, configures, and runs everything, asking only for a password and your funder key."}
+                : "One click. We generate your worker keys, fund and stake from your connected wallet, then start the node and keep it alive."}
             </p>
 
-            {!desktop && (
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/10 p-3 text-xs text-content-default">
-                <span className="flex items-start gap-2.5">
-                  <IconChip icon={Rocket} size="sm" className="shrink-0" />
-                  <span>
-                    <span className="font-medium text-content-primary">Want truly zero commands?</span> The LightNode
-                    desktop app auto-detects hardware and installs + runs with a single button. On the web, use the one
-                    command below.
-                  </span>
-                </span>
-                <a href="https://github.com/marinom2/lightnode/releases/latest" target="_blank" rel="noreferrer" className="shrink-0">
-                  <Button variant="outline" size="sm">Get the desktop app</Button>
-                </a>
-              </div>
-            )}
-
-            {!(alreadyAWorker && desktop) && (
+            {!alreadyAWorker && (
               <div className="mb-6 rounded-2xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
                 <ModelPicker network={network} vramGb={vramGb} value={models} onChange={setModels} />
               </div>
@@ -259,7 +241,7 @@ export default function OnboardPage() {
               <OneClickInstall models={models} onAlready={setAlreadyAWorker} />
             </div>
 
-            <details hidden={alreadyAWorker && desktop} className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
+            <details hidden={alreadyAWorker} className="rounded-xl border border-bdr-soft bg-surface-base-subtle/40 p-4">
               <summary className="cursor-pointer text-sm font-medium text-content-soft hover:text-content-primary">
                 Prefer to run it yourself?
               </summary>
@@ -287,12 +269,11 @@ export default function OnboardPage() {
             </span>
             <h2 className="text-xl font-semibold text-content-primary">You&apos;re live. Now watch it earn</h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-content-soft">
-              {desktop
-                ? "Your worker is registered and running on this machine. We're confirming it on-chain below, then track jobs, earnings, and health on the dashboard."
-                : "After 08-run-worker, your terminal prints your worker address (status shows it too). Paste it below to track jobs, earnings, and health in real time."}
+              Your worker is registered and running on this machine. We&apos;re confirming it on-chain below, then track
+              jobs, earnings, and health on the dashboard.
             </p>
             <div className="mx-auto mt-6 max-w-lg">
-              <p className="mb-2 text-sm font-medium text-content-primary">{desktop ? "Confirming it's live" : "Verify it's live"}</p>
+              <p className="mb-2 text-sm font-medium text-content-primary">Confirming it&apos;s live</p>
               <VerifyWorker />
             </div>
 
@@ -332,7 +313,7 @@ export default function OnboardPage() {
               <Badge tone="warning">Tick the box above to continue anyway</Badge>
             )}
             <Button variant="gradient" disabled={!canNext} onClick={() => setStep((s) => Math.min(3, s + 1))}>
-              {step === 2 ? "I've run it" : "Continue"} <ArrowRight />
+              Continue <ArrowRight />
             </Button>
           </div>
         </div>
