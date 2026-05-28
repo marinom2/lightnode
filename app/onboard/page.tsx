@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, Rocket, Download, ScanLine } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Wallet, Gauge, Terminal, HeartPulse, Rocket, Download, ScanLine, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DownloadButton } from "@/components/download-button";
 import { Card } from "@/components/ui/card";
@@ -45,9 +45,16 @@ export default function OnboardPage() {
   const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
   const [ackRisk, setAckRisk] = useState(false);
   const [desktop, setDesktop] = useState(false);
+  // Until we've checked the environment (after mount), render neither branch -
+  // otherwise the desktop app briefly flashes the web "download the app" funnel
+  // before swapping to the wizard, since `desktop` can only be read client-side.
+  const [ready, setReady] = useState(false);
   const [alreadyAWorker, setAlreadyAWorker] = useState(false);
   const [installed, setInstalled] = useState(false);
-  useEffect(() => setDesktop(isDesktop()), []);
+  useEffect(() => {
+    setDesktop(isDesktop());
+    setReady(true);
+  }, []);
 
   useEffect(() => {
     if (isConnected && step === 0) setStep(1);
@@ -64,6 +71,16 @@ export default function OnboardPage() {
     (step === 0 && isConnected) ||
     (step === 1 && (vramOk || ackRisk)) ||
     (step === 2 && (installed || alreadyAWorker));
+
+  // Hold the first paint until we know web vs desktop, so the desktop app never
+  // flashes the download funnel before the wizard.
+  if (!ready) {
+    return (
+      <div className="relative mx-auto flex min-h-[60vh] max-w-4xl items-center justify-center px-5 py-12">
+        <Loader2 className="size-6 animate-spin text-content-soft" />
+      </div>
+    );
+  }
 
   // WEB: no manual steps. The whole job is done in the desktop app, so the web
   // page's only job is to explain it and hand over a download. (The full

@@ -400,15 +400,15 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-bdr-light bg-surface-base-subtle/60 px-3.5 py-2.5 text-xs">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-bdr-light bg-surface-base-subtle/60 px-4 py-3 text-xs">
         <span className="text-content-soft">
           Balance: <span className="font-semibold tabular-nums text-content-primary">{bal ? Number(formatEther(bal.value)).toLocaleString() : "0"} LCAI</span>
         </span>
         {funded ? (
           <span className="inline-flex items-center gap-1.5 font-semibold text-success"><CheckCircle2 className="size-4" /> Funded</span>
         ) : isConnected && onChain ? (
-          <Button size="sm" variant="outline" disabled={isPending || confirming} onClick={fundWorker}>
-            {isPending || confirming ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />} Fund {net.fundLcai.toLocaleString()} from wallet
+          <Button variant="gradient" disabled={isPending || confirming} onClick={fundWorker} className="shadow-[0_8px_24px_-8px_rgba(112,100,233,0.7)]">
+            {isPending || confirming ? <Loader2 className="size-4 animate-spin" /> : <Wallet className="size-4" />} Fund {net.fundLcai.toLocaleString()} LCAI
           </Button>
         ) : isConnected ? (
           <button type="button" disabled={switching} onClick={() => switchChain({ chainId: net.chainId })} className="inline-flex items-center gap-1 font-medium text-warning transition-colors hover:underline">

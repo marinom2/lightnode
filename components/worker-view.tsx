@@ -258,17 +258,28 @@ export function WorkerView({
 
       <EarningsPanel worker={worker} jobs={jobs} />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {tiles.map((t) => (
-          <Card key={t.label} className="p-4">
-            <div className="mb-2 flex items-center gap-2 text-content-soft">
-              <t.icon className="size-4" />
-              <span className="text-xs font-medium">{t.label}</span>
+      <Card className="overflow-hidden p-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4">
+          {tiles.map((t, i) => (
+            <div
+              key={t.label}
+              className={cn(
+                "border-bdr-soft p-4 sm:p-5",
+                i % 2 === 0 && "border-r", // mobile 2-col: divider after the left cell
+                i >= 2 && "border-t", // mobile: divider above the second row
+                "sm:border-t-0", // desktop single row: no top dividers
+                i < 3 ? "sm:border-r" : "sm:border-r-0", // desktop: dividers between columns
+              )}
+            >
+              <div className="mb-2 flex items-center gap-2 text-content-soft">
+                <t.icon className="size-4" />
+                <span className="text-xs font-medium">{t.label}</span>
+              </div>
+              <div className={cn("text-2xl font-semibold tracking-tight", t.tone)}>{t.value}</div>
             </div>
-            <div className={cn("text-2xl font-semibold tracking-tight", t.tone)}>{t.value}</div>
-          </Card>
-        ))}
-      </div>
+          ))}
+        </div>
+      </Card>
 
       {(worker.jobs_timed_out ?? 0) > 0 && (
         <Card className="border-warning/30 bg-warning/10 p-4">
