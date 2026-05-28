@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Send, Loader2, CheckCircle2, AlertTriangle, Wallet, Trash2, KeyRound } from "lucide-react";
+import { Send, Loader2, CheckCircle2, AlertTriangle, Wallet, Trash2, KeyRound, ArrowUpRight } from "lucide-react";
 import { createPublicClient, createWalletClient, http, formatEther, isAddress, type Chain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { useAccount } from "wagmi";
@@ -284,18 +284,24 @@ export function WithdrawWorker() {
         </p>
       )}
       {hash && (
-        <p className="mt-3 text-xs text-content-soft">
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
           {phase === "done" ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-success">
-              <CheckCircle2 className="size-3.5" /> Sent.
+              <CheckCircle2 className="size-3.5" /> Sent
             </span>
           ) : (
-            "Confirming on-chain… "
-          )}{" "}
-          <button type="button" onClick={() => openExternal(`${net.explorer}/tx/${hash}`)} className="text-primary hover:underline">
-            view transaction
+            <span className="inline-flex items-center gap-1.5 text-content-soft">
+              <Loader2 className="size-3.5 animate-spin" /> Confirming on-chain…
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => openExternal(`${net.explorer}/tx/${hash}`)}
+            className="inline-flex items-center gap-1 rounded-lg border border-bdr-soft px-2.5 py-1 font-medium text-primary transition-colors hover:border-primary/40 hover:bg-primary/5"
+          >
+            View Tx <ArrowUpRight className="size-3.5" />
           </button>
-        </p>
+        </div>
       )}
 
       {log.length > 0 && (
@@ -309,8 +315,8 @@ export function WithdrawWorker() {
       )}
 
       {phase === "done" && matched && nearEmpty && !wiped && (
-        <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 p-3">
-          <p className="text-xs text-content-default">
+        <div className="mt-4 rounded-xl border border-bdr-soft bg-surface-base-subtle/60 p-3">
+          <p className="text-xs text-content-soft">
             The worker wallet is now empty. If you&apos;ve also deregistered and are done with this worker, you can wipe
             its key from this device.
           </p>

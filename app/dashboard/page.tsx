@@ -227,7 +227,7 @@ export default function DashboardPage() {
           <div className="mt-4">
             <WithdrawWorker />
           </div>
-          {isMine && (
+          {isMine && worker && worker.status !== "deregistered" && (
             <div className="mt-4">
               <UpdateModels />
             </div>
