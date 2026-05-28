@@ -16,12 +16,33 @@
 Connect a wallet, check your machine, install in one click, and manage the whole
 lifecycle - earnings, payouts, and exit - without ever touching a terminal.
 
-LightNode is an independent ecosystem tool (not an official LightChain product).
-It is a UX layer over the official
-[`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit):
-no protocol changes, no consensus work. It wraps the toolkit's shell scripts and
-the worker's own Docker image, and reads live state from the LightChain workers
-subgraph.
+LightNode is an independent ecosystem tool (not an official LightChain product). It
+builds on the official
+[`lightchain-worker-toolkit`](https://github.com/lightchain-protocol/lightchain-worker-toolkit)
+and the worker's own Docker image as the underlying runtime - no protocol changes,
+no consensus work - but it is far more than a script wrapper. On top of that runtime
+it adds the entire operator experience:
+
+- **Real machine readiness** - native CPU/RAM/GPU/VRAM detection, a capacity score,
+  and a **Speed test** that runs an actual inference and projects it against the live
+  on-chain job deadline, so you see slash risk before you stake.
+- **One-click, wallet-funded install** - generates and secures the worker key,
+  funds + stakes from your connected wallet, registers on-chain, and brings the
+  worker online, with a clean live progress view instead of a terminal dump.
+- **Stays online for you** - a keep-online watchdog that auto-starts Docker and the
+  worker, keeps the model warm (no cold-load timeouts), and prevents the machine from
+  sleeping mid-job; it survives reboots and respects an intentional Stop.
+- **Multi-model serving** with a memory-fit gate, and live add-a-model.
+- **Safe, non-custodial signing** - the on-disk keystore is the source of truth,
+  keys are isolated per network, and the app refuses to sign one network's action
+  with another's key.
+- **Full lifecycle, no terminal** - live earnings (settled vs pending-release),
+  settle/claim, deregister, gas-aware withdraw, free-up-memory, and replaced-key
+  recovery so a staked worker is never lost - plus a real-time **Live health** panel
+  (heartbeat, in-flight jobs, model warm/cold) the on-chain subgraph can't see.
+
+It reads live network and worker state from the LightChain workers subgraph, and runs
+as both a web app and a native desktop app from one codebase.
 
 - **Web app:** <https://lightnode.app> - browse the network, score your
   machine, and copy ready-to-run setup commands.
