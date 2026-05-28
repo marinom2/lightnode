@@ -128,6 +128,30 @@ describe("per-network keystore isolation (test one network without risking anoth
   });
 });
 
+describe("registration-aware install (switch back to an already-registered worker without re-funding/re-staking)", () => {
+  it("unix install probes on-chain status and skips 07-register when already registered", () => {
+    const unix = desktopInstallCommand("macos", "mainnet");
+    expect(unix).toContain("status.sh");
+    // skip only on a positive REGISTERED, never on NOT REGISTERED
+    expect(unix).toContain('grep -qi "registered"');
+    expect(unix).toContain('grep -qiE "not[ _-]*registered"');
+    expect(unix).toContain("07-register (skipped - already registered");
+  });
+  it("unix still runs 07-register for a fresh (unregistered) worker - the guard only fires on a positive match", () => {
+    const unix = desktopInstallCommand("macos", "testnet");
+    // the phase is still in the list and run by default
+    expect(unix).toContain("07-register");
+    expect(unix).toContain('FORCE=1 "$RUNBASH" "$p.sh"');
+  });
+  it("windows install probes status.ps1 and skips 07-register when already registered", () => {
+    const win = desktopInstallCommand("windows", "mainnet");
+    expect(win).toContain("status.ps1");
+    expect(win).toContain("$st -match 'REGISTERED'");
+    expect(win).toContain("$st -notmatch 'NOT[ _-]*REGISTERED'");
+    expect(win).toContain("07-register (skipped - already registered");
+  });
+});
+
 describe("benchmark (capacity/power test vs the job deadline)", () => {
   it("unix runs a real inference and compares worst-case to the deadline", () => {
     const cmd = benchmarkCommand("macos", 120);

@@ -18,6 +18,7 @@ import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey } from "@/lib/tauri";
 import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
+import { fetchWorker } from "@/lib/subgraph";
 
 type Phase = "idle" | "running" | "done" | "failed";
 type FundMode = "wallet" | "paste";
@@ -147,6 +148,10 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
   const [revealedKey, setRevealedKey] = useState("");
   const [paste, setPaste] = useState("");
   const [busy, setBusy] = useState(false);
+  // True when this worker already holds a stake on-chain (status active or
+  // deactivated, i.e. registered). Then no funding is needed - reinstalling just
+  // recreates the container for this network (the install skips 07-register).
+  const [registered, setRegistered] = useState(false);
 
   const { isConnected } = useAccount();
   const chainId = useChainId();
@@ -155,11 +160,32 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
 
   // Restore from the public ADDRESS (never the key) - if it's stored, a key
   // exists in the keychain/localStorage. The raw key is fetched only on an
-  // explicit "reveal for backup".
+  // explicit "reveal for backup". Re-runs on network toggle so the shown worker
+  // matches the selected network.
   useEffect(() => {
     const a = getWorkerAddr(network);
-    if (/^0x[a-fA-F0-9]{40}$/.test(a)) setGenAddr(a);
-  }, []);
+    setGenAddr(/^0x[a-fA-F0-9]{40}$/.test(a) ? a : "");
+  }, [network]);
+
+  // Detect whether the shown worker is already registered on-chain. If so, a
+  // switch-back doesn't need re-funding - the locked stake persists.
+  useEffect(() => {
+    let on = true;
+    if (!/^0x[a-fA-F0-9]{40}$/.test(genAddr)) {
+      setRegistered(false);
+      return;
+    }
+    fetchWorker(network, genAddr)
+      .then((w) => {
+        if (on) setRegistered(!!w && w.status !== "deregistered");
+      })
+      .catch(() => {
+        if (on) setRegistered(false);
+      });
+    return () => {
+      on = false;
+    };
+  }, [genAddr, network]);
 
   const generate = async () => {
     setBusy(true);
@@ -235,9 +261,10 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         onReady(null);
       }
     } else {
-      onReady(genAddr && funded ? genAddr : null);
+      // Ready when funded (first-time) OR already registered (switch-back, stake locked).
+      onReady(genAddr && (funded || registered) ? genAddr : null);
     }
-  }, [mode, paste, genAddr, funded, onReady]);
+  }, [mode, paste, genAddr, funded, registered, onReady]);
 
   if (mode === "paste") {
     return (
@@ -311,6 +338,19 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         </p>
       </div>
 
+      {registered && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-success/20 bg-success/5 p-4 text-xs leading-relaxed text-content-soft">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+          <span>
+            <span className="font-medium text-content-primary">Already registered on {net.label}.</span> Your{" "}
+            {net.minStakeLcai.toLocaleString()} LCAI stake is locked on-chain - no funding needed. Reinstalling just
+            recreates the worker container for this network (the install skips re-registration). Use this to bring a worker
+            back online after testing the other network.
+          </span>
+        </div>
+      )}
+
+      {!registered && (<>
       <div className="flex items-start gap-4 rounded-xl border border-bdr-light bg-card/40 p-4">
         {genAddr && <FundingQr uri={`ethereum:${genAddr}@${net.chainId}?value=${need.toString()}`} />}
         <div className="text-xs leading-relaxed text-content-soft">
@@ -360,6 +400,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
         </p>
       )}
       {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
+      </>)}
     </div>
   );
 }
@@ -395,7 +436,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
     return () => {
       on = false;
     };
-  }, []);
+  }, [network]);
   useEffect(() => () => stopRef.current?.(), []);
 
   const updatePw = (v: string) => {

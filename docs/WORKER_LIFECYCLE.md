@@ -151,8 +151,17 @@ their mainnet worker:
 2. Toggle to **testnet** and **Install**. The install writes the testnet key into
    `keys-testnet` and starts a testnet container; the mainnet keystore in
    `keys-mainnet` is left untouched.
-3. When done, toggle back to **mainnet** and **Restart** (or Install). The saved
-   mainnet key is reused, so the same worker comes back online.
+3. When done, toggle back to **mainnet** and **Install** again. The install detects
+   the worker is already registered on-chain (its stake is still locked), so it skips
+   funding and re-registration and just recreates the container with the saved mainnet
+   key. No second stake, no re-funding.
+
+Use **Install** (not Restart) to come back. There is a single worker container, and
+installing testnet replaced it, so the mainnet container no longer exists - Restart
+only resumes a container that already exists for the network you last installed.
+Because the worker is already registered, the one-click install shows an "Already
+registered" note instead of the funding step, and the Install button is enabled with
+no LCAI required.
 
 The only trade-off in this mode is that the two workers cannot be *online at the same
 time* on one box (one container) - while you test testnet, the mainnet worker is
