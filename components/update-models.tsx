@@ -119,7 +119,7 @@ export function UpdateModels() {
 
       {phase === "idle" || phase === "done" || phase === "failed" ? (
         <>
-          <ModelPicker network={network} vramGb={vramGb} value={sel} onChange={setSel} />
+          <ModelPicker network={network} vramGb={vramGb} value={sel} onChange={setSel} locked={current} />
           {phase === "done" && (
             <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-success">
               <CheckCircle2 className="size-4" /> Updated. Give the worker about a minute to re-attest and go live.
@@ -130,13 +130,12 @@ export function UpdateModels() {
               <XCircle className="size-4" /> Adding the model stopped. See the log below.
             </p>
           )}
-          {removals.length > 0 && (
-            <p className="mt-3 text-xs text-warning">
-              You unselected {removals.join(", ")}. Removing a model live isn&apos;t supported - keep it selected and add
-              alongside it, or deregister + reinstall to drop it.
-            </p>
-          )}
-          <Button variant="gradient" className="mt-4 w-full" disabled={!canApply} onClick={apply}>
+          <p className="mt-3 text-[11px] text-content-soft">
+            Want to drop {current.length === 1 ? "this model" : "a model"} and serve a different one instead? Deregister this
+            worker (Operations above), then reinstall and pick the model set you want. Removing one while registered isn&apos;t
+            safe, so it can&apos;t be unselected here.
+          </p>
+          <Button variant="gradient" className="mt-3 w-full" disabled={!canApply} onClick={apply}>
             <Boxes /> {additions.length > 0 ? `Add ${additions.join(", ")}` : "Select a model to add"}
           </Button>
         </>

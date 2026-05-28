@@ -24,11 +24,15 @@ export function ModelPicker({
   vramGb,
   value,
   onChange,
+  locked = [],
 }: {
   network: NetworkId;
   vramGb: number;
   value: string[];
   onChange: (models: string[]) => void;
+  // Models that are already committed and can't be unselected here (e.g. a
+  // running worker's current set - you can add, but dropping one needs deregister).
+  locked?: string[];
 }) {
   const [models, setModels] = useState<LiveModel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,6 +74,7 @@ export function ModelPicker({
   const over = avail > 0 && total > avail;
 
   const toggle = (name: string) => {
+    if (locked.includes(name)) return; // committed - can't unselect here
     if (value.includes(name)) {
       if (value.length === 1) return; // keep at least one selected
       onChange(value.filter((m) => m !== name));
@@ -100,17 +105,21 @@ export function ModelPicker({
               const fitsAlone = (vramGb || 0) >= req.vramGb;
               const selected = value.includes(m.name);
               const tooBig = avail > 0 && req.vramGb > avail; // can't even fit by itself
+              const isLocked = locked.includes(m.name);
               return (
                 <button
                   key={m.name}
                   type="button"
                   onClick={() => toggle(m.name)}
                   aria-pressed={selected}
+                  disabled={isLocked}
+                  title={isLocked ? "Already serving this - it can't be removed here" : undefined}
                   className={cn(
                     "flex items-start gap-3 rounded-xl border p-3 text-left transition-all",
                     selected
                       ? "border-primary/60 bg-primary/10 ring-1 ring-primary/30"
                       : "border-bdr-soft bg-card/50 hover:border-primary/40",
+                    isLocked && "cursor-default opacity-90",
                   )}
                 >
                   <span
@@ -123,7 +132,10 @@ export function ModelPicker({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate font-mono text-sm font-medium text-content-primary">{m.name}</span>
+                      <span className="truncate font-mono text-sm font-medium text-content-primary">
+                        {m.name}
+                        {isLocked && <span className="ml-1.5 rounded bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success">serving</span>}
+                      </span>
                       <span className="shrink-0 text-[11px] tabular-nums text-content-soft">{fromWei(m.fee)} LCAI</span>
                     </span>
                     <span className="mt-1 flex items-center gap-1.5 text-[11px]">
