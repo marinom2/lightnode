@@ -65,10 +65,11 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
     expect(sweep).toContain("WORKER_PASSWORD");
     expect(deregisterCommand("macos", "testnet")).toContain("cast wallet decrypt-keystore");
   });
-  it("sweepCommand is OS-aware and sends to the destination", () => {
-    expect(sweepCommand("macos", "0xDEST")).toContain("sweep-rewards.sh 0xDEST");
+  it("sweepCommand is OS-aware, sends to the destination, and leaves only a tiny gas buffer (not the toolkit's 1 LCAI default)", () => {
+    expect(sweepCommand("macos", "0xDEST")).toContain("sweep-rewards.sh 0xDEST 0.001");
     const win = sweepCommand("windows", "0xDEST");
     expect(win).toContain("sweep-rewards.ps1");
+    expect(win).toContain("-GasBuffer 0.001");
     expect(win).toContain("decrypt-keystore");
   });
   it("windows deregister derives the key and gates on success", () => {

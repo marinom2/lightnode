@@ -142,11 +142,30 @@ export function WithdrawWorker() {
     try {
       const account = privateKeyToAccount(inAppKey as `0x${string}`);
       const pub = createPublicClient({ chain, transport: http(net.rpc) });
-      const [fresh, gasPrice] = await Promise.all([pub.getBalance({ address: account.address }), pub.getGasPrice()]);
-      const fee = gasPrice * 21_000n * 2n;
-      if (fresh <= fee) throw new Error("Balance too low to cover the network fee.");
+      const fresh = await pub.getBalance({ address: account.address });
+      // Reserve exactly the gas this tx can cost, and PIN the same fee params on
+      // the send - otherwise viem auto-fills higher EIP-1559 fees than we reserved
+      // and the send fails with "total cost exceeds balance". A plain transfer is
+      // 21000 gas; LightChain's fee is tiny, so we leave only that (+10% margin)
+      // and sweep the rest.
+      let feeParams: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } = {};
+      let perGas: bigint;
+      try {
+        const f = await pub.estimateFeesPerGas();
+        if (f.maxFeePerGas) {
+          feeParams = { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas };
+          perGas = f.maxFeePerGas;
+        } else {
+          perGas = await pub.getGasPrice();
+        }
+      } catch {
+        perGas = await pub.getGasPrice();
+      }
+      const gasCost = 21_000n * perGas;
+      const reserve = gasCost + gasCost / 10n; // +10% margin for base-fee drift
+      if (fresh <= reserve) throw new Error("Balance too low to cover the network fee.");
       const wallet = createWalletClient({ account, chain, transport: http(net.rpc) });
-      const tx = await wallet.sendTransaction({ to: dest as `0x${string}`, value: fresh - fee, gas: 21_000n });
+      const tx = await wallet.sendTransaction({ to: dest as `0x${string}`, value: fresh - reserve, gas: 21_000n, ...feeParams });
       setHash(tx);
       await pub.waitForTransactionReceipt({ hash: tx });
       setPhase("done");

@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.9";
+const INSTALLER_REV = "2026-05-28.10";
 
 export interface ScriptBundle {
   os: OS;
@@ -652,6 +652,11 @@ function keystoreDeriveWin(): string[] {
  * it sends the spendable balance to the address you choose). OS-aware: bash on
  * macOS/Linux, PowerShell on Windows. The key is sourced from the keystore.
  */
+// Gas buffer left behind on a full sweep. The toolkit defaults to 1 LCAI, which
+// is huge next to LightChain's few-wei fee - leave just a tiny safety margin so
+// almost everything is swept (the in-app viem path reserves the exact gas cost).
+const SWEEP_GAS_BUFFER_LCAI = "0.001";
+
 export function sweepCommand(os: OS, dest: string): string {
   if (os === "windows") {
     return [
@@ -659,10 +664,10 @@ export function sweepCommand(os: OS, dest: string): string {
       'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
       `$env:FORCE = "1"`,
-      `if (Test-Path .\\sweep-rewards.ps1) { .\\sweep-rewards.ps1 "${dest}" } else { Write-Host "toolkit not found - install the worker first" }`,
+      `if (Test-Path .\\sweep-rewards.ps1) { .\\sweep-rewards.ps1 -To "${dest}" -GasBuffer ${SWEEP_GAS_BUFFER_LCAI} } else { Write-Host "toolkit not found - install the worker first" }`,
     ].join("\n");
   }
-  return toolkitOpCommand(`sweep-rewards.sh ${dest}`, "sweep");
+  return toolkitOpCommand(`sweep-rewards.sh ${dest} ${SWEEP_GAS_BUFFER_LCAI}`, "sweep");
 }
 
 /**
