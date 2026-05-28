@@ -140,7 +140,7 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
 /** Funding source body: generate a dedicated key + fund it from the connected
  *  wallet, or paste an existing funder key. (Mode toggle lives in the StepCard
  *  aside.) Reports the chosen key once it holds enough. */
-function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: FundMode; onReady: (ready: string | null) => void }) {
+function FunderSetup({ network, mode, onReady, onRegistered }: { network: NetworkId; mode: FundMode; onReady: (ready: string | null) => void; onRegistered?: (registered: boolean) => void }) {
   const net = NETWORKS[network];
   const need = parseEther(String(net.fundLcai));
   const [genAddr, setGenAddr] = useState("");
@@ -148,6 +148,9 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
   const [revealedKey, setRevealedKey] = useState("");
   const [paste, setPaste] = useState("");
   const [busy, setBusy] = useState(false);
+  // Inline confirm for "New key" - the desktop webview has no native confirm()
+  // dialog, so we ask in-app before discarding the current key.
+  const [confirmNew, setConfirmNew] = useState(false);
   // True when this worker already holds a stake on-chain (status active or
   // deactivated, i.e. registered). Then no funding is needed - reinstalling just
   // recreates the container for this network (the install skips 07-register).
@@ -173,6 +176,7 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     let on = true;
     if (!/^0x[a-fA-F0-9]{40}$/.test(genAddr)) {
       setRegistered(false);
+      onRegistered?.(false);
       return;
     }
     // Recover a key stored by an older build under the single (non-per-network)
@@ -180,15 +184,22 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
     void migrateBareWorkerKey(network);
     fetchWorker(network, genAddr)
       .then((w) => {
-        if (on) setRegistered(!!w && w.status !== "deregistered");
+        const reg = !!w && w.status !== "deregistered";
+        if (on) {
+          setRegistered(reg);
+          onRegistered?.(reg);
+        }
       })
       .catch(() => {
-        if (on) setRegistered(false);
+        if (on) {
+          setRegistered(false);
+          onRegistered?.(false);
+        }
       });
     return () => {
       on = false;
     };
-  }, [genAddr, network]);
+  }, [genAddr, network, onRegistered]);
 
   const generate = async () => {
     setBusy(true);
@@ -320,13 +331,28 @@ function FunderSetup({ network, mode, onReady }: { network: NetworkId; mode: Fun
             </button>
             <button
               type="button"
-              onClick={() => { if (confirm("Generate a NEW funding key? The current one is forgotten - back it up first if it holds funds.")) void generate(); }}
+              onClick={() => setConfirmNew(true)}
               className="inline-flex items-center gap-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
             >
               <RefreshCw className="size-3" /> New key
             </button>
           </span>
         </div>
+        {confirmNew && (
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px]">
+            <span className="flex items-start gap-1.5 text-warning">
+              <AlertTriangle className="mt-0.5 size-3 shrink-0" /> Replace this key? The current one is forgotten - back it up first if it holds funds.
+            </span>
+            <span className="flex items-center gap-3">
+              <button type="button" onClick={() => { setConfirmNew(false); void generate(); }} className="font-medium text-destructive transition-colors hover:underline">
+                Replace key
+              </button>
+              <button type="button" onClick={() => setConfirmNew(false)} className="text-content-soft transition-colors hover:underline">
+                Cancel
+              </button>
+            </span>
+          </div>
+        )}
         {reveal && (
           <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg bg-warning/10 px-2.5 py-2">
             <code className="truncate font-mono text-[11px] text-content-default">{revealedKey || "…"}</code>
@@ -425,6 +451,9 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   // The worker ADDRESS once a key exists + is funded (the raw key lives in the
   // keychain/localStorage, not here). Null until ready.
   const [ready, setReady] = useState<string | null>(null);
+  // Whether the selected network's worker is already registered on-chain - then
+  // this is a reinstall (recreate the container), not a fresh install.
+  const [registered, setRegistered] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const stopRef = useRef<(() => void) | null>(null);
@@ -473,7 +502,11 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
   }
 
   const valid = pw.length >= 6 && !!ready;
-  const hint = pw.length < 6 ? "Set a password (6+ characters)" : "Fund the worker address";
+  const hint = pw.length < 6 ? "Set a password (6+ characters)" : registered ? "Preparing your worker" : "Fund the worker address";
+  // Already-registered worker: this is a reinstall (recreate the container), not
+  // a fresh fund-and-stake. Reflect that in the copy + CTA.
+  const ctaLabel = registered ? "Reinstall - bring my worker online" : "Install & run my worker";
+  const headingSub = registered ? "Bring your already-registered worker back online." : "Set a password, fund your worker, go live.";
 
   const run = async () => {
     if (!ready) return;
@@ -521,7 +554,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
           <IconChip icon={Rocket} size="md" />
           <div>
             <h3 className="text-base font-semibold tracking-tight text-content-primary">One-click install</h3>
-            <p className="text-xs text-content-soft">Set a password, fund your worker, go live.</p>
+            <p className="text-xs text-content-soft">{headingSub}</p>
           </div>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium text-content-soft">
@@ -558,12 +591,14 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
 
           <StepCard
             n={2}
-            title="Fund your worker"
+            title={registered ? "Your worker" : "Fund your worker"}
             aside={
               <div className="flex items-center gap-3">
-                <span className="rounded-full bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium tabular-nums text-content-soft">
-                  {net.fundLcai.toLocaleString()} LCAI
-                </span>
+                {!registered && (
+                  <span className="rounded-full bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium tabular-nums text-content-soft">
+                    {net.fundLcai.toLocaleString()} LCAI
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => setMode((m) => (m === "wallet" ? "paste" : "wallet"))}
@@ -574,7 +609,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
               </div>
             }
           >
-            <FunderSetup network={network} mode={mode} onReady={setReady} />
+            <FunderSetup network={network} mode={mode} onReady={setReady} onRegistered={setRegistered} />
           </StepCard>
 
           <p className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/5 px-3.5 py-2.5 text-xs text-content-soft">
@@ -583,7 +618,7 @@ export function OneClickInstall({ model = DEFAULT_MODEL }: { model?: string }) {
           </p>
 
           <Button variant="gradient" size="lg" className="w-full" disabled={!valid} onClick={run}>
-            <Rocket /> Install &amp; run my worker <ArrowRight />
+            <Rocket /> {ctaLabel} <ArrowRight />
           </Button>
           {!valid && (
             <p className="text-center text-[11px] text-content-soft">
