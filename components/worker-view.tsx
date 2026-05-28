@@ -164,7 +164,7 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
 
       <p className="mt-3 text-[11px] leading-relaxed text-content-soft">
         {pending > 0
-          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it (about hourly, up to ~8h). This is automatic, no action needed.`
+          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it, after a dispute window (the Operations panel shows the exact countdown). This is automatic, no action needed.`
           : hasActivity
             ? "All completed jobs have settled. New rewards appear here automatically after each release cycle."
             : "No completed jobs yet. Rewards appear here once your worker serves and finishes jobs."}

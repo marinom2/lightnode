@@ -112,16 +112,29 @@ export function assessMachine(m: MachineInput): MachineAssessment {
  */
 export function inferGpu(renderer: string): { vramGb?: number; unified?: boolean; clean: string } {
   const r = renderer.toLowerCase();
+
+  // Apple Silicon: the WebGL/WebGPU renderer is verbose, e.g.
+  // "ANGLE (Apple, ANGLE Metal Renderer: Apple M3, Unspecified Version)". Pull out
+  // just the chip so the web shows "Apple M3" - matching the desktop's native read -
+  // instead of the raw string.
+  const apple = r.match(/apple\s+m(\d+)\s*(pro|max|ultra)?/);
+  if (apple) {
+    const tier = apple[2] ? ` ${apple[2][0].toUpperCase()}${apple[2].slice(1)}` : "";
+    return { unified: true, clean: `Apple M${apple[1]}${tier}` };
+  }
+  if (/apple\s*m\d/.test(r)) return { unified: true, clean: "Apple Silicon" };
+
+  // Non-Apple: strip ANGLE's wrapper + noise so the discrete GPU name shows clean.
   const clean =
     renderer
       .replace(/^angle\s*\(/i, "")
+      .replace(/\bangle metal renderer:\s*/i, "")
+      .replace(/\bunspecified version\b/i, "")
       .replace(/\bdirect3d\d+.*$/i, "")
       .replace(/\bvs_\d.*$/i, "")
       .replace(/[(),]/g, " ")
       .replace(/\s+/g, " ")
       .trim() || renderer;
-
-  if (/apple\s*m\d/.test(r)) return { unified: true, clean };
 
   const table: [RegExp, number][] = [
     [/h100|h200|a100|a800/, 80],

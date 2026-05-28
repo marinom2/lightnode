@@ -45,10 +45,14 @@ describe("inferGpu", () => {
     expect(inferGpu("NVIDIA A100-SXM4-80GB").vramGb).toBe(80);
     expect(inferGpu("NVIDIA GeForce RTX 4060").vramGb).toBe(8);
   });
-  it("flags Apple Silicon as unified", () => {
-    const g = inferGpu("ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Unspecified Version)");
+  it("flags Apple Silicon as unified and cleans the chip name", () => {
+    // The real renderer string a MacBook Air M3 reports in the browser.
+    const g = inferGpu("ANGLE (Apple, ANGLE Metal Renderer: Apple M3, Unspecified Version)");
     expect(g.unified).toBe(true);
     expect(g.vramGb).toBeUndefined();
+    expect(g.clean).toBe("Apple M3"); // cleaned from the verbose ANGLE string
+    // the Pro/Max/Ultra tier suffix is preserved when present
+    expect(inferGpu("Apple M2 Max").clean).toBe("Apple M2 Max");
   });
   it("returns no VRAM for unknown GPUs", () => {
     const g = inferGpu("Some Random Intel iGPU");

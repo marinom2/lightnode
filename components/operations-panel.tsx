@@ -160,6 +160,17 @@ export function OperationsPanel() {
 
   useEffect(() => setDesktop(isDesktop()), []);
 
+  // Switching networks targets a different worker, so wipe the previous network's
+  // operation output - otherwise the log (e.g. a mainnet settle) lingers while the
+  // panel now shows the testnet worker, which reads as a bug.
+  useEffect(() => {
+    stopRef.current?.();
+    setLog([]);
+    setActive(null);
+    setLastOp(null);
+    setBenchResult(null);
+  }, [network]);
+
   // The Speed test compares this machine against the REAL on-chain inference
   // deadline (deadline - acknowledged from a recent settled job), so it stays
   // honest if LightChain ever retunes it. Best-effort; defaults to 120s.
