@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { inferGpu, assessMachine, estimateRewards, energyCostPerDay, workerSharePerJob, modelRequirement, modelsMemoryGb, modelsFit, detectWebGpu, type MachineInput } from "@/lib/hardware";
+import { inferGpu, assessMachine, workerSharePerJob, modelRequirement, modelsMemoryGb, modelsFit, detectWebGpu, type MachineInput } from "@/lib/hardware";
 
 describe("detectWebGpu", () => {
   it("resolves to an empty result when no WebGPU adapter is available", async () => {
@@ -106,22 +106,8 @@ describe("assessMachine", () => {
   });
 });
 
-describe("estimateRewards", () => {
-  it("derives daily/monthly from jobs/day at the 80% worker share", () => {
-    const r = estimateRewards(100);
-    expect(r.perJobLcai).toBeCloseTo(workerSharePerJob); // 0.016
-    expect(r.dailyLcai).toBeCloseTo(100 * 0.016);
-    expect(r.monthlyLcai).toBeCloseTo(100 * 0.016 * 30);
-  });
-});
-
-describe("energyCostPerDay", () => {
-  it("computes kWh cost over 24h", () => {
-    // 200W at $0.15/kWh = 0.2 * 24 * 0.15 = $0.72/day
-    expect(energyCostPerDay(200, 0.15)).toBeCloseTo(0.72);
-  });
-  it("is zero for non-positive inputs", () => {
-    expect(energyCostPerDay(0, 0.15)).toBe(0);
-    expect(energyCostPerDay(200, 0)).toBe(0);
+describe("workerSharePerJob", () => {
+  it("is 80% of the per-job fee", () => {
+    expect(workerSharePerJob).toBeCloseTo(0.016);
   });
 });

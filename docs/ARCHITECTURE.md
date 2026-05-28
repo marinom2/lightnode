@@ -53,10 +53,17 @@ commands over IPC, declared in `build.rs` and granted to the hosted origin in
 | Command | Purpose |
 |---|---|
 | `run_command_streamed` | Run a shell command and stream stdout back to the UI line by line. This is how install / status / settle / deregister / withdraw execute. |
-| `detect_hardware` | Read CPU / memory / GPU for the machine-check and reward estimate. |
+| `detect_hardware` | Read CPU / memory / GPU for the machine-check. |
 | `secret_set` / `secret_get` / `secret_delete` | Store worker secrets in the OS keychain. |
 | `generate_worker_key` | Generate a worker key natively and return only its address. |
-| `local_container_status` | Report the real local container state (running / stopped / missing). |
+
+That's the whole bridge - six commands. Anything else the UI needs from the
+machine (the local container's running/stopped/missing state, live worker health,
+the served-model set) is read by running short `docker` commands through
+`run_command_streamed` and parsing the output, so there is no dedicated command for
+each. On the web (no bridge) the machine-check additionally infers the GPU from the
+WebGL renderer string and a WebGPU adapter, since the browser cannot read exact
+RAM/VRAM.
 
 Every shell command these run is produced by [`lib/scriptgen.ts`](../lib/scriptgen.ts),
 so the exact same logic backs the desktop's one-click buttons and the web app's
@@ -122,6 +129,25 @@ pause marker is set), so the machine can sleep again once the worker is down.
 
 ---
 
+## Clean install progress
+
+A model pull (`ollama pull`) is multi-gigabyte and, against a TTY, emits thousands
+of cursor-control progress frames. Streamed verbatim that floods the IPC channel and
+can stall the install on a large model. Two layers tame it:
+
+- **At the source** (`lib/scriptgen.ts`): the pull is redirected to a file - which
+  makes Ollama emit terse, non-TTY output - and a small loop samples the percentage
+  every couple of seconds, so the app receives a handful of clean lines instead of a
+  flood. The installer prints a version stamp (`INSTALLER_REV`) so a log always shows
+  which script ran; bump it on any install-script change.
+- **At the sink** (`lib/install-log.ts`): a cleaner strips ANSI/spinner/carriage-return
+  noise and collapses repeated progress lines. `lib/install-progress.ts` then derives
+  a friendly milestone view (`components/onboard/install-progress.tsx`) - a checklist
+  with a download bar - and maps known failures (e.g. an on-chain model-add revert) to
+  one actionable sentence, with the raw log tucked behind a disclosure.
+
+---
+
 ## Data flow
 
 All network and worker data is public and read live from the LightChain workers
@@ -136,18 +162,21 @@ slow upstream does not hang the UI.
 
 ```
 app/
-  (routes)          landing, /onboard wizard, /dashboard
+  (routes)          landing, /onboard wizard, /dashboard, /guide, /recover,
+                    /network, /worker/[address]
   api/              subgraph proxy + version/settlement/worker endpoints
 components/
   onboard/          wizard steps (machine check, model picker, one-click install, verify)
   operations-panel  the worker control surface (status, settle, deregister, ...)
   withdraw-worker   move funds out, in-browser or keystore-signed
 lib/
-  network.ts        chain constants (ids, RPCs, registries, stakes)
+  network.ts        chain constants (ids, RPCs, the 0x...1002 worker-registry
+                    predeploy + JobRegistry, stakes) - same on both networks
   subgraph.ts       typed subgraph client
-  hardware.ts       machine scoring + model fit
+  hardware.ts       machine scoring + model fit + GPU detection (WebGL/WebGPU)
   secrets.ts        per-network worker secret storage (keychain / localStorage)
   scriptgen.ts      every generated shell command (install, ops, settle, withdraw)
+  install-log.ts    cleans/condenses the streamed install log
   budget.ts         reads the real on-chain inference deadline
 desktop/src-tauri/  Rust commands, build.rs, capabilities, tauri.conf.json
 tests/unit/         Vitest (scriptgen, hardware, subgraph, utils)

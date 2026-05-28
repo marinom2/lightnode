@@ -53,11 +53,12 @@ it's the real one-click flow:
 
 1. **Connect a wallet** - only to read your address and fund the worker. Optional;
    you can also fund by QR or from any wallet.
-2. **Check your machine** - auto-detects your CPU / RAM / GPU (unified memory on
-   Apple Silicon is handled correctly), scores you against the requirements, and
-   shows a reward estimate. A **Speed test** runs a real local inference and draws a
-   gauge of your worst-case job time against the on-chain deadline, so you see slash
-   risk *before* going live.
+2. **Check your machine** - auto-detects your CPU / RAM / GPU (the desktop app reads
+   exact specs from the OS; the web infers the GPU from the WebGL renderer and a
+   WebGPU adapter, with unified memory on Apple Silicon handled correctly) and scores
+   you against the requirements. The later **Speed test** (on the dashboard) runs a
+   real local inference and draws a gauge of your worst-case job time against the
+   on-chain deadline, so you can see slash risk *before* going live.
 3. **Pick the model(s) to serve** - the **model picker** lists the network's *live,
    whitelisted* models (so testnet and mainnet show their own, and the list grows
    automatically as LightChain adds models). It is multi-select: a worker can serve
@@ -100,7 +101,7 @@ log; on the web it hands you the exact command to copy.
 | **Settle earnings** | Releases your completed jobs and claims the rewards into the worker wallet. |
 | **Deregister** | Settles + claims, exits the network, returns your stake, stops the container. |
 | **Free up memory** | Stops the worker, unloads the model, and quits Docker to give the machine its RAM back. |
-| **Models this worker serves** | Add/remove served models live: updates the set on-chain (no re-stake), then restarts with it. Same memory gate as setup. |
+| **Models this worker serves** | Add a model to the served set live (add-only): updates the set on-chain (no re-stake), then restarts with it. Same memory gate as setup. Removing a model isn't safe while registered, so it needs deregister + reinstall. |
 | **Recover a replaced key** | Lists keys you replaced (archived on-device), flags any still staked on-chain, and restores one as the active worker. |
 
 **Why "Free up memory" exists (and why operators like it):** a worker keeps its

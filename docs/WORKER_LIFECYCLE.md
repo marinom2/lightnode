@@ -192,13 +192,16 @@ sense on a machine with enough VRAM (or unified memory) to keep them all warm.
 
 The install advertises the whole set on-chain, pulls each model under its exact
 registered name, and pre-warms and pins all of them. The keep-online watchdog warms
-every model in the set; dropping a model from the set unloads it to free its memory.
+every model in the set; a model that is no longer in the set is unloaded to free its
+memory.
 
 **Changing the set on a running worker:** use **Models this worker serves** on the
-dashboard. It updates the model set on-chain (no re-stake), then restarts the worker
-with the new set so it re-attests. Switching to a fresh single model during setup
-works the same way - the install unloads any model no longer in the set, so you
-never end up with two resident by accident.
+dashboard. It is **add-only**: you can add a model live (it updates the on-chain set
+with no re-stake, then restarts the worker with the new set so it re-attests), but
+you cannot drop a model while registered - the gateway could still route that model's
+jobs to you. To remove a model, **deregister** and reinstall with the smaller set;
+that install unloads any model no longer in the set, so you never end up with two
+resident by accident.
 
 ---
 

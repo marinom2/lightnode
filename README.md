@@ -1,6 +1,18 @@
+<div align="center">
+
+<img src="public/lightnode-mark.png" alt="LightNode" width="88" />
+
 # LightNode
 
 **The friction-free way to run a LightChain AI worker.**
+
+[![CI](https://github.com/marinom2/lightnode/actions/workflows/ci.yml/badge.svg)](https://github.com/marinom2/lightnode/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/marinom2/lightnode?color=7064e9&label=release)](https://github.com/marinom2/lightnode/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-7064e9.svg)](LICENSE)
+[![LightChain AI](https://img.shields.io/badge/LightChain%20AI-ecosystem%20tool-dd00ac.svg)](https://lightchain.ai)
+
+</div>
+
 Connect a wallet, check your machine, install in one click, and manage the whole
 lifecycle - earnings, payouts, and exit - without ever touching a terminal.
 
@@ -27,6 +39,7 @@ subgraph.
 - [Operations reference](#operations-reference)
 - [How earnings and withdrawals work](#how-earnings-and-withdrawals-work)
 - [Networks](#networks)
+- [Platform support](#platform-support-tested-status)
 - [Architecture](#architecture)
 - [Security and key handling](#security-and-key-handling)
 - [For developers](#for-developers)
@@ -52,7 +65,7 @@ if you prefer to run them yourself.
 
 | | Web app | Desktop app |
 |---|---|---|
-| Browse network, score machine, reward estimate | Yes | Yes |
+| Browse network, score machine, run the Speed test | Yes | Yes |
 | Tailored per-OS setup | Yes (copy commands) | Yes (one click) |
 | Run install / status / settle / deregister / withdraw for you | No (copy-run in your own terminal) | Yes (native, streamed log) |
 | Reads the worker key from your machine to sign payouts | No | Yes (locally, never leaves the device) |
@@ -73,9 +86,9 @@ or a discrete 8 GB+ GPU is comfortable for `llama3-8b`), and enough LCAI to stak
    <https://lightnode.vercel.app> in a browser.
 2. **Connect a wallet.** This is only used to read your address and fund the
    worker; it never signs worker payouts.
-3. **Check your machine.** The onboarding wizard scores your hardware and shows a
-   reward estimate, plus a real **Speed test** that runs an inference locally and
-   compares it to the on-chain job deadline.
+3. **Check your machine.** The onboarding wizard scores your hardware against the
+   model you pick and runs a real **Speed test** - an actual local inference timed
+   against the on-chain job deadline, so you can see slash risk before you stake.
 4. **Install.** Pick a network and model, fund the generated worker address, and
    click install. The app sets up Docker, Ollama, the keystore, registration, and
    a keep-online watchdog.
@@ -122,7 +135,7 @@ command to copy.
 | **Deregister** | Settles + claims first, then exits the network and returns your stake to the worker wallet. Stops the container so you can install another network. |
 | **Free up memory** | Gives your machine its RAM back: stops the worker, unloads the model from Ollama, and quits Docker. A worker pins its model (~5 GB) plus a Docker VM even when stopped, so this is the "I want my machine back" button. Stake + registration are untouched - Restart brings it back. |
 | **Withdraw Funds** | Sends the worker wallet's spendable LCAI to any address you choose. Signs locally with the worker key (in-browser if the app holds it, otherwise derived from the on-disk keystore). |
-| **Models this worker serves** | Add or remove served models live. Updates the model set on-chain (no re-stake), then restarts the worker with the new set. The picker enforces the same memory check as setup. |
+| **Models this worker serves** | Add a model to the served set live (add-only): it updates the on-chain set (no re-stake) and restarts the worker with the new set, enforcing the same memory check as setup. Removing a model isn't safe while registered (the gateway could still route its jobs), so dropping one means deregister + reinstall with the smaller set. |
 | **Recover a replaced key** | Lists worker keys you replaced (archived on this device when you generate a new one), flags any still holding a stake on-chain, and restores one as your active worker. So a staked worker is never lost. |
 
 On the desktop app, your own worker also shows a **Live health** panel - a real-time
@@ -251,10 +264,12 @@ GitHub Actions runs the full gate on every push and PR.
 
 ### Project layout
 ```
-app/            Routes: landing, /onboard wizard, /dashboard, and /api/* subgraph proxy
+app/            Routes: landing, /onboard wizard, /dashboard, /guide, /recover,
+                /network, /worker/[address], and the /api/* subgraph proxy
 components/     UI, including onboard/ (wizard steps) and the Operations + Withdraw panels
-lib/            network constants, subgraph client, hardware scoring, secrets,
-                and scriptgen.ts - the single source for every generated shell command
+lib/            network constants, subgraph client, hardware scoring, secrets, the
+                install-log cleaner, and scriptgen.ts - the single source for every
+                generated shell command
 desktop/        Tauri v2 shell (src-tauri: Rust commands, capabilities, build config)
 tests/unit/     Vitest    tests/e2e/  Playwright
 docs/           Architecture, worker lifecycle, UI/design, and release docs

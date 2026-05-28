@@ -3,8 +3,8 @@
  *
  * The score is a transparent, capacity-oriented heuristic - VRAM dominates
  * because that's what gates serving llama3-8b through Ollama. We never pretend
- * the score is the barrier to entry: the real gate is the 50,000 LCAI stake,
- * which we surface explicitly in the UI.
+ * the score is the barrier to entry: the real gate is the network's minimum
+ * stake (5,000 LCAI testnet / 50,000 mainnet), which we surface in the UI.
  */
 import { HARDWARE } from "./network";
 
@@ -270,33 +270,5 @@ export async function detectWebGpu(): Promise<{ gpuLabel?: string; vramGb?: numb
 const WORKER_FEE_LCAI = 0.02;
 const WORKER_SHARE = 0.8; // 80% of the fee goes to the worker
 
-/** Per-job take-home for the worker at the current fee. */
+/** Per-job take-home for the worker at the current fee (used to label earnings). */
 export const workerSharePerJob = WORKER_FEE_LCAI * WORKER_SHARE; // 0.016 LCAI
-
-export interface RewardEstimate {
-  perJobLcai: number;
-  jobsPerDay: number;
-  dailyLcai: number;
-  monthlyLcai: number;
-}
-
-/**
- * Demand-based estimate. `jobsPerDay` should come from observed network
- * throughput per live worker (caller derives it); we keep the math explicit and
- * honest - rewards are demand-driven, not guaranteed.
- */
-/** Rough energy cost per day for a worker drawing `watts` at `pricePerKwh`. */
-export function energyCostPerDay(watts: number, pricePerKwh: number): number {
-  if (watts <= 0 || pricePerKwh <= 0) return 0;
-  return (watts / 1000) * 24 * pricePerKwh;
-}
-
-export function estimateRewards(jobsPerDay: number): RewardEstimate {
-  const dailyLcai = jobsPerDay * workerSharePerJob;
-  return {
-    perJobLcai: workerSharePerJob,
-    jobsPerDay,
-    dailyLcai,
-    monthlyLcai: dailyLcai * 30,
-  };
-}
