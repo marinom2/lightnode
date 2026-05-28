@@ -139,22 +139,38 @@ is what moves earnings into the wallet.
 
 ## Switching networks on one machine (testnet to mainnet)
 
-Because a machine runs one worker at a time, switching networks is sequential:
+A machine runs one worker at a time (a single container), so the two networks run
+sequentially. But each network's keys are isolated on disk - the keystore lives in
+its own directory, `~/lightchain-worker/keys-<network>` - so switching networks never
+touches or risks the other network's key.
 
-1. **Settle earnings** (claims any pending rewards into the worker wallet).
-2. **Deregister** (returns the stake; stops the container).
-3. **Withdraw Funds** - do this *before* installing the new network, while the old
-   worker's keystore is still the active one on disk. The new install backs up the
-   old keystore and replaces it.
-4. **Install** the other network. The install force-removes the stopped old
-   container and creates the new one.
+That means a mainnet operator can test on testnet without deregistering or losing
+their mainnet worker:
 
-You do not need Free up memory for this. If both networks serve the same model
+1. **Stop** the mainnet worker (Operations -> Stop). The stake and key stay put.
+2. Toggle to **testnet** and **Install**. The install writes the testnet key into
+   `keys-testnet` and starts a testnet container; the mainnet keystore in
+   `keys-mainnet` is left untouched.
+3. When done, toggle back to **mainnet** and **Restart** (or Install). The saved
+   mainnet key is reused, so the same worker comes back online.
+
+The only trade-off in this mode is that the two workers cannot be *online at the same
+time* on one box (one container) - while you test testnet, the mainnet worker is
+stopped. Running both simultaneously needs separate machines.
+
+If you instead want to permanently move a box from one network to the other:
+**Settle earnings**, **Deregister** (returns the stake), **Withdraw Funds**, then
+**Install** the other network.
+
+You do not need Free up memory for any of this. If both networks serve the same model
 (the default `llama3-8b` does), the model already in memory is reused.
 
 Worker identities are independent per network: your testnet and mainnet workers are
 different addresses, keys, stakes, and earnings. The app tracks them per-network and
-will refuse to sign one network's action with the other's key.
+will refuse to sign one network's action with the other's key. Recovery is preserved
+for workers created before per-network isolation: ops also scan the legacy shared
+`~/lightchain-worker/keys` directory, so an older worker can still be settled,
+withdrawn, and deregistered.
 
 ## Switching the served model
 

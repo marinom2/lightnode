@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-27.2";
+const INSTALLER_REV = "2026-05-28.1";
 
 export interface ScriptBundle {
   os: OS;
@@ -235,12 +235,17 @@ function unixInstall(network: NetworkId, model: string): string {
     "grep -vE '^[[:space:]]*export (WORKER_PASSWORD|WORKER_ADDR|WORKER_PRIVKEY|FUNDER_PRIVKEY)=' secrets.env > secrets.env.tmp || true; mv secrets.env.tmp secrets.env",
     'export WORKER_ADDR="$(cast wallet address --private-key "$WORKER_PRIVKEY")"',
     `export NETWORK=${network} SUPPORTED_MODELS=${model}`,
+    // Per-network keystore dir so installing one network never touches another's
+    // keys (a mainnet operator can set up testnet without risking their mainnet
+    // key). The legacy ~/lightchain-worker/keys is still read by key derivation.
+    `export KEYS_DIR="$HOME/lightchain-worker/keys-${network}"`,
     // The toolkit hardcodes a 50,001 LCAI pre-flight guard; correct it to this network's minimum.
     `sed -i.bak "s/50001/${thr}/g; s/50,001/${thr}/g" 07-register.sh && rm -f 07-register.sh.bak`,
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
     // Short-circuit ONLY if the running container is for THIS network. A worker
-    // for a different chain (one container/keystore per machine) must be stopped
-    // first - otherwise we'd falsely report success without installing it.
+    // for a different chain (one container per machine - keys are isolated, but the
+    // single container is not) must be stopped first - otherwise we'd falsely
+    // report success without installing it.
     `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "⛔ A worker is already running for a DIFFERENT network (chain $RUNCHAIN). This machine runs ONE worker at a time. Stop or Deregister that worker first (Operations), then install on ${network} (chain ${chainId})."; exit 1; fi; echo "✓ worker already running on ${network} - nothing to reinstall"; echo "✅ worker online"; exit 0; fi`,
     // A keystore may already exist (our key on a re-run, or a stale key from a
     // prior worker). Skip the import if it's already ours; otherwise back up the
@@ -333,6 +338,21 @@ if (-not (Test-Path secrets.ps1)) { Copy-Item secrets.example.ps1 secrets.ps1 }
 # Worker key + password come from the app via process env; derive the address.
 $env:WORKER_ADDR = (cast wallet address --private-key $env:WORKER_PRIVKEY)
 $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${model}"
+# Per-network keystore dir so installing one network never touches another's keys
+# (a mainnet operator can set up testnet without risking their mainnet key). The
+# legacy keys dir is still read by key derivation.
+$env:KEYS_DIR = "$env:USERPROFILE\\lightchain-worker\\keys-${network}"
+# env.ps1 hardcodes NETWORK/KEYS_DIR/SUPPORTED_MODELS and is re-sourced by every
+# phase, which would clobber the values the app sets. Patch it to the same
+# "keep if already set" convention the bash env.sh uses. Guarded so a re-run
+# (where env.ps1 is already patched) doesn't wrap the assignment twice.
+if ((Test-Path env.ps1) -and -not (Select-String -Path env.ps1 -SimpleMatch 'if (-not $env:KEYS_DIR)' -Quiet)) {
+  $c = Get-Content env.ps1 -Raw
+  $c = $c.Replace('$env:NETWORK = "mainnet"', 'if (-not $env:NETWORK) { $env:NETWORK = "mainnet" }')
+  $c = $c.Replace('$env:KEYS_DIR = "$env:USERPROFILE\\lightchain-worker\\keys"', 'if (-not $env:KEYS_DIR) { $env:KEYS_DIR = "$env:USERPROFILE\\lightchain-worker\\keys" }')
+  $c = $c.Replace('$env:SUPPORTED_MODELS = "llama3-8b"', 'if (-not $env:SUPPORTED_MODELS) { $env:SUPPORTED_MODELS = "llama3-8b" }')
+  Set-Content -Path env.ps1 -Value $c
+}
 # Correct the toolkit's hardcoded 50,001 stake guard to this network's minimum.
 if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace '50001', '${thr}' -replace '50,001', '${thr}' | Set-Content 07-register.ps1 }
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
@@ -343,7 +363,7 @@ if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up"
   Write-Host "✓ worker already running on ${network} - nothing to reinstall"; Write-Host "✅ worker online"; exit 0
 }
 # Handle a pre-existing keystore: skip if it's already ours, else back up (never delete).
-$ks = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"
+$ks = Join-Path $env:USERPROFILE "lightchain-worker\\keys-${network}\\eth-keystore"
 $skipImport = $false
 if ((Test-Path $ks) -and (Get-ChildItem $ks -ErrorAction SilentlyContinue)) {
   $waddr = ($env:WORKER_ADDR -replace '^0x','').ToLower()
@@ -351,7 +371,7 @@ if ((Test-Path $ks) -and (Get-ChildItem $ks -ErrorAction SilentlyContinue)) {
   else { Write-Host "▶ backing up a previous worker keystore (not deleting)"; Move-Item $ks "$ks.bak-$((Get-Date).Ticks)" }
 }
 # Stale ECDH key (different worker / old password) → back up so phase 05 regenerates.
-$keysDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys"
+$keysDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys-${network}"
 $enc = Join-Path $keysDir "worker-encryption.key"
 $sess = Join-Path $keysDir "session-keys.enc"
 $marker = Join-Path $keysDir ".lightnode-worker"
@@ -392,8 +412,23 @@ export function desktopInstallCommand(os: OS, network: NetworkId, model: string 
 function keystoreDeriveUnix(): string[] {
   return [
     'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
-    'KEYS_DIR="${KEYS_DIR:-$HOME/lightchain-worker/keys}"; KS_DIR="$KEYS_DIR/eth-keystore"',
-    "KS_NAME=\"$(ls \"$KS_DIR\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
+    // Find the keystore for the target worker. Installs now write per-network
+    // dirs (keys-<network>); the legacy shared dir (keys) is still scanned so a
+    // worker created before isolation stays recoverable (e.g. to deregister it).
+    // When a WORKER_ADDR is targeted, pick the dir whose keystore filename matches
+    // it - never sign one network's op with another worker's key.
+    "WADDR_LC=\"$(printf '%s' \"${WORKER_ADDR:-}\" | sed 's/^0x//' | tr 'A-Z' 'a-z')\"",
+    'CAND=""',
+    '[ -n "${KEYS_DIR:-}" ] && CAND="$KEYS_DIR"',
+    '[ -n "${NETWORK:-}" ] && CAND="$CAND $HOME/lightchain-worker/keys-$NETWORK"',
+    'CAND="$CAND $HOME/lightchain-worker/keys-mainnet $HOME/lightchain-worker/keys-testnet $HOME/lightchain-worker/keys"',
+    'KS_DIR=""; KS_NAME=""',
+    'for d in $CAND; do',
+    "  n=\"$(ls \"$d/eth-keystore\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
+    '  [ -z "$n" ] && continue',
+    '  if [ -n "$WADDR_LC" ] && ! printf %s "$n" | tr A-Z a-z | grep -q "$WADDR_LC"; then continue; fi',
+    '  KS_DIR="$d/eth-keystore"; KS_NAME="$n"; break',
+    "done",
     // Derive the worker key from the on-disk keystore - the authoritative source
     // for the worker actually installed here. Only when the app didn't already
     // hand us a matching key (the in-browser path passes one).
@@ -537,8 +572,24 @@ export function benchmarkCommand(os: OS, budgetSec: number = 120): string {
 function keystoreDeriveWin(): string[] {
   return [
     '$env:PATH = "$env:USERPROFILE\\.foundry\\bin;$env:PATH"',
-    '$ksDir = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\eth-keystore"',
-    "$ks = Get-ChildItem $ksDir -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'UTC--*' } | Select-Object -First 1",
+    // Scan per-network keystore dirs (installs now write keys-<network>) plus the
+    // legacy shared dir so a pre-isolation worker stays recoverable. When a
+    // WORKER_ADDR is targeted, pick the dir whose keystore filename matches it.
+    '$waddrLc = if ($env:WORKER_ADDR) { ($env:WORKER_ADDR -replace "^0x","").ToLower() } else { "" }',
+    '$cands = @()',
+    'if ($env:KEYS_DIR) { $cands += $env:KEYS_DIR }',
+    'if ($env:NETWORK) { $cands += (Join-Path $env:USERPROFILE "lightchain-worker\\keys-$($env:NETWORK)") }',
+    '$cands += (Join-Path $env:USERPROFILE "lightchain-worker\\keys-mainnet")',
+    '$cands += (Join-Path $env:USERPROFILE "lightchain-worker\\keys-testnet")',
+    '$cands += (Join-Path $env:USERPROFILE "lightchain-worker\\keys")',
+    '$ksDir = $null; $ks = $null',
+    'foreach ($d in $cands) {',
+    '  $kd = Join-Path $d "eth-keystore"',
+    "  $cand = Get-ChildItem $kd -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'UTC--*' } | Select-Object -First 1",
+    '  if (-not $cand) { continue }',
+    '  if ($waddrLc -and -not $cand.Name.ToLower().Contains($waddrLc)) { continue }',
+    '  $ksDir = $kd; $ks = $cand; break',
+    '}',
     'if (-not $env:WORKER_PRIVKEY -and $ks) {',
     // Container password first (authoritative for this keystore), app password as fallback.
     "  $pwCt = (docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null | Select-String '^WORKER_KEYSTORE_PASSWORD=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value",

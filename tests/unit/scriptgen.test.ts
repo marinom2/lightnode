@@ -90,6 +90,44 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
   });
 });
 
+describe("per-network keystore isolation (test one network without risking another's keys)", () => {
+  it("unix install writes the keystore into a per-network dir (keys-<network>)", () => {
+    expect(desktopInstallCommand("macos", "testnet")).toContain('export KEYS_DIR="$HOME/lightchain-worker/keys-testnet"');
+    expect(desktopInstallCommand("macos", "mainnet")).toContain('export KEYS_DIR="$HOME/lightchain-worker/keys-mainnet"');
+  });
+  it("windows install sets a per-network KEYS_DIR and patches env.ps1 to keep it", () => {
+    const win = desktopInstallCommand("windows", "testnet");
+    expect(win).toContain('$env:KEYS_DIR = "$env:USERPROFILE\\lightchain-worker\\keys-testnet"');
+    // env.ps1 hardcodes the dir + network; the install rewrites it to "keep if set".
+    expect(win).toContain("if (-not $env:KEYS_DIR)");
+    expect(win).toContain("if (-not $env:NETWORK)");
+    // guarded so a re-run (already-patched env.ps1) doesn't double-wrap
+    expect(win).toContain("-SimpleMatch 'if (-not $env:KEYS_DIR)' -Quiet");
+  });
+  it("windows install backs up/imports into the per-network keystore dir", () => {
+    const win = desktopInstallCommand("windows", "mainnet");
+    expect(win).toContain('"lightchain-worker\\keys-mainnet\\eth-keystore"');
+    expect(win).toContain('"lightchain-worker\\keys-mainnet"');
+  });
+  it("ops scan per-network dirs AND the legacy shared dir (so a pre-isolation worker stays recoverable)", () => {
+    const cmd = deregisterCommand("macos", "mainnet", [1]);
+    expect(cmd).toContain("$HOME/lightchain-worker/keys-mainnet");
+    // the legacy, non-suffixed dir must still be scanned (last in the list) for recovery
+    expect(cmd).toContain('$HOME/lightchain-worker/keys-testnet $HOME/lightchain-worker/keys"');
+  });
+  it("ops pick the keystore matching the targeted WORKER_ADDR (never another worker's key)", () => {
+    const cmd = settleJobsCommand("macos", "testnet", [1]);
+    expect(cmd).toContain('WADDR_LC=');
+    expect(cmd).toContain('grep -q "$WADDR_LC"');
+  });
+  it("windows ops scan the same candidate dirs by WORKER_ADDR", () => {
+    const win = deregisterCommand("windows", "mainnet");
+    expect(win).toContain('lightchain-worker\\keys-mainnet');
+    expect(win).toContain('lightchain-worker\\keys-testnet');
+    expect(win).toContain("$cand.Name.ToLower().Contains($waddrLc)");
+  });
+});
+
 describe("benchmark (capacity/power test vs the job deadline)", () => {
   it("unix runs a real inference and compares worst-case to the deadline", () => {
     const cmd = benchmarkCommand("macos", 120);

@@ -71,8 +71,10 @@ container - not the app's cached key - is authoritative for signing.**
 
 For any on-chain worker action (settle, deregister, withdraw), the command:
 
-1. finds the keystore the worker actually runs with
-   (`~/lightchain-worker/keys/eth-keystore`),
+1. finds the keystore the worker actually runs with by scanning the per-network
+   directories (`~/lightchain-worker/keys-<network>/eth-keystore`) plus the legacy
+   shared `keys/` directory, and picking the one whose keystore matches the targeted
+   worker address,
 2. recovers that keystore's password from the running container's environment
    (`docker inspect`), falling back to any app-supplied password, and uses whichever
    actually decrypts the keystore,

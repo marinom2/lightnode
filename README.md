@@ -155,9 +155,12 @@ More detail, including the on-chain selectors and a worked example, is in
 ## Networks
 
 LightNode supports both LightChain AI networks, switchable from the toggle in the UI.
-**One worker runs per machine at a time** (the toolkit uses a single container and
-keystore), so testnet and mainnet are run sequentially on one box; running both at
-once needs separate machines.
+**One worker runs per machine at a time** (a single worker container), so testnet and
+mainnet are run sequentially on one box; running both at once needs separate machines.
+Keys are isolated per network, though: each network's keystore lives in its own
+directory (`~/lightchain-worker/keys-<network>`), so a mainnet operator can install
+and test on testnet without touching or risking their mainnet key. Switching back to
+mainnet reuses the saved mainnet key.
 
 | | Testnet | Mainnet |
 |---|---|---|

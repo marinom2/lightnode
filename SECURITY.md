@@ -32,9 +32,10 @@ machine - it is never transmitted off-device.
   the copied setup.)
 - **At rest.** It is held in two places, both local: the OS keychain (Keychain /
   Credential Manager / Secret Service) and the toolkit's encrypted keystore on disk
-  (`~/lightchain-worker/keys`). On unsigned desktop builds the OS keychain is not
-  reliable across launches, so a localStorage copy is also kept as a fallback. The
-  authoritative copy for signing is the on-disk keystore.
+  (`~/lightchain-worker/keys-<network>` - one directory per network, so a key for one
+  network is never overwritten by installing another). On unsigned desktop builds the
+  OS keychain is not reliable across launches, so a localStorage copy is also kept as
+  a fallback. The authoritative copy for signing is the on-disk keystore.
 - **In use.** Worker actions (settle, deregister, withdraw) are signed locally. The
   signing key is preferentially derived from the on-disk keystore using the
   container's keystore password, and the derived address is verified against the
