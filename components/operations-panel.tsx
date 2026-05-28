@@ -18,6 +18,8 @@ import {
   ShieldAlert,
   Copy,
   Check,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -515,17 +517,65 @@ export function OperationsPanel() {
         </div>
       )}
 
-      {desktop && log.length > 0 && (
-        <details className="mt-3" open={!(lastOp === "bench" && benchResult)}>
-          {lastOp === "bench" && benchResult && (
-            <summary className="cursor-pointer text-[11px] text-content-soft hover:text-content-default">
-              View raw log
-            </summary>
-          )}
+      {/* Operation output, presented like the install: a clean status line, with the
+          (already de-spammed) log behind a "Technical details" disclosure. */}
+      {desktop && log.length > 0 && !(lastOp === "bench" && benchResult) && (
+        <div className="mt-4">
+          {(() => {
+            const opLabel = OPS.find((o) => o.key === lastOp)?.label ?? "Operation";
+            const running = active !== null;
+            const failed = !running && log.some((l) => /^exited \(|⛔|did not complete|failed/i.test(l.trim()));
+            // Ops whose output IS the point (live logs, per-job settle/deregister
+            // results) stay open; simple action ops (restart/stop/free up) collapse
+            // to the clean status line on success.
+            const logCentric = ["status", "tail", "settle", "dereg"].includes(lastOp ?? "");
+            return (
+              <>
+                <div className="mb-3 flex items-center gap-2 text-sm">
+                  {running ? (
+                    <span className="inline-flex items-center gap-2 text-content-primary">
+                      <Loader2 className="size-4 animate-spin" /> Running {opLabel.toLowerCase()}…
+                    </span>
+                  ) : failed ? (
+                    <span className="inline-flex items-center gap-2 font-medium text-destructive">
+                      <XCircle className="size-4" /> {opLabel} stopped. Open the details below.
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2 font-medium text-success">
+                      <CheckCircle2 className="size-4" /> {opLabel} done.
+                    </span>
+                  )}
+                </div>
+                <details className="group" open={running || failed || logCentric}>
+                  <summary className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-content-soft transition-colors hover:text-content-default">
+                    <Terminal className="size-3" /> Technical details
+                  </summary>
+                  <div
+                    ref={logBox}
+                    onScroll={onLogScroll}
+                    className="mt-2 max-h-56 overflow-auto overscroll-contain rounded-xl border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default"
+                  >
+                    {log.map((l, i) => (
+                      <div key={i} className="whitespace-pre-wrap">{l}</div>
+                    ))}
+                  </div>
+                </details>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Bench keeps its dial + a raw-log disclosure. */}
+      {desktop && lastOp === "bench" && benchResult && log.length > 0 && (
+        <details className="mt-3 group">
+          <summary className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-content-soft transition-colors hover:text-content-default">
+            <Terminal className="size-3" /> Technical details
+          </summary>
           <div
             ref={logBox}
             onScroll={onLogScroll}
-            className="mt-2 max-h-56 overflow-auto overscroll-contain rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[12px] leading-relaxed text-content-default"
+            className="mt-2 max-h-56 overflow-auto overscroll-contain rounded-xl border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default"
           >
             {log.map((l, i) => (
               <div key={i} className="whitespace-pre-wrap">{l}</div>
