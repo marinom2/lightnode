@@ -147,7 +147,14 @@ function PasswordField({ value, onChange }: { value: string; onChange: (v: strin
  *  aside.) Reports the chosen key once it holds enough. */
 function FunderSetup({ network, mode, onReady, registered }: { network: NetworkId; mode: FundMode; onReady: (ready: string | null) => void; registered: boolean }) {
   const net = NETWORKS[network];
+  // `need` is the amount we SUGGEST sending (stake + generous gas headroom) - used
+  // for the QR + "Fund N" button. The gate that ENABLES install is lower: enough to
+  // actually stake + register. The toolkit needs >= minStake + ~1 for gas, and after
+  // a deregister the wallet typically holds the returned stake minus a hair of gas
+  // (e.g. 5004.99) - plenty to re-stake, but a strict "== fundLcai" gate would
+  // wrongly block it while the balance rounds on screen to the full amount.
   const need = parseEther(String(net.fundLcai));
+  const minToInstall = parseEther(String(net.minStakeLcai + 1));
   const [genAddr, setGenAddr] = useState("");
   const [reveal, setReveal] = useState(false);
   const [revealedKey, setRevealedKey] = useState("");
@@ -244,7 +251,7 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
   const { isLoading: confirming } = useWaitForTransactionReceipt({ hash, chainId: net.chainId, query: { enabled: !!hash } });
   const { switchChain, isPending: switching } = useSwitchChain();
 
-  const funded = !!bal && bal.value >= need;
+  const funded = !!bal && bal.value >= minToInstall;
   const errMsg = sendError ? sendError.message.split("\n")[0].slice(0, 140) : null;
 
   // Report readiness as the worker ADDRESS (not the key). In paste mode, store
