@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-const INSTALLER_REV = "2026-05-28.8";
+const INSTALLER_REV = "2026-05-28.9";
 
 export interface ScriptBundle {
   os: OS;
@@ -462,6 +462,11 @@ function keystoreDeriveUnix(): string[] {
     '  if [ -n "$WADDR_LC" ] && ! printf %s "$n" | tr A-Z a-z | grep -q "$WADDR_LC"; then continue; fi',
     '  KS_DIR="$d/eth-keystore"; KS_NAME="$n"; break',
     "done",
+    // Point the toolkit (invoke_worker: deregister/sweep/add-models) at the SAME
+    // per-network keystore dir we matched, so it never falls back to the legacy
+    // `keys/` dir and signs with the wrong worker (e.g. deregistering a testnet
+    // worker would otherwise mount the mainnet keystore and fail to decrypt).
+    'if [ -n "$KS_DIR" ]; then export KEYS_DIR="$(dirname "$KS_DIR")"; fi',
     // Derive the worker key from the on-disk keystore - the authoritative source
     // for the worker actually installed here. Only when the app didn't already
     // hand us a matching key (the in-browser path passes one).
@@ -623,6 +628,8 @@ function keystoreDeriveWin(): string[] {
     '  if ($waddrLc -and -not $cand.Name.ToLower().Contains($waddrLc)) { continue }',
     '  $ksDir = $kd; $ks = $cand; break',
     '}',
+    // Point the toolkit (Invoke-Worker) at the same per-network keystore dir.
+    'if ($ksDir) { $env:KEYS_DIR = (Split-Path $ksDir -Parent) }',
     'if (-not $env:WORKER_PRIVKEY -and $ks) {',
     // Container password first (authoritative for this keystore), app password as fallback.
     "  $pwCt = (docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null | Select-String '^WORKER_KEYSTORE_PASSWORD=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value",
@@ -785,7 +792,7 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
       '  docker stop lightchain-worker *> $null',
       '  Write-Host "deregistered - stake returned to the worker wallet; worker stopped + watchdog removed. Use Withdraw Funds to send the stake out; you can now install on another network directly."',
       '} else {',
-      '  Write-Host "deregister still blocked - usually completed jobs still inside their release window. Your stake is safe; try again after they settle."',
+      '  Write-Host "deregister did not complete - see the error just above. Your stake is safe and still registered. The usual cause is completed jobs still inside their release window; retry once they settle."',
       '  exit 1',
       '}',
     ].join("\n");
@@ -819,7 +826,7 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
     '  docker stop lightchain-worker >/dev/null 2>&1 || true',
     '  echo "✓ deregistered - stake returned to the worker wallet; worker stopped + watchdog removed. Use Withdraw Funds to send the stake out; you can now install on another network directly."',
     'else',
-    '  echo "⛔ deregister still blocked - this is normal if completed jobs are still inside their release window. Your stake is SAFE and the worker is still registered. Settle again / retry once their windows pass (a few hours)."',
+    '  echo "⛔ deregister did not complete - see the error just above. Your stake is SAFE and the worker is still registered. The usual cause is completed jobs still inside their release window; retry once they settle (a few hours)."',
     '  exit 1',
     'fi',
   ].join("\n");
@@ -843,7 +850,8 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
       'Set-Location "$env:USERPROFILE\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null; Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
       'if (-not $env:WORKER_PASSWORD) { Write-Host "couldn\'t unlock the worker keystore (need its password) - reinstall and retry."; exit 1 }',
-      `$env:NETWORK = "${network}"; $env:KEYS_DIR = "$env:USERPROFILE\\lightchain-worker\\keys-${network}"; $env:SUPPORTED_MODELS = "${supported}"`,
+      // KEYS_DIR was set by the keystore derivation to the matched per-network dir.
+      `$env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${supported}"`,
       `Write-Host "adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
       '. .\\common.ps1; Invoke-Worker -Subcommand "add-models"; if ($LASTEXITCODE -ne 0) { Write-Host "add-models failed - see above"; exit 1 }',
       // Stop the container so the follow-up reinstall recreates it with the new
@@ -859,7 +867,8 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
     'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     ...keystoreDeriveUnix(),
     '[ -n "${WORKER_PASSWORD:-}" ] || { echo "⛔ couldn\'t unlock the worker keystore (need its password) - reinstall and retry."; exit 1; }',
-    `export NETWORK=${network} KEYS_DIR="$HOME/lightchain-worker/keys-${network}" SUPPORTED_MODELS=${supported}`,
+    // KEYS_DIR was set by keystoreDeriveUnix to the matched per-network dir.
+    `export NETWORK=${network} SUPPORTED_MODELS=${supported}`,
     `echo "▶ adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
     // Stop the container after a successful add so the follow-up reinstall actually
     // recreates it with the new model set (the install short-circuits on a

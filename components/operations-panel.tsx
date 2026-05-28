@@ -27,7 +27,7 @@ import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterComm
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
-import { getSecret, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, getWorkerAddr, resolveManagedWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { parseSpeedTest, type SpeedTestResult } from "@/lib/speedtest";
 import { SpeedTestResultCard } from "@/components/speed-test-result";
@@ -330,7 +330,9 @@ export function OperationsPanel() {
       // still hold one); the command derives anything missing from the keystore.
       const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW, network), getSecret(SECRET_WORKER_KEY, network)]);
       if (pw) env.WORKER_PASSWORD = pw;
-      const addr = resolveWorkerAddr();
+      // Target the worker the app holds the key for (derived from the key), so the
+      // command picks THIS network's keystore - never a stale stored address.
+      const addr = (await resolveManagedWorkerAddr(network)) || resolveWorkerAddr();
       if (addr) env.WORKER_ADDR = addr;
       // Only pass the in-app key if it actually IS the worker we're targeting.
       // A newer/mismatched in-app key (e.g. a freshly generated one for another

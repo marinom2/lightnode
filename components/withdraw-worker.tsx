@@ -85,8 +85,10 @@ export function WithdrawWorker() {
       }
       setInAppKey(validKey ? k : "");
       setInAppAddr(addr);
+      // Prefer the address derived from the key the app holds (authoritative for
+      // this network); fall back to the stored address only when there's no key.
       const managed = resolveWorkerAddr();
-      setTarget(managed || addr);
+      setTarget(addr || managed);
     });
     return () => {
       on = false;

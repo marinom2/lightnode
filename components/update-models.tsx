@@ -11,7 +11,7 @@ import { DEFAULT_MODEL } from "@/lib/network";
 import { addModelsCommand, desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { detectClientOS } from "@/lib/os-detect";
 import { runSetupStreamed, detectNativeHardware } from "@/lib/tauri";
-import { getSecret, getWorkerAddr, getServedModels, setServedModels, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, getWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 
 type Phase = "idle" | "running" | "done" | "failed";
 
@@ -74,7 +74,9 @@ export function UpdateModels() {
     const env: Record<string, string> = { NETWORK: network };
     const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW, network), getSecret(SECRET_WORKER_KEY, network)]);
     if (pw) env.WORKER_PASSWORD = pw;
-    const addr = getWorkerAddr(network);
+    // Target the worker the app holds the key for, so add-models signs with THIS
+    // network's keystore, not a stale stored address.
+    const addr = (await resolveManagedWorkerAddr(network)) || getWorkerAddr(network);
     if (addr) env.WORKER_ADDR = addr;
     if (k && /^0x[0-9a-fA-F]{64}$/.test(k) && keyMatchesAddr(k, addr)) env.WORKER_PRIVKEY = k;
 
