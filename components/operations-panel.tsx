@@ -404,12 +404,7 @@ export function OperationsPanel() {
       <div className="mb-3 flex items-center gap-2">
         <Terminal className="size-4 text-content-soft" />
         <h3 className="text-sm font-semibold text-content-primary">Operations</h3>
-        <span className="text-xs text-content-soft">manage your worker</span>
-        {desktop ? (
-          <Badge tone="success" className="ml-auto">one-click</Badge>
-        ) : (
-          <Badge tone="muted" className="ml-auto">copy-run</Badge>
-        )}
+        {!desktop && <Badge tone="muted" className="ml-auto">copy-run</Badge>}
       </div>
 
       {/* diagnostic: makes the network / worker / UI build visible so "nothing

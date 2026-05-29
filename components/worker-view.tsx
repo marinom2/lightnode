@@ -165,10 +165,11 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
         </div>
         {pending > 0 && (
           <div className="text-right">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
               <Clock className="size-3.5" /> +{fmt(pending, 3)} LCAI pending
             </span>
-            <div className="mt-1 text-[11px] text-content-soft">≈ {fmt(expected, 3)} LCAI lifetime</div>
+            {/* Only show lifetime when it adds info; with 0 settled it equals pending. */}
+            {settled > 0 && <div className="mt-1 text-[11px] text-content-soft">≈ {fmt(expected, 3)} LCAI lifetime</div>}
           </div>
         )}
       </div>
@@ -183,7 +184,7 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
                 style={{
                   width: `${100 - settledPct}%`,
                   backgroundImage:
-                    "repeating-linear-gradient(45deg, rgba(246,181,30,0.6) 0 6px, rgba(246,181,30,0.22) 6px 12px)",
+                    "repeating-linear-gradient(45deg, rgba(140,113,246,0.65) 0 6px, rgba(140,113,246,0.25) 6px 12px)",
                 }}
               />
             )}
@@ -194,7 +195,7 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
             </span>
             {pending > 0 && (
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-warning/70" /> Pending release
+                <span className="size-2 rounded-full bg-primary/70" /> Pending release
               </span>
             )}
           </div>
@@ -213,12 +214,6 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
     </Card>
   );
 }
-
-const LOCAL: Record<"running" | "stopped" | "missing", { tone: "success" | "warning" | "danger"; label: string }> = {
-  running: { tone: "success", label: "Running on this machine" },
-  stopped: { tone: "danger", label: "Stopped on this machine" },
-  missing: { tone: "warning", label: "Not installed on this machine" },
-};
 
 /**
  * Worker processing time for a job (acknowledged -> completed) and how it compares
@@ -279,7 +274,6 @@ export function WorkerView({
   const [showWhy, setShowWhy] = useState(false);
   const h = healthOf(worker);
   const stake = fromWei(worker.stake);
-  const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
   const offlineHere = localRunning === false;
 
   // Registration truth, in priority order. A DEFINITIVE on-chain answer (true or
@@ -293,6 +287,11 @@ export function WorkerView({
     onchainRegistered === true ||
     (onchainRegistered == null && (liveConfirmed || (subgraphDown && localStatus === "running")));
   const meta = resolveRegistrationMeta({ health: h, registeredHere, onchainRegistered, liveConfirmed });
+  // Collapse registration + local run-state into ONE pill. For my worker the live/
+  // stopped state is what matters and implies registration; the registration text
+  // sits in the one-line summary below. Otherwise show the registration state.
+  const statusPill: { tone: "success" | "warning" | "danger"; label: string } =
+    localRunning === true ? { tone: "success", label: "Live" } : offlineHere ? { tone: "danger", label: "Stopped" } : meta;
 
   const completed = worker.jobs_completed ?? 0;
   const attempted = completed + (worker.jobs_timed_out ?? 0) + (worker.disputes_lost ?? 0);
@@ -323,15 +322,9 @@ export function WorkerView({
           <div className="flex items-center gap-3">
             <span className={cn("dot", offlineHere ? "dot-down" : h === "live" || registeredHere ? "dot-live" : h === "inactive" ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
-            <Badge tone={meta.tone}>{meta.label}</Badge>
-            {/* Local run-state for MY worker takes priority; otherwise the watched-worker pill. */}
-            {localRunning === true ? (
-              <Badge tone="success">Running here</Badge>
-            ) : offlineHere ? (
-              <Badge tone="danger">Stopped here</Badge>
-            ) : (
-              local && <Badge tone={local.tone}>{local.label}</Badge>
-            )}
+            {/* One status pill: live/stopped for MY worker (the actionable state),
+                else the on-chain registration state. No second pill to parse. */}
+            <Badge tone={statusPill.tone}>{statusPill.label}</Badge>
             {/* A stopped worker can't be working, so don't show its stale acked-job count. */}
             {!offlineHere && (worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
           </div>
@@ -378,7 +371,7 @@ export function WorkerView({
               )}
             >
               <div className="mb-2 flex items-center gap-2 text-content-soft">
-                <t.icon className="size-4" />
+                <t.icon className="size-4 text-primary" />
                 <span className="text-xs font-medium">{t.label}</span>
               </div>
               <div className={cn("text-2xl font-semibold tracking-tight", t.tone)}>{t.value}</div>
