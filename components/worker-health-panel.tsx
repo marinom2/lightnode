@@ -178,6 +178,12 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
         Live from the worker on this machine, refreshed every few seconds. Jobs completed + earnings tick up in the cards
         above.
       </p>
+      <p className="relative mt-1.5 flex items-start gap-1.5 text-[11px] text-content-soft">
+        <Sparkles className="mt-0.5 size-3 shrink-0 text-warning" />
+        For 24/7 uptime, run on a machine that won&apos;t sleep - a Linux server is ideal. On a laptop, keep it plugged in
+        with the lid open; on battery or with the lid closed the OS sleeps, which pauses the worker (uptime above resets)
+        until it wakes and the watchdog restarts it.
+      </p>
     </Card>
   );
 }

@@ -25,9 +25,11 @@ everything an operator needs, end to end:
 - **One-click, wallet-funded install** - generates and secures the worker key,
   funds + stakes from your connected wallet, registers on-chain, and brings the
   worker online, with a clean live progress view instead of a terminal dump.
-- **Stays online for you** - a keep-online watchdog that auto-starts Docker and the
-  worker, keeps the model warm (no cold-load timeouts), and prevents the machine from
-  sleeping mid-job; it survives reboots and respects an intentional Stop.
+- **Stays online for you** - a keep-online watchdog auto-starts Docker and the
+  worker and keeps the model warm (no cold-load timeouts). On a Linux server it just
+  runs 24/7; it survives reboots and respects an intentional Stop. (On a laptop, keep
+  it plugged in with the lid open - on battery or with the lid closed the OS sleeps
+  and the worker pauses until the machine wakes.)
 - **Multi-model serving** with a memory-fit gate, and live add-a-model.
 - **Safe, non-custodial signing** - the on-disk keystore is the source of truth,
   keys are isolated per network, and the app refuses to sign one network's action

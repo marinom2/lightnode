@@ -204,16 +204,18 @@ export function WorkerView({
   const stake = fromWei(worker.stake);
   const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
 
-  // The public subgraph lags a fresh (re)registration by minutes. If the worker is
-  // running here it IS registered on-chain (it can't reach the gateway otherwise),
-  // so don't alarm with "Not registered" - show a syncing state until the subgraph
-  // catches up. A freshly registered worker holds exactly the network minimum stake.
+  // The public subgraph can disagree with the chain: it lags a fresh registration,
+  // and after a deregister -> re-register cycle it sometimes stays stuck on the old
+  // "deregistered" status indefinitely. If the worker is running here, it IS
+  // registered on-chain (its stake is locked and the gateway authenticates it), so
+  // don't alarm with "Not registered" - show it as live with the index lagging, and
+  // point at the Live health panel as the real state.
   const syncing = h === "down" && localStatus === "running";
   const meta = syncing
     ? {
-        tone: "warning" as const,
-        label: "Registering · syncing",
-        hint: "Your worker is running and connected to the gateway on this machine, which means it is registered on-chain - the public subgraph just hasn't indexed it yet (it can lag a few minutes). This will flip to Registered shortly; the Live health panel below shows the real, on-chain-validated state.",
+        tone: "success" as const,
+        label: "Live · index lagging",
+        hint: "Your worker is running on this machine with its stake locked on-chain, so it IS registered and can take jobs - the Live health panel below is the real, gateway-validated state. The public subgraph still lists it as not-registered; that indexer lags, and after a deregister -> re-register it can stay out of sync for a long while. It's a display delay, not a problem with your worker.",
       }
     : HEALTH[h];
 

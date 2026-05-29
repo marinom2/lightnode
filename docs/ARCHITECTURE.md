@@ -127,6 +127,17 @@ agent; on Linux a `systemd-inhibit` holder. It is armed by Install and Restart,
 and released by Stop, Free up memory, and Deregister (and by the watchdog when the
 pause marker is set), so the machine can sleep again once the worker is down.
 
+**24/7 uptime is a laptop caveat, not the norm.** The recommended host is a **Linux
+server** - it runs the worker continuously with no sleep concerns, which is why
+Linux is the primary target. The sleep handling above matters mainly for **laptops**:
+on macOS `caffeinate -s` only blocks system sleep on **AC power**, and on battery or
+with the lid closed (clamshell) the OS sleeps regardless, suspending the whole machine
+- watchdog timer included - so the worker is offline until it wakes. On wake/reboot
+the watchdog restarts Docker and the worker. So a laptop stays live 24/7 only when
+plugged in with the lid open (or sleep disabled in power settings); otherwise it earns
+while awake and resumes after each wake. The dashboard's Live health panel shows the
+container uptime, so a reset uptime is the tell that the machine slept.
+
 ---
 
 ## Clean install progress
