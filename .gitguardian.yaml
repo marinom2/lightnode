@@ -1,0 +1,23 @@
+# GitGuardian / ggshield configuration.
+#
+# Scope: this file is read by ggshield (the CLI, pre-commit hook, or a CI scan
+# step). It does NOT configure the GitGuardian dashboard / GitHub App scanner -
+# incidents already raised there are cleared by marking them resolved in the
+# dashboard. Adding ggshield to CI later will honor the ignores below.
+version: 2
+secret:
+  # tests/unit/secrets.test.ts stores throwaway placeholder values under keys
+  # whose name contains "workerPw", which trips the generic-password heuristic.
+  # These are not real credentials: the worker key + keystore password live only
+  # in the OS keychain and the on-disk keystore (gitignored), never in the repo.
+  ignored-paths:
+    - "tests/unit/secrets.test.ts"
+  # Belt-and-suspenders: ignore the exact placeholder strings too, so they stay
+  # ignored even if a fixture is copied elsewhere.
+  ignored-matches:
+    - name: "unit-test placeholder keystore password (not a real secret)"
+      match: "pw-mainnet"
+    - name: "unit-test placeholder keystore password (not a real secret)"
+      match: "pw-testnet"
+    - name: "unit-test placeholder keystore password (not a real secret)"
+      match: "pw-bare"
