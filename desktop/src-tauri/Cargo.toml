@@ -26,15 +26,6 @@ hex = "0.4"
 # stays pure-Rust (no system OpenSSL/dbus dev deps).
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
-# Direct Security.framework access for the data-protection keychain + a shared
-# keychain-access-group, so every binary signed by our team reads the worker
-# secrets with no per-app authorization prompt. keyring (above) stays as the
-# fallback for builds without the entitlement (e.g. unsigned dev binaries).
-core-foundation = "0.9"
-core-foundation-sys = "0.8"
-# OSX_10_15 gates kSecUseDataProtectionKeychain (the data-protection keychain
-# selector). Tauri 2 already requires macOS 10.15+, so this raises no floor.
-security-framework-sys = { version = "2", features = ["OSX_10_15"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

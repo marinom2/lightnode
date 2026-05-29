@@ -1,6 +1,6 @@
 {
   "name": "lightnode-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "LightNode desktop shell - true one-click LightChain AI worker onboarding (Tauri v2).",
   "scripts": {

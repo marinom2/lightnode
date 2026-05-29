@@ -12,187 +12,33 @@ use tauri::{AppHandle, Emitter};
 /// password). Stored natively so the remote web UI never has to persist them.
 const KEYCHAIN_SERVICE: &str = "ai.lightchain.lightnode";
 
-fn keyring_entry(name: &str) -> Result<Entry, String> {
+fn keychain(name: &str) -> Result<Entry, String> {
     Entry::new(KEYCHAIN_SERVICE, name).map_err(|e| e.to_string())
 }
 
-fn keyring_set(name: &str, value: &str) -> Result<(), String> {
-    keyring_entry(name)?.set_password(value).map_err(|e| e.to_string())
+/// Store a secret in the OS keychain.
+#[tauri::command]
+fn secret_set(name: String, value: String) -> Result<(), String> {
+    keychain(&name)?.set_password(&value).map_err(|e| e.to_string())
 }
 
-fn keyring_get(name: &str) -> Result<Option<String>, String> {
-    match keyring_entry(name)?.get_password() {
+/// Read a secret from the OS keychain (None when absent).
+#[tauri::command]
+fn secret_get(name: String) -> Result<Option<String>, String> {
+    match keychain(&name)?.get_password() {
         Ok(v) => Ok(Some(v)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
 
-fn keyring_delete(name: &str) -> Result<(), String> {
-    match keyring_entry(name)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-/// macOS data-protection keychain backed by a shared keychain-access-group. Items
-/// here are readable, with NO per-app authorization prompt, by any binary signed
-/// with our Team ID that carries the matching `keychain-access-groups` entitlement
-/// - so the prompt no longer fires every time the app is rebuilt or updated. A
-/// build WITHOUT the entitlement (unsigned dev binary) gets errSecMissingEntitlement
-/// from these calls, which is the signal for the caller to fall back to `keyring`.
-#[cfg(target_os = "macos")]
-mod dp_keychain {
-    use core_foundation::base::{CFType, TCFType};
-    use core_foundation::boolean::CFBoolean;
-    use core_foundation::data::CFData;
-    use core_foundation::dictionary::CFDictionary;
-    use core_foundation::string::CFString;
-    use core_foundation_sys::base::CFTypeRef;
-    use core_foundation_sys::data::CFDataRef;
-    use core_foundation_sys::string::CFStringRef;
-    use security_framework_sys::base::{errSecDuplicateItem, errSecItemNotFound};
-    use security_framework_sys::item::{
-        kSecAttrAccessGroup, kSecAttrAccount, kSecAttrService, kSecClass, kSecClassGenericPassword,
-        kSecReturnData, kSecUseDataProtectionKeychain, kSecValueData,
-    };
-    use security_framework_sys::keychain_item::{
-        SecItemAdd, SecItemCopyMatching, SecItemDelete, SecItemUpdate,
-    };
-    use std::ptr;
-
-    // The entitlement lists this exact group; the team prefix matches our signing
-    // identity, so the OS grants prompt-free access to every binary we sign.
-    const ACCESS_GROUP: &str = "84SJ6FKXLJ.ai.lightchain.lightnode";
-    const SERVICE: &str = "ai.lightchain.lightnode";
-
-    // Wrap a Security.framework static CFStringRef constant as a CFType (get rule
-    // -> retained). Reading an extern static is unsafe; callers stay safe.
-    fn stat(s: CFStringRef) -> CFType {
-        unsafe { CFString::wrap_under_get_rule(s).as_CFType() }
-    }
-
-    // Class + service + account + access group + data-protection flag: the tuple
-    // that uniquely identifies one item and routes it to the right keychain.
-    fn identity(account: &str) -> Vec<(CFType, CFType)> {
-        unsafe {
-            vec![
-                (stat(kSecClass), stat(kSecClassGenericPassword)),
-                (stat(kSecAttrService), CFString::new(SERVICE).as_CFType()),
-                (stat(kSecAttrAccount), CFString::new(account).as_CFType()),
-                (stat(kSecAttrAccessGroup), CFString::new(ACCESS_GROUP).as_CFType()),
-                (stat(kSecUseDataProtectionKeychain), CFBoolean::true_value().as_CFType()),
-            ]
-        }
-    }
-
-    pub fn get(account: &str) -> Result<Option<String>, i32> {
-        let mut pairs = identity(account);
-        pairs.push((stat(unsafe { kSecReturnData }), CFBoolean::true_value().as_CFType()));
-        let query = CFDictionary::from_CFType_pairs(&pairs);
-        let mut out: CFTypeRef = ptr::null();
-        let status = unsafe { SecItemCopyMatching(query.as_concrete_TypeRef(), &mut out) };
-        if status == errSecItemNotFound {
-            return Ok(None);
-        }
-        if status != 0 {
-            return Err(status);
-        }
-        if out.is_null() {
-            return Ok(None);
-        }
-        let data = unsafe { CFData::wrap_under_create_rule(out as CFDataRef) };
-        Ok(Some(String::from_utf8_lossy(data.bytes()).into_owned()))
-    }
-
-    pub fn set(account: &str, value: &str) -> Result<(), i32> {
-        let mut add = identity(account);
-        add.push((stat(unsafe { kSecValueData }), CFData::from_buffer(value.as_bytes()).as_CFType()));
-        let dict = CFDictionary::from_CFType_pairs(&add);
-        let status = unsafe { SecItemAdd(dict.as_concrete_TypeRef(), ptr::null_mut()) };
-        if status == 0 {
-            return Ok(());
-        }
-        if status == errSecDuplicateItem {
-            let query = CFDictionary::from_CFType_pairs(&identity(account));
-            let attrs = CFDictionary::from_CFType_pairs(&[(
-                stat(unsafe { kSecValueData }),
-                CFData::from_buffer(value.as_bytes()).as_CFType(),
-            )]);
-            let st = unsafe { SecItemUpdate(query.as_concrete_TypeRef(), attrs.as_concrete_TypeRef()) };
-            return if st == 0 { Ok(()) } else { Err(st) };
-        }
-        Err(status)
-    }
-
-    pub fn delete(account: &str) -> Result<(), i32> {
-        let query = CFDictionary::from_CFType_pairs(&identity(account));
-        let status = unsafe { SecItemDelete(query.as_concrete_TypeRef()) };
-        if status == 0 || status == errSecItemNotFound {
-            Ok(())
-        } else {
-            Err(status)
-        }
-    }
-}
-
-/// Persist a secret. On macOS prefer the team-shared data-protection keychain (no
-/// prompt for any binary we sign); fall back to `keyring` if that store is
-/// unavailable (a build without the entitlement). Other OSes use `keyring`.
-fn store_secret(name: &str, value: &str) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    if dp_keychain::set(name, value).is_ok() {
-        return Ok(());
-    }
-    keyring_set(name, value)
-}
-
-/// Load a secret. On macOS read the data-protection keychain first; if the item
-/// isn't there yet, read the legacy `keyring` once and copy it across, so existing
-/// users migrate transparently and never get prompted again after that.
-fn load_secret(name: &str) -> Result<Option<String>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        match dp_keychain::get(name) {
-            Ok(Some(v)) => return Ok(Some(v)),
-            Ok(None) => {
-                if let Ok(Some(v)) = keyring_get(name) {
-                    let _ = dp_keychain::set(name, &v); // best-effort one-time migration
-                    return Ok(Some(v));
-                }
-                return Ok(None);
-            }
-            Err(_) => {} // entitlement missing (dev build) - fall through to keyring
-        }
-    }
-    keyring_get(name)
-}
-
-/// Remove a secret from every store it might live in.
-fn remove_secret(name: &str) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = dp_keychain::delete(name);
-    }
-    keyring_delete(name)
-}
-
-/// Store a secret in the OS keychain.
-#[tauri::command]
-fn secret_set(name: String, value: String) -> Result<(), String> {
-    store_secret(&name, &value)
-}
-
-/// Read a secret from the OS keychain (None when absent).
-#[tauri::command]
-fn secret_get(name: String) -> Result<Option<String>, String> {
-    load_secret(&name)
-}
-
 /// Delete a secret from the OS keychain (ok if it was already absent).
 #[tauri::command]
 fn secret_delete(name: String) -> Result<(), String> {
-    remove_secret(&name)
+    match keychain(&name)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Generate a fresh worker key natively (secp256k1), store the PRIVATE key in
@@ -212,7 +58,7 @@ fn generate_worker_key(name: String) -> Result<String, String> {
     let hash = Keccak256::digest(pub_bytes);
     let address = format!("0x{}", hex::encode(&hash[12..]));
 
-    store_secret(&name, &priv_hex)?;
+    keychain(&name)?.set_password(&priv_hex).map_err(|e| e.to_string())?;
     Ok(address)
 }
 
@@ -322,7 +168,7 @@ fn run_command_streamed(
     let mut envs = env.unwrap_or_default();
     if let Some(names) = secret_env {
         for n in names {
-            if let Ok(Some(val)) = load_secret(&n) {
+            if let Ok(Some(val)) = secret_get(n.clone()) {
                 envs.insert(n, val);
             }
         }
@@ -368,20 +214,4 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running LightNode");
-}
-
-#[cfg(all(test, target_os = "macos"))]
-mod dp_tests {
-    use super::dp_keychain;
-
-    // Read-only FFI smoke test: exercises the Security.framework call path and the
-    // CoreFoundation wrapping without touching anything. On an unsigned test binary
-    // this returns Err (missing entitlement); on a signed one, Ok(None) for an
-    // unknown account. Either is fine - the point is it round-trips without crashing
-    // (catches a bad CFRetain/CFRelease balance, which would abort the process).
-    #[test]
-    fn get_unknown_account_does_not_crash() {
-        let r = dp_keychain::get("__lightnode_ffi_smoke_test__");
-        assert!(r.is_err() || r == Ok(None));
-    }
 }

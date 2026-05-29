@@ -2160,13 +2160,10 @@ dependencies = [
 name = "lightnode-desktop"
 version = "0.1.0"
 dependencies = [
- "core-foundation 0.9.4",
- "core-foundation-sys",
  "hex",
  "k256",
  "keyring",
  "rand",
- "security-framework-sys",
  "serde",
  "serde_json",
  "sha3",
