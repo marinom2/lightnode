@@ -215,6 +215,23 @@ const LOCAL: Record<"running" | "stopped" | "missing", { tone: "success" | "warn
   missing: { tone: "warning", label: "Not installed on this machine" },
 };
 
+/**
+ * Worker processing time for a job (acknowledged -> completed) and how it compares
+ * to the on-chain deadline. An acknowledged job with no completion never produced a
+ * result in time - the slashable case - so it's flagged red.
+ */
+function jobProcessing(job: Job, deadlineSec: number): { label: string; tone: string } | null {
+  if (job.ack_at && job.completed_at && job.completed_at >= job.ack_at) {
+    const secs = job.completed_at - job.ack_at;
+    const tone = secs <= deadlineSec * 0.7 ? "text-success" : secs <= deadlineSec ? "text-warning" : "text-destructive";
+    return { label: `${secs}s`, tone };
+  }
+  if (job.ack_at && !job.completed_at && /ack/i.test(job.state)) {
+    return { label: "no result", tone: "text-destructive" };
+  }
+  return null;
+}
+
 export function WorkerView({
   worker,
   jobs,
@@ -226,6 +243,7 @@ export function WorkerView({
   localStatus,
   liveConfirmed = false,
   onchainRegistered = null,
+  deadlineSec = 120,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -235,6 +253,9 @@ export function WorkerView({
   watched: boolean;
   onToggleWatch: () => void;
   localStatus?: LocalContainerStatus | null;
+  // On-chain inference deadline (seconds) a job must beat; used to color the
+  // per-job processing time in the history. Defaults to the network's ~120s.
+  deadlineSec?: number;
   // Ground truth from the worker on this machine: gateway-authenticated means it's
   // registered on-chain (the gateway only admits registered workers), regardless of
   // what the public subgraph's index says.
@@ -405,19 +426,26 @@ export function WorkerView({
 
       {jobs.length > 0 && (
         <Card className="p-5">
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-1.5 flex items-center gap-2">
             <History className="size-4 text-content-soft" />
             <h3 className="text-sm font-semibold text-content-primary">Job history</h3>
             <span className="text-xs text-content-soft">newest first</span>
           </div>
+          <p className="mb-3 text-[11px] text-content-soft">
+            Time = worker processing (acknowledged &rarr; completed) vs the ~{deadlineSec}s deadline. Click a row to open
+            its on-chain block.
+          </p>
           <div className="space-y-1.5">
             {jobs.map((j) => {
               const released = /releas/i.test(j.state);
               const done = released || /complet/i.test(j.state);
               const share = fromWei(j.worker_share);
+              const proc = jobProcessing(j, deadlineSec);
+              const block = j.completion_block_number ?? j.submit_block_number;
+              const when = timeAgo(j.completed_at || j.submitted_at);
               return (
-                <div key={j.id} className="flex items-center justify-between rounded-lg bg-surface-base-faint px-3 py-2 text-xs">
-                  <span className="font-mono text-content-soft">job #{j.id}</span>
+                <div key={j.id} className="flex items-center justify-between gap-2 rounded-lg bg-surface-base-faint px-3 py-2 text-xs">
+                  <span className="shrink-0 font-mono text-content-soft">job #{j.id}</span>
                   <span
                     className={cn(
                       "inline-flex items-center gap-1.5 font-medium",
@@ -427,10 +455,24 @@ export function WorkerView({
                     {done && <CheckCircle2 className="size-3.5" />}
                     {j.state}
                   </span>
+                  <span className={cn("tabular-nums", proc ? proc.tone : "text-content-soft")} title="worker processing time (acknowledged to completed)">
+                    {proc ? proc.label : "-"}
+                  </span>
                   <span className={cn(share > 0 ? "text-success" : "text-content-soft")}>
                     {share > 0 ? `+${fmt(share, 3)} LCAI` : done && !released ? "pending" : "-"}
                   </span>
-                  <span className="text-content-soft">{timeAgo(j.completed_at || j.submitted_at)}</span>
+                  {block ? (
+                    <button
+                      type="button"
+                      onClick={() => openExternal(`${explorer}/block/${block}`)}
+                      className="inline-flex items-center gap-1 text-content-soft transition-colors hover:text-primary"
+                      title={`on-chain block #${block}`}
+                    >
+                      {when} <ExternalLink className="size-3" />
+                    </button>
+                  ) : (
+                    <span className="text-content-soft">{when}</span>
+                  )}
                 </div>
               );
             })}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Github } from "lucide-react";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { Nav } from "@/components/nav";
@@ -53,7 +54,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p>
                 LightNode - an independent ecosystem tool for LightChain AI. Not an official LightChain product.
               </p>
-              <p>Built builder-to-builder · wraps the open lightchain-worker-toolkit</p>
+              <div className="flex items-center gap-4">
+                <span>Built builder-to-builder for LightChain worker operators</span>
+                <a
+                  href="https://github.com/marinom2/lightnode"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 font-medium transition-colors hover:text-content-primary"
+                  aria-label="LightNode on GitHub"
+                >
+                  <Github className="size-4" /> GitHub
+                </a>
+              </div>
             </div>
           </footer>
         </Providers>

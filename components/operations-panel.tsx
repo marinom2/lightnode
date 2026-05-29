@@ -283,12 +283,16 @@ export function OperationsPanel() {
   // Stop/Deregister need a confirmation. We must NOT use window.confirm: in the
   // Tauri webview it returns false (no-op), which silently swallowed Deregister.
   // So we gate through an in-app confirmation panel instead.
-  const needsConfirm = (op: Op) => op.danger || op.key === "freeup" || (op.key === "stop" && activeJobs > 0);
+  const needsConfirm = (op: Op) =>
+    op.danger || op.key === "freeup" || ((op.key === "stop" || op.key === "bench") && activeJobs > 0);
 
   const confirmBody = (op: Op) => {
     const jobs = activeJobs > 0 ? `${activeJobs} in-flight job(s) will be stranded (no pay; slash risk). ` : "";
     if (op.key === "freeup") {
       return `${jobs}Stops the worker, unloads the model, and quits Docker to give your machine its RAM back. Your stake and registration are untouched - click Restart to come back online.`;
+    }
+    if (op.key === "bench") {
+      return `Your worker is serving ${activeJobs} live job(s) right now. The Speed test runs an extra inference on the same Ollama and forces a cold model reload - on top of the live jobs that can overload the machine and make those jobs miss their deadline (a slash). Best to run it when the worker is idle.`;
     }
     const lead = op.danger ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
     return `${lead}${jobs}`.trim();

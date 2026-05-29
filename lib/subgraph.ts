@@ -35,7 +35,10 @@ export interface Job {
   id: string;
   state: string; // Completed | Acknowledged | Submitted | ...
   submitted_at?: number;
+  ack_at?: number; // when the worker acknowledged it (start of its processing clock)
   completed_at?: number;
+  submit_block_number?: number;
+  completion_block_number?: number;
   worker_share?: string; // wei
 }
 
@@ -100,7 +103,7 @@ export async function fetchWorkerJobs(network: NetworkId, address: string, first
   try {
     const data = await gql<{ jobs: Job[] }>(
       network,
-      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc, where:{worker:"${checksum(address)}"}) { id state submitted_at completed_at worker_share } }`,
+      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc, where:{worker:"${checksum(address)}"}) { id state submitted_at ack_at completed_at submit_block_number completion_block_number worker_share } }`,
     );
     return data.jobs ?? [];
   } catch {
