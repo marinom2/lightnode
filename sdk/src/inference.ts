@@ -1,5 +1,20 @@
 import { keccak256, toBytes } from "viem";
 import type { NetworkConfig } from "./types.js";
+import {
+  generateSessionKey,
+  generateEcdhKeyPair,
+  importPublicKey,
+  encryptSessionKey,
+  encrypt,
+  decrypt,
+  hexToBytes,
+  bytesToHex,
+  bytesToBase64,
+  base64ToBytes,
+  utf8ToBytes,
+  bytesToUtf8,
+} from "./crypto.js";
+import type { GatewayClient } from "./gateway.js";
 
 // AIConfig.calculateJobFee(bytes32) - verified live on both networks.
 const CALCULATE_JOB_FEE_SELECTOR = "0x33763d83";
@@ -48,7 +63,99 @@ export const JOB_REGISTRY_CONSUMER_ABI = [
   "event JobCompleted(uint256 jobId, address worker, bytes32 responseBlobHash, bytes32 responseCiphertextHash)",
 ] as const;
 
-/** Consumer gateway base URL for a network (SIWE-authenticated; submit blobs + relay). */
-export function consumerGatewayUrl(net: "mainnet" | "testnet"): string {
-  return `https://chat-api.${net}.lightchain.ai`;
+/**
+ * High-level orchestration for the encrypted inference submit flow.
+ *
+ * The full submit is multi-stage (gateway calls + crypto + an on-chain tx the
+ * caller signs with their wallet). These helpers chain the gateway calls and
+ * the crypto so the caller is left with two well-defined responsibilities:
+ *
+ *   1. Sign and broadcast `createSession(...)` on the JobRegistry using the
+ *      `SessionPreparation.createSessionArgs` returned by `prepareSession`.
+ *   2. Sign and broadcast `submitJob(sessionId, blobHash)` paying
+ *      `estimateJobFee(model)` as native value, using the `blobHash` returned
+ *      by `submitPrompt`. The reply is decrypted with `decryptResponse`.
+ *
+ * Marked BETA: the on-chain calls are exercised; the gateway endpoints + wire
+ * crypto are wire-compatible with the reference client (lcai-chat-v2). Live
+ * end-to-end testing with a funded testnet wallet remains the caller's job.
+ */
+export interface SessionPreparation {
+  /** 32-byte session key the caller persists to encrypt/decrypt subsequent jobs. */
+  sessionKey: Uint8Array;
+  /** Arguments to pass to JobRegistry.createSession(...). */
+  createSessionArgs: {
+    modelId: `0x${string}`;
+    worker: `0x${string}`;
+    encWorkerKey: `0x${string}`;
+    encDisputerKey: `0x${string}`;
+    dispatcherSignature: `0x${string}`;
+    expiry: bigint;
+  };
+  nonce: number;
 }
+
+/**
+ * Step 1 + 2 of the protocol: ask the gateway which worker to use, generate a
+ * fresh session key, wrap it for the worker (and the disputer if one was
+ * returned), and get the dispatcher's signature authorising createSession.
+ *
+ * After this returns, the caller submits the on-chain `createSession` tx with
+ * `createSessionArgs` and remembers `sessionKey` for the rest of the session.
+ */
+export async function prepareSession(gateway: GatewayClient, modelTag: string): Promise<SessionPreparation> {
+  const id = modelId(modelTag);
+
+  const selected = await gateway.selectSession(id);
+  const sessionKey = generateSessionKey();
+
+  const workerPub = await importPublicKey(hexToBytes(selected.workerEncryptionKey));
+  const encWorker = await encryptSessionKey(sessionKey, workerPub);
+
+  const encDisputer: Uint8Array = selected.disputerEncryptionKey
+    ? await encryptSessionKey(sessionKey, await importPublicKey(hexToBytes(selected.disputerEncryptionKey)))
+    : new Uint8Array(0);
+
+  const prepared = await gateway.prepareSession({
+    modelId: id,
+    encWorkerKey: bytesToHex(encWorker),
+    encDisputerKey: bytesToHex(encDisputer),
+  });
+
+  return {
+    sessionKey,
+    nonce: prepared.nonce,
+    createSessionArgs: {
+      modelId: id,
+      worker: prepared.worker,
+      encWorkerKey: bytesToHex(encWorker),
+      encDisputerKey: bytesToHex(encDisputer),
+      dispatcherSignature: prepared.signature,
+      expiry: BigInt(prepared.expiry),
+    },
+  };
+}
+
+/**
+ * Encrypt a UTF-8 prompt with the session key, upload as a blob, and return
+ * the EIP-4844 blob hash to pass to `submitJob(sessionId, blobHash)`.
+ */
+export async function submitPrompt(gateway: GatewayClient, sessionKey: Uint8Array, prompt: string): Promise<`0x${string}`> {
+  const ct = await encrypt(sessionKey, utf8ToBytes(prompt));
+  const res = await gateway.uploadBlob(bytesToBase64(ct));
+  const first = res.blobHashes?.[0];
+  if (!first) throw new Error("gateway returned no blob hashes");
+  return first;
+}
+
+/** Decrypt a worker response (raw bytes or base64 from the relay) with the session key. */
+export async function decryptResponse(sessionKey: Uint8Array, ciphertext: Uint8Array | string): Promise<string> {
+  const bytes = typeof ciphertext === "string" ? base64ToBytes(ciphertext) : ciphertext;
+  return bytesToUtf8(await decrypt(sessionKey, bytes));
+}
+
+/** Re-export so callers don't have to import from a second module just for the URL helper. */
+export { consumerGatewayUrl, GatewayClient } from "./gateway.js";
+
+/** Optional helper: generate the caller's own ECDH keypair if they want one (e.g. acting as the disputer). */
+export { generateEcdhKeyPair };

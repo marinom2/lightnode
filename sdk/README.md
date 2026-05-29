@@ -78,19 +78,92 @@ npx lightnode analytics --csv             # per-model performance (CSV)
 npx lightnode reliability --csv           # per-worker reliability (CSV)
 ```
 
-## Submitting inference (advanced)
+## Submitting inference (BETA)
 
-`estimateFee` + `modelId` + the exported `JOB_REGISTRY_CONSUMER_ABI` give you the
-on-chain primitives. The full submit is a multi-step, encrypted flow and is **not
-bundled** here (it's a large, currently-undocumented protocol surface; shipping it
-half-tested would be worse than pointing you at the verified reference):
+`v0.3` adds the encrypted inference-submit surface so you can drive a full
+job end to end. It is wire-compatible with the reference client
+[`lcai-chat-v2`](https://github.com/lightchain-protocol/lcai-chat-v2) (same
+ECDH-P256 + AES-256-GCM scheme, same gateway endpoints) and the on-chain calls
+are exercised, but **the full end-to-end flow needs live testing against a funded
+testnet worker before you depend on it in production**. The pieces that talk to
+the chain (createSession / submitJob) are signed by **your** wallet; the SDK only
+prepares the data and the gateway calls.
 
-1. `createSession(modelId, worker, encWorkerKey, encDisputerKey, dispatcherSig, expiry)` on the JobRegistry.
-2. ECDH-P256 + AES-256-GCM encrypt the prompt with a session key; upload it as a blob to the consumer gateway (`consumerGatewayUrl(net)`); get the EIP-4844 `blobHash`.
-3. `submitJob(sessionId, blobHash)` paying `estimateFee(model)` as native value.
-4. Read the result from the relay stream, or watch the `JobCompleted` event / the job's `responseBlobHash`.
+### Auth (your responsibility)
 
-Reference implementation: [lightchain-protocol/lcai-chat-v2](https://github.com/lightchain-protocol/lcai-chat-v2) (`lib/protocol/*`). A managed REST alternative (API-key) also exists at `https://chat2.lightchain.ai/api/v1`.
+The gateway requires a bearer JWT obtained via the consumer-api's SIWE sign-in.
+The SDK does **not** bundle SIWE - hand the SDK either a fixed token or a
+`() => Promise<string>` thunk that refreshes it on demand.
+
+### End-to-end (sketch)
+
+```ts
+import {
+  LightNode,
+  prepareSession,
+  submitPrompt,
+  decryptResponse,
+  JOB_REGISTRY_CONSUMER_ABI,
+} from "lightnode-sdk";
+import { createWalletClient, http, parseAbi } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+const ln = new LightNode("testnet");
+const gateway = ln.gateway({ bearer: () => mySiweJwt() });
+
+// 1) Prepare the session: the gateway picks a worker, we wrap a fresh session
+//    key for the worker (and the disputer, if returned) and get the dispatcher
+//    signature authorising createSession.
+const { sessionKey, createSessionArgs } = await prepareSession(gateway, "llama3-8b");
+
+// 2) Call createSession ON-CHAIN with the prepared args. You sign with your
+//    wallet; the SDK ships the ABI but never custodies the key.
+const wallet = createWalletClient({ account: privateKeyToAccount("0x..."), transport: http(ln.network.rpc) });
+const abi = parseAbi(JOB_REGISTRY_CONSUMER_ABI);
+const sessionTx = await wallet.writeContract({
+  address: ln.network.jobRegistry as `0x${string}`,
+  abi,
+  functionName: "createSession",
+  args: [
+    createSessionArgs.modelId,
+    createSessionArgs.worker,
+    createSessionArgs.encWorkerKey,
+    createSessionArgs.encDisputerKey,
+    createSessionArgs.dispatcherSignature,
+    createSessionArgs.expiry,
+  ],
+});
+// Wait for the receipt and pull the sessionId out of the SessionCreated event.
+
+// 3) Encrypt + upload your prompt. Returns the EIP-4844 blob hash.
+const blobHash = await submitPrompt(gateway, sessionKey, "write a haiku about LCAI");
+
+// 4) Submit the job on-chain, paying the fee:
+const feeLcai = await ln.estimateFee("llama3-8b");
+await wallet.writeContract({
+  address: ln.network.jobRegistry as `0x${string}`,
+  abi,
+  functionName: "submitJob",
+  args: [sessionId, blobHash],
+  value: BigInt(Math.round(feeLcai * 1e18)),
+});
+
+// 5) Watch JobCompleted (or read the response blob via the relay), then decrypt:
+const answer = await decryptResponse(sessionKey, responseCiphertextFromRelay);
+```
+
+### What's exported (v0.3)
+
+- `prepareSession(gateway, modelTag)` - select + wrap + prepare (steps 1+2).
+- `submitPrompt(gateway, sessionKey, prompt)` - encrypt + upload (step 3).
+- `decryptResponse(sessionKey, ciphertext)` - decrypt the worker's reply (step 5).
+- `GatewayClient` + `consumerGatewayUrl(net)` - typed HTTP client.
+- `crypto.*` - the wire-compatible primitives (`encrypt`, `decrypt`,
+  `encryptSessionKey`, `decryptSessionKey`, `generateEcdhKeyPair`,
+  `generateSessionKey`, hex/base64/utf8 helpers).
+- `JOB_REGISTRY_CONSUMER_ABI` + `estimateJobFee` + `modelId` - on-chain primitives.
+
+A managed REST alternative (API-key) also exists at `https://chat2.lightchain.ai/api/v1` for builders who'd rather skip running their own gateway/SIWE auth.
 
 ## Why `isRegistered` reads the chain
 

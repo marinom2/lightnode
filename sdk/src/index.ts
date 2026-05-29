@@ -17,7 +17,18 @@ import {
   workerStatsCsv,
   workerJobsCsv,
 } from "./analytics.js";
-import { modelId as computeModelId, estimateJobFee, JOB_REGISTRY_CONSUMER_ABI, consumerGatewayUrl } from "./inference.js";
+import {
+  modelId as computeModelId,
+  estimateJobFee,
+  JOB_REGISTRY_CONSUMER_ABI,
+  consumerGatewayUrl,
+  prepareSession,
+  submitPrompt,
+  decryptResponse,
+  generateEcdhKeyPair,
+} from "./inference.js";
+import { GatewayClient, GatewayHttpError } from "./gateway.js";
+import * as crypto from "./crypto.js";
 import type {
   NetworkId,
   NetworkConfig,
@@ -117,6 +128,16 @@ export class LightNode {
   estimateFee(modelTag: string): Promise<number> {
     return estimateJobFee(this.network, modelTag);
   }
+
+  /**
+   * Configured `GatewayClient` for this network, ready to call the consumer-api
+   * endpoints (`prepareSession` / `uploadBlob` / `getSessionToken`). Pass a
+   * `bearer` (token or thunk) from your SIWE-authenticated session; the SDK
+   * does NOT bundle the SIWE handshake.
+   */
+  gateway(opts: { bearer?: import("./gateway.js").BearerSource; baseUrl?: string } = {}): GatewayClient {
+    return new GatewayClient({ network: this.network, ...opts });
+  }
 }
 
 export {
@@ -134,5 +155,15 @@ export {
   estimateJobFee,
   JOB_REGISTRY_CONSUMER_ABI,
   consumerGatewayUrl,
+  // v0.3 inference-submit surface (BETA - see README "Submitting inference").
+  GatewayClient,
+  GatewayHttpError,
+  prepareSession,
+  submitPrompt,
+  decryptResponse,
+  generateEcdhKeyPair,
+  crypto,
 };
+export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
+export type { SessionPreparation } from "./inference.js";
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
