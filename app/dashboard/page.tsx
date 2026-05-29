@@ -16,7 +16,7 @@ import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { getWorkerAddr, resolveManagedWorkerAddr } from "@/lib/secrets";
-import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus } from "@/lib/tauri";
+import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus, type WorkerHealth } from "@/lib/tauri";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
 
@@ -43,6 +43,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [localStatus, setLocalStatus] = useState<LocalContainerStatus | null>(null);
+  // Live reading from the worker on this machine (reported by WorkerHealthPanel).
+  // gatewayConnected here is proof the worker is registered on-chain, which lets us
+  // show the right status even when the subgraph's index is wrong/stale.
+  const [health, setHealth] = useState<WorkerHealth | null>(null);
   // Worker operations (install/settle/withdraw) run in the desktop app, never via
   // copy-paste on the web. On the web the dashboard is a read-only tracker.
   const [desktop, setDesktop] = useState(false);
@@ -110,6 +114,9 @@ export default function DashboardPage() {
   // In the desktop app, show the REAL local container state for YOUR worker -
   // the one signal the on-chain subgraph can't see (it only knows "registered").
   const isMine = !!worker && !!myWorker && worker.id.toLowerCase() === myWorker.toLowerCase();
+  // Drop the live reading when we switch away from our own worker / network, so a
+  // stale "registered" can't carry over to a different worker.
+  useEffect(() => setHealth(null), [isMine, network]);
   useEffect(() => {
     if (!isMine || !isDesktop()) {
       setLocalStatus(null);
@@ -203,10 +210,13 @@ export default function DashboardPage() {
             watched={has(worker.id)}
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
             localStatus={localStatus}
+            liveConfirmed={
+              isMine && !!health?.gatewayConnected && (health.chainId == null || health.chainId === net.chainId)
+            }
           />
           {isMine && desktop && (
             <div className="mt-4">
-              <WorkerHealthPanel expectedChainId={net.chainId} />
+              <WorkerHealthPanel expectedChainId={net.chainId} onHealth={setHealth} />
             </div>
           )}
         </div>

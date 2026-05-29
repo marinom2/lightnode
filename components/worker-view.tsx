@@ -190,6 +190,7 @@ export function WorkerView({
   watched,
   onToggleWatch,
   localStatus,
+  liveConfirmed = false,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -199,23 +200,34 @@ export function WorkerView({
   watched: boolean;
   onToggleWatch: () => void;
   localStatus?: LocalContainerStatus | null;
+  // Ground truth from the worker on this machine: gateway-authenticated means it's
+  // registered on-chain (the gateway only admits registered workers), regardless of
+  // what the public subgraph's index says.
+  liveConfirmed?: boolean;
 }) {
   const h = healthOf(worker);
   const stake = fromWei(worker.stake);
   const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
 
   // The public subgraph can disagree with the chain: it lags a fresh registration,
-  // and after a deregister -> re-register cycle it sometimes stays stuck on the old
-  // "deregistered" status indefinitely. If the worker is running here, it IS
-  // registered on-chain (its stake is locked and the gateway authenticates it), so
-  // don't alarm with "Not registered" - show it as live with the index lagging, and
-  // point at the Live health panel as the real state.
-  const syncing = h === "down" && localStatus === "running";
-  const meta = syncing
-    ? {
-        tone: "success" as const,
-        label: "Live · index lagging",
-        hint: "Your worker is running on this machine with its stake locked on-chain, so it IS registered and can take jobs - the Live health panel below is the real, gateway-validated state. The public subgraph still lists it as not-registered; that indexer lags, and after a deregister -> re-register it can stay out of sync for a long while. It's a display delay, not a problem with your worker.",
+  // and after a deregister -> re-register cycle it can stay stuck on "deregistered"
+  // indefinitely. So when it says "down" we prefer ground truth: gateway-authenticated
+  // (liveConfirmed) is proof of registration; a running container here is strong
+  // evidence. Only fall back to the subgraph's status when we have neither.
+  const subgraphDown = h === "down";
+  const registeredHere = liveConfirmed || (subgraphDown && localStatus === "running");
+  const meta =
+    subgraphDown && liveConfirmed
+      ? {
+          tone: "success" as const,
+          label: "Registered",
+          hint: "Confirmed on-chain: your worker is registered and authenticated with the gateway (the Live health panel below is the real state). The public subgraph still lists it as not-registered - its index lags, and after a deregister -> re-register it can stay out of sync for a while. That's a display delay, not a problem with your worker.",
+        }
+      : subgraphDown && registeredHere
+        ? {
+            tone: "success" as const,
+            label: "Live · index lagging",
+            hint: "Your worker is running on this machine with its stake locked on-chain, so it IS registered and can take jobs - the Live health panel below is the real state. The public subgraph still lists it as not-registered; that indexer lags, and after a deregister -> re-register it can stay out of sync for a long while. It's a display delay, not a problem with your worker.",
       }
     : HEALTH[h];
 
@@ -225,7 +237,7 @@ export function WorkerView({
   // The subgraph keeps the last-registered stake on the entity even after a
   // deregister returns it on-chain. So once deregistered, show it as returned (0)
   // rather than the stale locked amount.
-  const stakeReturned = worker.status === "deregistered" && !syncing;
+  const stakeReturned = worker.status === "deregistered" && !registeredHere;
 
   const tiles = [
     { icon: CheckCircle2, label: "Jobs completed", value: fmt(completed, 0), tone: "text-content-primary" },
@@ -235,7 +247,7 @@ export function WorkerView({
       label: stakeReturned ? "Stake (returned)" : "Stake (LCAI)",
       // While syncing the subgraph's stake is unreliable; a fresh registration
       // locks the network minimum, so show that rather than a stale 0.
-      value: syncing ? compact(minStake) : stakeReturned ? "0" : compact(stake),
+      value: registeredHere && subgraphDown ? compact(minStake) : stakeReturned ? "0" : compact(stake),
       tone: "text-content-primary",
     },
     { icon: Clock, label: "Last on-chain activity", value: timeAgo(worker.last_seen_at), tone: "text-content-primary" },
@@ -246,7 +258,7 @@ export function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={cn("dot", h === "live" ? "dot-live" : h === "inactive" || syncing ? "dot-warn" : "dot-down")} />
+            <span className={cn("dot", h === "live" || liveConfirmed ? "dot-live" : h === "inactive" || (subgraphDown && registeredHere) ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {local && <Badge tone={local.tone}>{local.label}</Badge>}

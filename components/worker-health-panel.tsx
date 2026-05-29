@@ -37,7 +37,15 @@ function Stat({
  * on-chain subgraph can't see. Desktop only; polls the worker's local metrics via
  * the native bridge. Renders nothing on the web or when no worker is found locally.
  */
-export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: number }) {
+export function WorkerHealthPanel({
+  expectedChainId,
+  onHealth,
+}: {
+  expectedChainId?: number;
+  // Report each good reading up so the dashboard can use the gateway-validated
+  // state as the authoritative worker status (the subgraph can be wrong).
+  onHealth?: (h: WorkerHealth) => void;
+}) {
   const [h, setH] = useState<WorkerHealth | null | undefined>(undefined);
 
   useEffect(() => {
@@ -47,6 +55,7 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
         if (!on) return;
         // keep the last good reading on a transient null (busy channel / blip)
         setH((prev) => (r ? r : prev === undefined ? null : prev));
+        if (r) onHealth?.(r);
       });
     tick();
     const t = setInterval(tick, 8_000); // responsive enough to catch a job in flight
@@ -54,7 +63,7 @@ export function WorkerHealthPanel({ expectedChainId }: { expectedChainId?: numbe
       on = false;
       clearInterval(t);
     };
-  }, []);
+  }, [onHealth]);
 
   if (h === undefined) {
     return (
