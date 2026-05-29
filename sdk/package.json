@@ -22,7 +22,7 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": ["lightchain", "lightchain-ai", "ai", "worker", "web3", "evm", "sdk"],
-  "author": "Martin Marinov",
+  "author": "KykyRykyPaloma",
   "license": "MIT",
   "repository": {
     "type": "git",
