@@ -10,6 +10,7 @@ import {
 } from "./subgraph.js";
 import { isRegistered } from "./onchain.js";
 import { aggregateModelStats, aggregateWorkerStats, networkAnalytics } from "./analytics.js";
+import { modelId as computeModelId, estimateJobFee, JOB_REGISTRY_CONSUMER_ABI, consumerGatewayUrl } from "./inference.js";
 import type {
   NetworkId,
   NetworkConfig,
@@ -99,7 +100,29 @@ export class LightNode {
     const w = await fetchWorker(this.network, address);
     return w ? fromWei(w.total_earned) : 0;
   }
+
+  /** keccak256 of a model tag (its on-chain + indexer id). */
+  modelId(tag: string): `0x${string}` {
+    return computeModelId(tag);
+  }
+
+  /** On-chain inference fee for a model, in whole LCAI (what submitJob must be paid). */
+  estimateFee(modelTag: string): Promise<number> {
+    return estimateJobFee(this.network, modelTag);
+  }
 }
 
-export { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS, aggregateModelStats, aggregateWorkerStats, networkAnalytics, fromWei };
+export {
+  NETWORKS,
+  WORKER_REGISTRY,
+  REGISTRY_TOPICS,
+  aggregateModelStats,
+  aggregateWorkerStats,
+  networkAnalytics,
+  fromWei,
+  computeModelId as modelId,
+  estimateJobFee,
+  JOB_REGISTRY_CONSUMER_ABI,
+  consumerGatewayUrl,
+};
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
