@@ -37,6 +37,10 @@ const rollup = await ln.getNetworkAnalytics(); // overall completion / jobs / in
 // Inference cost
 const fee = await ln.estimateFee("llama3-8b"); // whole LCAI per job (on-chain calculateJobFee)
 const id = ln.modelId("llama3-8b");            // keccak256 model id
+
+// CSV export (same exporters the LightNode dashboard uses)
+import { workerJobsCsv, modelStatsCsv, workerStatsCsv } from "lightnode-sdk";
+const csv = workerJobsCsv(await ln.getWorkerJobs("0x6781...6e0f", 100));
 ```
 
 ## API
@@ -57,19 +61,21 @@ const id = ln.modelId("llama3-8b");            // keccak256 model id
 | `modelId(tag)` | `0x${string}` |
 
 Also exported: `NETWORKS`, `WORKER_REGISTRY`, `REGISTRY_TOPICS`, `aggregateModelStats`,
-`aggregateWorkerStats`, `networkAnalytics`, `JOB_REGISTRY_CONSUMER_ABI`,
-`consumerGatewayUrl`, `fromWei`, and all the types.
+`aggregateWorkerStats`, `networkAnalytics`, `modelStatsCsv`, `workerStatsCsv`,
+`workerJobsCsv`, `JOB_REGISTRY_CONSUMER_ABI`, `consumerGatewayUrl`, `fromWei`, and all
+the types.
 
 ## CLI
 
 ```bash
-npx lightnode network --net testnet     # network summary
-npx lightnode models                    # registered models + fees
-npx lightnode worker 0x6781…6e0f        # one worker (on-chain + recent jobs)
-npx lightnode registered 0x6781…6e0f    # true | false | null
-npx lightnode fee llama3-8b             # on-chain job fee
-npx lightnode analytics --csv           # per-model performance (CSV)
-npx lightnode reliability               # per-worker reliability
+npx lightnode network --net testnet       # network summary
+npx lightnode models                      # registered models + fees
+npx lightnode worker 0x6781…6e0f          # one worker (on-chain + recent jobs)
+npx lightnode jobs 0x6781…6e0f --csv      # one worker's job history (table or CSV)
+npx lightnode registered 0x6781…6e0f      # true | false | null
+npx lightnode fee llama3-8b               # on-chain job fee
+npx lightnode analytics --csv             # per-model performance (CSV)
+npx lightnode reliability --csv           # per-worker reliability (CSV)
 ```
 
 ## Submitting inference (advanced)

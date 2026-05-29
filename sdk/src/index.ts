@@ -9,7 +9,14 @@ import {
   fromWei,
 } from "./subgraph.js";
 import { isRegistered } from "./onchain.js";
-import { aggregateModelStats, aggregateWorkerStats, networkAnalytics } from "./analytics.js";
+import {
+  aggregateModelStats,
+  aggregateWorkerStats,
+  networkAnalytics,
+  modelStatsCsv,
+  workerStatsCsv,
+  workerJobsCsv,
+} from "./analytics.js";
 import { modelId as computeModelId, estimateJobFee, JOB_REGISTRY_CONSUMER_ABI, consumerGatewayUrl } from "./inference.js";
 import type {
   NetworkId,
@@ -119,6 +126,9 @@ export {
   aggregateModelStats,
   aggregateWorkerStats,
   networkAnalytics,
+  modelStatsCsv,
+  workerStatsCsv,
+  workerJobsCsv,
   fromWei,
   computeModelId as modelId,
   estimateJobFee,

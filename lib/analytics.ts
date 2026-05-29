@@ -148,24 +148,24 @@ export function networkAnalytics(stats: ModelStat[]): NetworkAnalytics {
   };
 }
 
-/** Flatten per-model stats to CSV (for the explorer's export button). */
-export function modelStatsCsv(stats: ModelStat[]): string {
-  const head = [
-    "model",
-    "jobs",
-    "success",
-    "incomplete",
-    "timed_out",
-    "stuck",
-    "disputed",
-    "in_flight",
-    "completion_rate_pct",
-    "p50_latency_s",
-    "p95_latency_s",
-    "earnings_lcai",
-  ];
-  const rows = stats.map((s) => [
-    s.name,
+// Shared outcome columns for the per-model and per-worker stats exports, so both
+// tables export an identical, comparable shape (only the first column differs).
+const STATS_COLUMNS = [
+  "jobs",
+  "success",
+  "incomplete",
+  "timed_out",
+  "stuck",
+  "disputed",
+  "in_flight",
+  "completion_rate_pct",
+  "p50_latency_s",
+  "p95_latency_s",
+  "earnings_lcai",
+];
+
+function bucketsRow(s: JobBuckets): (string | number)[] {
+  return [
     s.total,
     s.success,
     s.incomplete,
@@ -177,6 +177,48 @@ export function modelStatsCsv(stats: ModelStat[]): string {
     s.p50 ?? "",
     s.p95 ?? "",
     s.earnings.toFixed(3),
+  ];
+}
+
+function toCsv(rows: (string | number)[][]): string {
+  return rows.map((r) => r.join(",")).join("\n");
+}
+
+/** Flatten per-model stats to CSV (the analytics page's model export). */
+export function modelStatsCsv(stats: ModelStat[]): string {
+  return toCsv([["model", ...STATS_COLUMNS], ...stats.map((s) => [s.name, ...bucketsRow(s)])]);
+}
+
+/** Flatten per-worker reliability to CSV (the analytics page's worker export). */
+export function workerStatsCsv(workers: WorkerStat[]): string {
+  return toCsv([["worker", ...STATS_COLUMNS], ...workers.map((w) => [w.address, ...bucketsRow(w)])]);
+}
+
+/** Flatten one worker's job history to CSV (the worker view's export button). */
+export function workerJobsCsv(jobs: Job[]): string {
+  const head = [
+    "job_id",
+    "state",
+    "model_id",
+    "processing_s",
+    "worker_share_lcai",
+    "submitted_at",
+    "ack_at",
+    "completed_at",
+    "submit_block",
+    "completion_block",
+  ];
+  const rows = jobs.map((j) => [
+    j.id,
+    j.state,
+    j.model_id ?? "",
+    j.ack_at && j.completed_at && j.completed_at >= j.ack_at ? j.completed_at - j.ack_at : "",
+    fromWei(j.worker_share).toFixed(6),
+    j.submitted_at ?? "",
+    j.ack_at ?? "",
+    j.completed_at ?? "",
+    j.submit_block_number ?? "",
+    j.completion_block_number ?? "",
   ]);
-  return [head, ...rows].map((r) => r.join(",")).join("\n");
+  return toCsv([head, ...rows]);
 }

@@ -91,6 +91,65 @@ export function aggregateWorkerStats(
     .slice(0, limit);
 }
 
+// Shared outcome columns so the per-model and per-worker exports share one shape.
+const STATS_COLUMNS = [
+  "jobs",
+  "success",
+  "incomplete",
+  "timed_out",
+  "stuck",
+  "disputed",
+  "in_flight",
+  "completion_rate_pct",
+  "p50_latency_s",
+  "p95_latency_s",
+  "earnings_lcai",
+];
+
+function bucketsRow(s: JobBuckets): (string | number)[] {
+  return [
+    s.total,
+    s.success,
+    s.incomplete,
+    s.timedOut,
+    s.stuck,
+    s.disputed,
+    s.inFlight,
+    s.completionRate != null ? Math.round(s.completionRate * 100) : "",
+    s.p50 ?? "",
+    s.p95 ?? "",
+    s.earnings.toFixed(3),
+  ];
+}
+
+const toCsv = (rows: (string | number)[][]): string => rows.map((r) => r.join(",")).join("\n");
+
+/** Per-model stats as CSV. */
+export function modelStatsCsv(stats: ModelStat[]): string {
+  return toCsv([["model", ...STATS_COLUMNS], ...stats.map((s) => [s.name, ...bucketsRow(s)])]);
+}
+
+/** Per-worker reliability as CSV. */
+export function workerStatsCsv(workers: WorkerStat[]): string {
+  return toCsv([["worker", ...STATS_COLUMNS], ...workers.map((w) => [w.address, ...bucketsRow(w)])]);
+}
+
+/** One worker's job history as CSV (one row per job). */
+export function workerJobsCsv(jobs: Job[]): string {
+  const head = ["job_id", "state", "model_id", "processing_s", "worker_share_lcai", "submitted_at", "ack_at", "completed_at"];
+  const rows = jobs.map((j) => [
+    j.id,
+    j.state,
+    j.model_id ?? "",
+    j.ack_at && j.completed_at && j.completed_at >= j.ack_at ? j.completed_at - j.ack_at : "",
+    fromWei(j.worker_share).toFixed(6),
+    j.submitted_at ?? "",
+    j.ack_at ?? "",
+    j.completed_at ?? "",
+  ]);
+  return toCsv([head, ...rows]);
+}
+
 /** Network-wide rollup across all models. */
 export function networkAnalytics(stats: ModelStat[]): NetworkAnalytics {
   const sum = (f: (s: ModelStat) => number) => stats.reduce((a, s) => a + f(s), 0);

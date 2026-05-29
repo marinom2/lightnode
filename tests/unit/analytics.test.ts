@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aggregateModelStats, aggregateWorkerStats, networkAnalytics, percentile, modelStatsCsv } from "@/lib/analytics";
+import { aggregateModelStats, aggregateWorkerStats, networkAnalytics, percentile, modelStatsCsv, workerStatsCsv, workerJobsCsv } from "@/lib/analytics";
 import type { Job, ModelInfo } from "@/lib/subgraph";
 
 const NOW = 1000;
@@ -106,5 +106,40 @@ describe("modelStatsCsv", () => {
     expect(lines[0]).toContain("incomplete");
     expect(lines[0]).toContain("stuck");
     expect(lines).toHaveLength(3);
+  });
+});
+
+describe("workerStatsCsv", () => {
+  it("shares the model export's outcome columns, keyed by worker address", () => {
+    const stats = aggregateWorkerStats(
+      [
+        { id: "1", state: "Released", worker: "0xWORKER_A", ack_at: 100, completed_at: 130, worker_share: "16000000000000000" },
+        { id: "2", state: "Acknowledged", worker: "0xWORKER_A", ack_at: 200 }, // stuck
+      ],
+      NOW,
+    );
+    const lines = workerStatsCsv(stats).split("\n");
+    expect(lines[0].startsWith("worker,")).toBe(true);
+    expect(lines[0]).toContain("completion_rate_pct");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain("0xWORKER_A");
+    // 1 success / (1 success + 1 stuck) = 50%
+    expect(lines[1]).toContain(",50,");
+  });
+});
+
+describe("workerJobsCsv", () => {
+  it("emits one row per job with processing time, settled share, and block columns", () => {
+    const csv = workerJobsCsv([
+      { id: "7", state: "Released", model_id: "0xAAA", ack_at: 100, completed_at: 118, worker_share: "16000000000000000", submit_block_number: 10, completion_block_number: 12 },
+      { id: "8", state: "Acknowledged", model_id: "0xAAA", ack_at: 200 }, // no completion -> blank processing/share=0
+    ]);
+    const lines = csv.split("\n");
+    expect(lines[0]).toBe("job_id,state,model_id,processing_s,worker_share_lcai,submitted_at,ack_at,completed_at,submit_block,completion_block");
+    expect(lines).toHaveLength(3);
+    // job 7: 18s processing, 0.016000 LCAI, blocks 10/12
+    expect(lines[1]).toBe("7,Released,0xAAA,18,0.016000,,100,118,10,12");
+    // job 8: blank processing, 0 share, blank completion/blocks
+    expect(lines[2]).toBe("8,Acknowledged,0xAAA,,0.000000,,200,,,");
   });
 });

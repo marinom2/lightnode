@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/lib/network-context";
 import { NETWORKS } from "@/lib/network";
 import { openExternal } from "@/lib/tauri";
-import { modelStatsCsv, type ModelStat, type WorkerStat, type NetworkAnalytics } from "@/lib/analytics";
+import { modelStatsCsv, workerStatsCsv, type ModelStat, type WorkerStat, type NetworkAnalytics } from "@/lib/analytics";
 import { fmt, cn, shortAddr } from "@/lib/utils";
 
 function pct(r: number | null): string {
@@ -71,15 +71,20 @@ export function ModelAnalytics() {
     };
   }, [network]);
 
-  const exportCsv = () => {
-    if (!stats || stats.length === 0) return;
-    const blob = new Blob([modelStatsCsv(stats)], { type: "text/csv" });
+  const download = (csv: string, name: string) => {
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `lightchain-${network}-model-stats.csv`;
+    a.download = name;
     a.click();
     URL.revokeObjectURL(url);
+  };
+  const exportCsv = () => {
+    if (stats && stats.length > 0) download(modelStatsCsv(stats), `lightchain-${network}-model-stats.csv`);
+  };
+  const exportWorkersCsv = () => {
+    if (workers.length > 0) download(workerStatsCsv(workers), `lightchain-${network}-worker-reliability.csv`);
   };
 
   const headline = [
@@ -179,10 +184,15 @@ export function ModelAnalytics() {
 
       {workers.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-bdr-soft px-5 py-4">
-            <ShieldCheck className="size-4 text-primary" />
-            <h2 className="text-sm font-semibold text-content-primary">Worker reliability</h2>
-            <span className="text-xs text-content-soft">busiest in the window</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bdr-soft px-5 py-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="size-4 text-primary" />
+              <h2 className="text-sm font-semibold text-content-primary">Worker reliability</h2>
+              <span className="text-xs text-content-soft">busiest in the window</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={exportWorkersCsv} disabled={workers.length === 0}>
+              <Download /> CSV
+            </Button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

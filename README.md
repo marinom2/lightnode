@@ -38,6 +38,11 @@ everything an operator needs, end to end:
   settle/claim, deregister, gas-aware withdraw, free-up-memory, and replaced-key
   recovery so a staked worker is never lost - plus a real-time **Live health** panel
   (heartbeat, in-flight jobs, model warm/cold) the on-chain subgraph can't see.
+- **Network analytics, exportable** - a live `/network` view with per-model
+  completion rates, p50/p95 latency, and the busiest workers' reliability. Completion
+  counts jobs the indexer leaves stuck in "Acknowledged" as failures, so the rate is
+  honest rather than inflated. Any worker's full job history and the analytics tables
+  export to **CSV** in one click for your own accounting or analysis.
 
 It reads live network and worker state from the LightChain workers subgraph, and runs
 as both a web app and a native desktop app from one codebase. Running a worker is the
@@ -295,6 +300,26 @@ desktop/        Tauri v2 shell (src-tauri: Rust commands, capabilities, build co
 tests/unit/     Vitest    tests/e2e/  Playwright
 docs/           Architecture, worker lifecycle, UI/design, and release docs
 ```
+
+### TypeScript SDK (`lightnode-sdk`)
+A read-only client for the same LightChain AI data the app uses - workers, jobs,
+models, on-chain registration truth, and the per-model / per-worker analytics -
+published independently on npm so other builders can use it without the app.
+
+```bash
+npm install lightnode-sdk viem
+```
+```ts
+import { LightNode } from "lightnode-sdk";
+const ln = new LightNode("mainnet");
+const registered = await ln.isRegistered("0x…");   // on-chain truth, not the lagging indexer
+const perModel = await ln.getModelStats();          // completion, p50/p95, incomplete, earnings
+const fee = await ln.estimateFee("llama3-8b");      // on-chain job fee in LCAI
+```
+It ships a CLI too (`npx lightnode network`, `jobs <addr> --csv`, `analytics --csv`,
+`reliability --csv`). The same CSV exporters the dashboard uses (`workerJobsCsv`,
+`workerStatsCsv`, `modelStatsCsv`) are exported for programmatic use. Source and full
+API: [`sdk/`](sdk/) · package: <https://www.npmjs.com/package/lightnode-sdk>.
 
 ### Documentation
 - [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md) - the operator's manual:

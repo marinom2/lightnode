@@ -3,6 +3,9 @@ import {
   aggregateModelStats,
   aggregateWorkerStats,
   networkAnalytics,
+  modelStatsCsv,
+  workerStatsCsv,
+  workerJobsCsv,
   fromWei,
   modelId,
   NETWORKS,
@@ -56,5 +59,25 @@ describe("lightnode-sdk pure logic", () => {
     expect(NETWORKS.testnet.chainId).toBe(8200);
     expect(REGISTRY_TOPICS.registered).toMatch(/^0x[0-9a-f]{64}$/);
     expect(REGISTRY_TOPICS.exited).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it("CSV exporters emit a header + one row per record", () => {
+    const models: ModelInfo[] = [{ id: "0xAAA", name: "llama3-8b", fee: "0", max_output_tokens: 0, is_whitelisted: true, is_enabled: true }];
+    const jobs: Job[] = [
+      { id: "1", state: "Released", model_id: "0xaaa", worker: "0xW", ack_at: 100, completed_at: 118, worker_share: "16000000000000000" },
+      { id: "2", state: "Acknowledged", model_id: "0xAAA", worker: "0xW", ack_at: 200 },
+    ];
+    const modelCsv = modelStatsCsv(aggregateModelStats(jobs, models, 1000)).split("\n");
+    expect(modelCsv[0].startsWith("model,")).toBe(true);
+    expect(modelCsv).toHaveLength(2);
+
+    const workerCsv = workerStatsCsv(aggregateWorkerStats(jobs, 1000)).split("\n");
+    expect(workerCsv[0].startsWith("worker,")).toBe(true);
+    expect(workerCsv[1]).toContain("0xW");
+
+    const jobsCsv = workerJobsCsv(jobs).split("\n");
+    expect(jobsCsv[0]).toBe("job_id,state,model_id,processing_s,worker_share_lcai,submitted_at,ack_at,completed_at");
+    expect(jobsCsv[1]).toBe("1,Released,0xaaa,18,0.016000,,100,118");
+    expect(jobsCsv).toHaveLength(3);
   });
 });

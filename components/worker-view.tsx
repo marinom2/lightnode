@@ -14,10 +14,12 @@ import {
   Boxes,
   Percent,
   History,
+  Download,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { workerJobsCsv } from "@/lib/analytics";
 import { fromWei, fmt, compact, timeAgo, shortAddr, stakeBelowFloor, cn } from "@/lib/utils";
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
@@ -276,6 +278,19 @@ export function WorkerView({
   const stake = fromWei(worker.stake);
   const offlineHere = localRunning === false;
 
+  // Export this worker's full job history (one row per job, with processing time
+  // and settled share) as CSV for spreadsheets / accounting.
+  const exportCsv = () => {
+    if (jobs.length === 0) return;
+    const blob = new Blob([workerJobsCsv(jobs)], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lightchain-worker-${worker.id.slice(0, 10)}-jobs.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Registration truth, in priority order. A DEFINITIVE on-chain answer (true or
   // false) is authoritative and must win - including over a gateway/health reading,
   // which flips on and off second-to-second while a worker churns and would
@@ -332,6 +347,9 @@ export function WorkerView({
             <Button variant="outline" size="sm" onClick={onToggleWatch}>
               <Star className={cn("size-4", watched && "fill-warning text-warning")} />
               {watched ? "Watching" : "Watch"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={exportCsv} disabled={jobs.length === 0} title="Export job history as CSV">
+              <Download /> CSV
             </Button>
             <Button variant="outline" size="sm" onClick={() => openExternal(`${explorer}/address/${worker.id}`)}>
               Explorer <ExternalLink />
