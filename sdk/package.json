@@ -15,13 +15,24 @@
   "bin": {
     "lightnode": "./dist/cli.js"
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepublishOnly": "npm run build"
   },
   "keywords": ["lightchain", "lightchain-ai", "ai", "worker", "web3", "evm", "sdk"],
+  "author": "Martin Marinov",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinom2/lightnode.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://github.com/marinom2/lightnode/tree/main/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/marinom2/lightnode/issues"
+  },
   "dependencies": {
     "viem": ">=2"
   },

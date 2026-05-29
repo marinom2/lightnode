@@ -17,3 +17,6 @@ sdk/dist
 
 # Local-only owner doc (strategy/QA)
 QA-AND-BUSINESS.md
+
+# Local-only test wallets (NEVER commit)
+.test-wallets.json
