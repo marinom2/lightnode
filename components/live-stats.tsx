@@ -67,7 +67,7 @@ export function LiveStats() {
         ) : (
           <span className="inline-flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-success animate-pulse-dot" />
-            Live from the LightChain {NETWORKS[network].label.toLowerCase()} worker subgraph · refreshes every 30s
+            Live from the LightChain {NETWORKS[network].label.toLowerCase()} worker subgraph, refreshing every 30s
           </span>
         )}
       </p>

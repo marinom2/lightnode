@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, ScanLine, Pencil } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, MonitorCog, Sparkles, AlertTriangle, ScanLine, Pencil, Gauge, ShieldCheck } from "lucide-react";
 import { assessMachine, autodetect, detectWebGpu, type MachineInput } from "@/lib/hardware";
 import { detectNativeHardware, bridgeInfo, lastHardwareError } from "@/lib/tauri";
 import type { OS } from "@/lib/scriptgen";
@@ -114,6 +114,11 @@ export function MachineCheck({
   }, []);
 
   const a = useMemo(() => assessMachine(m), [m]);
+  // Web reads cores + GPU but cannot read real RAM/VRAM (browser sandbox), so any
+  // memory figure on the web is an estimate; the desktop reads it exactly from the
+  // OS. Default to web until native detection confirms desktop.
+  const onWeb = diag?.env !== "desktop";
+  const memEstimated = onWeb && !!detected?.unified;
 
   useEffect(() => {
     onResult({ eligible: a.workerEligible, vramOk: a.vramOk, os: m.os, vramGb: m.vramGb });
@@ -130,7 +135,9 @@ export function MachineCheck({
               <span className="font-medium text-content-primary">Auto-detected your machine.</span>{" "}
               {detected.gpuLabel ? `GPU: ${detected.gpuLabel}. ` : ""}
               {detected.unified
-                ? `Apple Silicon, ${Math.max(m.ramGb, m.vramGb)}GB unified memory. llama3-8b fits comfortably.`
+                ? memEstimated
+                  ? `Apple Silicon. A browser can't read your memory, so the figure below is an estimate - confirm it, or install for an exact read.`
+                  : `Apple Silicon, ${Math.max(m.ramGb, m.vramGb)}GB unified memory. llama3-8b fits.`
                 : `Inferred ~${m.vramGb}GB VRAM.`}{" "}
               <button onClick={() => setShowEdit((s) => !s)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
                 <Pencil className="size-3" /> {showEdit ? "Hide" : "Adjust"}
@@ -146,8 +153,14 @@ export function MachineCheck({
               { label: "Operating system", value: { macos: "macOS", linux: "Linux", windows: "Windows" }[m.os] },
               { label: "Detected GPU", value: m.gpuName || "Unknown" },
               {
-                label: detected.unified ? "Unified memory (RAM + GPU)" : "GPU VRAM",
-                value: detected.unified ? `${Math.max(m.ramGb, m.vramGb)} GB shared` : `${m.vramGb} GB`,
+                label: detected.unified
+                  ? memEstimated
+                    ? "Unified memory (estimate)"
+                    : "Unified memory (RAM + GPU)"
+                  : "GPU VRAM",
+                value: detected.unified
+                  ? `${memEstimated ? "≈" : ""}${Math.max(m.ramGb, m.vramGb)} GB`
+                  : `${m.vramGb} GB`,
               },
               // On Apple Silicon RAM and VRAM are one pool, so a separate
               // "System RAM" figure (which the browser caps at 8GB) is both
@@ -212,20 +225,24 @@ export function MachineCheck({
             />
           </Field>
         </div>
-        <p className="text-xs text-content-soft">
+        <p className="flex items-start gap-1.5 text-xs text-content-soft">
+          <ShieldCheck className={`mt-0.5 size-3.5 shrink-0 ${onWeb ? "text-content-soft" : "text-success"}`} />
           {showEdit
-            ? "A browser can't read VRAM/RAM directly - confirm the values above, or run the LightNode desktop app for exact, no-input detection read straight from your OS."
-            : "Detected automatically from your browser. Wrong GPU? Hit Adjust."}
+            ? "A browser can't read VRAM/RAM directly. Confirm the values above, or run the LightNode desktop app for an exact read straight from your OS."
+            : onWeb
+              ? "Cores and GPU are read from your browser; memory is an estimate. Hit Adjust to set it, or install the desktop app for exact specs read from your OS."
+              : "Read exactly from your OS by the desktop app. No input needed."}
         </p>
         {diag && (
           <p
-            className={`rounded-md border px-2.5 py-1.5 font-mono text-[11px] ${
+            className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 font-mono text-[11px] ${
               diag.env === "desktop"
                 ? "border-warning/30 bg-warning/10 text-content-default"
                 : "border-bdr-soft bg-surface-base-faint text-content-soft"
             }`}
           >
-            diag · {diag.detail}
+            <span className="rounded bg-content-soft/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider">diag</span>
+            {diag.detail}
           </p>
         )}
 
@@ -256,7 +273,9 @@ export function MachineCheck({
               <div className="mt-1 text-[11px] font-medium uppercase tracking-wider text-content-soft">out of 100</div>
             </div>
           </RadialGauge>
-          <div className="mt-4 text-sm font-semibold text-content-primary">Machine score</div>
+          <div className="mt-4 text-sm font-semibold text-content-primary">
+            {m.unified ? "Memory headroom" : "Machine score"}
+          </div>
           <div className="mt-1 text-xs leading-relaxed text-content-soft">{a.tierLabel}</div>
           <div className="mt-3">
             {a.vramOk ? (
@@ -267,6 +286,17 @@ export function MachineCheck({
               <Badge tone="danger">Below minimum</Badge>
             )}
           </div>
+          {/* On unified memory the score reflects memory fit only - real throughput
+              is set by the chip and is unknown until the post-install Speed test. */}
+          {m.unified && a.vramOk && (
+            <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-bdr-soft bg-surface-base-subtle/60 px-2.5 py-2 text-left text-[11px] leading-relaxed text-content-soft">
+              <Gauge className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <span>
+                This score is memory fit. Your actual speed depends on the chip and is measured by the{" "}
+                <span className="font-medium text-content-primary">Speed test</span> after install.
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

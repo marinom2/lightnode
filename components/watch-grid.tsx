@@ -57,7 +57,7 @@ export function WatchGrid({
       <div className="mb-2 flex items-center gap-2">
         <Star className="size-4 fill-warning text-warning" />
         <h2 className="text-sm font-semibold text-content-primary">Your watchlist</h2>
-        <span className="text-xs text-content-soft">live overview · click to open</span>
+        <span className="text-xs text-content-soft">live overview, click any to open</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((addr) => {

@@ -136,7 +136,7 @@ export function RecoverKeys() {
                     </button>
                   </div>
                   {registered ? (
-                    <Badge tone="warning">Still staked · {fmt(staked, 0)} LCAI</Badge>
+                    <Badge tone="warning">{fmt(staked, 0)} LCAI still staked</Badge>
                   ) : w === null ? (
                     <Badge tone="default">Not registered</Badge>
                   ) : (

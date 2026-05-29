@@ -71,7 +71,7 @@ export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase
                 )}
               >
                 {m.label}
-                {m.detail && <span className="ml-1.5 tabular-nums text-content-soft">· {m.detail}</span>}
+                {m.detail && <span className="ml-1.5 tabular-nums text-content-soft">({m.detail})</span>}
               </div>
               {m.id === "model" && m.status === "active" && view.download != null && (
                 <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-base-faint">

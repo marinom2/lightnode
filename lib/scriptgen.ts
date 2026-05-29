@@ -711,7 +711,7 @@ export function benchmarkCommand(os: OS, budgetSec: number = 120): string {
     'PREFILL="$(awk "BEGIN{p=${PC:-0}; d=${PD:-0}; if(p>0&&d>0) printf \\"%.0f\\", p/(d/1000000000); else printf \\"%.0f\\", $EC/($ED/1000000000)}")"',
     'LOADS="$(awk "BEGIN{printf \\"%.1f\\", ${LD:-0}/1000000000}")"',
     'WORST="$(awk "BEGIN{load=${LD:-0}/1000000000; dec=$EC/($ED/1000000000); p=${PC:-0}; d=${PD:-0}; pre=(p>0&&d>0)?p/(d/1000000000):dec; printf \\"%.0f\\", load + 2048/pre + 1024/dec}")"',
-    'echo "✓ decode: $TOKS tok/s · prefill: $PREFILL tok/s · cold load: ${LOADS}s"',
+    'echo "✓ decode: $TOKS tok/s, prefill: $PREFILL tok/s, cold load: ${LOADS}s"',
     'echo "  worst-case job (cold load + 2048-token prompt + 1024-token answer): ~${WORST}s  (deadline ${BUDGET}s)"',
     'if awk "BEGIN{exit !($WORST < $BUDGET*0.7)}"; then echo "✅ comfortably within the ${BUDGET}s deadline - low slash risk"; elif awk "BEGIN{exit !($WORST < $BUDGET)}"; then echo "⚠ within the deadline but tight - a heavier prompt could time out. A faster GPU would help."; else echo "⛔ over the ${BUDGET}s deadline - high risk of timed-out jobs (slash). Use a faster GPU or a lighter model."; fi',
   ].join("\n");

@@ -58,7 +58,7 @@ type Meta = { tone: "success" | "warning" | "danger"; label: string; hint: strin
 
 const HEALTH: Record<Health, Meta> = {
   live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running; that's the local status." },
-  inactive: { tone: "warning", label: "Registered · inactive", hint: "Registered on-chain (your stake is still locked) but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
+  inactive: { tone: "warning", label: "Registered (inactive)", hint: "Registered on-chain (your stake is still locked) but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
   down: { tone: "danger", label: "Not registered", hint: "Not registered on-chain: either deregistered (stake returned) or never started." },
 };
 
@@ -88,7 +88,7 @@ function resolveRegistrationMeta(args: {
     if (!indexDown) return HEALTH[health]; // index already shows live/inactive - keep the richer status
     if (onchainRegistered === true) return { tone: "success", label: "Registered", hint: ONCHAIN_REGISTERED_HINT };
     if (liveConfirmed) return { tone: "success", label: "Registered", hint: GATEWAY_REGISTERED_HINT };
-    return { tone: "success", label: "Live · index lagging", hint: LOCAL_RUNNING_HINT };
+    return { tone: "success", label: "Live (index lagging)", hint: LOCAL_RUNNING_HINT };
   }
   if (onchainRegistered === false) return HEALTH.down; // chain confirms it has exited, even if the index lags the other way
   return HEALTH[health];
@@ -483,7 +483,7 @@ export function WorkerView({
 
       <p className="text-center text-xs text-content-soft">
         <span className="inline-flex items-center gap-1.5">
-          <RefreshCw className="size-3" /> Auto-refreshes every 20s · live from the worker subgraph
+          <RefreshCw className="size-3" /> Live from the worker subgraph, auto-refreshing every 20s
         </span>
       </p>
     </div>

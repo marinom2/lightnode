@@ -148,7 +148,8 @@ export function ModelPicker({
                           <CircleAlert className="size-3" /> Needs ~{req.vramGb}GB
                         </span>
                       )}
-                      <span className="text-content-soft">· {req.tierLabel}</span>
+                      <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+                      <span className="text-content-soft">{req.tierLabel}</span>
                     </span>
                     {tooBig && !selected && (
                       <span className="mt-1 block text-[11px] text-warning">Larger than this machine&apos;s memory on its own.</span>

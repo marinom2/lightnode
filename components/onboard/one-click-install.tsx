@@ -500,7 +500,7 @@ function AlreadyAWorker({ network, addr, local, onBringOnline, onReplace }: { ne
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-mono text-content-primary">{shortAddr(addr)}</span>
-          <Badge tone="success">Registered · stake locked</Badge>
+          <Badge tone="success">Registered (stake locked)</Badge>
           {localBadge}
         </div>
         <p className="mt-2 text-xs leading-relaxed text-content-soft">{desc}</p>

@@ -90,7 +90,6 @@ export default function OnboardPage() {
       <div className="relative mx-auto max-w-4xl px-5 py-12">
         <div className="pointer-events-none absolute inset-x-0 -top-10 h-80 glow-radial opacity-60" />
         <div className="text-center">
-          <Badge tone="brand" className="mb-4">LightChain {NETWORKS[network].label}</Badge>
           <h1 className="text-4xl font-semibold tracking-tight text-content-primary">Run a worker in one click</h1>
           <p className="mx-auto mt-3 max-w-xl text-content-soft">
             Download the LightNode app. It checks your machine, installs everything, funds and stakes your worker, and
@@ -281,7 +280,7 @@ export default function OnboardPage() {
 
             <div className="mx-auto mt-6 grid max-w-lg gap-3 text-left">
               {[
-                "Logs show: registration validated · gateway auth · websocket connected",
+                "Logs show registration validated, gateway auth, then websocket connected",
                 `status reports stake + supported model (${DEFAULT_MODEL})`,
                 "First job: ws_job_received → job completed, earnings start accruing",
               ].map((x) => (

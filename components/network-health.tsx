@@ -59,10 +59,23 @@ export function NetworkHealth() {
         <span className={`size-2 rounded-full ${dot}`} />
         {healthy ? "Network is live" : "Network is quiet right now"}
       </span>
-      <span className="inline-flex items-center gap-1.5 text-content-soft">
+      <span className="inline-flex items-center gap-3 text-content-soft">
         <Activity className="size-3.5" />
-        {fmt(stats.active, 0)} workers online · {fmt(stats.jobsCompleted, 0)} jobs completed
-        {stats.live > 0 && ` · ${fmt(stats.live, 0)} serving now`}
+        <span>
+          <span className="font-semibold tabular-nums text-content-primary">{fmt(stats.active, 0)}</span> online
+        </span>
+        <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+        <span>
+          <span className="font-semibold tabular-nums text-content-primary">{fmt(stats.jobsCompleted, 0)}</span> jobs done
+        </span>
+        {stats.live > 0 && (
+          <>
+            <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+            <span>
+              <span className="font-semibold tabular-nums text-content-primary">{fmt(stats.live, 0)}</span> serving
+            </span>
+          </>
+        )}
       </span>
     </div>
   );

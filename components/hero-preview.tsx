@@ -68,7 +68,7 @@ export function HeroPreview() {
           <span className="size-3 rounded-full bg-warning/70" />
           <span className="size-3 rounded-full bg-success/70" />
           <div className="ml-3 flex items-center gap-2 rounded-md bg-surface-base-faint px-2.5 py-1 text-xs text-content-soft">
-            <Cpu className="size-3" /> lightnode · {net.label.toLowerCase()}
+            <Cpu className="size-3" /> lightnode/{net.label.toLowerCase()}
           </div>
         </div>
 
@@ -85,7 +85,7 @@ export function HeroPreview() {
                 {DEFAULT_MODEL}
               </span>
             </div>
-            <span className="text-xs text-content-soft">earning · {workerSharePerJob} LCAI / job</span>
+            <span className="text-xs text-content-soft">earns {workerSharePerJob} LCAI / job</span>
           </div>
 
           {/* stat tiles */}

@@ -14,7 +14,7 @@ const DESCRIPTION =
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: TITLE, template: "%s · LightNode" },
+  title: { default: TITLE, template: "%s | LightNode" },
   description: DESCRIPTION,
   applicationName: "LightNode",
   keywords: ["LightChain", "LCAI", "AI worker", "decentralized AI", "Ollama", "node operator", "staking"],

@@ -120,10 +120,23 @@ export function WorkerHealthPanel({
         <h3 className="text-sm font-semibold text-content-primary">Live health</h3>
         <Badge tone={statusTone} className="ml-auto">{statusLabel}</Badge>
       </div>
-      <p className="relative mb-4 text-xs text-content-soft">
-        {h.running ? `Up ${h.uptime || "just now"} · ${hb}` : "Container stopped on this machine"}
-        {h.gatewayConnected && " · gateway connected"}
-      </p>
+      <div className="relative mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-content-soft">
+        {h.running ? (
+          <>
+            <span>Up {h.uptime || "just now"}</span>
+            <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+            <span>{hb}</span>
+            {h.gatewayConnected && (
+              <>
+                <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+                <span className="text-success">gateway connected</span>
+              </>
+            )}
+          </>
+        ) : (
+          <span>Container stopped on this machine</span>
+        )}
+      </div>
 
       {/* the live "am I working right now" signal */}
       <div
@@ -163,7 +176,7 @@ export function WorkerHealthPanel({
           tone={modelWarm ? "text-success" : h.modelMemBytes === 0 ? "text-warning" : "text-content-primary"}
           sub={
             servedName
-              ? `${servedName}${modelWarm ? ` · ${(h.modelMemBytes! / 1e9).toFixed(1)} GB` : " · loads on demand"}`
+              ? `${servedName}${modelWarm ? ` (${(h.modelMemBytes! / 1e9).toFixed(1)} GB)` : " (loads on demand)"}`
               : "via Ollama"
           }
         />

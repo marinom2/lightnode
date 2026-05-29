@@ -236,7 +236,7 @@ export function OperationsPanel() {
   const tileDesc = (op: Op): string => {
     if (op.key !== "settle" || !settlement || settlement.total === 0) return op.desc;
     if (settlement.waiting === 0) return `${settlement.ready} job(s) ready - claim your rewards now`;
-    return `${settlement.ready} ready · ${settlement.waiting} in release hold (all claimable ${etaText(settlement.allClaimableAt)})`;
+    return `${settlement.ready} ready, ${settlement.waiting} in release hold (all claimable ${etaText(settlement.allClaimableAt)})`;
   };
   useEffect(() => {
     const d = detectClientOS();
@@ -415,10 +415,16 @@ export function OperationsPanel() {
       {/* diagnostic: makes the network / worker / UI build visible so "nothing
           to settle" is never a mystery (wrong network? stale UI? no address?) */}
       {desktop && (
-        <p className="mb-3 font-mono text-[11px] text-content-soft">
-          diag · net:{network} · worker:{workerAddr ? `${workerAddr.slice(0, 8)}…${workerAddr.slice(-4)}` : "none"} ·
-          completed:{settlement ? settlement.total : "?"} · ui:{(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev").slice(0, 7)}
-        </p>
+        <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-[11px] text-content-soft">
+          <span className="rounded bg-content-soft/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider">diag</span>
+          <span>net:{network}</span>
+          <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+          <span>worker:{workerAddr ? `${workerAddr.slice(0, 8)}…${workerAddr.slice(-4)}` : "none"}</span>
+          <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+          <span>completed:{settlement ? settlement.total : "?"}</span>
+          <span aria-hidden className="h-3 w-px bg-bdr-soft" />
+          <span>ui:{(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev").slice(0, 7)}</span>
+        </div>
       )}
 
       {!desktop && (
@@ -450,7 +456,7 @@ export function OperationsPanel() {
               </>
             )}
             <span className="text-content-soft">
-              ≈ {(settlement.total * 0.016).toFixed(3)} LCAI pending · Settle releases the ready ones and pays you.
+              ≈ {(settlement.total * 0.016).toFixed(3)} LCAI pending. Settle releases the ready ones and pays you.
             </span>
           </span>
         </div>
