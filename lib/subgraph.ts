@@ -35,6 +35,7 @@ export interface Job {
   id: string;
   state: string; // Completed | Acknowledged | Submitted | ...
   model_id?: string; // keccak256 of the model tag; joins to ModelInfo.id
+  worker?: string; // checksummed worker address that took the job
   submitted_at?: number;
   ack_at?: number; // when the worker acknowledged it (start of its processing clock)
   completed_at?: number;
@@ -117,7 +118,7 @@ export async function fetchRecentJobs(network: NetworkId, first = 1000): Promise
   try {
     const data = await gql<{ jobs: Job[] }>(
       network,
-      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id ack_at completed_at worker_share } }`,
+      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id worker ack_at completed_at worker_share } }`,
     );
     return data.jobs ?? [];
   } catch {

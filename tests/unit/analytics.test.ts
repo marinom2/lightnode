@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aggregateModelStats, networkAnalytics, percentile, modelStatsCsv } from "@/lib/analytics";
+import { aggregateModelStats, aggregateWorkerStats, networkAnalytics, percentile, modelStatsCsv } from "@/lib/analytics";
 import type { Job, ModelInfo } from "@/lib/subgraph";
 
 const NOW = 1000;
@@ -69,6 +69,29 @@ describe("networkAnalytics rollup", () => {
     expect(n.success).toBe(3); // 2 (AAA) + 1 (BBB)
     expect(n.incomplete).toBe(2);
     expect(n.completionRate).toBeCloseTo(3 / 5, 5); // 3 / (3+2+0)
+  });
+});
+
+describe("aggregateWorkerStats (per-worker reliability)", () => {
+  const WJOBS: Job[] = [
+    { id: "1", state: "Released", worker: "0xWORKER_A", ack_at: 100, completed_at: 130, worker_share: "16000000000000000" },
+    { id: "2", state: "Released", worker: "0xWORKER_A", ack_at: 200, completed_at: 220, worker_share: "16000000000000000" },
+    { id: "3", state: "Acknowledged", worker: "0xWORKER_A", ack_at: 300 }, // stuck (>600s ago)
+    { id: "4", state: "Completed", worker: "0xWORKER_B", ack_at: 400, completed_at: 460, worker_share: "0" },
+  ];
+  it("groups by worker, computes reliability, sorts busiest first", () => {
+    const ws = aggregateWorkerStats(WJOBS, NOW);
+    expect(ws[0].address).toBe("0xWORKER_A");
+    expect(ws[0].total).toBe(3);
+    expect(ws[0].success).toBe(2);
+    expect(ws[0].stuck).toBe(1);
+    expect(ws[0].completionRate).toBeCloseTo(2 / 3, 5);
+    expect(ws[0].earnings).toBeCloseTo(0.032, 6);
+    const b = ws.find((w) => w.address === "0xWORKER_B")!;
+    expect(b.completionRate).toBe(1);
+  });
+  it("honors the limit", () => {
+    expect(aggregateWorkerStats(WJOBS, NOW, 1)).toHaveLength(1);
   });
 });
 

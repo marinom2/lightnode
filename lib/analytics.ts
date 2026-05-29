@@ -1,21 +1,28 @@
 import { fromWei } from "./utils";
 import type { Job, ModelInfo } from "./subgraph";
 
-/** Per-model performance, aggregated from a window of recent network jobs. */
-export interface ModelStat {
-  modelId: string;
-  name: string;
-  total: number; // jobs seen in the window
+/** Outcome buckets shared by per-model and per-worker aggregation. */
+export interface JobBuckets {
+  total: number;
   success: number; // Completed + Released + Resolved
   timedOut: number; // explicit TimedOut state
-  stuck: number; // Acknowledged but never completed past the stuck window (de-facto failures)
+  stuck: number; // acked but never completed past the stuck window
   disputed: number;
   inFlight: number; // genuinely in progress (recent Submitted/Acknowledged)
   incomplete: number; // timedOut + stuck (taken but not finished)
-  completionRate: number | null; // success / (success + incomplete + disputed); null when nothing resolved
+  completionRate: number | null; // success / (success + incomplete + disputed)
   p50: number | null; // ack -> completed latency, seconds
   p95: number | null;
-  earnings: number; // LCAI summed over released jobs for this model
+  earnings: number; // LCAI summed over released jobs
+}
+
+export interface ModelStat extends JobBuckets {
+  modelId: string;
+  name: string;
+}
+
+export interface WorkerStat extends JobBuckets {
+  address: string;
 }
 
 // A job acked this long ago without completing has missed every deadline (the job
@@ -36,70 +43,79 @@ export function percentile(sortedAsc: number[], p: number): number | null {
   return sortedAsc[Math.min(sortedAsc.length - 1, Math.max(0, rank - 1))];
 }
 
-/**
- * Aggregate a window of network jobs into per-model performance, busiest first.
- * `nowSec` lets the caller (and tests) classify stuck jobs deterministically.
- */
+/** Bucket a set of jobs into outcomes + latency percentiles + earnings. */
+export function classifyJobs(jobs: Job[], nowSec: number): JobBuckets {
+  let success = 0;
+  let timedOut = 0;
+  let stuck = 0;
+  let disputed = 0;
+  let inFlight = 0;
+  let earnings = 0;
+  const latencies: number[] = [];
+  for (const j of jobs) {
+    const s = j.state || "";
+    if (isSuccess(s)) success++;
+    else if (isTimedOut(s)) timedOut++;
+    else if (isDisputed(s)) disputed++;
+    else if (isAcked(s)) {
+      if (j.ack_at && nowSec - j.ack_at > STUCK_SEC) stuck++;
+      else inFlight++;
+    } else if (isSubmitted(s)) inFlight++;
+    earnings += fromWei(j.worker_share);
+    if (j.ack_at && j.completed_at && j.completed_at >= j.ack_at) latencies.push(j.completed_at - j.ack_at);
+  }
+  const incomplete = timedOut + stuck;
+  const resolved = success + incomplete + disputed;
+  latencies.sort((a, b) => a - b);
+  return {
+    total: jobs.length,
+    success,
+    timedOut,
+    stuck,
+    disputed,
+    inFlight,
+    incomplete,
+    completionRate: resolved > 0 ? success / resolved : null,
+    p50: percentile(latencies, 50),
+    p95: percentile(latencies, 95),
+    earnings,
+  };
+}
+
+function groupBy<T>(jobs: Job[], key: (j: Job) => string | undefined): Map<string, Job[]> {
+  const m = new Map<string, Job[]>();
+  for (const j of jobs) {
+    const k = key(j);
+    if (!k) continue;
+    const arr = m.get(k);
+    if (arr) arr.push(j);
+    else m.set(k, [j]);
+  }
+  return m;
+}
+
+/** Per-model performance, busiest first. `nowSec` lets callers/tests classify stuck jobs deterministically. */
 export function aggregateModelStats(
   jobs: Job[],
   models: ModelInfo[],
   nowSec: number = Math.floor(Date.now() / 1000),
 ): ModelStat[] {
   const nameById = new Map(models.map((m) => [m.id.toLowerCase(), m.name]));
-  const byModel = new Map<string, { jobs: Job[]; latencies: number[] }>();
-  for (const j of jobs) {
-    const id = (j.model_id ?? "").toLowerCase();
-    if (!id) continue;
-    let e = byModel.get(id);
-    if (!e) {
-      e = { jobs: [], latencies: [] };
-      byModel.set(id, e);
-    }
-    e.jobs.push(j);
-    if (j.ack_at && j.completed_at && j.completed_at >= j.ack_at) e.latencies.push(j.completed_at - j.ack_at);
-  }
+  return [...groupBy(jobs, (j) => j.model_id?.toLowerCase()).entries()]
+    .map(([id, js]) => ({ modelId: id, name: nameById.get(id) ?? `${id.slice(0, 10)}…`, ...classifyJobs(js, nowSec) }))
+    .sort((a, b) => b.total - a.total);
+}
 
-  const out: ModelStat[] = [];
-  for (const [id, e] of byModel) {
-    let success = 0;
-    let timedOut = 0;
-    let stuck = 0;
-    let disputed = 0;
-    let inFlight = 0;
-    let earnings = 0;
-    for (const j of e.jobs) {
-      const s = j.state || "";
-      if (isSuccess(s)) success++;
-      else if (isTimedOut(s)) timedOut++;
-      else if (isDisputed(s)) disputed++;
-      else if (isAcked(s)) {
-        // Acked but not completed: stuck if past the window (the indexer rarely
-        // moves these to TimedOut, so we'd otherwise undercount failures).
-        if (j.ack_at && nowSec - j.ack_at > STUCK_SEC) stuck++;
-        else inFlight++;
-      } else if (isSubmitted(s)) inFlight++;
-      earnings += fromWei(j.worker_share);
-    }
-    const incomplete = timedOut + stuck;
-    const resolved = success + incomplete + disputed;
-    const lat = e.latencies.slice().sort((a, b) => a - b);
-    out.push({
-      modelId: id,
-      name: nameById.get(id) ?? `${id.slice(0, 10)}…`,
-      total: e.jobs.length,
-      success,
-      timedOut,
-      stuck,
-      disputed,
-      inFlight,
-      incomplete,
-      completionRate: resolved > 0 ? success / resolved : null,
-      p50: percentile(lat, 50),
-      p95: percentile(lat, 95),
-      earnings,
-    });
-  }
-  return out.sort((a, b) => b.total - a.total);
+/** Per-worker reliability, busiest first (top `limit`). */
+export function aggregateWorkerStats(
+  jobs: Job[],
+  nowSec: number = Math.floor(Date.now() / 1000),
+  limit = 25,
+): WorkerStat[] {
+  return [...groupBy(jobs, (j) => j.worker).entries()]
+    .map(([address, js]) => ({ address, ...classifyJobs(js, nowSec) }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
 }
 
 /** Network-wide rollup across all models (the dashboard headline). */

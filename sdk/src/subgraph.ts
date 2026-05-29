@@ -68,7 +68,7 @@ export async function fetchWorkerJobs(cfg: NetworkConfig, address: string, first
 export async function fetchRecentJobs(cfg: NetworkConfig, first = 1000): Promise<Job[]> {
   const data = await gql<{ jobs: Job[] }>(
     cfg.subgraph,
-    `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id ack_at completed_at worker_share } }`,
+    `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id worker ack_at completed_at worker_share } }`,
   );
   return data.jobs ?? [];
 }

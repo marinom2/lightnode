@@ -9,7 +9,7 @@ import {
   fromWei,
 } from "./subgraph.js";
 import { isRegistered } from "./onchain.js";
-import { aggregateModelStats, networkAnalytics } from "./analytics.js";
+import { aggregateModelStats, aggregateWorkerStats, networkAnalytics } from "./analytics.js";
 import type {
   NetworkId,
   NetworkConfig,
@@ -18,6 +18,7 @@ import type {
   ModelInfo,
   NetworkStats,
   ModelStat,
+  WorkerStat,
   NetworkAnalytics,
 } from "./types.js";
 
@@ -78,6 +79,12 @@ export class LightNode {
     return networkAnalytics(await this.getModelStats(sample));
   }
 
+  /** Per-worker reliability (completion, p50/p95, incomplete) over the last `sample` jobs, busiest first. */
+  async getWorkerStats(sample = 1000, limit = 25): Promise<WorkerStat[]> {
+    const jobs = await fetchRecentJobs(this.network, sample);
+    return aggregateWorkerStats(jobs, Math.floor(Date.now() / 1000), limit);
+  }
+
   /**
    * Authoritative registration read straight from the chain's WorkerRegistry events
    * (true/false), or null when the chain can't answer. Use this over getWorker().status
@@ -94,5 +101,5 @@ export class LightNode {
   }
 }
 
-export { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS, aggregateModelStats, networkAnalytics, fromWei };
-export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, NetworkAnalytics };
+export { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS, aggregateModelStats, aggregateWorkerStats, networkAnalytics, fromWei };
+export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };

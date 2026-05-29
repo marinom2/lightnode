@@ -31,6 +31,7 @@ export interface Job {
   id: string;
   state: string; // Submitted | Acknowledged | Completed | TimedOut | Disputed | Resolved | Released
   model_id?: string; // keccak256 of the model tag; joins to ModelInfo.id
+  worker?: string; // checksummed worker address that took the job
   submitted_at?: number;
   ack_at?: number;
   completed_at?: number;
@@ -54,9 +55,7 @@ export interface NetworkStats {
   models: number;
 }
 
-export interface ModelStat {
-  modelId: string;
-  name: string;
+export interface JobBuckets {
   total: number;
   success: number; // Completed + Released + Resolved
   timedOut: number; // explicit TimedOut
@@ -68,6 +67,15 @@ export interface ModelStat {
   p50: number | null;
   p95: number | null;
   earnings: number;
+}
+
+export interface ModelStat extends JobBuckets {
+  modelId: string;
+  name: string;
+}
+
+export interface WorkerStat extends JobBuckets {
+  address: string;
 }
 
 export interface NetworkAnalytics {
