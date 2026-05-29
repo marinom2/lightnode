@@ -11,6 +11,7 @@ import { WithdrawWorker } from "@/components/withdraw-worker";
 import { UpdateModels } from "@/components/update-models";
 import { DownloadButton } from "@/components/download-button";
 import { WorkerHealthPanel } from "@/components/worker-health-panel";
+import { WorkerAlerts } from "@/components/worker-alerts";
 import { WorkerView } from "@/components/worker-view";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
@@ -252,6 +253,9 @@ export default function DashboardPage() {
           <Card className="mt-8 p-6">
             <OperationsPanel />
           </Card>
+          <div className="mt-4">
+            <WorkerAlerts />
+          </div>
           <div className="mt-4">
             <WithdrawWorker />
           </div>

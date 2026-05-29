@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Rocket, Loader2, CheckCircle2, XCircle, ShieldCheck, Download,
-  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, ArrowUpRight, RefreshCw, Gauge, KeyRound,
+  Wand2, Copy, Check, Eye, EyeOff, Wallet, AlertTriangle, ArrowRight, ArrowUpRight, RefreshCw, Gauge, KeyRound, ListChecks,
 } from "lucide-react";
 import { useAccount, useChainId, useBalance, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain, usePublicClient } from "wagmi";
 import { parseEther, formatEther, getAddress } from "viem";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
-import { desktopInstallCommand, type OS } from "@/lib/scriptgen";
+import { desktopInstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
 import { appendCleanLog } from "@/lib/install-log";
 import { InstallProgress } from "@/components/onboard/install-progress";
 import { detectClientOS } from "@/lib/os-detect";
@@ -563,6 +563,10 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
   const [local, setLocal] = useState<LocalWorkerInfo | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
+  // Preflight (read-only machine check) state - declared with the other hooks so
+  // it's never conditional behind an early return.
+  const [pfLog, setPfLog] = useState<string[]>([]);
+  const [pfBusy, setPfBusy] = useState(false);
   const stopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => setDesktop(isDesktop()), []);
@@ -671,6 +675,19 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
   const valid = pw.length >= 6 && !!ready;
   const hint = pw.length < 6 ? "Set a password (6+ characters)" : "Fund the worker address";
   const ctaLabel = forceFresh ? "Install my new worker" : "Install & run my worker";
+
+  // Read-only machine check the user can run BEFORE funding/staking (the only
+  // irreversible step), so blockers surface first. Doesn't touch the install flow.
+  const runPreflight = async () => {
+    setPfBusy(true);
+    setPfLog([]);
+    await runSetupStreamed(
+      preflightCommand(os, network),
+      {},
+      (line) => setPfLog((l) => [...l, line]),
+      () => setPfBusy(false),
+    );
+  };
 
   const run = async () => {
     if (!target) return;
@@ -820,6 +837,22 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
             <ShieldCheck className="size-4 shrink-0 text-success" /> Your keys stay on this machine and go straight to the
             local installer. They are never stored or sent anywhere.
           </p>
+
+          <div className="rounded-xl border border-bdr-soft bg-surface-base-subtle/50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-content-soft">
+                <ListChecks className="size-3.5 text-primary" /> Check your machine first (optional)
+              </span>
+              <Button variant="outline" size="sm" onClick={runPreflight} disabled={pfBusy}>
+                {pfBusy ? <Loader2 className="animate-spin" /> : <ListChecks />} Run preflight
+              </Button>
+            </div>
+            {pfLog.length > 0 && (
+              <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-base-faint p-2.5 font-mono text-[11px] leading-relaxed text-content-soft">
+                {pfLog.join("\n")}
+              </pre>
+            )}
+          </div>
 
           <Button variant="gradient" size="lg" className="w-full" disabled={!valid} onClick={run}>
             <Rocket /> {ctaLabel} <ArrowRight />

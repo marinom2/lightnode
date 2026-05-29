@@ -51,12 +51,17 @@ cat > "$HOME/.lightnode/keep-online.sh" <<'KEEPEOF'
 # LightNode keep-online watchdog - ensure Docker + the worker are running.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 log(){ echo "$(date -u +%FT%TZ) $*"; }
+# Optional alerting: if ~/.lightnode/alerts.webhook holds a URL, post a message to
+# it on STATE CHANGES only (no spam) - worker down / Docker down / recovered.
+# Discord-compatible JSON body; a plain webhook receives the same {"content":...}.
+alert_state(){ local W; W="$(cat "$HOME/.lightnode/alerts.webhook" 2>/dev/null)"; [ -z "$W" ] && return 0; local C="$1"; local L; L="$(cat "$HOME/.lightnode/alerts.last" 2>/dev/null)"; [ "$C" = "$L" ] && return 0; printf '%s' "$C" > "$HOME/.lightnode/alerts.last"; local HN; HN="$(hostname 2>/dev/null || echo worker)"; local M=""; case "$C" in down) M="LightChain worker is DOWN on $HN and could not be restarted.";; docker_down) M="LightChain worker host $HN: Docker is not running.";; ok) case "$L" in down|docker_down) M="LightChain worker is back online on $HN.";; esac;; esac; [ -n "$M" ] && curl -s -m 8 -H "content-type: application/json" -d "{\\"content\\":\\"$M\\"}" "$W" >/dev/null 2>&1; return 0; }
 # Respect an intentional Stop/Deregister: while this marker exists, leave the
 # worker alone (Install or Restart clears it to re-arm).
 AWAKE="$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist"
 if [ -f "$HOME/.lightnode/keep-online.paused" ]; then
   log "paused by user - leaving worker as-is, allowing the machine to sleep"
   [ "$(uname -s)" = "Darwin" ] && launchctl unload "$AWAKE" 2>/dev/null || true
+  alert_state paused
   exit 0
 fi
 # Keep the machine awake while the worker should be online - a sleep mid-job
@@ -72,10 +77,12 @@ if ! docker info >/dev/null 2>&1; then
   if [ "$(uname -s)" = "Darwin" ]; then open -a Docker 2>/dev/null || true; else systemctl --user start docker-desktop 2>/dev/null || sudo systemctl start docker 2>/dev/null || true; fi
   for _ in $(seq 1 45); do docker info >/dev/null 2>&1 && break; sleep 2; done
 fi
-docker info >/dev/null 2>&1 || { log "docker still down - retry next tick"; exit 0; }
+docker info >/dev/null 2>&1 || { log "docker still down - retry next tick"; alert_state docker_down; exit 0; }
 if docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
   docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$' || { log "worker stopped - starting"; docker start lightchain-worker >/dev/null 2>&1 && log "worker started"; }
 fi
+# Alert on the final run-state (after any restart attempt), once per transition.
+if docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$'; then alert_state ok; else alert_state down; fi
 # Keep every served model pinned in Ollama (keep_alive:-1) so none cold-loads
 # mid-job. Reads the set from a file (one per line) so a model change is picked up.
 while IFS= read -r M; do [ -n "$M" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 & done < "$HOME/.lightnode/model" 2>/dev/null || true
