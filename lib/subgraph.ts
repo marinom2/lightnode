@@ -34,6 +34,7 @@ export interface Worker {
 export interface Job {
   id: string;
   state: string; // Completed | Acknowledged | Submitted | ...
+  model_id?: string; // keccak256 of the model tag; joins to ModelInfo.id
   submitted_at?: number;
   ack_at?: number; // when the worker acknowledged it (start of its processing clock)
   completed_at?: number;
@@ -108,6 +109,19 @@ export async function fetchWorkerJobs(network: NetworkId, address: string, first
     return data.jobs ?? [];
   } catch {
     return []; // jobs feed is best-effort; never block the dashboard
+  }
+}
+
+/** Recent jobs across the WHOLE network (not one worker), for per-model analytics. */
+export async function fetchRecentJobs(network: NetworkId, first = 1000): Promise<Job[]> {
+  try {
+    const data = await gql<{ jobs: Job[] }>(
+      network,
+      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id ack_at completed_at worker_share } }`,
+    );
+    return data.jobs ?? [];
+  } catch {
+    return []; // analytics are best-effort; never block the page
   }
 }
 

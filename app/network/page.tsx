@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LiveStats } from "@/components/live-stats";
 import { ModelsPanel } from "@/components/models-panel";
+import { ModelAnalytics } from "@/components/model-analytics";
 import { useNetwork } from "@/lib/network-context";
 import { NETWORKS } from "@/lib/network";
 import { openExternal } from "@/lib/tauri";
@@ -106,6 +107,10 @@ export default function NetworkPage() {
         <Badge tone="success">online</Badge> active &amp; staked
         <Badge tone="danger">offline</Badge> deregistered / inactive
         <span className="text-content-soft">- open a worker for its live heartbeat &amp; earnings.</span>
+      </div>
+
+      <div className="mt-8">
+        <ModelAnalytics />
       </div>
 
       <Card className="mt-8 p-6">
