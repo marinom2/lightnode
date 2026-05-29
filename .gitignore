@@ -15,8 +15,9 @@ next-env.d.ts
 # SDK build output
 sdk/dist
 
-# Local-only owner doc (strategy/QA)
+# Local-only owner docs (strategy/QA/capabilities)
 QA-AND-BUSINESS.md
+CAPABILITIES.md
 
 # Local-only test wallets (NEVER commit)
 .test-wallets.json
