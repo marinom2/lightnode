@@ -1240,6 +1240,9 @@ export function uninstallCommand(os: OS, network: NetworkId): string {
  */
 export function preflightCommand(os: OS, network: NetworkId): string {
   const net = NETWORKS[network];
+  // Threshold for the (informational) worker-wallet balance check: same shape as
+  // the install gate so the two stay consistent. BigInt for mainnet overflow.
+  const thrWei = (BigInt(net.minStakeLcai) * 10n ** 18n + 5n * 10n ** 17n).toString();
   // Preflight reports BLOCKS only for things install can't fix on its own (an
   // unreachable RPC). Docker + Ollama are downgraded to WARN: install auto-installs
   // and auto-starts them (winget on Windows, brew + open on macOS), so failing
@@ -1256,6 +1259,11 @@ export function preflightCommand(os: OS, network: NetworkId): string {
       '$free = [math]::Floor((Get-PSDrive C).Free / 1GB); if ($free -ge 15) { Write-Host "OK - disk: $free GB free" } else { Write-Host "WARN - only $free GB free (model + image need ~10 GB)" }',
       `try { $null = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -TimeoutSec 8 -Body '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' -ContentType "application/json"; Write-Host "OK - RPC reachable" } catch { Write-Host "BLOCK - RPC unreachable (${net.rpc})"; $ok = $false }`,
       `try { $null = Invoke-RestMethod -Uri "${net.subgraph}" -Method Post -TimeoutSec 8 -Body '{"query":"{__typename}"}' -ContentType "application/json"; Write-Host "OK - indexer reachable" } catch { Write-Host "WARN - indexer probe failed (status display may lag)" }`,
+      // Informational: read the chosen worker wallet's balance (the env-passed
+      // WORKER_ADDR). Never a BLOCK - install itself waits up to 90s for a
+      // still-pending funding tx before failing. Skipped if no address has been
+      // picked yet (the user can run preflight before generating a worker).
+      `if ($env:WORKER_ADDR) { try { $body = '{"jsonrpc":"2.0","method":"eth_getBalance","params":["' + $env:WORKER_ADDR + '","latest"],"id":1}'; $r = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5; $hex = ($r.result -replace '^0x',''); if ($hex.Length -gt 0 -and -not $hex.StartsWith('0')) { $hex = '0' + $hex }; $bal = if ($hex) { [System.Numerics.BigInteger]::Parse($hex, [System.Globalization.NumberStyles]::HexNumber) } else { [System.Numerics.BigInteger]::Zero }; $lcai = [Math]::Round([double]([System.Numerics.BigInteger]::Divide($bal, [System.Numerics.BigInteger]::Pow(10, 15))) / 1000, 3); if ($bal -ge [System.Numerics.BigInteger]::Parse('${thrWei}')) { Write-Host "OK - worker wallet funded ($lcai LCAI)" } else { Write-Host "WARN - worker wallet at $($env:WORKER_ADDR) has only $lcai LCAI; install will wait up to 90s for funding to confirm" } } catch { Write-Host "WARN - could not read worker wallet balance (RPC probe failed)" } }`,
       'if ($ok) { Write-Host "PASS - preflight passed, safe to install" } else { Write-Host "BLOCK - fix the items above before installing (your stake is only spent once install proceeds)" }',
     ].join("\n");
   }
@@ -1270,6 +1278,9 @@ export function preflightCommand(os: OS, network: NetworkId): string {
     `if curl -s -m 8 -X POST "${net.rpc}" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -qE '"result"'; then echo "✓ RPC reachable (${net.rpc})"; else echo "⛔ RPC unreachable (${net.rpc}) - check your connection"; OK=0; fi`,
     `if curl -s -m 8 -o /dev/null "${net.workerGateway}/" 2>/dev/null; then echo "✓ gateway reachable"; else echo "⚠ gateway probe inconclusive (${net.workerGateway}) - it may still admit the worker"; fi`,
     `if curl -s -m 8 -X POST "${net.subgraph}" -H 'content-type: application/json' -d '{"query":"{__typename}"}' | grep -q __typename; then echo "✓ indexer (subgraph) reachable"; else echo "⚠ indexer probe failed - status display may lag"; fi`,
+    // Informational worker-wallet balance line (never a BLOCK - install waits up
+    // to 90s for a still-pending funding tx). Skipped if no address is picked yet.
+    `if [ -n "\${WORKER_ADDR:-}" ]; then BH="$(curl -s -m 5 -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WORKER_ADDR"'","latest"],"id":1}' '${net.rpc}' | sed -nE 's/.*"result":"(0x[0-9a-fA-F]+)".*/\\1/p')"; PFL="$(python3 -c 'import sys; print(round(int(sys.argv[1] or "0x0", 16)/10**18, 3))' "\${BH:-0x0}" 2>/dev/null || echo 0)"; if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1] or "0x0", 16) >= int(sys.argv[2]) else 1)' "\${BH:-0x0}" '${thrWei}' 2>/dev/null; then echo "✓ worker wallet funded ($PFL LCAI)"; else echo "⚠ worker wallet at $WORKER_ADDR has only $PFL LCAI; install will wait up to 90s for funding to confirm"; fi; fi`,
     '[ "$OK" = "1" ] && echo "✅ preflight passed - safe to install" || echo "⛔ preflight found blockers above - fix them before installing (your stake is only spent once install proceeds)"',
   ].join("\n");
 }

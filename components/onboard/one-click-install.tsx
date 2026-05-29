@@ -683,7 +683,10 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
     setPfLog([]);
     await runSetupStreamed(
       preflightCommand(os, network),
-      {},
+      // The script reads $WORKER_ADDR to print an informational balance line
+      // when a worker has been picked. Empty value means "skip that check"
+      // (the user can run preflight before generating a worker address).
+      { WORKER_ADDR: target ?? "" },
       (line) => setPfLog((l) => [...l, line]),
       () => setPfBusy(false),
     );

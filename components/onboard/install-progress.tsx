@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Check, Loader2, X, Terminal, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { Check, Loader2, X, Terminal, AlertTriangle, KeyRound, ArrowDownToLine } from "lucide-react";
 import { deriveInstallView, diagnoseFailure, type RunPhase, type StepStatus } from "@/lib/install-progress";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,10 @@ function StepIcon({ status }: { status: StepStatus }) {
 export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase }) {
   const view = deriveInstallView(log, phase);
   const failureHint = phase === "failed" ? diagnoseFailure(log) : null;
+  // When install hits the keystore-password-mismatch sentinel, the diagnoser
+  // text already mentions Recover; surface a direct click-through so the user
+  // doesn't have to leave onboarding to find it on the dashboard.
+  const isKeystoreMismatch = phase === "failed" && log.some((l) => /keystore-password-mismatch/i.test(l));
   const logBox = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const onLogScroll = () => {
@@ -90,6 +95,30 @@ export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase
         <div className="flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-3 text-xs leading-relaxed text-content-default">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
           <span>{failureHint}</span>
+        </div>
+      )}
+
+      {phase === "failed" && (
+        // Action surface for the operator after a failure: refund the worker
+        // wallet straight from here (the most common ask after a failed install),
+        // and - when the failure was specifically a keystore-password mismatch -
+        // a direct entry into the Recover flow. Both land on the dashboard
+        // where the existing flows live, so we never duplicate the signing UI.
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-1.5 font-medium text-content-default transition-colors hover:border-primary/40 hover:text-primary"
+          >
+            <ArrowDownToLine className="size-3.5" /> Withdraw funds to your wallet
+          </Link>
+          {isKeystoreMismatch && (
+            <Link
+              href="/recover"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 font-medium text-primary transition-colors hover:bg-primary/15"
+            >
+              <KeyRound className="size-3.5" /> Recover a replaced key
+            </Link>
+          )}
         </div>
       )}
 
