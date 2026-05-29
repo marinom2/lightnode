@@ -23,6 +23,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Keep the standalone SDK compiling (it's excluded from the app tsconfig).
+      - run: npx tsc --noEmit -p sdk/tsconfig.json
 
   e2e:
     name: E2E (Playwright)

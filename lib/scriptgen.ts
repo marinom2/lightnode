@@ -54,7 +54,7 @@ log(){ echo "$(date -u +%FT%TZ) $*"; }
 # Optional alerting: if ~/.lightnode/alerts.webhook holds a URL, post a message to
 # it on STATE CHANGES only (no spam) - worker down / Docker down / recovered.
 # Discord-compatible JSON body; a plain webhook receives the same {"content":...}.
-alert_state(){ local W; W="$(cat "$HOME/.lightnode/alerts.webhook" 2>/dev/null)"; [ -z "$W" ] && return 0; local C="$1"; local L; L="$(cat "$HOME/.lightnode/alerts.last" 2>/dev/null)"; [ "$C" = "$L" ] && return 0; printf '%s' "$C" > "$HOME/.lightnode/alerts.last"; local HN; HN="$(hostname 2>/dev/null || echo worker)"; local M=""; case "$C" in down) M="LightChain worker is DOWN on $HN and could not be restarted.";; docker_down) M="LightChain worker host $HN: Docker is not running.";; ok) case "$L" in down|docker_down) M="LightChain worker is back online on $HN.";; esac;; esac; [ -n "$M" ] && curl -s -m 8 -H "content-type: application/json" -d "{\\"content\\":\\"$M\\"}" "$W" >/dev/null 2>&1; return 0; }
+alert_state(){ local W; W="$(cat "$HOME/.lightnode/alerts.webhook" 2>/dev/null)"; [ -z "$W" ] && return 0; local C="$1"; local L; L="$(cat "$HOME/.lightnode/alerts.last" 2>/dev/null)"; [ "$C" = "$L" ] && return 0; printf '%s' "$C" > "$HOME/.lightnode/alerts.last"; local HN; HN="$(hostname 2>/dev/null || echo worker)"; local M=""; case "$C" in down) M="LightChain worker is DOWN on $HN and could not be restarted.";; docker_down) M="LightChain worker host $HN: Docker is not running.";; stale) M="LightChain worker on $HN is running but not connected to the gateway (stale) - it is not taking jobs.";; ok) case "$L" in down|docker_down|stale) M="LightChain worker is back online on $HN.";; esac;; esac; [ -n "$M" ] && curl -s -m 8 -H "content-type: application/json" -d "{\\"content\\":\\"$M\\"}" "$W" >/dev/null 2>&1; return 0; }
 # Respect an intentional Stop/Deregister: while this marker exists, leave the
 # worker alone (Install or Restart clears it to re-arm).
 AWAKE="$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist"
@@ -82,7 +82,13 @@ if docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
   docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$' || { log "worker stopped - starting"; docker start lightchain-worker >/dev/null 2>&1 && log "worker started"; }
 fi
 # Alert on the final run-state (after any restart attempt), once per transition.
-if docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$'; then alert_state ok; else alert_state down; fi
+# Running-but-not-connected counts as stale: the worker re-auths with the gateway
+# about hourly, so no auth/connect log in 70 min while up means it has dropped off.
+if docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
+  if docker logs --since 70m lightchain-worker 2>&1 | grep -qiE "authenticated with worker-gateway|websocket connected"; then alert_state ok; else alert_state stale; fi
+else
+  alert_state down
+fi
 # Keep every served model pinned in Ollama (keep_alive:-1) so none cold-loads
 # mid-job. Reads the set from a file (one per line) so a model change is picked up.
 while IFS= read -r M; do [ -n "$M" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 & done < "$HOME/.lightnode/model" 2>/dev/null || true
