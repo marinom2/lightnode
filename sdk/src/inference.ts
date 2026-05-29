@@ -14,6 +14,19 @@ import {
   utf8ToBytes,
   bytesToUtf8,
 } from "./crypto.js";
+
+// The gateway returns the worker pubkey as base64 and the disputer pubkey as
+// hex (per the verified integration guide). Both decode to 65-byte uncompressed
+// P-256 points - sniff the format so the caller never has to branch.
+function decodePublicKey(s: string): Uint8Array {
+  const stripped = s.startsWith("0x") ? s.slice(2) : s;
+  if (/^[0-9a-fA-F]{130}$/.test(stripped)) return hexToBytes(stripped);
+  const bytes = base64ToBytes(s);
+  if (bytes.length !== 65) {
+    throw new Error(`public key decoded to ${bytes.length} bytes; expected 65 (P-256 uncompressed)`);
+  }
+  return bytes;
+}
 import type { GatewayClient } from "./gateway.js";
 
 // AIConfig.calculateJobFee(bytes32) - verified live on both networks.
@@ -55,12 +68,21 @@ export async function estimateJobFee(cfg: NetworkConfig, modelTag: string): Prom
  * (it's a large, protocol-specific, currently-undocumented surface). See the SDK
  * README "Submitting inference" for the verified end-to-end steps and a reference.
  */
+/**
+ * Canonical JobRegistry consumer ABI - parameter names mirror the verified
+ * mainnet contract (paramsHash / ephemeralPubKey / initState / promptHash) so
+ * decoders display sensible labels. The 4-byte selectors are
+ *   createSession(bytes32,address,bytes,bytes,bytes,uint256)  → 0xe80116b4
+ *   submitJob(uint256,bytes32)                                → 0xe3f4f3e9
+ * createSession is payable but called with value=0; submitJob is payable and
+ * must be called with `estimateJobFee(model)` as native value.
+ */
 export const JOB_REGISTRY_CONSUMER_ABI = [
-  "function createSession(bytes32 modelId, address worker, bytes encWorkerKey, bytes encDisputerKey, bytes dispatcherSignature, uint256 expiry) payable returns (uint256 sessionId)",
-  "function submitJob(uint256 sessionId, bytes32 blobHash) payable returns (uint256 jobId)",
-  "event SessionCreated(uint256 sessionId, address user, bytes32 indexed modelId, address worker, bytes encWorkerKey, bytes encDisputerKey)",
-  "event JobSubmitted(uint256 jobId, uint256 sessionId, address worker)",
-  "event JobCompleted(uint256 jobId, address worker, bytes32 responseBlobHash, bytes32 responseCiphertextHash)",
+  "function createSession(bytes32 paramsHash, address worker, bytes encWorkerKey, bytes ephemeralPubKey, bytes initState, uint256 expiry) payable returns (uint256 sessionId)",
+  "function submitJob(uint256 sessionId, bytes32 promptHash) payable returns (uint256 jobId)",
+  "event SessionCreated(uint256 indexed sessionId, address indexed user, bytes32 indexed paramsHash, address worker, bytes encWorkerKey, bytes ephemeralPubKey)",
+  "event JobSubmitted(uint256 indexed jobId, uint256 indexed sessionId, address worker)",
+  "event JobCompleted(uint256 indexed jobId, address indexed worker, bytes32 responseHash, bytes32 ciphertextHash)",
 ] as const;
 
 /**
@@ -83,13 +105,25 @@ export const JOB_REGISTRY_CONSUMER_ABI = [
 export interface SessionPreparation {
   /** 32-byte session key the caller persists to encrypt/decrypt subsequent jobs. */
   sessionKey: Uint8Array;
-  /** Arguments to pass to JobRegistry.createSession(...). */
+  /**
+   * Arguments to pass to JobRegistry.createSession(...), in slot order.
+   *
+   * Parameter names match the canonical on-chain ABI (paramsHash,
+   * ephemeralPubKey, initState) verified live in the LightChain inference
+   * integration guide. The slot mapping is:
+   *   - paramsHash      ← keccak256(model tag)
+   *   - worker          ← prepared.worker
+   *   - encWorkerKey    ← hex(encWorker)              // ECDH-wrap for the worker
+   *   - ephemeralPubKey ← hex(encDisputer)            // ECDH-wrap for the disputer
+   *   - initState       ← prepared.signature          // dispatcher EIP-712 signature
+   *   - expiry          ← prepared.expiry
+   */
   createSessionArgs: {
-    modelId: `0x${string}`;
+    paramsHash: `0x${string}`;
     worker: `0x${string}`;
     encWorkerKey: `0x${string}`;
-    encDisputerKey: `0x${string}`;
-    dispatcherSignature: `0x${string}`;
+    ephemeralPubKey: `0x${string}`;
+    initState: `0x${string}`;
     expiry: bigint;
   };
   nonce: number;
@@ -105,32 +139,35 @@ export interface SessionPreparation {
  */
 export async function prepareSession(gateway: GatewayClient, modelTag: string): Promise<SessionPreparation> {
   const id = modelId(modelTag);
-
   const selected = await gateway.selectSession(id);
   const sessionKey = generateSessionKey();
 
-  const workerPub = await importPublicKey(hexToBytes(selected.workerEncryptionKey));
+  // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
+  // accepts either.
+  const workerPub = await importPublicKey(decodePublicKey(selected.workerEncryptionKey));
   const encWorker = await encryptSessionKey(sessionKey, workerPub);
-
   const encDisputer: Uint8Array = selected.disputerEncryptionKey
-    ? await encryptSessionKey(sessionKey, await importPublicKey(hexToBytes(selected.disputerEncryptionKey)))
+    ? await encryptSessionKey(sessionKey, await importPublicKey(decodePublicKey(selected.disputerEncryptionKey)))
     : new Uint8Array(0);
 
+  // The gateway expects the wrapped keys as BASE64; the same bytes are passed
+  // as HEX to the on-chain createSession. Sending hex to the gateway makes the
+  // dispatcher reject the prepare with an opaque error.
   const prepared = await gateway.prepareSession({
     modelId: id,
-    encWorkerKey: bytesToHex(encWorker),
-    encDisputerKey: bytesToHex(encDisputer),
+    encWorkerKey: bytesToBase64(encWorker),
+    encDisputerKey: bytesToBase64(encDisputer),
   });
 
   return {
     sessionKey,
     nonce: prepared.nonce,
     createSessionArgs: {
-      modelId: id,
+      paramsHash: id,
       worker: prepared.worker,
       encWorkerKey: bytesToHex(encWorker),
-      encDisputerKey: bytesToHex(encDisputer),
-      dispatcherSignature: prepared.signature,
+      ephemeralPubKey: bytesToHex(encDisputer),
+      initState: prepared.signature,
       expiry: BigInt(prepared.expiry),
     },
   };

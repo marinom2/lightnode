@@ -39,17 +39,20 @@ export class GatewayHttpError extends Error {
 
 export interface SelectSessionResult {
   worker: `0x${string}`;
-  /** Hex-encoded ECDH P-256 uncompressed public key of the selected worker. */
-  workerEncryptionKey: `0x${string}`;
-  /** Hex-encoded ECDH P-256 public key of the disputer (optional). */
-  disputerEncryptionKey?: `0x${string}`;
+  /**
+   * ECDH P-256 uncompressed public key of the selected worker. The gateway
+   * historically returns this as **base64** for the worker and **hex** for the
+   * disputer; the SDK's `decodePublicKey` accepts either, so callers do not need
+   * to branch.
+   */
+  workerEncryptionKey: string;
+  disputerEncryptionKey?: string;
   nonce: number;
   expiry: number;
 }
 
 export interface PrepareSessionResult {
   worker: `0x${string}`;
-  workerEncryptionKey: `0x${string}`;
   /** Dispatcher EIP-712 signature authorising createSession on-chain. */
   signature: `0x${string}`;
   nonce: number;
@@ -104,11 +107,17 @@ export class GatewayClient {
   /**
    * Protected: hand the dispatcher the encrypted session key it can give the
    * worker, get back the EIP-712 signature authorising on-chain createSession.
+   *
+   * NOTE: the gateway expects `encWorkerKey` / `encDisputerKey` as **base64**
+   * (NOT hex). The same bytes are passed as **hex** to the on-chain
+   * `createSession`. The high-level `prepareSession(gateway, modelTag)` in
+   * `inference.ts` handles both encodings; if you call this lower-level method
+   * directly, base64-encode the wire bytes before passing them in.
    */
   prepareSession(input: {
     modelId: `0x${string}`;
-    encWorkerKey: `0x${string}`;
-    encDisputerKey: `0x${string}`;
+    encWorkerKey: string;
+    encDisputerKey: string;
   }): Promise<PrepareSessionResult> {
     return this.req("POST", "/api/sessions/prepare", input);
   }
