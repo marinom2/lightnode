@@ -20,12 +20,14 @@ import {
   Check,
   CheckCircle2,
   XCircle,
+  ListChecks,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, freeMemoryCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, freeMemoryCommand, uninstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
 import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
@@ -84,6 +86,7 @@ type Op = {
 
 const OPS: Op[] = [
   { key: "status", label: "Status", desc: "Health and recent log", icon: Activity, cmd: () => 'docker ps -a --filter name=lightchain-worker --format "container: {{.Status}}"; echo "--- recent log ---"; docker logs --tail 25 lightchain-worker 2>&1' },
+  { key: "preflight", label: "Preflight", desc: "Check Docker, disk + network", icon: ListChecks, cmd: () => "" },
   { key: "restart", label: "Restart", desc: "Recover and keep it online", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
   { key: "stop", label: "Stop", desc: "Pause it; stake stays intact", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
@@ -115,6 +118,14 @@ const OPS: Op[] = [
     label: "Free up memory",
     desc: "Stop everything, reclaim RAM",
     icon: Power,
+    cmd: () => "",
+  },
+  {
+    key: "uninstall",
+    label: "Remove worker",
+    desc: "Delete container, image + models",
+    icon: Trash2,
+    danger: true,
     cmd: () => "",
   },
 ];
@@ -245,7 +256,7 @@ export function OperationsPanel() {
   // Docker ops that need the engine reachable before they run get the docker
   // preamble (PATH + socket + auto-start). Stop is excluded: it writes the pause
   // marker first and must work even when Docker is already down.
-  const DOCKER_OPS = new Set(["status", "restart", "tail"]);
+  const DOCKER_OPS = new Set(["status", "restart", "tail", "uninstall"]);
   // Several ops are OS-aware builders rather than the raw OPS.cmd:
   // - restart = full repair (stop + clear stale session + start), clears the pause marker
   // - stop    = write pause marker (so the watchdog leaves it down) + docker stop
@@ -257,6 +268,8 @@ export function OperationsPanel() {
     if (op.key === "settle") return settleJobsCommand(os, network, completedJobs);
     if (op.key === "bench") return benchmarkCommand(os, budgetSec);
     if (op.key === "freeup") return freeMemoryCommand(os);
+    if (op.key === "preflight") return preflightCommand(os, network);
+    if (op.key === "uninstall") return uninstallCommand(os, network);
     return op.cmd();
   };
   // Desktop execution wraps docker ops so they survive the launched-app
@@ -294,7 +307,10 @@ export function OperationsPanel() {
     if (op.key === "bench") {
       return `Your worker is serving ${activeJobs} live job(s) right now. The Speed test runs an extra inference on the same Ollama and forces a cold model reload - on top of the live jobs that can overload the machine and make those jobs miss their deadline (a slash). Best to run it when the worker is idle.`;
     }
-    const lead = op.danger ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
+    if (op.key === "uninstall") {
+      return `Removes the worker container, its Docker image, and the served Ollama models (the big disk/RAM users), plus the toolkit and the keep-online watchdog. Your tiny worker keystore is KEPT so any returned stake stays reachable. If the worker is still registered, deregister and withdraw first or your stake stays locked. Reinstall any time.`;
+    }
+    const lead = op.key === "dereg" ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
     return `${lead}${jobs}`.trim();
   };
 

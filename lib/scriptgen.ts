@@ -1058,6 +1058,103 @@ export function freeMemoryCommand(os: OS): string {
 }
 
 /**
+ * Full teardown for someone who is done: removes the big disk/RAM users (worker
+ * container, its Docker image, the served Ollama models), the toolkit clone, and
+ * the keep-online watchdog. It deliberately KEEPS the tiny worker keystore so any
+ * returned stake/funds stay reachable (delete ~/lightchain-worker by hand if truly
+ * done). Safety: aborts if a DIFFERENT-network worker container is running here, so
+ * it can never nuke the wrong worker.
+ */
+export function uninstallCommand(os: OS, network: NetworkId): string {
+  const net = NETWORKS[network];
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      'Write-Host "> removing the LightNode worker from this machine..."',
+      `$running = (docker ps --format "{{.Names}} {{.Status}}" 2>$null | Select-String "^lightchain-worker Up")`,
+      'if ($running) {',
+      '  $runChain = ((docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | Select-String "^CHAIN_ID=(.+)$" | Select-Object -First 1).Matches.Groups[1].Value)',
+      `  if ($runChain -and $runChain -ne "${net.chainId}") { Write-Host "STOP - a worker for the other network (chain $runChain) is running here. Switch to that network to remove it. Nothing was removed."; exit 1 }`,
+      '}',
+      'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
+      '$ms = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue)',
+      'foreach ($m in $ms) { if ($m) { try { ollama rm $m *> $null; Write-Host "OK - removed Ollama model $m" } catch {} } }',
+      'docker rm -f lightchain-worker *> $null; Write-Host "OK - removed the worker container"',
+      `docker rmi "${net.workerImage}" *> $null; Write-Host "OK - removed the worker Docker image"`,
+      'schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
+      'Remove-Item -Recurse -Force "$env:USERPROFILE\\.lightnode" -ErrorAction SilentlyContinue; Write-Host "OK - removed the watchdog + working files"',
+      'Remove-Item -Recurse -Force "$env:USERPROFILE\\lightchain-worker-toolkit" -ErrorAction SilentlyContinue',
+      'Write-Host "• kept your worker keys at ~/lightchain-worker (tiny; they control any returned stake/funds)"',
+      'Write-Host "Done - the worker image, models, and container are gone. Reinstall any time from Become a worker."',
+    ].join("\n");
+  }
+  const isMac = os === "macos";
+  const lines = [
+    "exec 2>&1",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
+    'echo "▶ removing the LightNode worker from this machine..."',
+    // Never nuke a worker that belongs to the OTHER network (one container, shared name).
+    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${net.chainId}" ]; then echo "⛔ a worker for the other network (chain $RUNCHAIN) is running here, and this machine runs one at a time. Switch the network toggle to that worker to remove it. Nothing was removed."; exit 1; fi; fi`,
+    // Pause the watchdog so it can't resurrect anything mid-teardown.
+    'mkdir -p "$HOME/.lightnode" 2>/dev/null; touch "$HOME/.lightnode/keep-online.paused"',
+    // Remove the served models from Ollama - the biggest disk/RAM hog.
+    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then while IFS= read -r M; do [ -n "$M" ] && { curl -s -m 10 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"keep_alive\\":0}" >/dev/null 2>&1; ollama rm "$M" >/dev/null 2>&1 && echo "✓ removed Ollama model $M"; }; done < "$HOME/.lightnode/model" 2>/dev/null || true; fi',
+    // Container + image.
+    'docker rm -f lightchain-worker >/dev/null 2>&1 && echo "✓ removed the worker container" || true',
+    `docker rmi "${net.workerImage}" >/dev/null 2>&1 && echo "✓ removed the worker Docker image" || true`,
+    // Keep-online watchdog + sleep-prevention.
+    isMac
+      ? 'for A in worker-watchdog worker-awake; do launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.$A.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.$A.plist" 2>/dev/null || true; done; echo "✓ removed the keep-online watchdog"'
+      : '( crontab -l 2>/dev/null | grep -v "lightnode/keep-online.sh" ) | crontab - 2>/dev/null || true; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true; echo "✓ removed the keep-online watchdog"',
+    // Working dir (watchdog script, model list, toolkit clone, logs, config).
+    'rm -rf "$HOME/.lightnode" 2>/dev/null && echo "✓ removed ~/.lightnode (watchdog, toolkit, config)" || true',
+    'rm -rf "$HOME/lightchain-worker-toolkit" 2>/dev/null || true',
+    // Keys are tiny and control any returned stake/funds - keep them.
+    'echo "• kept your worker keys at ~/lightchain-worker (tiny; they control any returned stake/funds - delete that folder by hand only if you are certain)"',
+  ];
+  if (isMac) {
+    lines.push("osascript -e 'quit app \"Docker Desktop\"' >/dev/null 2>&1 || osascript -e 'quit app \"Docker\"' >/dev/null 2>&1 || true; echo \"✓ quit Docker Desktop\"");
+  }
+  lines.push('echo "✅ removed. The big disk/RAM users (worker image, models, container) are gone. Reinstall any time from Become a worker."');
+  return lines.join("\n");
+}
+
+/**
+ * Pre-install checks: confirm the machine + network are ready BEFORE the user funds
+ * and stakes (the only irreversible step). Verifies Docker, Ollama, free disk, and
+ * live reachability of the RPC, gateway, and indexer for the target network.
+ */
+export function preflightCommand(os: OS, network: NetworkId): string {
+  const net = NETWORKS[network];
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      `Write-Host "> preflight for the LightChain ${network} worker"`,
+      '$ok = $true',
+      'docker info *> $null; if ($?) { Write-Host "OK - Docker is running" } else { Write-Host "BLOCK - Docker is not running (install/start Docker Desktop)"; $ok = $false }',
+      'try { $null = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/tags -TimeoutSec 5; Write-Host "OK - Ollama is responding" } catch { Write-Host "BLOCK - Ollama is not responding (install + start Ollama)"; $ok = $false }',
+      '$free = [math]::Floor((Get-PSDrive C).Free / 1GB); if ($free -ge 15) { Write-Host "OK - disk: $free GB free" } else { Write-Host "WARN - only $free GB free (model + image need ~10 GB)" }',
+      `try { $null = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -TimeoutSec 8 -Body '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' -ContentType "application/json"; Write-Host "OK - RPC reachable" } catch { Write-Host "BLOCK - RPC unreachable (${net.rpc})"; $ok = $false }`,
+      `try { $null = Invoke-RestMethod -Uri "${net.subgraph}" -Method Post -TimeoutSec 8 -Body '{"query":"{__typename}"}' -ContentType "application/json"; Write-Host "OK - indexer reachable" } catch { Write-Host "WARN - indexer probe failed (status display may lag)" }`,
+      'if ($ok) { Write-Host "PASS - preflight passed, safe to install" } else { Write-Host "BLOCK - fix the items above before installing (your stake is only spent once install proceeds)" }',
+    ].join("\n");
+  }
+  return [
+    "exec 2>&1",
+    'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
+    `echo "▶ preflight for the LightChain ${network} worker"`,
+    "OK=1",
+    'if docker info >/dev/null 2>&1; then echo "✓ Docker is running"; else echo "⛔ Docker is not running - install/start Docker Desktop"; OK=0; fi',
+    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then echo "✓ Ollama is responding (127.0.0.1:11434)"; else echo "⛔ Ollama is not responding - install Ollama and start it"; OK=0; fi',
+    `FREE_G="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"; if [ "\${FREE_G:-0}" -ge 15 ]; then echo "✓ disk: $FREE_G GB free"; else echo "⚠ disk: only \${FREE_G:-?} GB free - the model + image need ~10 GB"; fi`,
+    `if curl -s -m 8 -X POST "${net.rpc}" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -qE '"result"'; then echo "✓ RPC reachable (${net.rpc})"; else echo "⛔ RPC unreachable (${net.rpc}) - check your connection"; OK=0; fi`,
+    `if curl -s -m 8 -o /dev/null "${net.workerGateway}/" 2>/dev/null; then echo "✓ gateway reachable"; else echo "⚠ gateway probe inconclusive (${net.workerGateway}) - it may still admit the worker"; fi`,
+    `if curl -s -m 8 -X POST "${net.subgraph}" -H 'content-type: application/json' -d '{"query":"{__typename}"}' | grep -q __typename; then echo "✓ indexer (subgraph) reachable"; else echo "⚠ indexer probe failed - status display may lag"; fi`,
+    '[ "$OK" = "1" ] && echo "✅ preflight passed - safe to install" || echo "⛔ preflight found blockers above - fix them before installing (your stake is only spent once install proceeds)"',
+  ].join("\n");
+}
+
+/**
  * Shell preamble (unix) that guarantees Docker is reachable from the launched
  * `.app`. The app runs as a login shell but Docker can still be unreachable for
  * two reasons we fix here:

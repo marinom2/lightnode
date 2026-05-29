@@ -12,6 +12,8 @@ import {
   benchmarkCommand,
   freeMemoryCommand,
   addModelsCommand,
+  uninstallCommand,
+  preflightCommand,
 } from "@/lib/scriptgen";
 
 describe("Settle earnings + auto-settling deregister", () => {
@@ -432,4 +434,43 @@ describe("desktopInstallCommand (smart install)", () => {
     expect(win).toContain("winget install --id Docker.DockerDesktop");
     expect(win).not.toContain("set -e");
   });
+});
+
+describe("uninstall (remove the worker, free the disk/RAM, keep the keystore)", () => {
+  for (const os of ["macos", "linux"] as const) {
+    const out = uninstallCommand(os, "testnet");
+    it(`${os}: removes the big disk/RAM users (container, image, models)`, () => {
+      expect(out).toContain("docker rm -f lightchain-worker");
+      expect(out).toContain("docker rmi");
+      expect(out).toContain("ollama rm");
+      expect(out).toContain("rm -rf \"$HOME/.lightnode\"");
+    });
+    it(`${os}: aborts if a different-network worker container is running (never nuke the wrong one)`, () => {
+      expect(out).toContain("8200"); // testnet chain id is the only one allowed to proceed
+      expect(out).toMatch(/Nothing was removed|nothing was removed/i);
+    });
+    it(`${os}: NEVER deletes the worker keystore (it controls returned stake/funds)`, () => {
+      expect(out).not.toMatch(/rm -rf[^\n]*lightchain-worker\/keys/);
+      expect(out).toContain("kept your worker keys");
+    });
+  }
+  it("scopes the image removal to the target network", () => {
+    expect(uninstallCommand("macos", "mainnet")).toContain("lightchain-mainnet-public-docker");
+    expect(uninstallCommand("macos", "testnet")).toContain("lightchain-testnet-public-docker");
+  });
+});
+
+describe("preflight (check before staking)", () => {
+  for (const os of ["macos", "linux"] as const) {
+    const out = preflightCommand(os, "testnet");
+    it(`${os}: checks Docker, Ollama, disk, RPC, gateway, and the indexer`, () => {
+      expect(out).toContain("docker info");
+      expect(out).toContain("11434"); // ollama
+      expect(out).toMatch(/df -k/); // disk
+      expect(out).toContain("eth_chainId"); // RPC probe
+      expect(out).toContain("rpc.testnet.lightchain.ai");
+      expect(out).toContain("worker-gateway.testnet.lightchain.ai");
+      expect(out).toContain("workers-api.testnet.lightchain.ai");
+    });
+  }
 });
