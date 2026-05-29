@@ -248,16 +248,16 @@ export function WorkerView({
   const stake = fromWei(worker.stake);
   const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
 
-  // The public subgraph can disagree with the chain: it lags a fresh registration,
-  // and after a deregister -> re-register cycle it can stay stuck on "deregistered"
-  // indefinitely. So we prefer ground truth in this order: the chain (onchainRegistered,
-  // valid for any worker), gateway auth (liveConfirmed, our machine), then a running
-  // container here. Only fall back to the index when we have none of those.
+  // Registration truth, in priority order. A DEFINITIVE on-chain answer (true or
+  // false) is authoritative and must win - including over a gateway/health reading,
+  // which flips on and off second-to-second while a worker churns and would
+  // otherwise make the badge oscillate. liveConfirmed (our machine's gateway auth)
+  // and a running container only fill in when the chain read was unavailable (null),
+  // which is also when the public index can be stale.
   const subgraphDown = h === "down";
   const registeredHere =
     onchainRegistered === true ||
-    liveConfirmed ||
-    (subgraphDown && onchainRegistered == null && localStatus === "running");
+    (onchainRegistered == null && (liveConfirmed || (subgraphDown && localStatus === "running")));
   const meta = resolveRegistrationMeta({ health: h, registeredHere, onchainRegistered, liveConfirmed });
 
   const completed = worker.jobs_completed ?? 0;
