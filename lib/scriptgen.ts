@@ -1240,13 +1240,19 @@ export function uninstallCommand(os: OS, network: NetworkId): string {
  */
 export function preflightCommand(os: OS, network: NetworkId): string {
   const net = NETWORKS[network];
+  // Preflight reports BLOCKS only for things install can't fix on its own (an
+  // unreachable RPC). Docker + Ollama are downgraded to WARN: install auto-installs
+  // and auto-starts them (winget on Windows, brew + open on macOS), so failing
+  // preflight on them would falsely block users from clicking Install when Install
+  // is exactly what would resolve the situation. The warning still tells the user
+  // what install will do next.
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
       `Write-Host "> preflight for the LightChain ${network} worker"`,
       '$ok = $true',
-      'docker info *> $null; if ($?) { Write-Host "OK - Docker is running" } else { Write-Host "BLOCK - Docker is not running (install/start Docker Desktop)"; $ok = $false }',
-      'try { $null = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/tags -TimeoutSec 5; Write-Host "OK - Ollama is responding" } catch { Write-Host "BLOCK - Ollama is not responding (install + start Ollama)"; $ok = $false }',
+      'if (Get-Command docker -ErrorAction SilentlyContinue) { docker info *> $null; if ($?) { Write-Host "OK - Docker is running" } else { Write-Host "WARN - Docker is installed but not running; install will start Docker Desktop for you" } } else { Write-Host "WARN - Docker Desktop not installed; install will set it up via winget (allow the prompts)" }',
+      'try { $null = Invoke-RestMethod -Uri http://127.0.0.1:11434/api/tags -TimeoutSec 5; Write-Host "OK - Ollama is responding" } catch { if (Get-Command ollama -ErrorAction SilentlyContinue) { Write-Host "WARN - Ollama is installed but not responding; install will start it" } else { Write-Host "WARN - Ollama not installed; install will set it up via winget" } }',
       '$free = [math]::Floor((Get-PSDrive C).Free / 1GB); if ($free -ge 15) { Write-Host "OK - disk: $free GB free" } else { Write-Host "WARN - only $free GB free (model + image need ~10 GB)" }',
       `try { $null = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -TimeoutSec 8 -Body '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' -ContentType "application/json"; Write-Host "OK - RPC reachable" } catch { Write-Host "BLOCK - RPC unreachable (${net.rpc})"; $ok = $false }`,
       `try { $null = Invoke-RestMethod -Uri "${net.subgraph}" -Method Post -TimeoutSec 8 -Body '{"query":"{__typename}"}' -ContentType "application/json"; Write-Host "OK - indexer reachable" } catch { Write-Host "WARN - indexer probe failed (status display may lag)" }`,
@@ -1258,8 +1264,8 @@ export function preflightCommand(os: OS, network: NetworkId): string {
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
     `echo "▶ preflight for the LightChain ${network} worker"`,
     "OK=1",
-    'if docker info >/dev/null 2>&1; then echo "✓ Docker is running"; else echo "⛔ Docker is not running - install/start Docker Desktop"; OK=0; fi',
-    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then echo "✓ Ollama is responding (127.0.0.1:11434)"; else echo "⛔ Ollama is not responding - install Ollama and start it"; OK=0; fi',
+    'if command -v docker >/dev/null 2>&1; then if docker info >/dev/null 2>&1; then echo "✓ Docker is running"; else echo "⚠ Docker is installed but not running - install will start Docker Desktop for you"; fi; else echo "⚠ Docker Desktop not installed - install Docker Desktop manually (the installer needs it) then re-run install"; fi',
+    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then echo "✓ Ollama is responding (127.0.0.1:11434)"; elif command -v ollama >/dev/null 2>&1; then echo "⚠ Ollama is installed but not responding - install will start it"; else echo "⚠ Ollama not installed - install will set it up via brew"; fi',
     `FREE_G="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"; if [ "\${FREE_G:-0}" -ge 15 ]; then echo "✓ disk: $FREE_G GB free"; else echo "⚠ disk: only \${FREE_G:-?} GB free - the model + image need ~10 GB"; fi`,
     `if curl -s -m 8 -X POST "${net.rpc}" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -qE '"result"'; then echo "✓ RPC reachable (${net.rpc})"; else echo "⛔ RPC unreachable (${net.rpc}) - check your connection"; OK=0; fi`,
     `if curl -s -m 8 -o /dev/null "${net.workerGateway}/" 2>/dev/null; then echo "✓ gateway reachable"; else echo "⚠ gateway probe inconclusive (${net.workerGateway}) - it may still admit the worker"; fi`,
