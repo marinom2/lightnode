@@ -82,6 +82,36 @@ function headlineFor(active: InstallMilestone | undefined, phase: RunPhase, down
   return `${active.label}…`;
 }
 
+/** Pull the funded worker address out of the cleaned log so failure messages
+ *  can point straight at the right explorer page. Limited to the "funding worker"
+ *  line so an unrelated contract address can't be picked up by mistake. */
+export function extractWorkerAddress(cleaned: string[]): string | null {
+  for (const line of cleaned) {
+    if (!/funding worker|send to/i.test(line)) continue;
+    const m = line.match(/(0x[0-9a-fA-F]{40})/);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** Pick the install's network out of the banner so the explorer link is right. */
+export function extractNetwork(cleaned: string[]): "mainnet" | "testnet" | null {
+  for (const line of cleaned) {
+    if (!/installer rev|lightnode installer/i.test(line)) continue;
+    const m = line.match(/\b(mainnet|testnet)\b/i);
+    if (m) return m[1].toLowerCase() as "mainnet" | "testnet";
+  }
+  for (const line of cleaned) {
+    const m = line.match(/\b(mainnet|testnet)\b/i);
+    if (m) return m[1].toLowerCase() as "mainnet" | "testnet";
+  }
+  return null;
+}
+
+function explorerFor(net: "mainnet" | "testnet" | null): string {
+  return `https://${net === "testnet" ? "testnet" : "mainnet"}.lightscan.app`;
+}
+
 /**
  * Turn a known install failure into one plain-English, actionable sentence (shown
  * above the technical log on failure). Reacts to the actual on-chain error text -
@@ -104,6 +134,29 @@ export function diagnoseFailure(cleaned: string[]): string | null {
   }
   if (/Docker engine didn.?t come up|Docker.*not.*running/i.test(text)) {
     return "Docker did not start in time. Open Docker Desktop once so it is running, then run install again.";
+  }
+  // Generic register-failure fallback: we got far enough to attempt register (or
+  // the register wrapper's status check ran) but the worker never came online and
+  // no specific revert pattern matched. The far-and-away most common real cause
+  // is the worker wallet holding too little LCAI for stake + gas; LCAI IS the
+  // network's native gas token, so funding exactly the minimum stake leaves
+  // nothing left to pay for the register tx. Surface the worker address so the
+  // operator can check + top up directly instead of guessing.
+  const inRegisterPath = /phase\s*\.?\\?\/?0?7[- ]register|worker:latest\s+(?:status|register)|stopped at .*07-register/i.test(text);
+  const online = /worker online|✅\s*worker/i.test(text);
+  if (inRegisterPath && !online) {
+    const addr = extractWorkerAddress(cleaned);
+    const explorer = explorerFor(extractNetwork(cleaned));
+    const linkBit = addr
+      ? `Open ${explorer}/address/${addr} to check the worker wallet's LCAI balance.`
+      : `Check the worker wallet's LCAI balance on ${explorer}.`;
+    return (
+      "Registering on-chain didn't complete. The most common cause is the worker " +
+      "wallet running short on LCAI for stake plus gas - LCAI is the network's gas " +
+      "token, so sending exactly the minimum stake leaves nothing for the register tx. " +
+      linkBit + " Top up a little over the minimum stake (a fraction of an LCAI covers " +
+      "gas) and run install again - your existing worker key is reused, no reset needed."
+    );
   }
   return null;
 }
