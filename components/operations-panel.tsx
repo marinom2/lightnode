@@ -30,7 +30,7 @@ import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
-import { getSecret, getWorkerAddr, resolveManagedWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, getKeystorePasswordCandidates, getWorkerAddr, resolveManagedWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { parseSpeedTest, type SpeedTestResult } from "@/lib/speedtest";
 import { SpeedTestResultCard } from "@/components/speed-test-result";
@@ -342,8 +342,17 @@ export function OperationsPanel() {
       // PASSWORD, so the raw key never has to pass through the web. We supply
       // the password (+ the public address, + the key if the app happens to
       // still hold one); the command derives anything missing from the keystore.
-      const [pw, k] = await Promise.all([getSecret(SECRET_WORKER_PW, network), getSecret(SECRET_WORKER_KEY, network)]);
-      if (pw) env.WORKER_PASSWORD = pw;
+      // Pass EVERY plausible keystore password (per-network, bare-legacy,
+      // other-network). The command tries each and keeps whichever decrypts the
+      // on-disk keystore - so a worker created before per-network keying (its
+      // password under the bare slot) can still be deregistered/settled.
+      const [pwCandidates, k] = await Promise.all([
+        getKeystorePasswordCandidates(network),
+        getSecret(SECRET_WORKER_KEY, network),
+      ]);
+      pwCandidates.forEach((pw, i) => {
+        env[i === 0 ? "WORKER_PASSWORD" : `WORKER_PASSWORD_ALT${i}`] = pw;
+      });
       // Target the worker the app holds the key for (derived from the key), so the
       // command picks THIS network's keystore - never a stale stored address.
       const addr = (await resolveManagedWorkerAddr(network)) || resolveWorkerAddr();

@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
-import { getSecret, wipeWorkerSecrets, getWorkerAddr, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, getKeystorePasswordCandidates, wipeWorkerSecrets, getWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { isDesktop, runSetupStreamed, openExternal } from "@/lib/tauri";
 import { detectClientOS } from "@/lib/os-detect";
@@ -185,8 +185,13 @@ export function WithdrawWorker() {
     setPhase("sending");
     setLog([`$ withdraw ${shortAddr(target)} -> ${shortAddr(dest)}...`]);
     const env: Record<string, string> = { NETWORK: network };
-    const pw = await getSecret(SECRET_WORKER_PW, network);
-    if (pw) env.WORKER_PASSWORD = pw;
+    // Pass every plausible keystore password; the sweep tries each and keeps
+    // whichever decrypts the on-disk keystore (legacy workers stored it under the
+    // bare slot, so a single per-network read would miss it).
+    const pwCandidates = await getKeystorePasswordCandidates(network);
+    pwCandidates.forEach((pw, i) => {
+      env[i === 0 ? "WORKER_PASSWORD" : `WORKER_PASSWORD_ALT${i}`] = pw;
+    });
     env.WORKER_ADDR = target;
     // Deliberately NOT passing WORKER_PRIVKEY: the in-app key is a different
     // wallet, so we let the command derive the right key from the keystore.

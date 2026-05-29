@@ -72,6 +72,43 @@ export async function getSecret(name: string, net: NetworkId): Promise<string> {
   return lsGet(legacyNet);
 }
 
+/** Read a secret stored under the bare, pre-per-network name (keychain on desktop,
+ *  else localStorage). Workers created before per-network keying live here. */
+async function getBareLegacySecret(name: string): Promise<string> {
+  if (isDesktop()) {
+    const v = await secretGet(name); // bare keychain account, e.g. "WORKER_PASSWORD"
+    if (v) return v;
+  }
+  return lsGet(LEGACY[name] ?? name);
+}
+
+/**
+ * Every plausible keystore password for a worker on `net`, most-likely first and
+ * de-duplicated. The on-disk keystore was encrypted with exactly one of these, but
+ * which one depends on when/how it was created: the current per-network slot, the
+ * bare legacy slot (workers made before per-network keying), or - on a machine that
+ * also hosts the other network's worker - that network's slot. Ops that unlock the
+ * keystore (deregister/settle/sweep) try each and keep whichever decrypts, so a
+ * legacy worker is no longer un-deregisterable just because its password moved slots.
+ */
+export async function getKeystorePasswordCandidates(net: NetworkId): Promise<string[]> {
+  const other: NetworkId = net === "mainnet" ? "testnet" : "mainnet";
+  const reads = await Promise.all([
+    getSecret(SECRET_WORKER_PW, net),
+    getBareLegacySecret(SECRET_WORKER_PW),
+    getSecret(SECRET_WORKER_PW, other),
+  ]);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of reads) {
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
 /**
  * Store a per-network secret. On an UNSIGNED desktop app the OS keychain is
  * unreliable across launches, so we keep a reliable localStorage copy and ALSO

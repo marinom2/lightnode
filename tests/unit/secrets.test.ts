@@ -22,7 +22,7 @@ Object.defineProperty(globalThis, "window", {
   configurable: true,
 });
 
-import { migrateBareWorkerKey, archiveRetiredWorker, listRetiredWorkers, getSecret, setWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
+import { migrateBareWorkerKey, archiveRetiredWorker, listRetiredWorkers, getSecret, getKeystorePasswordCandidates, setWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
 
 // anvil account 0 (well-known test keypair)
 const KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -52,6 +52,34 @@ describe("migrateBareWorkerKey (recover a legacy single-name key into the per-ne
     setWorkerAddr("mainnet", ADDR);
     await migrateBareWorkerKey("mainnet");
     expect(await getSecret(SECRET_WORKER_KEY, "mainnet")).toBe(KEY);
+  });
+});
+
+describe("getKeystorePasswordCandidates (unlock a legacy keystore whose password moved slots)", () => {
+  // LEGACY name for WORKER_PASSWORD in localStorage is "lightnode.workerPw".
+  beforeEach(() => store.clear());
+
+  it("returns per-network, bare-legacy, and other-network passwords, most-likely first", async () => {
+    store.set("lightnode.workerPw.mainnet", "pw-mainnet");
+    store.set("lightnode.workerPw", "pw-bare"); // pre-per-network worker stored it here
+    store.set("lightnode.workerPw.testnet", "pw-testnet");
+    expect(await getKeystorePasswordCandidates("mainnet")).toEqual(["pw-mainnet", "pw-bare", "pw-testnet"]);
+  });
+
+  it("de-duplicates identical values across slots", async () => {
+    store.set("lightnode.workerPw.mainnet", "same");
+    store.set("lightnode.workerPw", "same");
+    store.set("lightnode.workerPw.testnet", "other");
+    expect(await getKeystorePasswordCandidates("mainnet")).toEqual(["same", "other"]);
+  });
+
+  it("includes the bare-legacy password even when the per-network slot is empty", async () => {
+    store.set("lightnode.workerPw", "pw-bare"); // the legacy mainnet worker case
+    expect(await getKeystorePasswordCandidates("mainnet")).toEqual(["pw-bare"]);
+  });
+
+  it("returns an empty list when nothing is stored", async () => {
+    expect(await getKeystorePasswordCandidates("testnet")).toEqual([]);
   });
 });
 

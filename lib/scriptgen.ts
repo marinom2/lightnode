@@ -573,22 +573,29 @@ function keystoreDeriveUnix(): string[] {
     // `keys/` dir and signs with the wrong worker (e.g. deregistering a testnet
     // worker would otherwise mount the mainnet keystore and fail to decrypt).
     'if [ -n "$KS_DIR" ]; then export KEYS_DIR="$(dirname "$KS_DIR")"; fi',
-    // Derive the worker key from the on-disk keystore - the authoritative source
-    // for the worker actually installed here. Only when the app didn't already
-    // hand us a matching key (the in-browser path passes one).
-    'if [ -z "${WORKER_PRIVKEY:-}" ] && [ -n "$KS_NAME" ]; then',
+    // Lock onto the password that actually decrypts the on-disk keystore. The
+    // worker binary (deregister/sweep/add-models) always unlocks the keystore FILE
+    // with this password, so it MUST be the right one even when the app already
+    // handed us a private key - hence this runs whenever a keystore is found, not
+    // only when the key is missing. A worker made before per-network keying stored
+    // its password under the bare name, so the app passes several candidates.
+    'if [ -n "$KS_NAME" ]; then',
     // Make sure Docker is reachable so we can read the container\'s keystore
-    // password (authoritative for this keystore). Soft - never fatal.
+    // password (one more candidate - only correct when the container hosts THIS
+    // worker). Soft - never fatal.
     '  if ! docker info >/dev/null 2>&1; then for s in "$HOME/.docker/run/docker.sock" "/var/run/docker.sock" "$HOME/.colima/default/docker.sock" "$HOME/.rd/docker.sock"; do [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1 && { export DOCKER_HOST="unix://$s"; break; }; done; fi',
     '  if ! docker info >/dev/null 2>&1; then open -a Docker >/dev/null 2>&1 || true; for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done; fi',
     "  PW_CT=\"$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -E '^WORKER_KEYSTORE_PASSWORD=' | head -1 | cut -d= -f2-)\"",
-    // Try the container password first (always matches the on-disk keystore),
-    // then any app-supplied password as a fallback. Use whichever decrypts.
-    '  for PW in "$PW_CT" "${WORKER_PASSWORD:-}"; do',
+    // Try the container password (matches only when it hosts this worker), then the
+    // app-supplied candidates (per-network, bare-legacy, other-network). Keep the
+    // first that decrypts; derive the key from it only if we don't already have one.
+    '  KS_PW=""',
+    '  for PW in "$PW_CT" "${WORKER_PASSWORD:-}" "${WORKER_PASSWORD_ALT1:-}" "${WORKER_PASSWORD_ALT2:-}" "${WORKER_PASSWORD_ALT3:-}"; do',
     '    [ -z "$PW" ] && continue',
     "    K=\"$(cast wallet decrypt-keystore \"$KS_NAME\" --keystore-dir \"$KS_DIR\" --unsafe-password \"$PW\" 2>/dev/null | grep -oE '0x[0-9a-fA-F]{64}' | head -1)\"",
-    '    if [ -n "$K" ]; then export WORKER_PRIVKEY="$K"; export WORKER_PASSWORD="$PW"; break; fi',
+    '    if [ -n "$K" ]; then KS_PW="$PW"; [ -z "${WORKER_PRIVKEY:-}" ] && export WORKER_PRIVKEY="$K"; break; fi',
     "  done",
+    '  if [ -n "$KS_PW" ]; then export WORKER_PASSWORD="$KS_PW"; else echo "⚠ could not unlock the on-disk keystore for this worker with any saved password. If you set a custom keystore password at install, deregister/withdraw need that exact password."; fi',
     "fi",
     // The worker actually present on this machine (from the derived key, else
     // the keystore filename).
@@ -736,14 +743,19 @@ function keystoreDeriveWin(): string[] {
     '}',
     // Point the toolkit (Invoke-Worker) at the same per-network keystore dir.
     'if ($ksDir) { $env:KEYS_DIR = (Split-Path $ksDir -Parent) }',
-    'if (-not $env:WORKER_PRIVKEY -and $ks) {',
-    // Container password first (authoritative for this keystore), app password as fallback.
+    // Lock onto the password that actually decrypts the on-disk keystore (the worker
+    // binary always unlocks the keystore FILE with it), so this runs whenever a
+    // keystore is found, not only when the key is missing. Candidates: the container
+    // password, then the app-supplied per-network / bare-legacy / other-network ones.
+    'if ($ks) {',
     "  $pwCt = (docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null | Select-String '^WORKER_KEYSTORE_PASSWORD=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value",
-    '  foreach ($pw in @($pwCt, $env:WORKER_PASSWORD)) {',
+    '  $ksPw = $null',
+    '  foreach ($pw in @($pwCt, $env:WORKER_PASSWORD, $env:WORKER_PASSWORD_ALT1, $env:WORKER_PASSWORD_ALT2, $env:WORKER_PASSWORD_ALT3)) {',
     '    if (-not $pw) { continue }',
     "    $pk = ((cast wallet decrypt-keystore $ks.Name --keystore-dir $ksDir --unsafe-password $pw 2>$null) | Select-String -Pattern '0x[0-9a-fA-F]{64}' | Select-Object -First 1).Matches.Value",
-    '    if ($pk) { $env:WORKER_PRIVKEY = $pk; $env:WORKER_PASSWORD = $pw; break }',
+    '    if ($pk) { $ksPw = $pw; if (-not $env:WORKER_PRIVKEY) { $env:WORKER_PRIVKEY = $pk }; break }',
     '  }',
+    '  if ($ksPw) { $env:WORKER_PASSWORD = $ksPw } else { Write-Host "could not unlock the on-disk keystore for this worker with any saved password. If you set a custom keystore password at install, deregister/withdraw need that exact password." }',
     '}',
     '$diskAddr = ""',
     'if ($env:WORKER_PRIVKEY) { $diskAddr = (cast wallet address --private-key $env:WORKER_PRIVKEY 2>$null) } elseif ($ks -and ($ks.Name -match \'([0-9a-fA-F]{40})$\')) { $diskAddr = "0x$($Matches[1])" }',
