@@ -145,6 +145,19 @@ export default function DashboardPage() {
 
   const net = NETWORKS[network];
 
+  const liveHere = isMine && !!health?.gatewayConnected && (health?.chainId == null || health.chainId === net.chainId);
+  // Is MY worker's container actually running on this machine? Driven by the FRESH
+  // docker-ps poll (localStatus): "running" (up), "stopped"/"missing"/"unknown"
+  // (Docker down) -> false, null until the first poll lands so it never flashes.
+  // We deliberately don't use the health reading here: it keeps its last good value
+  // when the container goes down, so it would falsely read "running".
+  const localRunning: boolean | null =
+    !isMine || !desktop || localStatus == null
+      ? null
+      : localStatus === "running"
+        ? true
+        : false;
+
   return (
     <div className="relative mx-auto max-w-4xl px-5 py-10">
       <div className="pointer-events-none absolute inset-x-0 -top-10 h-80 glow-radial opacity-60" />
@@ -215,10 +228,9 @@ export default function DashboardPage() {
             watched={has(worker.id)}
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
             localStatus={localStatus}
-            liveConfirmed={
-              isMine && !!health?.gatewayConnected && (health.chainId == null || health.chainId === net.chainId)
-            }
+            liveConfirmed={liveHere}
             onchainRegistered={onchainRegistered}
+            localRunning={localRunning}
           />
           {isMine && desktop && (
             <div className="mt-4">

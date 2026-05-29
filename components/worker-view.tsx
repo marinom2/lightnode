@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Coins,
   CheckCircle2,
@@ -54,12 +55,14 @@ export function healthOf(w: Worker): Health {
   return "down"; // deregistered (stake returned) or never registered
 }
 
-type Meta = { tone: "success" | "warning" | "danger"; label: string; hint: string };
+// `short` is the one-line summary shown by default (feel); `hint` is the full
+// explanation, revealed only on demand behind a "Why?" toggle (read).
+type Meta = { tone: "success" | "warning" | "danger"; label: string; short: string; hint: string };
 
 const HEALTH: Record<Health, Meta> = {
-  live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running; that's the local status." },
-  inactive: { tone: "warning", label: "Registered (inactive)", hint: "Registered on-chain (your stake is still locked) but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
-  down: { tone: "danger", label: "Not registered", hint: "Not registered on-chain: either deregistered (stake returned) or never started." },
+  live: { tone: "success", label: "Registered", short: "Registered and staked on-chain.", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running; that's the local status." },
+  inactive: { tone: "warning", label: "Registered (inactive)", short: "Registered, but not active right now.", hint: "Registered on-chain (your stake is still locked) but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
+  down: { tone: "danger", label: "Not registered", short: "Not registered on-chain.", hint: "Not registered on-chain: either deregistered (stake returned) or never started." },
 };
 
 const ONCHAIN_REGISTERED_HINT =
@@ -86,9 +89,10 @@ function resolveRegistrationMeta(args: {
   const indexDown = health === "down";
   if (registeredHere) {
     if (!indexDown) return HEALTH[health]; // index already shows live/inactive - keep the richer status
-    if (onchainRegistered === true) return { tone: "success", label: "Registered", hint: ONCHAIN_REGISTERED_HINT };
-    if (liveConfirmed) return { tone: "success", label: "Registered", hint: GATEWAY_REGISTERED_HINT };
-    return { tone: "success", label: "Live (index lagging)", hint: LOCAL_RUNNING_HINT };
+    const short = "Confirmed registered on-chain.";
+    if (onchainRegistered === true) return { tone: "success", label: "Registered", short, hint: ONCHAIN_REGISTERED_HINT };
+    if (liveConfirmed) return { tone: "success", label: "Registered", short, hint: GATEWAY_REGISTERED_HINT };
+    return { tone: "success", label: "Live (index lagging)", short: "Running and registered; the public index is catching up.", hint: LOCAL_RUNNING_HINT };
   }
   if (onchainRegistered === false) return HEALTH.down; // chain confirms it has exited, even if the index lags the other way
   return HEALTH[health];
@@ -199,10 +203,10 @@ function EarningsPanel({ worker, jobs }: { worker: Worker; jobs: Job[] }) {
 
       <p className="mt-3 text-[11px] leading-relaxed text-content-soft">
         {pending > 0
-          ? `${jobsDone} job(s) completed. Each reward is escrowed when the job finishes and moves into your settled balance once the network releases it, after a dispute window (the Operations panel shows the exact countdown). This is automatic, no action needed.`
+          ? `${jobsDone} completed. Rewards release automatically after the dispute window.`
           : hasActivity
-            ? "All completed jobs have settled. New rewards appear here automatically after each release cycle."
-            : "No completed jobs yet. Rewards appear here once your worker serves and finishes jobs."}
+            ? "All completed jobs have settled."
+            : "No completed jobs yet."}
       </p>
 
       <EarningsSparkline jobs={jobs} />
@@ -245,6 +249,7 @@ export function WorkerView({
   liveConfirmed = false,
   onchainRegistered = null,
   deadlineSec = 120,
+  localRunning = null,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -265,10 +270,17 @@ export function WorkerView({
   // (works for ANY worker, not just this machine's). true/false override the public
   // index; null means the chain read was unavailable, so fall back to the index.
   onchainRegistered?: boolean | null;
+  // Whether MY worker's container is actually running on this machine: true (up),
+  // false (stopped / Docker down), or null (not my worker, or not yet known). When
+  // false we show a clear "stopped, Restart" state and hide the stale active-job
+  // count - a registered-but-stopped worker is not processing anything.
+  localRunning?: boolean | null;
 }) {
+  const [showWhy, setShowWhy] = useState(false);
   const h = healthOf(worker);
   const stake = fromWei(worker.stake);
   const local = localStatus && localStatus !== "unknown" ? LOCAL[localStatus] : null;
+  const offlineHere = localRunning === false;
 
   // Registration truth, in priority order. A DEFINITIVE on-chain answer (true or
   // false) is authoritative and must win - including over a gateway/health reading,
@@ -309,11 +321,19 @@ export function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={cn("dot", h === "live" || registeredHere ? "dot-live" : h === "inactive" ? "dot-warn" : "dot-down")} />
+            <span className={cn("dot", offlineHere ? "dot-down" : h === "live" || registeredHere ? "dot-live" : h === "inactive" ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
-            {local && <Badge tone={local.tone}>{local.label}</Badge>}
-            {(worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
+            {/* Local run-state for MY worker takes priority; otherwise the watched-worker pill. */}
+            {localRunning === true ? (
+              <Badge tone="success">Running here</Badge>
+            ) : offlineHere ? (
+              <Badge tone="danger">Stopped here</Badge>
+            ) : (
+              local && <Badge tone={local.tone}>{local.label}</Badge>
+            )}
+            {/* A stopped worker can't be working, so don't show its stale acked-job count. */}
+            {!offlineHere && (worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={onToggleWatch}>
@@ -325,12 +345,19 @@ export function WorkerView({
             </Button>
           </div>
         </div>
-        <p className="mt-3 text-sm text-content-soft">{meta.hint}</p>
-        {local && localStatus === "stopped" && (
-          <p className="mt-2 flex items-start gap-2 text-sm text-warning">
+        {/* One-line status by default; the full explanation is one tap away. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-content-soft">
+          <span>{meta.short}</span>
+          <button onClick={() => setShowWhy((s) => !s)} className="text-xs font-medium text-primary hover:underline">
+            {showWhy ? "Hide" : "Why?"}
+          </button>
+        </div>
+        {showWhy && <p className="mt-2 text-xs leading-relaxed text-content-soft">{meta.hint}</p>}
+        {offlineHere && (
+          <p className="mt-3 flex items-start gap-2 text-sm text-warning">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            Your stake is still registered, but the container is stopped on this machine, so it is not earning. Use
-            Operations → Restart to bring it back online.
+            Stopped on this machine, so it is not earning. Your stake stays registered. Use Operations &rarr; Restart to
+            bring it back online.
           </p>
         )}
       </Card>
