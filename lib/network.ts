@@ -56,7 +56,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     workerImage:
       "us-central1-docker.pkg.dev/lightchain/lightchain-testnet-public-docker/worker:latest",
     workerRegistry: "0x0000000000000000000000000000000000001002",
-    aiConfig: "0x24D11533C354092ed6E18b964257819cE78Ce77D",
+    aiConfig: "0xeCF4Ca5Ba6D97ae586993e170764a1E92231b67e",
     jobRegistry: "0x531b3a87c5d785441b9cf55b98169f20fd9056a7",
     minStakeLcai: 5000,
     fundLcai: 5005,

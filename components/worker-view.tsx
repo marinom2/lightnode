@@ -28,9 +28,10 @@ type Health = "live" | "inactive" | "down";
 
 /**
  * Earnings split. A job's reward is escrowed while it sits in `Completed` and
- * only lands in `total_earned` once it flips to `Released` on the network's
- * release cycle (≈hourly, up to ~8h). So lifetime reward ≈ `jobs_completed ×
- * per-job share`; the part not yet in `total_earned` is "pending release".
+ * only lands in `total_earned` once it flips to `Released`, which happens after
+ * the on-chain dispute window (~24h) elapses, then in the worker's batched release
+ * cycle (~8h interval). So lifetime reward ≈ `jobs_completed × per-job share`; the
+ * part not yet in `total_earned` is "pending release".
  * (Verified identical on testnet + mainnet: Completed jobs read share 0,
  * Released jobs read the real 0.016 LCAI - it's a lifecycle state, not a gap.)
  */
