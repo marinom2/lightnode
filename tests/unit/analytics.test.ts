@@ -53,6 +53,10 @@ describe("aggregateModelStats", () => {
     expect(a.earnings).toBeCloseTo(0.032, 6);
   });
 
+  it("every job lands in exactly one outcome bucket (total reconciles)", () => {
+    for (const s of stats) expect(s.success + s.incomplete + s.inFlight + s.disputed).toBe(s.total);
+  });
+
   it("a recent acked job is in-flight (not stuck) and excluded from completion", () => {
     const recent = aggregateModelStats([{ id: "9", state: "Acknowledged", model_id: "0xAAA", ack_at: NOW - 60 }], MODELS, NOW);
     expect(recent[0].stuck).toBe(0);

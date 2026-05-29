@@ -269,7 +269,7 @@ function FunderSetup({ network, mode, onReady, registered }: { network: NetworkI
     } else {
       onReady(genAddr && funded ? genAddr : null);
     }
-  }, [mode, paste, genAddr, funded, onReady]);
+  }, [mode, paste, genAddr, funded, onReady, network]);
 
   if (mode === "paste") {
     return (
