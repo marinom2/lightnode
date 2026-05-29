@@ -190,9 +190,9 @@ export default function OnboardPage() {
             </span>
             <h2 className="text-xl font-semibold text-content-primary">Connect a funding wallet (optional)</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-content-soft">
-              Your worker gets its <span className="text-content-primary">own freshly-generated wallet</span> during setup -
-              that&apos;s what stakes and earns. Connect a wallet here only to <span className="text-content-primary">fund
-              that worker in one click</span> (it needs ≈ {NETWORKS[network].fundLcai.toLocaleString()} LCAI to stake).
+              Setup generates your worker its <span className="text-content-primary">own wallet</span> - that&apos;s what
+              stakes and earns. Connect one here only to <span className="text-content-primary">fund it in one click</span>{" "}
+              (≈ {NETWORKS[network].fundLcai.toLocaleString()} LCAI to stake).
             </p>
             <div className="mt-6 flex justify-center">
               <ConnectButton size="lg" />

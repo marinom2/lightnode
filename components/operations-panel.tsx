@@ -83,28 +83,28 @@ type Op = {
 };
 
 const OPS: Op[] = [
-  { key: "status", label: "Status", desc: "Local container health + recent log", icon: Activity, cmd: () => 'docker ps -a --filter name=lightchain-worker --format "container: {{.Status}}"; echo "--- recent log ---"; docker logs --tail 25 lightchain-worker 2>&1' },
-  { key: "restart", label: "Restart", desc: "Recover a stalled worker + re-arm the keep-online watchdog", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
-  { key: "stop", label: "Stop", desc: "Pause the worker container - Docker + model stay loaded for a fast restart (stake intact). For RAM back, use Free up memory.", icon: Square, cmd: () => `docker stop lightchain-worker` },
+  { key: "status", label: "Status", desc: "Health and recent log", icon: Activity, cmd: () => 'docker ps -a --filter name=lightchain-worker --format "container: {{.Status}}"; echo "--- recent log ---"; docker logs --tail 25 lightchain-worker 2>&1' },
+  { key: "restart", label: "Restart", desc: "Recover and keep it online", icon: RefreshCw, cmd: () => `docker restart lightchain-worker` },
+  { key: "stop", label: "Stop", desc: "Pause it; stake stays intact", icon: Square, cmd: () => `docker stop lightchain-worker` },
   { key: "tail", label: "Tail jobs", desc: "Live job log", icon: ScrollText, cmd: () => `docker logs -f --tail=50 lightchain-worker` },
   {
     key: "bench",
     label: "Speed test",
-    desc: "Benchmark this machine's inference speed against the job deadline",
+    desc: "Your speed vs the deadline",
     icon: Gauge,
     cmd: () => "",
   },
   {
     key: "settle",
     label: "Settle earnings",
-    desc: "Release completed jobs - pays your pending rewards now",
+    desc: "Release jobs and pay out",
     icon: Banknote,
     cmd: () => "",
   },
   {
     key: "dereg",
     label: "Deregister",
-    desc: "Exit + withdraw stake",
+    desc: "Exit and unlock your stake",
     icon: LogOut,
     danger: true,
     confirmWord: "deregister",
@@ -113,7 +113,7 @@ const OPS: Op[] = [
   {
     key: "freeup",
     label: "Free up memory",
-    desc: "Stop the worker, unload the model + quit Docker to give your machine its RAM back",
+    desc: "Stop everything, reclaim RAM",
     icon: Power,
     cmd: () => "",
   },
@@ -447,17 +447,15 @@ export function OperationsPanel() {
           <Coins className="mt-0.5 size-4 shrink-0 text-content-soft" />
           <span>
             {settlement.ready > 0 && (
-              <span className="font-medium text-success">{settlement.ready} job(s) ready to settle now. </span>
+              <span className="font-medium text-success">{settlement.ready} ready to settle now. </span>
             )}
             {settlement.waiting > 0 && (
               <>
-                <span className="font-medium text-content-primary">{settlement.waiting} completed job(s)</span> are in
-                LightChain&apos;s release hold (dispute window) - all claimable {etaText(settlement.allClaimableAt)}.{" "}
+                <span className="font-medium text-content-primary">{settlement.waiting} in release hold</span>, claimable{" "}
+                {etaText(settlement.allClaimableAt)}.{" "}
               </>
             )}
-            <span className="text-content-soft">
-              ≈ {(settlement.total * 0.016).toFixed(3)} LCAI pending. Settle releases the ready ones and pays you.
-            </span>
+            <span className="text-content-soft">≈ {(settlement.total * 0.016).toFixed(3)} LCAI pending.</span>
           </span>
         </div>
       )}
@@ -611,8 +609,7 @@ export function OperationsPanel() {
       )}
 
       <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
-        <ShieldAlert className="size-3.5 text-warning" /> Deregister exits the network and unlocks your stake. To move
-        funds out, use Withdraw Funds below. Stake stays locked until you deregister.
+        <ShieldAlert className="size-3.5 text-warning" /> Deregister first to unlock your stake, then Withdraw to move it out.
       </p>
 
       {/* In-app confirmation (window.confirm is a no-op in the desktop webview). */}

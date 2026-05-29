@@ -191,21 +191,18 @@ export function WorkerHealthPanel({
         <Stat icon={Hourglass} label="Pending release" value={`${h.releasePending ?? 0}`} sub="awaiting settle" />
       </div>
       {h.modelMemBytes === 0 && (
-        <p className="relative mt-2 text-[11px] text-content-soft">
-          Model is cold (unloaded while idle). It warms on the next job or when the keep-online watchdog runs - a cold
-          first job just loads a bit slower.
-        </p>
+        <p className="relative mt-2 text-[11px] text-content-soft">Model is cold; the first job loads a little slower.</p>
       )}
-      <p className="relative mt-2 text-[11px] text-content-soft">
-        Live from the worker on this machine, refreshed every few seconds. Jobs completed + earnings tick up in the cards
-        above.
-      </p>
-      <p className="relative mt-1.5 flex items-start gap-1.5 text-[11px] text-content-soft">
-        <Sparkles className="mt-0.5 size-3 shrink-0 text-warning" />
-        For 24/7 uptime, run on a machine that won&apos;t sleep - a Linux server is ideal. On a laptop, keep it plugged in
-        with the lid open; on battery or with the lid closed the OS sleeps, which pauses the worker (uptime above resets)
-        until it wakes and the watchdog restarts it.
-      </p>
+      <details className="relative mt-2 text-[11px] text-content-soft">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 font-medium hover:text-content-primary [&::-webkit-details-marker]:hidden">
+          <Sparkles className="size-3 text-warning" /> Keeping it online 24/7
+        </summary>
+        <p className="mt-1.5 leading-relaxed">
+          Run on a machine that won&apos;t sleep; a Linux server is ideal. On a laptop, keep it plugged in with the lid
+          open. On battery or with the lid closed, the OS sleeps and pauses the worker until it wakes and the watchdog
+          restarts it.
+        </p>
+      </details>
     </Card>
   );
 }
