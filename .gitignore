@@ -11,3 +11,6 @@ next-env.d.ts
 /coverage
 /.vercel
 .vercel
+
+# SDK build output
+sdk/dist
