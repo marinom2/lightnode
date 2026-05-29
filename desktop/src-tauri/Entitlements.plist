@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Team-shared keychain access group. The prefix is our Apple Team ID, so the
+       OS grants prompt-free access to every binary we sign with this identity.
+       This is the only entitlement we add; the app otherwise runs under the
+       hardened runtime with the default (empty) entitlement set, as before. -->
+  <key>keychain-access-groups</key>
+  <array>
+    <string>84SJ6FKXLJ.ai.lightchain.lightnode</string>
+  </array>
+</dict>
+</plist>
