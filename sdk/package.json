@@ -13,15 +13,27 @@
     }
   },
   "bin": {
-    "lightnode": "./dist/cli.js"
+    "lightnode": "dist/cli.js"
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["lightchain", "lightchain-ai", "ai", "worker", "web3", "evm", "sdk"],
+  "keywords": [
+    "lightchain",
+    "lightchain-ai",
+    "ai",
+    "worker",
+    "web3",
+    "evm",
+    "sdk"
+  ],
   "author": "KykyRykyPaloma",
   "license": "MIT",
   "repository": {
