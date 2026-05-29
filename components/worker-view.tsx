@@ -53,11 +53,45 @@ export function healthOf(w: Worker): Health {
   return "down"; // deregistered (stake returned) or never registered
 }
 
-const HEALTH: Record<Health, { tone: "success" | "warning" | "danger"; label: string; hint: string }> = {
+type Meta = { tone: "success" | "warning" | "danger"; label: string; hint: string };
+
+const HEALTH: Record<Health, Meta> = {
   live: { tone: "success", label: "Registered", hint: "Registered & staked on-chain (stays this way until you deregister). This does not mean the container is running; that's the local status." },
   inactive: { tone: "warning", label: "Registered · inactive", hint: "Registered on-chain (your stake is still locked) but not currently active. The usual cause is the stake dropping below the minimum after a slash (see below), or the worker being offline. It is NOT deregistered." },
   down: { tone: "danger", label: "Not registered", hint: "Not registered on-chain: either deregistered (stake returned) or never started." },
 };
+
+const ONCHAIN_REGISTERED_HINT =
+  "Confirmed on-chain: this worker is registered and staked in the WorkerRegistry (read straight from the chain). The public subgraph still lists it as not-registered because its index lags - after a deregister -> re-register it can stay out of sync for a while. That's a display delay, not a problem with the worker.";
+const GATEWAY_REGISTERED_HINT =
+  "Confirmed on-chain: your worker is registered and authenticated with the gateway (the Live health panel below is the real state). The public subgraph still lists it as not-registered - its index lags, and after a deregister -> re-register it can stay out of sync for a while. That's a display delay, not a problem with your worker.";
+const LOCAL_RUNNING_HINT =
+  "Your worker is running on this machine with its stake locked on-chain, so it IS registered and can take jobs - the Live health panel below is the real state. The public subgraph still lists it as not-registered; that indexer lags. It's a display delay, not a problem with your worker.";
+
+/**
+ * Resolve the registration badge from the most trustworthy signal available.
+ * On-chain truth (read from the registry's events, works for ANY worker) beats the
+ * public index, which can stay stuck on "deregistered" after a deregister ->
+ * re-register cycle. Falls back to gateway auth / a running local container only
+ * when the chain read is unavailable.
+ */
+function resolveRegistrationMeta(args: {
+  health: Health;
+  registeredHere: boolean;
+  onchainRegistered: boolean | null;
+  liveConfirmed: boolean;
+}): Meta {
+  const { health, registeredHere, onchainRegistered, liveConfirmed } = args;
+  const indexDown = health === "down";
+  if (registeredHere) {
+    if (!indexDown) return HEALTH[health]; // index already shows live/inactive - keep the richer status
+    if (onchainRegistered === true) return { tone: "success", label: "Registered", hint: ONCHAIN_REGISTERED_HINT };
+    if (liveConfirmed) return { tone: "success", label: "Registered", hint: GATEWAY_REGISTERED_HINT };
+    return { tone: "success", label: "Live · index lagging", hint: LOCAL_RUNNING_HINT };
+  }
+  if (onchainRegistered === false) return HEALTH.down; // chain confirms it has exited, even if the index lags the other way
+  return HEALTH[health];
+}
 
 /** Cumulative settled-earnings sparkline (Released jobs only; no chart lib). */
 function EarningsSparkline({ jobs }: { jobs: Job[] }) {
@@ -191,6 +225,7 @@ export function WorkerView({
   onToggleWatch,
   localStatus,
   liveConfirmed = false,
+  onchainRegistered = null,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -204,6 +239,10 @@ export function WorkerView({
   // registered on-chain (the gateway only admits registered workers), regardless of
   // what the public subgraph's index says.
   liveConfirmed?: boolean;
+  // Authoritative registration read straight from the chain's WorkerRegistry events
+  // (works for ANY worker, not just this machine's). true/false override the public
+  // index; null means the chain read was unavailable, so fall back to the index.
+  onchainRegistered?: boolean | null;
 }) {
   const h = healthOf(worker);
   const stake = fromWei(worker.stake);
@@ -211,25 +250,15 @@ export function WorkerView({
 
   // The public subgraph can disagree with the chain: it lags a fresh registration,
   // and after a deregister -> re-register cycle it can stay stuck on "deregistered"
-  // indefinitely. So when it says "down" we prefer ground truth: gateway-authenticated
-  // (liveConfirmed) is proof of registration; a running container here is strong
-  // evidence. Only fall back to the subgraph's status when we have neither.
+  // indefinitely. So we prefer ground truth in this order: the chain (onchainRegistered,
+  // valid for any worker), gateway auth (liveConfirmed, our machine), then a running
+  // container here. Only fall back to the index when we have none of those.
   const subgraphDown = h === "down";
-  const registeredHere = liveConfirmed || (subgraphDown && localStatus === "running");
-  const meta =
-    subgraphDown && liveConfirmed
-      ? {
-          tone: "success" as const,
-          label: "Registered",
-          hint: "Confirmed on-chain: your worker is registered and authenticated with the gateway (the Live health panel below is the real state). The public subgraph still lists it as not-registered - its index lags, and after a deregister -> re-register it can stay out of sync for a while. That's a display delay, not a problem with your worker.",
-        }
-      : subgraphDown && registeredHere
-        ? {
-            tone: "success" as const,
-            label: "Live · index lagging",
-            hint: "Your worker is running on this machine with its stake locked on-chain, so it IS registered and can take jobs - the Live health panel below is the real state. The public subgraph still lists it as not-registered; that indexer lags, and after a deregister -> re-register it can stay out of sync for a long while. It's a display delay, not a problem with your worker.",
-      }
-    : HEALTH[h];
+  const registeredHere =
+    onchainRegistered === true ||
+    liveConfirmed ||
+    (subgraphDown && onchainRegistered == null && localStatus === "running");
+  const meta = resolveRegistrationMeta({ health: h, registeredHere, onchainRegistered, liveConfirmed });
 
   const completed = worker.jobs_completed ?? 0;
   const attempted = completed + (worker.jobs_timed_out ?? 0) + (worker.disputes_lost ?? 0);
@@ -258,7 +287,7 @@ export function WorkerView({
       <Card className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className={cn("dot", h === "live" || liveConfirmed ? "dot-live" : h === "inactive" || (subgraphDown && registeredHere) ? "dot-warn" : "dot-down")} />
+            <span className={cn("dot", h === "live" || registeredHere ? "dot-live" : h === "inactive" ? "dot-warn" : "dot-down")} />
             <span className="font-mono text-sm text-content-primary">{shortAddr(worker.id)}</span>
             <Badge tone={meta.tone}>{meta.label}</Badge>
             {local && <Badge tone={local.tone}>{local.label}</Badge>}

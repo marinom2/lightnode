@@ -40,6 +40,9 @@ export default function DashboardPage() {
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [models, setModels] = useState<ServedModel[]>([]);
+  // Registration read straight from the chain by /api/worker (works for ANY worker).
+  // Corrects the public index when it's stuck on a stale "deregistered".
+  const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [localStatus, setLocalStatus] = useState<LocalContainerStatus | null>(null);
@@ -66,6 +69,7 @@ export default function DashboardPage() {
         setWorker(r.worker);
         setJobs(Array.isArray(r.jobs) ? r.jobs : []);
         setModels(Array.isArray(r.models) ? r.models : []);
+        setOnchainRegistered(typeof r.onchainRegistered === "boolean" ? r.onchainRegistered : null);
         // NOTE: viewing a worker here does NOT make it "My worker". The managed
         // worker is the one the app holds the key for (resolved above); viewing
         // any watchlisted worker is read-only, so it can't clobber the address
@@ -74,6 +78,7 @@ export default function DashboardPage() {
         setError((e as Error).message);
         setWorker(undefined);
         setJobs([]);
+        setOnchainRegistered(null);
       } finally {
         setLoading(false);
       }
@@ -213,6 +218,7 @@ export default function DashboardPage() {
             liveConfirmed={
               isMine && !!health?.gatewayConnected && (health.chainId == null || health.chainId === net.chainId)
             }
+            onchainRegistered={onchainRegistered}
           />
           {isMine && desktop && (
             <div className="mt-4">

@@ -22,6 +22,9 @@ export default function WorkerPage() {
 
   const [worker, setWorker] = useState<Worker | null | undefined>(undefined);
   const [jobs, setJobs] = useState<Job[]>([]);
+  // Registration read straight from the chain (works for any worker a visitor opens),
+  // so this shareable page shows the right status even when the index is stale.
+  const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
   const [error, setError] = useState("");
 
   const valid = /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -36,6 +39,7 @@ export default function WorkerPage() {
       if (!r.ok) throw new Error(r.error || "lookup failed");
       setWorker(r.worker);
       setJobs(Array.isArray(r.jobs) ? r.jobs : []);
+      setOnchainRegistered(typeof r.onchainRegistered === "boolean" ? r.onchainRegistered : null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -89,6 +93,7 @@ export default function WorkerPage() {
             minStake={net.minStakeLcai}
             watched={has(worker.id)}
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
+            onchainRegistered={onchainRegistered}
           />
         </div>
       )}
