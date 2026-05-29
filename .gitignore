@@ -21,3 +21,4 @@ CAPABILITIES.md
 
 # Local-only test wallets (NEVER commit)
 .test-wallets.json
+test-live-inference.mjs
