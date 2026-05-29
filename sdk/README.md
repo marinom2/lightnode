@@ -82,7 +82,7 @@ npx lightnode reliability --csv           # per-worker reliability (CSV)
 
 `estimateFee` + `modelId` + the exported `JOB_REGISTRY_CONSUMER_ABI` give you the
 on-chain primitives. The full submit is a multi-step, encrypted flow and is **not
-bundled** here (it's a large, currently-undocumented protocol surface — shipping it
+bundled** here (it's a large, currently-undocumented protocol surface; shipping it
 half-tested would be worse than pointing you at the verified reference):
 
 1. `createSession(modelId, worker, encWorkerKey, encDisputerKey, dispatcherSig, expiry)` on the JobRegistry.
