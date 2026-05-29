@@ -58,12 +58,25 @@ export interface ModelStat {
   modelId: string;
   name: string;
   total: number;
+  success: number; // Completed + Released + Resolved
+  timedOut: number; // explicit TimedOut
+  stuck: number; // acked but never completed past the stuck window
+  disputed: number;
+  inFlight: number; // genuinely in progress
+  incomplete: number; // timedOut + stuck
+  completionRate: number | null; // success / (success + incomplete + disputed)
+  p50: number | null;
+  p95: number | null;
+  earnings: number;
+}
+
+export interface NetworkAnalytics {
+  models: number;
+  jobs: number;
   success: number;
-  timedOut: number;
+  incomplete: number;
   disputed: number;
   inFlight: number;
   completionRate: number | null;
-  p50: number | null;
-  p95: number | null;
   earnings: number;
 }

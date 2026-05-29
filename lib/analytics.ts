@@ -6,20 +6,28 @@ export interface ModelStat {
   modelId: string;
   name: string;
   total: number; // jobs seen in the window
-  success: number; // Completed + Released
-  timedOut: number;
+  success: number; // Completed + Released + Resolved
+  timedOut: number; // explicit TimedOut state
+  stuck: number; // Acknowledged but never completed past the stuck window (de-facto failures)
   disputed: number;
-  inFlight: number; // Submitted + Acknowledged (not yet resolved)
-  completionRate: number | null; // success / (resolved); null when nothing resolved yet
+  inFlight: number; // genuinely in progress (recent Submitted/Acknowledged)
+  incomplete: number; // timedOut + stuck (taken but not finished)
+  completionRate: number | null; // success / (success + incomplete + disputed); null when nothing resolved
   p50: number | null; // ack -> completed latency, seconds
   p95: number | null;
   earnings: number; // LCAI summed over released jobs for this model
 }
 
-const isSuccess = (s: string) => /complet|releas/i.test(s);
+// A job acked this long ago without completing has missed every deadline (the job
+// deadline is ~120s) and is effectively a failure, even though the indexer often
+// leaves it in "Acknowledged" rather than transitioning it to "TimedOut".
+const STUCK_SEC = 600;
+
+const isSuccess = (s: string) => /complet|releas|resolv/i.test(s);
 const isTimedOut = (s: string) => /timed?[ _-]*out|timeout/i.test(s);
 const isDisputed = (s: string) => /disput/i.test(s);
-const isInFlight = (s: string) => /submit|acknowled|ack/i.test(s);
+const isAcked = (s: string) => /acknowled|ack/i.test(s);
+const isSubmitted = (s: string) => /submit/i.test(s);
 
 /** Nearest-rank percentile of an ascending-sorted array (null if empty). */
 export function percentile(sortedAsc: number[], p: number): number | null {
@@ -28,8 +36,15 @@ export function percentile(sortedAsc: number[], p: number): number | null {
   return sortedAsc[Math.min(sortedAsc.length - 1, Math.max(0, rank - 1))];
 }
 
-/** Aggregate a window of network jobs into per-model performance, busiest first. */
-export function aggregateModelStats(jobs: Job[], models: ModelInfo[]): ModelStat[] {
+/**
+ * Aggregate a window of network jobs into per-model performance, busiest first.
+ * `nowSec` lets the caller (and tests) classify stuck jobs deterministically.
+ */
+export function aggregateModelStats(
+  jobs: Job[],
+  models: ModelInfo[],
+  nowSec: number = Math.floor(Date.now() / 1000),
+): ModelStat[] {
   const nameById = new Map(models.map((m) => [m.id.toLowerCase(), m.name]));
   const byModel = new Map<string, { jobs: Job[]; latencies: number[] }>();
   for (const j of jobs) {
@@ -48,19 +63,25 @@ export function aggregateModelStats(jobs: Job[], models: ModelInfo[]): ModelStat
   for (const [id, e] of byModel) {
     let success = 0;
     let timedOut = 0;
+    let stuck = 0;
     let disputed = 0;
     let inFlight = 0;
     let earnings = 0;
     for (const j of e.jobs) {
       const s = j.state || "";
-      // Order matters: a job is success XOR timeout XOR dispute XOR in-flight.
       if (isSuccess(s)) success++;
       else if (isTimedOut(s)) timedOut++;
       else if (isDisputed(s)) disputed++;
-      else if (isInFlight(s)) inFlight++;
+      else if (isAcked(s)) {
+        // Acked but not completed: stuck if past the window (the indexer rarely
+        // moves these to TimedOut, so we'd otherwise undercount failures).
+        if (j.ack_at && nowSec - j.ack_at > STUCK_SEC) stuck++;
+        else inFlight++;
+      } else if (isSubmitted(s)) inFlight++;
       earnings += fromWei(j.worker_share);
     }
-    const resolved = success + timedOut + disputed;
+    const incomplete = timedOut + stuck;
+    const resolved = success + incomplete + disputed;
     const lat = e.latencies.slice().sort((a, b) => a - b);
     out.push({
       modelId: id,
@@ -68,8 +89,10 @@ export function aggregateModelStats(jobs: Job[], models: ModelInfo[]): ModelStat
       total: e.jobs.length,
       success,
       timedOut,
+      stuck,
       disputed,
       inFlight,
+      incomplete,
       completionRate: resolved > 0 ? success / resolved : null,
       p50: percentile(lat, 50),
       p95: percentile(lat, 95),
@@ -79,13 +102,45 @@ export function aggregateModelStats(jobs: Job[], models: ModelInfo[]): ModelStat
   return out.sort((a, b) => b.total - a.total);
 }
 
+/** Network-wide rollup across all models (the dashboard headline). */
+export interface NetworkAnalytics {
+  models: number;
+  jobs: number;
+  success: number;
+  incomplete: number;
+  disputed: number;
+  inFlight: number;
+  completionRate: number | null;
+  earnings: number;
+}
+
+export function networkAnalytics(stats: ModelStat[]): NetworkAnalytics {
+  const sum = (f: (s: ModelStat) => number) => stats.reduce((a, s) => a + f(s), 0);
+  const success = sum((s) => s.success);
+  const incomplete = sum((s) => s.incomplete);
+  const disputed = sum((s) => s.disputed);
+  const resolved = success + incomplete + disputed;
+  return {
+    models: stats.length,
+    jobs: sum((s) => s.total),
+    success,
+    incomplete,
+    disputed,
+    inFlight: sum((s) => s.inFlight),
+    completionRate: resolved > 0 ? success / resolved : null,
+    earnings: sum((s) => s.earnings),
+  };
+}
+
 /** Flatten per-model stats to CSV (for the explorer's export button). */
 export function modelStatsCsv(stats: ModelStat[]): string {
   const head = [
     "model",
     "jobs",
     "success",
+    "incomplete",
     "timed_out",
+    "stuck",
     "disputed",
     "in_flight",
     "completion_rate_pct",
@@ -97,7 +152,9 @@ export function modelStatsCsv(stats: ModelStat[]): string {
     s.name,
     s.total,
     s.success,
+    s.incomplete,
     s.timedOut,
+    s.stuck,
     s.disputed,
     s.inFlight,
     s.completionRate != null ? Math.round(s.completionRate * 100) : "",

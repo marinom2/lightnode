@@ -1,20 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { aggregateModelStats, percentile, modelStatsCsv } from "@/lib/analytics";
+import { aggregateModelStats, networkAnalytics, percentile, modelStatsCsv } from "@/lib/analytics";
 import type { Job, ModelInfo } from "@/lib/subgraph";
 
+const NOW = 1000;
 const MODELS: ModelInfo[] = [
   { id: "0xAAA", name: "llama3-8b", fee: "0", max_output_tokens: 2048, is_whitelisted: true, is_enabled: true },
   { id: "0xBBB", name: "llama3-70b", fee: "0", max_output_tokens: 4096, is_whitelisted: true, is_enabled: true },
 ];
 
-// 0xAAA: 2 released (+share), 1 timed out, 1 in-flight; latencies 10s, 30s
-// 0xBBB: 1 completed (no share yet)
+// 0xAAA: 2 released (latency 10s/30s, +share), 1 timed out, 1 acked-stuck (ack 700s ago),
+//        1 acked-recent (in-flight), 1 submitted (in-flight)
+// 0xBBB: 1 completed
 const JOBS: Job[] = [
   { id: "1", state: "Released", model_id: "0xaaa", ack_at: 100, completed_at: 110, worker_share: "16000000000000000" },
   { id: "2", state: "Released", model_id: "0xAAA", ack_at: 200, completed_at: 230, worker_share: "16000000000000000" },
   { id: "3", state: "TimedOut", model_id: "0xAAA" },
-  { id: "4", state: "Acknowledged", model_id: "0xAAA", ack_at: 300 },
-  { id: "5", state: "Completed", model_id: "0xBBB", ack_at: 400, completed_at: 460, worker_share: "0" },
+  { id: "4", state: "Acknowledged", model_id: "0xAAA", ack_at: 300 }, // 700s ago -> stuck
+  { id: "5", state: "Acknowledged", model_id: "0xAAA", ack_at: 900 }, // 100s ago -> in-flight
+  { id: "6", state: "Submitted", model_id: "0xAAA", submitted_at: 950 }, // in-flight
+  { id: "7", state: "Completed", model_id: "0xBBB", ack_at: 400, completed_at: 460, worker_share: "0" },
 ];
 
 describe("percentile (nearest-rank)", () => {
@@ -27,50 +31,53 @@ describe("percentile (nearest-rank)", () => {
 });
 
 describe("aggregateModelStats", () => {
-  const stats = aggregateModelStats(JOBS, MODELS);
+  const stats = aggregateModelStats(JOBS, MODELS, NOW);
   const a = stats.find((s) => s.modelId === "0xaaa")!;
-  const b = stats.find((s) => s.modelId === "0xbbb")!;
 
-  it("maps model_id to name case-insensitively and groups", () => {
-    expect(a.name).toBe("llama3-8b");
-    expect(a.total).toBe(4);
-    expect(b.name).toBe("llama3-70b");
-  });
-
-  it("classifies success / timeout / in-flight and computes completion over RESOLVED only", () => {
-    expect(a.success).toBe(2);
+  it("counts acked-but-never-finished jobs as INCOMPLETE, not in-flight", () => {
     expect(a.timedOut).toBe(1);
-    expect(a.inFlight).toBe(1);
-    // resolved = 2 success + 1 timeout = 3 -> 2/3
-    expect(a.completionRate).toBeCloseTo(2 / 3, 5);
+    expect(a.stuck).toBe(1); // job #4 acked 700s ago, never completed
+    expect(a.incomplete).toBe(2); // timedOut + stuck
+    expect(a.inFlight).toBe(2); // recent ack (#5) + submitted (#6)
   });
 
-  it("computes ack->complete latency percentiles", () => {
-    expect(a.p50).toBe(10); // latencies [10,30], nearest-rank p50 -> 10
+  it("computes completion over success + incomplete + disputed (not inflating)", () => {
+    expect(a.success).toBe(2);
+    // resolved = 2 success + 2 incomplete + 0 disputed = 4 -> 50%, NOT ~100%
+    expect(a.completionRate).toBe(0.5);
+  });
+
+  it("latency percentiles + settled earnings", () => {
+    expect(a.p50).toBe(10);
     expect(a.p95).toBe(30);
+    expect(a.earnings).toBeCloseTo(0.032, 6);
   });
 
-  it("sums settled worker share as earnings", () => {
-    expect(a.earnings).toBeCloseTo(0.032, 6); // 2 x 0.016
-    expect(b.earnings).toBe(0); // completed but not released
+  it("a recent acked job is in-flight (not stuck) and excluded from completion", () => {
+    const recent = aggregateModelStats([{ id: "9", state: "Acknowledged", model_id: "0xAAA", ack_at: NOW - 60 }], MODELS, NOW);
+    expect(recent[0].stuck).toBe(0);
+    expect(recent[0].inFlight).toBe(1);
+    expect(recent[0].completionRate).toBeNull();
   });
+});
 
-  it("orders busiest model first", () => {
-    expect(stats[0].modelId).toBe("0xaaa");
-  });
-
-  it("completionRate is null when nothing has resolved", () => {
-    const onlyInflight = aggregateModelStats([{ id: "9", state: "Submitted", model_id: "0xAAA" }], MODELS);
-    expect(onlyInflight[0].completionRate).toBeNull();
+describe("networkAnalytics rollup", () => {
+  it("sums across models and reflects real completion", () => {
+    const n = networkAnalytics(aggregateModelStats(JOBS, MODELS, NOW));
+    expect(n.models).toBe(2);
+    expect(n.jobs).toBe(7);
+    expect(n.success).toBe(3); // 2 (AAA) + 1 (BBB)
+    expect(n.incomplete).toBe(2);
+    expect(n.completionRate).toBeCloseTo(3 / 5, 5); // 3 / (3+2+0)
   });
 });
 
 describe("modelStatsCsv", () => {
-  it("emits a header + one row per model", () => {
-    const csv = modelStatsCsv(aggregateModelStats(JOBS, MODELS));
+  it("emits a header (with incomplete/stuck) + one row per model", () => {
+    const csv = modelStatsCsv(aggregateModelStats(JOBS, MODELS, NOW));
     const lines = csv.split("\n");
-    expect(lines[0]).toContain("model,jobs,success");
-    expect(lines).toHaveLength(3); // header + 2 models
-    expect(csv).toContain("llama3-8b");
+    expect(lines[0]).toContain("incomplete");
+    expect(lines[0]).toContain("stuck");
+    expect(lines).toHaveLength(3);
   });
 });

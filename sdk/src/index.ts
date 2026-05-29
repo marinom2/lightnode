@@ -9,7 +9,7 @@ import {
   fromWei,
 } from "./subgraph.js";
 import { isRegistered } from "./onchain.js";
-import { aggregateModelStats } from "./analytics.js";
+import { aggregateModelStats, networkAnalytics } from "./analytics.js";
 import type {
   NetworkId,
   NetworkConfig,
@@ -18,6 +18,7 @@ import type {
   ModelInfo,
   NetworkStats,
   ModelStat,
+  NetworkAnalytics,
 } from "./types.js";
 
 /**
@@ -66,10 +67,15 @@ export class LightNode {
     return summarize(workers, models);
   }
 
-  /** Per-model performance over the last `sample` jobs (completion, p50/p95, disputes, earnings). */
+  /** Per-model performance over the last `sample` jobs (completion, p50/p95, incomplete, disputes, earnings). */
   async getModelStats(sample = 1000): Promise<ModelStat[]> {
     const [jobs, models] = await Promise.all([fetchRecentJobs(this.network, sample), fetchModels(this.network)]);
     return aggregateModelStats(jobs, models);
+  }
+
+  /** Network-wide rollup across all models over the last `sample` jobs. */
+  async getNetworkAnalytics(sample = 1000): Promise<NetworkAnalytics> {
+    return networkAnalytics(await this.getModelStats(sample));
   }
 
   /**
@@ -88,5 +94,5 @@ export class LightNode {
   }
 }
 
-export { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS, aggregateModelStats, fromWei };
-export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat };
+export { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS, aggregateModelStats, networkAnalytics, fromWei };
+export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, NetworkAnalytics };
