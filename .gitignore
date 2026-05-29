@@ -14,3 +14,6 @@ next-env.d.ts
 
 # SDK build output
 sdk/dist
+
+# Local-only owner doc (strategy/QA)
+QA-AND-BUSINESS.md
