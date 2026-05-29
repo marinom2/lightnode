@@ -135,6 +135,28 @@ export function diagnoseFailure(cleaned: string[]): string | null {
   if (/Docker engine didn.?t come up|Docker.*not.*running/i.test(text)) {
     return "Docker did not start in time. Open Docker Desktop once so it is running, then run install again.";
   }
+  // Install-time keystore-password mismatch sentinel emitted by both Windows + bash
+  // runners when a previous attempt left an encrypted key on disk and the password
+  // entered this session doesn't decrypt it. The runner has already tried every
+  // saved slot at this point; the only fix is the user's original password or
+  // generating a fresh worker via Recover a replaced key.
+  if (/keystore-password-mismatch/i.test(text)) {
+    return (
+      "An existing worker key for this address is on this device, but the password set this session doesn't match the one used when it was first created. " +
+      "Re-enter the original password to continue with the same worker, or open Recover a replaced key on the dashboard to switch to a different worker."
+    );
+  }
+  // Funding-gate sentinel from the pre-register balance check (~90s wait). When it
+  // fires the worker wallet really is empty after the grace period; nothing on
+  // disk needs to change, just send the LCAI and re-run.
+  if (/funding-gate timeout/i.test(text)) {
+    const addr = extractWorkerAddress(cleaned);
+    const explorer = explorerFor(extractNetwork(cleaned));
+    const linkBit = addr
+      ? `Open ${explorer}/address/${addr} to confirm the funding tx, then run install again - your existing setup is reused.`
+      : "Confirm the funding tx on the explorer, then run install again - your existing setup is reused.";
+    return `The worker wallet was still empty after the wait. ${linkBit}`;
+  }
   // Generic register-failure fallback: we got far enough to attempt register (or
   // the register wrapper's status check ran) but the worker never came online and
   // no specific revert pattern matched. The far-and-away most common real cause

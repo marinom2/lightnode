@@ -136,6 +136,28 @@ describe("deriveInstallView", () => {
     ).toMatch(/Docker did not start/);
   });
 
+  it("diagnoses the keystore-password-mismatch sentinel with a Recover hint", () => {
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev x (mainnet)",
+      "▶ funding worker: send to 0xEFd1bAE7ed03dcf6b8b79ef601cdda19f1e15cec",
+      "⛔ keystore-password-mismatch: an existing worker key for 0xEFd1bAE7… is on this device, but the password set this session does not decrypt it.",
+    ])!;
+    expect(hint).toMatch(/password.*does(n't| not) match|password set this session/i);
+    expect(hint).toMatch(/Recover a replaced key/);
+  });
+
+  it("diagnoses the funding-gate timeout with the worker's explorer link", () => {
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev x (mainnet)",
+      "▶ funding worker: send to 0xEFd1bAE7ed03dcf6b8b79ef601cdda19f1e15cec",
+      "⛔ funding-gate timeout: worker wallet at 0xEFd1bAE7… still has only 0.0 LCAI.",
+    ])!;
+    expect(hint).toMatch(/wallet was still empty/);
+    expect(hint).toContain("mainnet.lightscan.app");
+    expect(hint).toContain("0xEFd1bAE7ed03dcf6b8b79ef601cdda19f1e15cec");
+    expect(hint).toMatch(/existing setup is reused/);
+  });
+
   it("specific insufficient-balance message still wins over the generic fallback", () => {
     const hint = diagnoseFailure([
       "▶ funding worker: send to 0xEFd1bAE7ed03dcf6b8b79ef601cdda19f1e15cec",

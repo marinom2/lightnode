@@ -21,7 +21,7 @@ import { detectClientOS } from "@/lib/os-detect";
 import { isDesktop, runSetupStreamed, generateWorkerKey, localWorkerInfo, openExternal, type LocalWorkerInfo } from "@/lib/tauri";
 import { shortAddr } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
+import { getSecret, setSecret, getWorkerAddr, setWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, migrateBareWorkerKey, archiveRetiredWorker, nativeSecretsAvailable, getKeystorePasswordCandidates, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { fetchWorker } from "@/lib/subgraph";
 
@@ -710,12 +710,28 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
     // reuses its recorded set (so we don't silently change what it serves).
     const installModels = showAlready ? (getServedModels(network).length ? getServedModels(network) : [DEFAULT_MODEL]) : models;
     setServedModels(network, installModels);
+    // Every password slot that has ever been saved for a worker on this device,
+    // newest-first. The runner tries each against the on-disk keystore before
+    // phase 07-register so a retry under a different session password (which
+    // would otherwise leave the on-disk keystore undecryptable and the register
+    // tx unsignable) just resolves and proceeds. Mirrors how settle/deregister/
+    // withdraw already operate.
+    const candidates = await getKeystorePasswordCandidates(network);
+    const altSlots: Record<string, string> = {};
+    let altI = 0;
+    for (const cand of candidates) {
+      if (cand === pwVal) continue;
+      altI += 1;
+      if (altI > 3) break;
+      altSlots[`WORKER_PASSWORD_ALT${altI}`] = cand;
+    }
     const env: Record<string, string> = {
       NETWORK: network,
       SUPPORTED_MODELS: installModels.join(","),
       WORKER_PASSWORD: pwVal,
       WORKER_ADDR: target,
       ...(k ? { WORKER_PRIVKEY: k } : {}),
+      ...altSlots,
     };
     // The final phase (08-run-worker) starts the container detached and then
     // TAILS its logs (`docker logs -f`), which never returns - so the install

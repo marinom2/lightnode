@@ -282,6 +282,12 @@ echo "✓ Foundry (cast) ready"`;
  *  wallet, so there's no separate funder and no phase 00/06. */
 function unixInstall(network: NetworkId, models: string[]): string {
   const chainId = NETWORKS[network].chainId;
+  const minStake = NETWORKS[network].minStakeLcai;
+  const rpc = NETWORKS[network].rpc;
+  const explorer = NETWORKS[network].explorer;
+  // Threshold for the funding gate: min stake + 0.5 LCAI gas cushion, in wei.
+  // BigInt because the value overflows JS Number for mainnet (50_000.5 * 1e18).
+  const thrWei = (BigInt(minStake) * 10n ** 18n + 5n * 10n ** 17n).toString();
   const list = models.length ? models : [DEFAULT_MODEL];
   const supported = list.join(","); // SUPPORTED_MODELS the worker advertises
   const shellList = list.map((m) => `"${m}"`).join(" "); // for `for M in ...` loops
@@ -385,7 +391,54 @@ function unixInstall(network: NetworkId, models: string[]): string {
     'if bash -c "declare -A _t" 2>/dev/null; then RUNBASH=bash; else echo "▶ system bash is too old for the toolkit - installing bash 4+ via brew"; brew install bash >/dev/null 2>&1 || true; RUNBASH="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
     '"$RUNBASH" -c "declare -A _t" 2>/dev/null || { echo "⛔ The toolkit needs bash 4+. Run: brew install bash, then retry."; exit 1; }',
     'echo "✓ phase shell: $("$RUNBASH" --version | head -1)"',
-    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then ST="$(WORKER_PASSWORD="$WORKER_PASSWORD" "$RUNBASH" status.sh 2>&1 || true)"; if printf '%s\\n' "$ST" | grep -qi "registered" && ! printf '%s\\n' "$ST" | grep -qiE "not[ _-]*registered"; then echo "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue; fi; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    // ──────────────────────────────────────────────────────────────────────────
+    // Pre-flight for phase 07-register, in two steps the toolkit can't do for us:
+    //
+    //   1. Multi-password keystore resolve. When a previous attempt left a key on
+    //      disk (SKIP_IMPORT=1), the password the user types this session may not
+    //      match the one used originally - in that case the toolkit signs with the
+    //      wrong key and register silently fails. Mirror the settle/deregister/
+    //      withdraw fix: try each saved slot against the keystore, lock onto the
+    //      one that decrypts, and fail clearly (with a pointer to "Recover a
+    //      replaced key") only when no slot works.
+    //
+    //   2. Funding gate. The toolkit's 07-register transfers the stake in LCAI
+    //      and pays gas in LCAI. If the wallet is short (or a funding tx is still
+    //      pending) it would otherwise fail with a generic on-chain revert. Wait
+    //      up to ~90s so a just-funded retry just proceeds; fail clearly only when
+    //      the wallet is genuinely empty after the wait.
+    // ──────────────────────────────────────────────────────────────────────────
+    [
+      "resolve_password() {",
+      '  KSF="$(ls -1 "$KS" 2>/dev/null | head -1)"; [ -z "$KSF" ] && return 0',
+      '  for PW in "${WORKER_PASSWORD:-}" "${WORKER_PASSWORD_ALT1:-}" "${WORKER_PASSWORD_ALT2:-}" "${WORKER_PASSWORD_ALT3:-}"; do',
+      '    [ -z "$PW" ] && continue',
+      '    if cast wallet decrypt-keystore "$KSF" --keystore-dir "$KS" --unsafe-password "$PW" >/dev/null 2>&1; then',
+      '      export WORKER_PASSWORD="$PW"; echo "✓ existing worker keystore unlocked"; return 0',
+      "    fi",
+      "  done",
+      "  return 1",
+      "}",
+    ].join("\n"),
+    [
+      "gate_funding() {",
+      "  GATE_LCAI=0",
+      "  for w in $(seq 1 18); do",
+      `    BAL_HEX="$(curl -s -m 5 -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WORKER_ADDR"'","latest"],"id":1}' '${rpc}' | sed -nE 's/.*"result":"(0x[0-9a-fA-F]+)".*/\\1/p')"`,
+      `    BAL_WEI="$(python3 -c 'import sys; print(int(sys.argv[1] or "0x0", 16))' "\${BAL_HEX:-0x0}" 2>/dev/null || echo 0)"`,
+      `    GATE_LCAI="$(python3 -c 'import sys; print(round(int(sys.argv[1])/10**18,3))' "$BAL_WEI" 2>/dev/null || echo 0)"`,
+      `    if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1])>=int(sys.argv[2]) else 1)' "$BAL_WEI" '${thrWei}'; then echo "✓ worker wallet funded ($GATE_LCAI LCAI)"; return 0; fi`,
+      `    if [ "$w" = "1" ] || [ "$(($w % 6))" = "0" ]; then echo "▶ waiting for funding: worker wallet at $WORKER_ADDR has $GATE_LCAI LCAI, needs at least ${minStake}.5 LCAI (stake + a small gas cushion)"; fi`,
+      "    sleep 5",
+      "  done",
+      `  echo "⛔ funding-gate timeout: worker wallet at $WORKER_ADDR still has only $GATE_LCAI LCAI. Send at least ${minStake}.5 LCAI to that address (see ${explorer}/address/$WORKER_ADDR) and run install again - your existing setup is reused."`,
+      "  return 1",
+      "}",
+    ].join("\n"),
+    'if [ "$SKIP_IMPORT" = "1" ]; then',
+    `  if ! resolve_password; then echo "⛔ keystore-password-mismatch: an existing worker key for $WORKER_ADDR is on this device, but the password set this session does not decrypt it. Re-enter the original password you set when this worker was first created, or open Recover a replaced key on the dashboard to switch to a different worker."; exit 1; fi`,
+    "fi",
+    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then ST="$(WORKER_PASSWORD="$WORKER_PASSWORD" "$RUNBASH" status.sh 2>&1 || true)"; if printf '%s\\n' "$ST" | grep -qi "registered" && ! printf '%s\\n' "$ST" | grep -qiE "not[ _-]*registered"; then echo "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue; fi; gate_funding || exit 1; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; done`,
     // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
     // real job doesn't pay a cold-load that could exceed the inference timeout.
     `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
@@ -398,6 +451,11 @@ function unixInstall(network: NetworkId, models: string[]): string {
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
 function windowsInstall(network: NetworkId, models: string[]): string {
   const chainId = NETWORKS[network].chainId;
+  const minStake = NETWORKS[network].minStakeLcai;
+  const rpc = NETWORKS[network].rpc;
+  const explorer = NETWORKS[network].explorer;
+  // BigInt - 50_000.5 * 1e18 overflows JS Number on mainnet.
+  const thrWei = (BigInt(minStake) * 10n ** 18n + 5n * 10n ** 17n).toString();
   const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   const list = models.length ? models : [DEFAULT_MODEL];
   const supported = list.join(",");
@@ -532,7 +590,50 @@ if ((Test-Path $sess) -and (Test-Path $enc) -and ((Get-Item $sess).LastWriteTime
 New-Item -ItemType Directory -Force -Path $keysDir | Out-Null
 Set-Content -Path $marker -Value $waddr
 $env:FORCE = "1"
-foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = (& .\\status.ps1 2>&1 | Out-String); if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue } }; Write-Host "▶ phase $p"; & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p (exit $LASTEXITCODE)"; exit 1 } }
+# Multi-password keystore resolve: when a previous attempt left a key on disk, the
+# password the user types this session may not match the one used originally - the
+# toolkit would then sign with the wrong key and register would silently fail. Try
+# each saved slot the app passed; lock onto the one that decrypts. Mirrors the
+# settle/deregister/withdraw multi-slot fix.
+function Resolve-WorkerPassword {
+  $ksFile = Get-ChildItem $ks -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $ksFile) { return $true }
+  foreach ($pw in @($env:WORKER_PASSWORD, $env:WORKER_PASSWORD_ALT1, $env:WORKER_PASSWORD_ALT2, $env:WORKER_PASSWORD_ALT3)) {
+    if (-not $pw) { continue }
+    & cast wallet decrypt-keystore $ksFile.Name --keystore-dir $ks --unsafe-password $pw *> $null
+    if ($LASTEXITCODE -eq 0) { $env:WORKER_PASSWORD = $pw; Write-Host "✓ existing worker keystore unlocked"; return $true }
+  }
+  return $false
+}
+# Funding gate: phase 07 transfers the stake (${minStake} LCAI) from the worker
+# wallet and pays gas in LCAI. Wait briefly so a just-funded retry proceeds; fail
+# clearly only when the wallet is genuinely empty after the wait.
+function Wait-Funding {
+  $thr = [System.Numerics.BigInteger]::Parse('${thrWei}')
+  $lcai = 0
+  for ($w = 1; $w -le 18; $w++) {
+    try {
+      $body = '{"jsonrpc":"2.0","method":"eth_getBalance","params":["' + $env:WORKER_ADDR + '","latest"],"id":1}'
+      $resp = Invoke-RestMethod -Uri '${rpc}' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5
+      $hex = ($resp.result -replace '^0x','')
+      if ($hex.Length -gt 0 -and -not $hex.StartsWith('0')) { $hex = '0' + $hex }
+      $balWei = if ($hex) { [System.Numerics.BigInteger]::Parse($hex, [System.Globalization.NumberStyles]::HexNumber) } else { [System.Numerics.BigInteger]::Zero }
+    } catch { $balWei = [System.Numerics.BigInteger]::Zero }
+    $lcai = [Math]::Round([double]([System.Numerics.BigInteger]::Divide($balWei, [System.Numerics.BigInteger]::Pow(10, 15))) / 1000, 3)
+    if ($balWei -ge $thr) { Write-Host "✓ worker wallet funded ($lcai LCAI)"; return $true }
+    if ($w -eq 1 -or ($w % 6) -eq 0) { Write-Host "▶ waiting for funding: worker wallet at $($env:WORKER_ADDR) has $lcai LCAI, needs at least ${minStake}.5 LCAI (stake + a small gas cushion)" }
+    Start-Sleep -Seconds 5
+  }
+  Write-Host "⛔ funding-gate timeout: worker wallet at $($env:WORKER_ADDR) still has only $lcai LCAI. Send at least ${minStake}.5 LCAI to that address (see ${explorer}/address/$($env:WORKER_ADDR)) and run install again - your existing setup is reused."
+  return $false
+}
+if ($skipImport) {
+  if (-not (Resolve-WorkerPassword)) {
+    Write-Host "⛔ keystore-password-mismatch: an existing worker key for $($env:WORKER_ADDR) is on this device, but the password set this session does not decrypt it. Re-enter the original password you set when this worker was first created, or open Recover a replaced key on the dashboard to switch to a different worker."
+    exit 1
+  }
+}
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = (& .\\status.ps1 2>&1 | Out-String); if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { Write-Host "⛔ stopped at $p (exit $LASTEXITCODE)"; exit 1 } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
 Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
 foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
