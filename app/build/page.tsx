@@ -260,11 +260,13 @@ export default function BuildPage() {
               <Badge tone="muted" className="ml-auto">git clone</Badge>
             </div>
             <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
+              Clone{" "}
               <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-[11px]">
-                examples/quickstart-inference
-              </code>{" "}
-              in the repo. <code className="font-mono">npm i</code> →{" "}
-              <code className="font-mono">cp .env.example .env</code> → <code className="font-mono">npm start</code>.
+                marinom2/lightnode-examples
+              </code>
+              , <code className="font-mono">cd quickstart-inference</code>,{" "}
+              <code className="font-mono">npm i</code> → <code className="font-mono">npm start</code>. First run
+              prints the funded address + faucet URL.
             </p>
             <Button asChild size="sm" variant="outline" className="w-full">
               <a href={EXAMPLE_REPO_URL} target="_blank" rel="noopener noreferrer">

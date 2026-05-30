@@ -110,8 +110,8 @@ All `add` commands accept `--template auto|nextjs-api|hono|node`, `--net testnet
 | Path | What | Time | Cost |
 | --- | --- | --- | --- |
 | **[Live playground](https://lightnode.app/playground)** | Browser, connect wallet, run one real inference. | ~30 sec | Free on testnet |
-| **[Open in StackBlitz](https://stackblitz.com/github/marinom2/lightnode/tree/main/examples/quickstart-inference)** | Cloud IDE with the starter pre-installed. | ~30 sec | Free testnet |
-| **[Open in Codespaces](https://codespaces.new/marinom2/lightnode)** | Full VS Code dev environment with this repo. | ~1 min | GitHub free tier covers it |
+| **[Open in StackBlitz](https://stackblitz.com/github/marinom2/lightnode-examples/tree/main/quickstart-inference)** | Cloud IDE with the starter pre-installed. | ~5 sec | Free testnet |
+| **[Open in Codespaces](https://codespaces.new/marinom2/lightnode-examples)** | Full VS Code dev environment with the examples repo. | ~1 min | GitHub free tier covers it |
 
 ### Live-verified
 
@@ -125,13 +125,15 @@ The SDK is tested end-to-end with real LCAI on both networks before each release
 Decrypted output, full receipts, and the source they ran from all live on
 [`lightnode.app/build`](https://lightnode.app/build).
 
-### Example projects in this repo
+### Example projects
+
+Runnable examples live in their own tiny repo so cloud IDEs clone them in seconds:
+**[`marinom2/lightnode-examples`](https://github.com/marinom2/lightnode-examples)** — quickstart-inference (30 lines, auto-bootstraps a testnet key), nextjs-api-route, hono-server.
+
+In this repo:
 
 | Path | What |
 | --- | --- |
-| [`examples/quickstart-inference/`](examples/quickstart-inference) | 120-line Node CLI starter — the simplest end-to-end inference. |
-| [`examples/nextjs-api-route/`](examples/nextjs-api-route) | Drop-in `app/api/inference/route.ts` for any Next.js dApp. |
-| [`examples/hono-server/`](examples/hono-server) | Standalone Hono microservice. |
 | [`sdk/`](sdk) | The `lightnode-sdk` source. |
 | [`create-lightnode-app/`](create-lightnode-app) | The scaffolder source. |
 | [`app/playground/page.tsx`](app/playground/page.tsx) | The full in-browser playground — same SDK, with Reown/wagmi wallet connect. |
@@ -245,7 +247,6 @@ Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 ├── lib/                 # scriptgen, install-progress diagnoser, subgraph client, hardware scoring, ...
 ├── sdk/                 # lightnode-sdk source (published to npm)
 ├── create-lightnode-app/# create-lightnode-app source (published to npm)
-├── examples/            # Per-framework SDK examples (quickstart, Next.js, Hono)
 ├── desktop/             # Tauri v2 shell (src-tauri)
 ├── tests/unit + tests/e2e/  # Vitest + Playwright
 └── docs/                # Worker lifecycle, architecture, UI/design, releasing

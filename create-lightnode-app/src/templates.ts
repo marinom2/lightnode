@@ -1,7 +1,7 @@
 /**
  * Template strings written into the scaffolded project. Kept as plain literals
  * (no string interpolation off external sources) so the generated files are
- * easy to diff against the examples/ directory in the lightnode repo.
+ * easy to diff against the runnable examples in marinom2/lightnode-examples.
  */
 
 export interface ProjectConfig {
