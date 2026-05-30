@@ -130,7 +130,7 @@ export function InstallProgress({ log, phase }: { log: string[]; phase: RunPhase
           <div
             ref={logBox}
             onScroll={onLogScroll}
-            className="mt-2 max-h-56 overflow-auto overscroll-contain rounded-xl border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default"
+            className="mt-2 max-h-56 overflow-auto overscroll-contain rounded-xl border border-bdr-soft code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default"
           >
             {log.map((l, i) => (
               <div key={i} className="whitespace-pre-wrap">

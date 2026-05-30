@@ -739,12 +739,12 @@ export default function PlaygroundPage() {
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="text-content-soft">jobId</span>
                   <span className="font-mono text-content-default">{a.jobId}</span>
-                  <span className="text-content-soft">·</span>
+                  <span className="text-content-soft/40">|</span>
                   <span className="text-content-soft">worker</span>
                   <span className="font-mono text-content-default">
                     {a.worker.slice(0, 6)}…{a.worker.slice(-4)}
                   </span>
-                  <span className="text-content-soft">·</span>
+                  <span className="text-content-soft/40">|</span>
                   <span className="text-content-soft">fee</span>
                   <span className="tabular-nums text-content-default">{a.feeLcai} LCAI</span>
                 </div>

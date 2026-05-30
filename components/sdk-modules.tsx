@@ -213,7 +213,7 @@ function CopyButton({ value }: { value: string }) {
 function CodeBox({ code }: { code: string }) {
   return (
     <div className="relative">
-      <pre className="max-h-[280px] overflow-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default">
+      <pre className="max-h-[280px] overflow-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
         <code>{code}</code>
       </pre>
       <CopyButton value={code} />
@@ -306,30 +306,36 @@ function BridgeLive() {
   }
   const ethToLc = data.ethereumToLightChain;
   const lcToEth = data.lightChainToEthereum;
+  const renderQuote = (q: DirQuote, unit: "ETH" | "LCAI") => {
+    if (!q.ok) {
+      return <div className="text-[11px] leading-relaxed text-warning">Live quote unavailable: {q.error.slice(0, 60)}</div>;
+    }
+    const v = unit === "ETH" ? q.feeEth ?? 0 : q.feeLcai ?? 0;
+    if (v === 0) {
+      return (
+        <>
+          <div className="font-mono text-sm text-content-default">0 {unit}</div>
+          <div className="text-[10px] text-content-soft">Pre-paid relayer (Hyperlane IGP); you only pay source-chain gas</div>
+        </>
+      );
+    }
+    return (
+      <>
+        <div className="font-mono text-sm text-content-default">{v.toFixed(6)} {unit}</div>
+        <div className="text-[10px] text-content-soft">Hyperlane interchain gas payment</div>
+      </>
+    );
+  };
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
           <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">Ethereum {"->"} LightChain</div>
-          {ethToLc.ok ? (
-            <>
-              <div className="font-mono text-sm text-content-default">{(ethToLc.feeEth ?? 0).toFixed(6)} ETH</div>
-              <div className="text-[10px] text-content-soft">Hyperlane gas payment</div>
-            </>
-          ) : (
-            <div className="text-[11px] leading-relaxed text-warning">Live quote unavailable: {ethToLc.error.slice(0, 60)}</div>
-          )}
+          {renderQuote(ethToLc, "ETH")}
         </div>
         <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
           <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">LightChain {"->"} Ethereum</div>
-          {lcToEth.ok ? (
-            <>
-              <div className="font-mono text-sm text-content-default">{(lcToEth.feeLcai ?? 0).toFixed(6)} LCAI</div>
-              <div className="text-[10px] text-content-soft">Hyperlane gas payment</div>
-            </>
-          ) : (
-            <div className="text-[11px] leading-relaxed text-warning">Live quote unavailable: {lcToEth.error.slice(0, 60)}</div>
-          )}
+          {renderQuote(lcToEth, "LCAI")}
         </div>
       </div>
       <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
@@ -488,7 +494,7 @@ function DaoLive() {
                 <div className="font-mono text-[10px] text-content-soft">id {p.id.slice(0, 12)}…</div>
               </div>
               <div className="text-right font-mono text-[10px] text-content-soft">
-                For {lcai(p.votesFor)} · Against {lcai(p.votesAgainst)}
+                For {lcai(p.votesFor)} | Against {lcai(p.votesAgainst)}
               </div>
               <ChevronDown className={cn("size-4 text-content-soft transition-transform", isOpen && "rotate-180")} />
             </button>
@@ -605,7 +611,9 @@ export function SDKModules() {
               <div className="mb-2 flex items-center gap-2">
                 <m.icon className="size-4 text-primary" />
                 <span className="text-sm font-semibold text-content-primary">{m.title}</span>
-                <Badge tone="success" className="ml-auto">shipped</Badge>
+                <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-success" title="Shipped in lightnode-sdk@0.5.x">
+                  <span className="size-1.5 rounded-full bg-success" /> in 0.5.x
+                </span>
               </div>
               <p className="text-xs leading-relaxed text-content-soft">{m.blurb}</p>
               <CodeBox code={m.snippet} />

@@ -53,32 +53,32 @@ function deriveTitle(description: string): string {
 
 async function findEventsAcrossRpcs(addresses: { governor: `0x${string}` }) {
   const errors: string[] = [];
-  // Total window to scan: ~6 months on Ethereum (~1.3M blocks). Each RPC
-  // gets chunked into windows the free tier accepts (usually <= 100k blocks).
-  const WINDOW_BLOCKS = 1_300_000n;
-  const CHUNK = 100_000n;
+  // Public RPCs (notably publicnode) cap getLogs at 50k blocks per call. We
+  // scan the last ~6 weeks (~300k blocks = 6 parallel 50k windows). Parallel
+  // keeps the route under Vercel's 10s serverless timeout even on cold start.
+  const WINDOW_BLOCKS = 300_000n;
+  const CHUNK = 50_000n;
   for (const rpc of ETH_RPCS) {
     try {
       const pub = createPublicClient({ transport: http(rpc) });
       const head = await pub.getBlockNumber();
       const fromBlock = head > WINDOW_BLOCKS ? head - WINDOW_BLOCKS : 0n;
-      const all: Awaited<ReturnType<typeof pub.getLogs>> = [];
+      const windows: Array<{ from: bigint; to: bigint }> = [];
       for (let start = fromBlock; start <= head; start += CHUNK) {
         const end = start + CHUNK - 1n > head ? head : start + CHUNK - 1n;
-        try {
-          const chunk = await pub.getLogs({
+        windows.push({ from: start, to: end });
+      }
+      const chunks = await Promise.all(
+        windows.map((w) =>
+          pub.getLogs({
             address: addresses.governor,
             event: PROPOSAL_CREATED,
-            fromBlock: start,
-            toBlock: end,
-          });
-          all.push(...chunk);
-        } catch (e) {
-          // Some RPCs cap getLogs per call; on a chunk failure abandon this
-          // RPC entirely rather than partial-result the page.
-          throw e;
-        }
-      }
+            fromBlock: w.from,
+            toBlock: w.to,
+          }),
+        ),
+      );
+      const all = chunks.flat();
       return { pub, events: all };
     } catch (e) {
       errors.push(`${rpc.replace(/^https?:\/\//, "").slice(0, 24)}: ${(e as Error).message?.split("\n")[0]?.slice(0, 80)}`);

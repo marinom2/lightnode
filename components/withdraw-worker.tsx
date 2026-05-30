@@ -310,7 +310,7 @@ export function WithdrawWorker() {
       )}
 
       {log.length > 0 && (
-        <div className="mt-3 max-h-48 overflow-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[12px] leading-relaxed text-content-default">
+        <div className="mt-3 max-h-48 overflow-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-[12px] leading-relaxed text-content-default">
           {log.map((l, i) => (
             <div key={i} className="whitespace-pre-wrap">
               {l}

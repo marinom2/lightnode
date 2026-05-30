@@ -31,13 +31,13 @@ function SdkSnippet({ snippet, label }: { snippet: string; label: string }) {
             <Link href="/build" className="text-primary hover:underline">
               Full quickstart in /build
             </Link>
-            <span className="text-content-soft/40">·</span>
+            <span className="text-content-soft/40">|</span>
           </HideOnDesktop>
           <span className="text-content-soft">click to expand</span>
         </span>
       </summary>
       <div className="relative mt-3">
-        <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default">
+        <pre className="overflow-x-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
           <code>{snippet}</code>
         </pre>
         <button

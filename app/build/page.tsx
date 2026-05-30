@@ -47,7 +47,7 @@ const EXAMPLE_REPO_URL = `https://github.com/${EXAMPLES_REPO}/tree/main/quicksta
 const LCAI_IDE_URL = "https://github.com/lightchain-protocol/lcai-ide";
 
 export const metadata = {
-  title: "Build with LightChain AI · LightNode",
+  title: "Build with LightChain AI - LightNode",
   description:
     "Run encrypted LightChain AI inference from your own dApp with lightnode-sdk. 13 read-only network methods, 3 paid-inference tiers, 5 add scaffolders, full contract addresses, non-custodial by default.",
 };
@@ -375,7 +375,7 @@ function shortAddr(a: string) {
 
 function CodeBox({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default">
+    <pre className="overflow-x-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
       <code>{children}</code>
     </pre>
   );
@@ -399,7 +399,10 @@ function LiveDemoCard({
       <div className="mb-3 flex items-center gap-2">
         <Icon className="size-4 text-primary" />
         <span className="text-sm font-semibold text-content-primary">{title}</span>
-        <Badge tone="success" className="ml-auto">live · mainnet</Badge>
+        <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-success">
+          <span className="size-1.5 animate-pulse rounded-full bg-success" />
+          live mainnet
+        </span>
       </div>
       <p className="mb-3 text-xs leading-relaxed text-content-soft">{desc}</p>
       <CodeBox>{snippet}</CodeBox>
@@ -526,7 +529,7 @@ export default async function BuildPage() {
             <div className="mb-3 flex items-center gap-2">
               <PlayCircle className="size-4 text-primary" />
               <span className="text-sm font-semibold text-content-primary">In the browser</span>
-              <Badge tone="success" className="ml-auto">no install</Badge>
+              <span className="ml-auto text-[10px] text-content-soft">no install</span>
             </div>
             <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
               The live playground: connect a wallet, type a prompt, watch the decrypted answer stream. Free on testnet.
@@ -541,7 +544,7 @@ export default async function BuildPage() {
             <div className="mb-3 flex items-center gap-2">
               <Code2 className="size-4 text-primary" />
               <span className="text-sm font-semibold text-content-primary">In a cloud IDE</span>
-              <Badge tone="brand" className="ml-auto">about 5 sec</Badge>
+              <span className="ml-auto text-[10px] text-content-soft">about 5 sec</span>
             </div>
             <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
               Runnable starter pre-installed. Fund the printed testnet address with one faucet click, hit Run, see one
@@ -570,7 +573,7 @@ export default async function BuildPage() {
             <div className="mb-3 flex items-center gap-2">
               <Download className="size-4 text-primary" />
               <span className="text-sm font-semibold text-content-primary">On your laptop</span>
-              <Badge tone="muted" className="ml-auto">git clone</Badge>
+              <span className="ml-auto text-[10px] text-content-soft">git clone</span>
             </div>
             <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
               Clone{" "}
@@ -597,7 +600,7 @@ export default async function BuildPage() {
           title="Install"
           blurb="One package, one peer dep. ESM, Node 18+, browser-compatible. Pure-JS crypto (noble), runs anywhere."
         />
-        <pre className="overflow-x-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-sm leading-relaxed text-content-default">
+        <pre className="overflow-x-auto rounded-xl border border-bdr-soft code-surface p-4 font-mono text-sm leading-relaxed text-content-default">
           <code>npm install lightnode-sdk viem ws</code>
         </pre>
         <p className="mt-3 text-xs text-content-soft">
@@ -612,7 +615,7 @@ export default async function BuildPage() {
           title="Quickstart"
           blurb="One encrypted inference end to end. Real code, runs as-is."
         />
-        <pre className="overflow-x-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
+        <pre className="overflow-x-auto rounded-xl border border-bdr-soft code-surface p-4 font-mono text-[12px] leading-relaxed text-content-default">
           <code>{QUICKSTART}</code>
         </pre>
       </Card>
@@ -628,9 +631,9 @@ export default async function BuildPage() {
           <Card className="p-5">
             <div className="mb-2 flex items-center gap-2">
               <span className="text-sm font-semibold text-content-primary">Brand-new project</span>
-              <Badge tone="success" className="ml-auto">about 30 sec</Badge>
+              <span className="ml-auto text-[10px] text-content-soft">about 30 sec</span>
             </div>
-            <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-xs leading-relaxed text-content-default">
+            <pre className="overflow-x-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-xs leading-relaxed text-content-default">
               <code>npm create lightnode-app my-app</code>
             </pre>
             <p className="mt-3 text-xs leading-relaxed text-content-soft">
@@ -641,9 +644,9 @@ export default async function BuildPage() {
           <Card className="p-5">
             <div className="mb-2 flex items-center gap-2">
               <span className="text-sm font-semibold text-content-primary">Existing project</span>
-              <Badge tone="brand" className="ml-auto">in place</Badge>
+              <span className="ml-auto text-[10px] text-content-soft">in your project</span>
             </div>
-            <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-xs leading-relaxed text-content-default">
+            <pre className="overflow-x-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-xs leading-relaxed text-content-default">
               <code>npx lightnode add inference</code>
             </pre>
             <p className="mt-3 text-xs leading-relaxed text-content-soft">
@@ -694,9 +697,12 @@ export default async function BuildPage() {
               <p className="mb-3 text-xs leading-relaxed text-content-soft">{p.desc}</p>
               <div className="mb-2 rounded-lg border border-bdr-soft bg-surface-base-faint p-2.5">
                 <span className="text-[10px] uppercase tracking-wide text-content-soft">Fits</span>
-                <ul className="mt-1 space-y-0.5 text-xs text-content-default">
+                <ul className="mt-1 space-y-1 text-xs text-content-default">
                   {p.fits.map((f) => (
-                    <li key={f}>· {f}</li>
+                    <li key={f} className="flex items-start gap-2">
+                      <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+                      <span>{f}</span>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -715,7 +721,7 @@ export default async function BuildPage() {
           title="Read-only client (free, no key required)"
           blurb="All the chain + indexer data. Use for dashboards, leaderboards, eligibility checks, gating. No fees, no wallet."
         />
-        <pre className="mb-5 overflow-x-auto rounded-xl border border-bdr-soft bg-[#0b0b14] p-4 font-mono text-[12px] leading-relaxed text-content-default">
+        <pre className="mb-5 overflow-x-auto rounded-xl border border-bdr-soft code-surface p-4 font-mono text-[12px] leading-relaxed text-content-default">
           <code>{READONLY_SNIPPET}</code>
         </pre>
         <div className="overflow-x-auto">
@@ -1037,10 +1043,17 @@ const stats = await ln.getNetworkStats();`}
               <span className="text-sm font-semibold text-content-primary">What the SDK sees</span>
             </div>
             <ul className="space-y-1.5 text-xs leading-relaxed text-content-soft">
-              <li>· Your plaintext prompt (encrypted before it leaves the process).</li>
-              <li>· Public viem client addresses, RPC URL, the gateway URL.</li>
-              <li>· The session key (ephemeral, 32 bytes, never persisted).</li>
-              <li>· The decrypted answer.</li>
+              {[
+                "Your plaintext prompt (encrypted before it leaves the process).",
+                "Public viem client addresses, RPC URL, the gateway URL.",
+                "The session key (ephemeral, 32 bytes, never persisted).",
+                "The decrypted answer.",
+              ].map((t) => (
+                <li key={t} className="flex items-start gap-2">
+                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+                  <span>{t}</span>
+                </li>
+              ))}
             </ul>
           </div>
           <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-4">
@@ -1049,9 +1062,16 @@ const stats = await ln.getNetworkStats();`}
               <span className="text-sm font-semibold text-content-primary">What only your wallet sees</span>
             </div>
             <ul className="space-y-1.5 text-xs leading-relaxed text-content-soft">
-              <li>· Your private key. The SDK never receives it.</li>
-              <li>· The createSession + submitJob transactions, signed via viem.</li>
-              <li>· The SIWE challenge signature.</li>
+              {[
+                "Your private key. The SDK never receives it.",
+                "The createSession + submitJob transactions, signed via viem.",
+                "The SIWE challenge signature.",
+              ].map((t) => (
+                <li key={t} className="flex items-start gap-2">
+                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-success/60" />
+                  <span>{t}</span>
+                </li>
+              ))}
             </ul>
           </div>
         </div>

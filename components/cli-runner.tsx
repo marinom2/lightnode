@@ -167,7 +167,7 @@ export function CliRunner() {
           ) : null}
 
           <div className="flex items-center justify-between gap-3">
-            <code className="overflow-x-auto whitespace-nowrap rounded-md bg-[#0b0b14] px-2 py-1 font-mono text-[11px] text-content-default">
+            <code className="overflow-x-auto whitespace-nowrap rounded-md code-surface px-2 py-1 font-mono text-[11px] text-content-default">
               {fullCli}
             </code>
             <Button size="sm" onClick={run} disabled={busy || argMissing}>
@@ -179,7 +179,7 @@ export function CliRunner() {
           {/* Output panel */}
           {output ? (
             <div className="relative">
-              <pre className="max-h-[420px] overflow-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default">
+              <pre className="max-h-[420px] overflow-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
                 <code>{output}</code>
               </pre>
               <button

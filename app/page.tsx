@@ -124,7 +124,7 @@ export default function Home() {
         </HideOnDesktop>
 
         <ShowOnDesktop>
-          <Badge tone="success" className="mb-4">LightNode desktop · the worker app</Badge>
+          <Badge tone="success" className="mb-4">LightNode desktop, the worker app</Badge>
           <h1 className="mx-auto max-w-3xl text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-content-primary md:text-6xl">
             Run a LightChain AI worker in <span className="text-gradient">one flow</span>.
           </h1>
