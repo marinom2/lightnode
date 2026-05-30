@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { useNetwork } from "@/lib/network-context";
 import { DEFAULT_MODEL, NETWORKS, type NetworkId } from "@/lib/network";
-import { desktopInstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
+import { desktopInstallCommand, preflightCommand, INSTALLER_REV, type OS } from "@/lib/scriptgen";
 import { appendCleanLog } from "@/lib/install-log";
 import { InstallProgress } from "@/components/onboard/install-progress";
 import { detectClientOS } from "@/lib/os-detect";
@@ -786,9 +786,20 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
             </p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium text-content-soft">
-          <span className="dot dot-live" /> desktop
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-surface-base-faint px-2.5 py-1 text-[11px] font-medium text-content-soft">
+            <span className="dot dot-live" /> desktop
+          </span>
+          {/* Visible build marker so an operator can confirm at a glance which
+              installer version their app is running, without needing to start
+              an install first. Bumped whenever the install command changes. */}
+          <span
+            className="text-[11px] font-mono text-content-soft"
+            title="The installer revision baked into the script the app generates. Bumped whenever the install flow changes."
+          >
+            rev {INSTALLER_REV}
+          </span>
+        </div>
       </div>
 
       {phase === "idle" && showAlready && (
