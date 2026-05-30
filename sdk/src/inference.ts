@@ -783,18 +783,31 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   if (!verify.token) throw new GatewayAuthError(verifyRes.status, "auth verify returned no token");
   const gateway = new GatewayClientCtor({ network: networkId, bearer: verify.token, baseUrl: args.gatewayUrl ?? gwBase });
 
-  // Pick a WebSocket: the browser global if present, otherwise the caller-
-  // supplied ctor. We deliberately do NOT try to dynamic-import "ws" - it
-  // isn't a hard dep, and a bundler trying to resolve it would fail noisily.
-  const wsCtor =
+  // Pick a WebSocket: caller-supplied wins, else the browser global, else try
+  // to lazy-import the `ws` package (Node). The webpackIgnore hint keeps
+  // bundlers from blowing up trying to resolve `ws` for browser bundles where
+  // we never reach this branch.
+  let wsCtor: WebSocketCtor | undefined =
     args.WebSocket ??
     (typeof globalThis !== "undefined" && (globalThis as { WebSocket?: WebSocketCtor }).WebSocket
       ? (globalThis as { WebSocket: WebSocketCtor }).WebSocket
       : undefined);
   if (!wsCtor) {
+    try {
+      const mod = (await import(/* webpackIgnore: true */ "ws")) as {
+        default?: WebSocketCtor;
+        WebSocket?: WebSocketCtor;
+      };
+      wsCtor = mod.default ?? mod.WebSocket;
+    } catch {
+      // `ws` not installed - keep wsCtor undefined and fall into the error below.
+    }
+  }
+  if (!wsCtor) {
     throw new Error(
-      "runInferenceWithKey: no WebSocket constructor available. In Node, install `ws` and pass it: " +
-        "`import WS from 'ws'; runInferenceWithKey({ WebSocket: WS, ... })`",
+      "runInferenceWithKey: no WebSocket constructor available. In Node, install `ws` " +
+        "(`npm i ws`) - the SDK will pick it up automatically. Or pass one explicitly: " +
+        "`import WS from 'ws'; runInferenceWithKey({ WebSocket: WS, ... })`.",
     );
   }
 
@@ -811,4 +824,110 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
     WebSocket: wsCtor,
     relayUrl: args.relayUrl,
   });
+}
+
+// =============================================================================
+// runInferenceStream - AsyncIterable<string> API.
+// =============================================================================
+//
+// `runInference` / `runInferenceWithKey` accept an `onChunk` callback for
+// streaming. That's fine but it's a callback API in 2026, and a builder doing
+// `for await (const chunk of stream) ...` reads cleaner than threading a
+// callback. This wraps the existing flow into an async iterator: each yield is
+// a fresh chunk, and the iterator's `.return` resolves to the final result
+// (txs + worker + jobId + the full assembled answer).
+
+export interface RunInferenceStreamResult {
+  /** Streamed chunks (decrypted, in arrival order). */
+  [Symbol.asyncIterator](): AsyncIterator<string>;
+  /**
+   * Resolves with the same shape `runInference` returns once the iterator
+   * has finished (i.e. you've consumed all chunks). `answer` is the full
+   * assembled string. Awaiting this before consuming the iterator hangs;
+   * always iterate first or in parallel with another consumer.
+   */
+  done: Promise<RunInferenceResult>;
+}
+
+/**
+ * Stream-shaped wrapper over `runInferenceWithKey`. Returns an async-iterable
+ * of decrypted chunks plus a `done` promise that resolves to the full result
+ * once the iteration completes.
+ *
+ * @example
+ * ```ts
+ * import { runInferenceStream } from "lightnode-sdk";
+ *
+ * const stream = runInferenceStream({
+ *   network: "testnet",
+ *   privateKey: process.env.PRIVATE_KEY!,
+ *   prompt: "Write a haiku about decentralized AI.",
+ * });
+ *
+ * for await (const chunk of stream) {
+ *   process.stdout.write(chunk);
+ * }
+ * const { txs } = await stream.done;
+ * console.log("\n", txs);
+ * ```
+ */
+export function runInferenceStream(args: RunInferenceWithKeyArgs): RunInferenceStreamResult {
+  // Bounded queue of pending chunks; consumed in order by the iterator. We
+  // can't use an unbounded array because the inference may produce chunks
+  // faster than the consumer reads them - bounding at 1024 is enough to absorb
+  // model-output bursts without unbounded memory growth.
+  const queue: string[] = [];
+  const waiters: Array<(v: IteratorResult<string>) => void> = [];
+  let finished = false;
+  let error: Error | null = null;
+
+  const push = (chunk: string) => {
+    if (waiters.length > 0) {
+      const resolve = waiters.shift();
+      if (resolve) resolve({ value: chunk, done: false });
+    } else {
+      queue.push(chunk);
+    }
+  };
+  const finish = (err: Error | null = null) => {
+    finished = true;
+    error = err;
+    while (waiters.length > 0) {
+      const resolve = waiters.shift();
+      if (!resolve) continue;
+      if (err) resolve({ value: undefined, done: true });
+      else resolve({ value: undefined, done: true });
+    }
+  };
+
+  const done = runInferenceWithKey({
+    ...args,
+    onChunk: (chunk) => push(chunk),
+  })
+    .then((res) => {
+      finish(null);
+      return res;
+    })
+    .catch((e) => {
+      finish(e as Error);
+      throw e;
+    });
+
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<string> {
+      return {
+        async next(): Promise<IteratorResult<string>> {
+          if (queue.length > 0) {
+            return { value: queue.shift()!, done: false };
+          }
+          if (finished) {
+            if (error) throw error;
+            return { value: undefined, done: true };
+          }
+          return new Promise<IteratorResult<string>>((resolve) => waiters.push(resolve));
+        },
+      };
+    },
+    done,
+  };
 }

@@ -46,7 +46,12 @@ async function getRng(): Promise<(b: Uint8Array) => Uint8Array> {
       return bound;
     }
     try {
-      const mod = (await import("node:crypto")) as {
+      // The /* webpackIgnore: true */ magic comment stops Next.js / webpack
+      // from trying to bundle node:crypto for the browser. In a real browser
+      // we never reach this line (globalThis.crypto is available), so the
+      // import is dead code there - but webpack analyzes it statically and
+      // errors on the `node:` URI scheme without the hint.
+      const mod = (await import(/* webpackIgnore: true */ "node:crypto")) as {
         webcrypto?: { getRandomValues?: (b: Uint8Array) => Uint8Array };
       };
       const wc = mod.webcrypto;

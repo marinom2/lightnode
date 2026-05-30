@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, type NetworkId } from "./index.js";
+import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, isStalledWorker, type NetworkId } from "./index.js";
 import { addInference, addAnalyticsDashboard, addNftMint, addChat, addAgent } from "./add.js";
+import { createPublicClient, http, parseEther } from "viem";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -20,6 +22,16 @@ const rate = (r: number | null) => (r == null ? "-" : `${Math.round(r * 100)}%`)
 
 const HELP = `lightnode <command> [--net mainnet|testnet]
 
+Run one inference (needs PRIVATE_KEY in env):
+  chat <prompt>            stream one encrypted inference answer to stdout
+                           ([--model llama3-8b] [--key 0x...])
+
+Wallet helpers:
+  wallet new               generate a fresh testnet key, print it
+  wallet address           print the address of PRIVATE_KEY
+  wallet balance [--net]   print LCAI balance for PRIVATE_KEY's address
+
+Read-only network commands (no key):
   network                  network summary (workers, jobs, models, earnings)
   models                   registered models + per-job fee
   worker <addr>            a worker: on-chain registration + recent jobs
@@ -29,6 +41,7 @@ const HELP = `lightnode <command> [--net mainnet|testnet]
   analytics [--csv]        per-model performance (completion, p50/p95, incomplete)
   reliability [--csv]      per-worker reliability, busiest first
 
+Scaffold templates into the current project:
   add inference                   end-to-end encrypted inference route/script
   add chat                        chat-style UI with conversation history
   add agent                       scheduled/loop inference (cron-style)
@@ -38,9 +51,90 @@ const HELP = `lightnode <command> [--net mainnet|testnet]
 
 To scaffold a new project instead, run: npm create lightnode-app my-app`;
 
+function pickKey(): `0x${string}` {
+  const k = flag("--key") ?? process.env.PRIVATE_KEY;
+  if (!k || !k.startsWith("0x") || k.length !== 66) {
+    die("set PRIVATE_KEY=0x... in your env, or pass --key 0x...   (need a funded EVM key)");
+  }
+  return k as `0x${string}`;
+}
+
 async function main() {
   const ln = new LightNode(net);
   switch (cmd) {
+    case "chat": {
+      // One-shot encrypted inference straight from the CLI. Pipe the prompt as
+      // positional args (or read from stdin if there are none) so this composes
+      // with shell scripts: `cat doc.md | lightnode chat` works.
+      const inlinePrompt = positionals.slice(1).join(" ").trim();
+      const prompt =
+        inlinePrompt ||
+        (await new Promise<string>((resolve) => {
+          let buf = "";
+          process.stdin.setEncoding("utf8");
+          process.stdin.on("data", (d) => (buf += d));
+          process.stdin.on("end", () => resolve(buf.trim()));
+        }));
+      if (!prompt) die("usage: lightnode chat <prompt>   (or pipe the prompt to stdin)");
+      const model = flag("--model") ?? "llama3-8b";
+      const privateKey = pickKey();
+      try {
+        const { answer, txs, worker, jobId } = await runInferenceWithKey({
+          network: net,
+          privateKey,
+          prompt,
+          model,
+          onChunk: (chunk) => process.stdout.write(chunk),
+        });
+        process.stdout.write("\n");
+        // Tiny one-liner trailer so the receipt is reachable without burying
+        // the answer. JSON is grep-friendly for shell pipelines.
+        const explorer = ln.network.explorer;
+        process.stderr.write(
+          JSON.stringify({
+            chars: answer.length,
+            worker,
+            jobId: jobId.toString(),
+            createSession: `${explorer}/tx/${txs.createSession}`,
+            submitJob: `${explorer}/tx/${txs.submitJob}`,
+            jobCompleted: txs.jobCompleted ? `${explorer}/tx/${txs.jobCompleted}` : null,
+          }) + "\n",
+        );
+      } catch (e) {
+        if (isStalledWorker(e)) die("3 workers stalled in a row. Protocol refunds the fees; try again later.");
+        die("inference failed: " + (e as Error).message);
+      }
+      break;
+    }
+    case "wallet": {
+      const sub = positionals[1];
+      if (sub === "new") {
+        // Fresh testnet-shaped key. Plain stdout output so it's copy-pasteable
+        // out of a script: `lightnode wallet new --quiet | head -1` works.
+        const pk = generatePrivateKey();
+        const addr = privateKeyToAccount(pk).address;
+        console.log(`PRIVATE_KEY=${pk}`);
+        console.error(`# address: ${addr}`);
+        console.error(`# fund at https://lightfaucet.ai before running paid commands`);
+      } else if (sub === "address") {
+        const pk = pickKey();
+        console.log(privateKeyToAccount(pk).address);
+      } else if (sub === "balance") {
+        const pk = pickKey();
+        const addr = privateKeyToAccount(pk).address;
+        const pub = createPublicClient({ transport: http(ln.network.rpc) });
+        const bal = await pub.getBalance({ address: addr });
+        const lcaiVal = Number(bal) / 1e18;
+        console.log(`${lcaiVal} LCAI`);
+        if (bal < parseEther("0.05")) {
+          console.error(`# under 0.05 LCAI - too low to run one inference`);
+          if (net === "testnet") console.error(`# get free testnet LCAI: https://lightfaucet.ai`);
+        }
+      } else {
+        die("usage: lightnode wallet <new|address|balance> [--net testnet|mainnet]");
+      }
+      break;
+    }
     case "network": {
       console.log(JSON.stringify(await ln.getNetworkAnalytics(), null, 2));
       break;

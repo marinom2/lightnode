@@ -29,6 +29,7 @@ import {
   generateEcdhKeyPair,
   runInference,
   runInferenceWithKey,
+  runInferenceStream,
 } from "./inference.js";
 import {
   StalledWorkerError,
@@ -156,7 +157,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.4.8";
+export const SDK_VERSION = "0.4.9";
 
 export {
   NETWORKS,
@@ -186,6 +187,8 @@ export {
   runInference,
   // v0.4.3 key-in-answer-out shortcut: same flow, no viem/SIWE wiring.
   runInferenceWithKey,
+  // v0.4.9 AsyncIterable<string> wrapper around runInferenceWithKey.
+  runInferenceStream,
   StalledWorkerError,
   OnChainRevertError,
   RelayTokenTimeoutError,
@@ -193,5 +196,5 @@ export {
   isStalledWorker,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
-export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs } from "./inference.js";
+export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult } from "./inference.js";
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
