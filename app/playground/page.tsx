@@ -399,6 +399,12 @@ export default function PlaygroundPage() {
         setTimeout(() => rej(new Error("relay WebSocket open timeout")), 20_000);
       });
       const chunks: string[] = [];
+      // Per the relay protocol, frames can be type "chunk" (an incremental
+      // piece of the response, indexed by `seq`) OR "complete" (the entire
+      // assembled response in one frame). Faster workers / short responses
+      // often skip chunks and emit only a single "complete". We were only
+      // decoding "chunk" before, which silently produced an empty output when
+      // a worker chose the single-frame path - exactly the mainnet bug we hit.
       sockRef.current.addEventListener("message", async (ev) => {
         const raw = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data as ArrayBuffer);
         let frame: { type?: string; payload?: string };
@@ -407,13 +413,26 @@ export default function PlaygroundPage() {
         } catch {
           return;
         }
-        if (frame.type === "chunk" && frame.payload) {
+        if (!frame?.payload) return;
+        if (frame.type === "chunk") {
           try {
             const piece = await decryptResponse(prepared.sessionKey, frame.payload);
             chunks.push(piece);
             setS((p) => ({ ...p, output: chunks.join("") }));
           } catch {
             // skip non-decryptable control frames
+          }
+          return;
+        }
+        if (frame.type === "complete" && chunks.length === 0) {
+          // No streaming chunks arrived - fall back to the assembled-response
+          // payload the worker put in the final "complete" frame.
+          try {
+            const piece = await decryptResponse(prepared.sessionKey, frame.payload);
+            chunks.push(piece);
+            setS((p) => ({ ...p, output: chunks.join("") }));
+          } catch {
+            // ignore
           }
         }
       });

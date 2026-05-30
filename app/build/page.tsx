@@ -23,6 +23,34 @@ const STACKBLITZ_URL = "https://stackblitz.com/github/marinom2/lightnode/tree/ma
 const EXAMPLE_REPO_URL = "https://github.com/marinom2/lightnode/tree/main/examples/quickstart-inference";
 const LCAI_IDE_URL = "https://github.com/lightchain-protocol/lcai-ide";
 
+interface FrameworkExample {
+  name: string;
+  blurb: string;
+  path: string;
+  badge: string;
+}
+
+const FRAMEWORK_EXAMPLES: FrameworkExample[] = [
+  {
+    name: "Node CLI / script",
+    blurb: "Standalone Node + tsx. 120 lines, prints the decrypted answer + 3 tx hashes.",
+    path: "examples/quickstart-inference",
+    badge: "starter",
+  },
+  {
+    name: "Next.js API route",
+    blurb: "Drop-in app/api/inference/route.ts. POST a prompt from the browser, get JSON back.",
+    path: "examples/nextjs-api-route",
+    badge: "App Router",
+  },
+  {
+    name: "Hono server",
+    blurb: "Tiny standalone microservice. Same JSON contract; deploys to Bun, Node, Railway, Fly.",
+    path: "examples/hono-server",
+    badge: "any Node",
+  },
+];
+
 export const metadata = {
   title: "Build with LightChain AI · LightNode",
   description:
@@ -224,6 +252,51 @@ export default function BuildPage() {
               </a>
             </Button>
           </Card>
+        </div>
+      </div>
+
+      <div className="mb-10">
+        <div className="mb-4 flex items-center gap-3">
+          <IconChip icon={Workflow} size="md" />
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-content-primary">In your stack</h2>
+            <p className="text-xs text-content-soft">
+              Same flow, three drop-in shapes. Pick the one closest to your project.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {FRAMEWORK_EXAMPLES.map((ex) => (
+            <Card key={ex.path} className="flex flex-col p-5">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-sm font-semibold text-content-primary">{ex.name}</span>
+                <Badge tone="muted" className="ml-auto">
+                  {ex.badge}
+                </Badge>
+              </div>
+              <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">{ex.blurb}</p>
+              <div className="flex flex-col gap-2">
+                <Button asChild size="sm" variant="outline" className="w-full">
+                  <a
+                    href={`https://github.com/marinom2/lightnode/tree/main/${ex.path}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Github /> View source <ExternalLink />
+                  </a>
+                </Button>
+                <Button asChild size="sm" className="w-full">
+                  <a
+                    href={`https://stackblitz.com/github/marinom2/lightnode/tree/main/${ex.path}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Code2 /> Open in StackBlitz <ExternalLink />
+                  </a>
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
       </div>
 

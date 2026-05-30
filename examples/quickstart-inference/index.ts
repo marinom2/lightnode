@@ -126,8 +126,13 @@ console.log("✓ relay WebSocket open");
 ws.on("message", async (data: Buffer) => {
   let frame: { type?: string; payload?: string };
   try { frame = JSON.parse(data.toString("utf8")); } catch { return; }
-  if (frame.type === "chunk" && frame.payload) {
+  if (!frame?.payload) return;
+  // Streaming chunks AND/OR a single "complete" frame. Faster/short workers
+  // emit only "complete"; long ones stream "chunk" then a terminating "complete".
+  if (frame.type === "chunk") {
     try { chunks.push(await decryptResponse(sessionKey, frame.payload)); } catch { /* control frame */ }
+  } else if (frame.type === "complete" && chunks.length === 0) {
+    try { chunks.push(await decryptResponse(sessionKey, frame.payload)); } catch { /* ignore */ }
   }
 });
 
