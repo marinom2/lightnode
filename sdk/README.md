@@ -83,6 +83,7 @@ npx lightnode reliability --csv           # per-worker reliability (CSV)
 
 # Patch an existing project (auto-detects Next.js, Hono, or Node):
 npx lightnode add inference                    # encrypted inference route/script
+npx lightnode add chat                         # chat-style UI with conversation history
 npx lightnode add analytics-dashboard          # read-only network + worker analytics page
 npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
 # All `add` commands accept [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]
@@ -92,6 +93,34 @@ npm create lightnode-app my-app
 ```
 
 ## Submitting inference
+
+**Easy mode (`runInference` — v0.4+):** one async call drives the whole protocol —
+SIWE → prepareSession → on-chain createSession → relay WS → encrypt + upload prompt
+→ on-chain submitJob → decrypt streamed chunks → wait for `JobCompleted` →
+return the assembled answer + three tx hashes. Built-in retry on `StalledWorkerError`.
+
+```ts
+import { LightNode, GatewayClient, runInference } from "lightnode-sdk";
+import WS from "ws"; // omit in the browser
+
+const ln = new LightNode("testnet");
+const gateway = new GatewayClient({ network: "testnet", bearer: await getJwt() });
+const { answer, txs } = await runInference({
+  prompt: "Reply with a one-sentence fun fact about the ocean.",
+  gateway, wallet, publicClient, network: ln.network,
+  WebSocket: WS,
+  onChunk: (chunk) => process.stdout.write(chunk), // live streaming
+  maxRetries: 2,                                    // auto-retry on stall
+});
+console.log("\n", txs); // { createSession, submitJob, jobCompleted }
+```
+
+The lower-level helpers (`prepareSession`, `submitPrompt`, `decryptResponse`,
+the typed errors `StalledWorkerError` / `OnChainRevertError` / `GatewayAuthError`
+/ `RelayTokenTimeoutError`) stay exported for builders who want a different
+retry policy or to reuse a session across prompts.
+
+### Manual mode (the full surface)
 
 `v0.3+` ships the encrypted inference-submit flow end to end. Wire-compatible with
 the reference client [`lcai-chat-v2`](https://github.com/lightchain-protocol/lcai-chat-v2)

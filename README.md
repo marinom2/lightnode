@@ -20,7 +20,7 @@ desktop app to run a worker. One project, two coherent tracks.
 </div>
 
 > 🆕 **Recently shipped**
-> - `lightnode-sdk@0.3.3` — encrypted inference end-to-end on mainnet + testnet, with new `lightnode add analytics-dashboard` and `lightnode add nft-mint-with-inference` subcommands.
+> - `lightnode-sdk@0.4.0` — new `runInference()` one-call API (streaming + auto-retry), typed errors (`StalledWorkerError` + friends), and four `lightnode add` subcommands (`inference`, `chat`, `analytics-dashboard`, `nft-mint-with-inference`).
 > - `create-lightnode-app@0.1.0` — scaffold a new LightChain AI dApp in one command, with templates for Node, Next.js, and Hono.
 > - **Live playground** at <https://lightnode.app/playground> — connect a wallet, run one real encrypted inference in the browser in 30 seconds.
 
@@ -90,7 +90,7 @@ You want to **earn LCAI** serving inference jobs.
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.3.3` | Read-only chain client (workers, jobs, models, analytics, on-chain registration truth) **plus** the encrypted inference-submit flow (prepareSession, submitPrompt, decryptResponse) **plus** the `lightnode` CLI with `add` subcommands. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.4.0` | Read-only chain client (workers, jobs, models, analytics, on-chain registration truth) **plus** the encrypted inference-submit flow (prepareSession, submitPrompt, decryptResponse) **plus** the `lightnode` CLI with `add` subcommands. |
 | [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.1.0` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. |
 | `lightnode add` (in `lightnode-sdk`) | — | Patch an existing project. Auto-detects framework, writes the right files. Idempotent. |
 
@@ -98,6 +98,7 @@ You want to **earn LCAI** serving inference jobs.
 
 ```bash
 npx lightnode add inference                    # encrypted inference route/script
+npx lightnode add chat                         # chat-style UI with conversation history
 npx lightnode add analytics-dashboard          # read-only network + worker analytics page
 npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
 ```

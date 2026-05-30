@@ -196,3 +196,410 @@ export { consumerGatewayUrl, GatewayClient } from "./gateway.js";
 
 /** Optional helper: generate the caller's own ECDH keypair if they want one (e.g. acting as the disputer). */
 export { generateEcdhKeyPair };
+
+// ----------------------------------------------------------------------------
+// runInference - one call, full flow.
+//
+// Turns the seven-stage protocol (auth -> prepare -> createSession -> open relay
+// -> uploadBlob -> submitJob -> stream + decrypt -> wait JobCompleted) into a
+// single async call. Supports:
+//
+//   - onChunk callback     for live streaming to a UI / stdout
+//   - maxRetries           auto-retry on StalledWorkerError (default 2)
+//   - WebSocket            inject a constructor (Node: `ws`. Browser: omit and
+//                          globalThis.WebSocket is used.)
+//
+// This is the API a builder should reach for first. The lower-level helpers
+// (prepareSession, submitPrompt, decryptResponse) are still exported for
+// builders who want to do something the orchestrator doesn't cover (e.g.
+// reuse a session across multiple prompts, custom retry policy).
+// ----------------------------------------------------------------------------
+
+import { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError } from "./errors.js";
+
+// Structurally typed minimum so we don't pull viem's WalletClient/PublicClient
+// generic surface into this file. Anything that walks like a viem client passes.
+interface MinimalWalletClient {
+  writeContract: (args: {
+    address: `0x${string}`;
+    abi: readonly unknown[];
+    functionName: string;
+    args: readonly unknown[];
+    value?: bigint;
+    gas?: bigint;
+  }) => Promise<`0x${string}`>;
+}
+interface MinimalPublicClient {
+  waitForTransactionReceipt: (args: { hash: `0x${string}` }) => Promise<{
+    status: "success" | "reverted";
+    blockHash: `0x${string}`;
+    blockNumber: bigint;
+  }>;
+  getLogs: (args: {
+    address: `0x${string}`;
+    event?: unknown;
+    args?: Record<string, unknown>;
+    fromBlock?: bigint;
+    toBlock?: bigint | "latest";
+    blockHash?: `0x${string}`;
+  }) => Promise<
+    Array<{
+      transactionHash: `0x${string}`;
+      blockNumber: bigint;
+      data: `0x${string}`;
+      topics: `0x${string}`[];
+      args?: Record<string, unknown>;
+    }>
+  >;
+}
+interface MinimalWebSocket {
+  binaryType?: string;
+  close: () => void;
+  addEventListener?: (
+    type: "message" | "open" | "error" | "close",
+    listener: (ev: { data?: unknown }) => void,
+    options?: { once?: boolean },
+  ) => void;
+  on?: (type: "message" | "open" | "error" | "close", listener: (data?: unknown) => void) => void;
+  once?: (type: "open" | "error" | "close", listener: (data?: unknown) => void) => void;
+}
+type WebSocketCtor = new (url: string) => MinimalWebSocket;
+
+export interface RunInferenceArgs {
+  /** The plaintext prompt to send. UTF-8 encoded before encryption. */
+  prompt: string;
+  /** Authenticated GatewayClient (with bearer JWT). */
+  gateway: GatewayClient;
+  /** viem WalletClient used to sign createSession + submitJob. */
+  wallet: MinimalWalletClient;
+  /** viem PublicClient used for receipts + log queries. */
+  publicClient: MinimalPublicClient;
+  /** The target NetworkConfig (typically `new LightNode("testnet").network`). */
+  network: NetworkConfig;
+  /** Inference model tag. Default: `"llama3-8b"`. */
+  model?: string;
+  /**
+   * Streaming callback invoked once per decrypted relay chunk. Use for live
+   * stdout / UI updates. Optional - the final `answer` is returned either way.
+   */
+  onChunk?: (chunk: string, totalSoFar: string) => void;
+  /** Retry count if a worker stalls. Default 2 (so up to 3 paid attempts). */
+  maxRetries?: number;
+  /** How long to wait for JobCompleted before declaring the worker stalled. Default 90s. */
+  jobCompletedTimeoutMs?: number;
+  /**
+   * WebSocket constructor. In a browser, omit and `globalThis.WebSocket` is
+   * used. In Node, pass `WS` from the `ws` package.
+   */
+  WebSocket?: WebSocketCtor;
+  /**
+   * Override the relay URL (defaults to `wss://relay.<network>.lightchain.ai/ws`).
+   * Useful for tests / mirrors.
+   */
+  relayUrl?: string;
+}
+
+export interface RunInferenceResult {
+  /** The decrypted, fully-assembled model answer. */
+  answer: string;
+  /** The three on-chain transactions in the chain of proof. */
+  txs: {
+    createSession: `0x${string}`;
+    submitJob: `0x${string}`;
+    jobCompleted: `0x${string}`;
+  };
+  /** The dispatcher-assigned worker that produced this response. */
+  worker: `0x${string}`;
+  sessionId: bigint;
+  jobId: bigint;
+  /** How many attempts were paid for (including the successful one). */
+  attempts: number;
+  /** Any prior attempts whose workers stalled (their fees are refunded by the protocol). */
+  stalled: Array<{ jobId: bigint; worker: `0x${string}`; submitTx: `0x${string}` }>;
+}
+
+const JOB_REGISTRY_ABI_PARSED = [
+  {
+    type: "function",
+    name: "createSession",
+    stateMutability: "payable",
+    inputs: [
+      { name: "paramsHash", type: "bytes32" },
+      { name: "worker", type: "address" },
+      { name: "encWorkerKey", type: "bytes" },
+      { name: "ephemeralPubKey", type: "bytes" },
+      { name: "initState", type: "bytes" },
+      { name: "expiry", type: "uint256" },
+    ],
+    outputs: [{ name: "sessionId", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "submitJob",
+    stateMutability: "payable",
+    inputs: [
+      { name: "sessionId", type: "uint256" },
+      { name: "promptHash", type: "bytes32" },
+    ],
+    outputs: [{ name: "jobId", type: "uint256" }],
+  },
+] as const;
+
+// Pre-computed topic hashes for the three events we listen for.
+// keccak256("SessionCreated(uint256,address,bytes32,address,bytes,bytes)")
+const SESSION_CREATED_TOPIC = "0xedf9fab204f0bb366f5b33ff07f441f4e387a833e86bfe1364a42ae2c7e05d73" as const;
+// keccak256("JobSubmitted(uint256,uint256,address)")
+const JOB_SUBMITTED_TOPIC = "0xfb47370368875d7490803c5653d9496d0a3c5e1b49a17f013ec37abd9d86d356" as const;
+// keccak256("JobCompleted(uint256,address,bytes32,bytes32)")
+const JOB_COMPLETED_TOPIC = "0xdb545db74bae046337ed01971cf61569fd1a1460ff8ed511ab19ceaac1326377" as const;
+
+function pickWebSocket(provided: WebSocketCtor | undefined): WebSocketCtor {
+  if (provided) return provided;
+  const g = (globalThis as { WebSocket?: WebSocketCtor }).WebSocket;
+  if (!g) {
+    throw new Error(
+      "no WebSocket available - either run in a browser or pass { WebSocket: require('ws') }",
+    );
+  }
+  return g;
+}
+
+function topicAsUint(hex: `0x${string}`): bigint {
+  return BigInt(hex);
+}
+
+async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<RunInferenceResult> {
+  const {
+    prompt,
+    gateway,
+    wallet,
+    publicClient,
+    network,
+    model = "llama3-8b",
+    onChunk,
+    jobCompletedTimeoutMs = 90_000,
+  } = args;
+  const WS = pickWebSocket(args.WebSocket);
+  const relayUrl = args.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
+
+  // 1. prepareSession
+  const prepared = await prepareSession(gateway, model);
+  const fee = await estimateJobFee(network, model);
+
+  // 2. createSession on-chain
+  const createTx = await wallet.writeContract({
+    address: network.jobRegistry as `0x${string}`,
+    abi: JOB_REGISTRY_ABI_PARSED,
+    functionName: "createSession",
+    args: [
+      prepared.createSessionArgs.paramsHash,
+      prepared.createSessionArgs.worker,
+      prepared.createSessionArgs.encWorkerKey,
+      prepared.createSessionArgs.ephemeralPubKey,
+      prepared.createSessionArgs.initState,
+      prepared.createSessionArgs.expiry,
+    ],
+    gas: 1_000_000n,
+  });
+  const createReceipt = await publicClient.waitForTransactionReceipt({ hash: createTx });
+  if (createReceipt.status !== "success") throw new OnChainRevertError("createSession", createTx);
+  const createLog = (
+    await publicClient.getLogs({ address: network.jobRegistry as `0x${string}`, blockHash: createReceipt.blockHash })
+  ).find((l) => l.transactionHash === createTx && l.topics[0] === SESSION_CREATED_TOPIC);
+  if (!createLog) throw new Error("SessionCreated log missing in createSession receipt");
+  const sessionId = topicAsUint(createLog.topics[1]);
+
+  // 3. relay token + WebSocket
+  let relayToken: string | undefined;
+  for (let i = 0; i < 30 && !relayToken; i++) {
+    const r = await gateway.getSessionToken(Number(sessionId));
+    if ("token" in r && r.token) relayToken = r.token;
+    else await new Promise((res) => setTimeout(res, 1000));
+  }
+  if (!relayToken) throw new RelayTokenTimeoutError();
+
+  const ws = new WS(`${relayUrl}?token=${encodeURIComponent(relayToken)}`);
+  try {
+    ws.binaryType = "arraybuffer";
+  } catch {
+    /* not a browser-style WS; ignore */
+  }
+  // Wait for open, supporting both browser (addEventListener) and Node ws (once).
+  await new Promise<void>((resolve, reject) => {
+    const onOpen = () => resolve();
+    const onError = (e?: unknown) => reject(e instanceof Error ? e : new Error("WebSocket open failed"));
+    if (ws.once) {
+      ws.once("open", onOpen);
+      ws.once("error", onError);
+    } else if (ws.addEventListener) {
+      ws.addEventListener("open", onOpen, { once: true });
+      ws.addEventListener("error", onError, { once: true });
+    } else {
+      reject(new Error("WebSocket has neither once nor addEventListener"));
+    }
+    setTimeout(() => reject(new Error("relay WebSocket open timeout")), 20_000);
+  });
+
+  const chunks: string[] = [];
+  const handleMessage = async (rawData: unknown) => {
+    const raw =
+      typeof rawData === "string"
+        ? rawData
+        : rawData instanceof ArrayBuffer
+          ? new TextDecoder().decode(rawData)
+          : typeof (rawData as { toString?: () => string }).toString === "function"
+            ? (rawData as { toString: () => string }).toString()
+            : "";
+    let frame: { type?: string; payload?: string };
+    try {
+      frame = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!frame?.payload) return;
+    if (frame.type === "chunk") {
+      try {
+        const piece = await decryptResponse(prepared.sessionKey, frame.payload);
+        chunks.push(piece);
+        if (onChunk) onChunk(piece, chunks.join(""));
+      } catch {
+        /* control frame */
+      }
+    } else if (frame.type === "complete" && chunks.length === 0) {
+      try {
+        const piece = await decryptResponse(prepared.sessionKey, frame.payload);
+        chunks.push(piece);
+        if (onChunk) onChunk(piece, chunks.join(""));
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  if (ws.on) {
+    ws.on("message", handleMessage);
+  } else if (ws.addEventListener) {
+    ws.addEventListener("message", (ev) => handleMessage(ev.data));
+  }
+
+  // 4. encrypt + upload prompt
+  const promptHash = await submitPrompt(gateway, prepared.sessionKey, prompt);
+
+  // 5. submitJob on-chain
+  const submitTx = await wallet.writeContract({
+    address: network.jobRegistry as `0x${string}`,
+    abi: JOB_REGISTRY_ABI_PARSED,
+    functionName: "submitJob",
+    args: [sessionId, promptHash],
+    value: BigInt(Math.round(fee * 1e18)),
+    gas: 500_000n,
+  });
+  const submitReceipt = await publicClient.waitForTransactionReceipt({ hash: submitTx });
+  if (submitReceipt.status !== "success") {
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+    throw new OnChainRevertError("submitJob", submitTx);
+  }
+  const jobLog = (
+    await publicClient.getLogs({ address: network.jobRegistry as `0x${string}`, blockHash: submitReceipt.blockHash })
+  ).find((l) => l.transactionHash === submitTx && l.topics[0] === JOB_SUBMITTED_TOPIC);
+  if (!jobLog) throw new Error("JobSubmitted log missing in submitJob receipt");
+  const jobId = topicAsUint(jobLog.topics[1]);
+
+  // 6. wait for JobCompleted
+  const deadline = Date.now() + jobCompletedTimeoutMs;
+  const jobIdTopic = (`0x${jobId.toString(16).padStart(64, "0")}`) as `0x${string}`;
+  let completed: { transactionHash: `0x${string}` } | null = null;
+  while (!completed && Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, 3000));
+    const logs = await publicClient.getLogs({
+      address: network.jobRegistry as `0x${string}`,
+      fromBlock: submitReceipt.blockNumber,
+      toBlock: "latest",
+    });
+    completed =
+      logs.find((l) => l.topics[0] === JOB_COMPLETED_TOPIC && l.topics[1] === jobIdTopic) ?? null;
+  }
+  if (!completed) {
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+    throw new StalledWorkerError({
+      jobId,
+      worker: prepared.createSessionArgs.worker,
+      submitTx,
+      feeLcai: fee,
+    });
+  }
+
+  // 7. grace period for the last relay frame, then close
+  await new Promise((res) => setTimeout(res, 4000));
+  try {
+    ws.close();
+  } catch {
+    /* ignore */
+  }
+
+  return {
+    answer: chunks.join(""),
+    txs: { createSession: createTx, submitJob: submitTx, jobCompleted: completed.transactionHash },
+    worker: prepared.createSessionArgs.worker,
+    sessionId,
+    jobId,
+    attempts: attempt,
+    stalled: [],
+  };
+}
+
+/**
+ * One call, full encrypted inference. Same code path the live playground at
+ * lightnode.app/playground drives, condensed into a single function.
+ *
+ * @example
+ * ```ts
+ * import { LightNode, runInference, GatewayClient } from "lightnode-sdk";
+ * import { createPublicClient, createWalletClient, http } from "viem";
+ * import { privateKeyToAccount } from "viem/accounts";
+ * import WS from "ws";
+ *
+ * const ln = new LightNode("testnet");
+ * const wallet = createWalletClient({ account: privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`), transport: http(ln.network.rpc) });
+ * const publicClient = createPublicClient({ transport: http(ln.network.rpc) });
+ * const gateway = new GatewayClient({ network: "testnet", bearer: await getJwt() });
+ *
+ * const { answer, txs } = await runInference({
+ *   prompt: "Reply with a one-sentence fun fact about the ocean.",
+ *   gateway, wallet, publicClient, network: ln.network,
+ *   WebSocket: WS, // omit in the browser
+ *   onChunk: (chunk) => process.stdout.write(chunk),
+ *   maxRetries: 2,
+ * });
+ *
+ * console.log("\n", txs);
+ * ```
+ */
+export async function runInference(args: RunInferenceArgs): Promise<RunInferenceResult> {
+  const maxRetries = args.maxRetries ?? 2;
+  const stalled: RunInferenceResult["stalled"] = [];
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      const result = await runOneAttempt(args, attempt);
+      return { ...result, stalled };
+    } catch (err) {
+      if (err instanceof StalledWorkerError && attempt <= maxRetries) {
+        stalled.push({ jobId: err.jobId, worker: err.worker, submitTx: err.submitTx });
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable - the loop either returns or throws.
+  throw new StalledWorkerError({ jobId: 0n, worker: "0x0000000000000000000000000000000000000000", submitTx: "0x", feeLcai: 0 });
+}
+
+/** Re-export the typed errors at this layer so a single import covers everything. */
+export { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError, isStalledWorker } from "./errors.js";

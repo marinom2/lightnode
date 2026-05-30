@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, type NetworkId } from "./index.js";
-import { addInference, addAnalyticsDashboard, addNftMint } from "./add.js";
+import { addInference, addAnalyticsDashboard, addNftMint, addChat } from "./add.js";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -30,6 +30,7 @@ const HELP = `lightnode <command> [--net mainnet|testnet]
   reliability [--csv]      per-worker reliability, busiest first
 
   add inference                   end-to-end encrypted inference route/script
+  add chat                        chat-style UI with conversation history
   add analytics-dashboard         read-only network + worker analytics page
   add nft-mint-with-inference     AI-generated NFT metadata (provenance on-chain)
                                   (all add commands: [--template auto|nextjs-api|hono|node] [--force])
@@ -101,7 +102,7 @@ async function main() {
       const template = (flag("--template") as "auto" | "nextjs-api" | "hono" | "node" | undefined) ?? "auto";
       const force = process.argv.includes("--force");
       const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
-      const known = ["inference", "analytics-dashboard", "nft-mint-with-inference"];
+      const known = ["inference", "chat", "analytics-dashboard", "nft-mint-with-inference"];
       if (!known.includes(sub ?? "")) {
         die(`usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`);
       }
@@ -110,7 +111,9 @@ async function main() {
           ? addAnalyticsDashboard({ template, network, force })
           : sub === "nft-mint-with-inference"
             ? addNftMint({ template, network, force })
-            : addInference({ template, network, force });
+            : sub === "chat"
+              ? addChat({ template, network, force })
+              : addInference({ template, network, force });
       console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
       for (const f of result.written) {
         if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
@@ -122,9 +125,14 @@ async function main() {
       } else {
         console.log(`\nNext steps:`);
         console.log(`  1. ${result.install}`);
-        if (sub === "nft-mint-with-inference" || sub === "inference") {
+        if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat") {
           console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
-          if (sub === "nft-mint-with-inference" && result.template === "nextjs-api") {
+          if (sub === "chat" && result.template === "nextjs-api") {
+            console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
+            console.log(`  4. npm run dev, open /chat`);
+          } else if (sub === "chat") {
+            console.log(`  3. tsx chat-repl.ts  (interactive terminal chat)`);
+          } else if (sub === "nft-mint-with-inference" && result.template === "nextjs-api") {
             console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
             console.log(`  4. npm run dev, open /nft-mint`);
           } else if (result.template === "nextjs-api") {

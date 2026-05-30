@@ -61,6 +61,32 @@ describe("lightnode-sdk pure logic", () => {
     expect(REGISTRY_TOPICS.exited).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
+  it("typed errors are constructable + identifiable via isStalledWorker / instanceof", async () => {
+    const { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError, isStalledWorker } =
+      await import("../../sdk/src/index");
+    const stall = new StalledWorkerError({
+      jobId: 42n,
+      worker: "0x1111111111111111111111111111111111111111",
+      submitTx: "0xabc" as `0x${string}`,
+      feeLcai: 0.02,
+    });
+    expect(stall.name).toBe("StalledWorkerError");
+    expect(stall.jobId).toBe(42n);
+    expect(isStalledWorker(stall)).toBe(true);
+    expect(isStalledWorker(new Error("other"))).toBe(false);
+
+    const revert = new OnChainRevertError("submitJob", "0xdeadbeef" as `0x${string}`);
+    expect(revert.fn).toBe("submitJob");
+    expect(revert.tx).toBe("0xdeadbeef");
+
+    const relay = new RelayTokenTimeoutError();
+    expect(relay.name).toBe("RelayTokenTimeoutError");
+
+    const auth = new GatewayAuthError(401, "Unauthorized");
+    expect(auth.status).toBe(401);
+    expect(auth.message).toMatch(/401/);
+  });
+
   it("CSV exporters emit a header + one row per record", () => {
     const models: ModelInfo[] = [{ id: "0xAAA", name: "llama3-8b", fee: "0", max_output_tokens: 0, is_whitelisted: true, is_enabled: true }];
     const jobs: Job[] = [

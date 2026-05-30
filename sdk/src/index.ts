@@ -26,7 +26,15 @@ import {
   submitPrompt,
   decryptResponse,
   generateEcdhKeyPair,
+  runInference,
 } from "./inference.js";
+import {
+  StalledWorkerError,
+  OnChainRevertError,
+  RelayTokenTimeoutError,
+  GatewayAuthError,
+  isStalledWorker,
+} from "./errors.js";
 import { GatewayClient, GatewayHttpError } from "./gateway.js";
 import * as crypto from "./crypto.js";
 import type {
@@ -163,7 +171,14 @@ export {
   decryptResponse,
   generateEcdhKeyPair,
   crypto,
+  // v0.4 high-level orchestrator: one call, full flow.
+  runInference,
+  StalledWorkerError,
+  OnChainRevertError,
+  RelayTokenTimeoutError,
+  GatewayAuthError,
+  isStalledWorker,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
-export type { SessionPreparation } from "./inference.js";
+export type { SessionPreparation, RunInferenceArgs, RunInferenceResult } from "./inference.js";
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
