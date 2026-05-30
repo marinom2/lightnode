@@ -351,23 +351,33 @@ export function OperationsPanel() {
     setLastOp(op.key);
     if (op.key === "bench") setBenchResult(null); // clear the previous dial before re-running
     setLog([`$ ${op.label.toLowerCase()}...`]);
-    // Deregister short-circuit: if the on-chain reader confirms this worker is
-    // already deregistered, don't run a docker container that would burn LCAI
-    // for gas only to revert (or fail to broadcast - the wallet is empty by then).
-    // Tells the operator the lifecycle is already complete instead of showing
-    // them a generic "gas required exceeds allowance" error from the toolkit.
-    if (op.key === "dereg") {
+    // Deregister / Settle short-circuit: when the on-chain reader confirms this
+    // worker has already exited the network AND there are no completed (unreleased)
+    // jobs in the subgraph, both ops have nothing to do. Without this they'd spin
+    // up a docker container that either reverts (deregister) or prints "no jobs
+    // to settle / no unclaimed earnings". Skip the container entirely with a
+    // clear note that the lifecycle is already complete.
+    if (op.key === "dereg" || op.key === "settle") {
       const addr = resolveWorkerAddr();
       if (/^0x[a-fA-F0-9]{40}$/.test(addr)) {
         const reg = await fetchOnchainRegistered(network, addr);
-        if (reg === false) {
+        const isSettle = op.key === "settle";
+        const completedIds = isSettle ? await fetchCompletedJobIds() : [];
+        const settleHasNothing = isSettle && completedIds.length === 0 && reg === false;
+        if (reg === false && (op.key === "dereg" || settleHasNothing)) {
           if (runId.current === myRun) {
-            setLog((l) => [
-              ...l,
-              "✓ this worker is already deregistered on-chain - nothing to do.",
-              "  Stake (minus any slashing) was returned to the worker wallet on deregister.",
-              "  To move LCAI out of the worker wallet, use Withdraw on the dashboard.",
-            ]);
+            const lines = isSettle
+              ? [
+                  "✓ this worker has no completed jobs to release and is already deregistered.",
+                  "  Settle has nothing to do; the lifecycle is complete on-chain.",
+                  "  To move any LCAI out of the worker wallet, use Withdraw on the dashboard.",
+                ]
+              : [
+                  "✓ this worker is already deregistered on-chain - nothing to do.",
+                  "  Stake (minus any slashing) was returned to the worker wallet on deregister.",
+                  "  To move LCAI out of the worker wallet, use Withdraw on the dashboard.",
+                ];
+            setLog((l) => [...l, ...lines]);
             setActive(null);
           }
           return;

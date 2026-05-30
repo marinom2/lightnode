@@ -1,10 +1,14 @@
 # lightnode-sdk
 
-Read-only TypeScript client for **LightChain AI**: workers, jobs, models, on-chain
-registration, and per-model network analytics. Pure reads from the public indexer and
-the chain. No keys, no writes, no native dependencies beyond `viem`.
+TypeScript client for **LightChain AI**: read workers, jobs, models, on-chain
+registration and per-model analytics, **and run encrypted inference end to end**
+(prepare session, submit prompt, decrypt the streamed response). The SDK is
+non-custodial - it never holds your private key; on-chain calls are signed by
+your wallet via viem. Single peer dep: `viem`.
 
 > Independent, community-built. Not an official LightChain package.
+> Live-verified end-to-end on both **mainnet** (chain 9200) and **testnet** (chain 8200)
+> with real LCAI - example transactions in the "Submitting inference" section below.
 
 ## Install
 
@@ -78,16 +82,21 @@ npx lightnode analytics --csv             # per-model performance (CSV)
 npx lightnode reliability --csv           # per-worker reliability (CSV)
 ```
 
-## Submitting inference (BETA)
+## Submitting inference
 
-`v0.3` adds the encrypted inference-submit surface so you can drive a full
-job end to end. It is wire-compatible with the reference client
-[`lcai-chat-v2`](https://github.com/lightchain-protocol/lcai-chat-v2) (same
-ECDH-P256 + AES-256-GCM scheme, same gateway endpoints) and the on-chain calls
-are exercised, but **the full end-to-end flow needs live testing against a funded
-testnet worker before you depend on it in production**. The pieces that talk to
-the chain (createSession / submitJob) are signed by **your** wallet; the SDK only
-prepares the data and the gateway calls.
+`v0.3+` ships the encrypted inference-submit flow end to end. Wire-compatible with
+the reference client [`lcai-chat-v2`](https://github.com/lightchain-protocol/lcai-chat-v2)
+(same ECDH-P256 + AES-256-GCM, same gateway endpoints, same `JobRegistry` calls).
+**Live-verified** with real LCAI on both networks before this release:
+
+| Network | Tx | Decrypted model output (excerpt) |
+| --- | --- | --- |
+| testnet (8200) | createSession `0x77686f3f…ef2bc587` · submitJob `0xba9d48c4…293b2bd96` | "Did you know that the deepest part of the ocean, the Mariana Trench, is so deep that if you were to drop Mount Everest into it, its peak would still be more than 1 mile underwater?!" |
+| mainnet (9200) | createSession `0xf091957f…57d4a6ca` · submitJob `0x6ff44a4a…79846bb89` | "Did you know there is a type of jellyfish called the 'Upside-Down Jellyfish' that actually swims on its back, using its tentacles to catch prey and defend itself from predators?" |
+
+The pieces that talk to the chain (`createSession` / `submitJob`) are signed by
+**your** wallet via viem; the SDK only prepares the data, does the crypto, and
+talks to the consumer gateway.
 
 ### Auth (your responsibility)
 
