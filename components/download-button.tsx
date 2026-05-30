@@ -92,9 +92,10 @@ export function DownloadButton() {
       {os === "linux" && (
         <div className="mt-1 w-full max-w-xl">
           <p className="text-[11px] leading-relaxed text-content-soft">
-            Easiest on Linux - paste this in a terminal. It picks the right package for your distro, installs what the
-            app needs, and adds LightNode to your apps menu (the download above is a portable AppImage you&apos;d have to
-            make executable yourself):
+            The button gives the Ubuntu/Debian installer (<span className="text-content-primary">.deb</span>) -
+            double-click it, or run <span className="text-content-primary">sudo apt install ./LightNode_*.deb</span>. On
+            any other distro (Fedora, Arch, etc.), or if you&apos;d rather one command do everything, paste this in a
+            terminal:
           </p>
           <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-bdr-soft bg-surface-base-subtle px-3 py-2">
             <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-content-primary">

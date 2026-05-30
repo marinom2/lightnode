@@ -4,11 +4,16 @@ const OWNER = "marinom2";
 const REPO = "lightnode";
 const RELEASES_PAGE = `https://github.com/${OWNER}/${REPO}/releases/latest`;
 
-/** Installer extension priority per OS (first match wins). */
+/** Installer extension priority per OS (first match wins).
+ *  Linux prefers the .deb: it's a real click-to-install package (apt / the
+ *  software center installs it AND auto-pulls the WebKitGTK runtime the app
+ *  needs), unlike the AppImage which a user must chmod +x and launch by hand.
+ *  The .rpm and portable AppImage stay reachable under "All downloads", and the
+ *  one-line installer (lightnode.app/install.sh) covers every other distro. */
 const EXT_PRIORITY: Record<string, string[]> = {
   mac: [".dmg"],
   windows: ["-setup.exe", ".exe", ".msi"],
-  linux: [".appimage", ".deb", ".rpm"],
+  linux: [".deb", ".appimage", ".rpm"],
 };
 
 interface ReleaseAsset {
