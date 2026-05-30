@@ -38,7 +38,7 @@ describe("sdk crypto: text + binary helpers", () => {
 
 describe("sdk crypto: AES-256-GCM", () => {
   it("encrypt -> decrypt round-trips identity", async () => {
-    const key = generateSessionKey();
+    const key = await generateSessionKey();
     const plaintext = utf8ToBytes("prompt: write a haiku");
     const ct = await encrypt(key, plaintext);
     // Format: nonce(12) || ct || tag(16). So ciphertext is plaintext.length + 28 bytes.
@@ -47,8 +47,8 @@ describe("sdk crypto: AES-256-GCM", () => {
   });
 
   it("a wrong key fails to decrypt", async () => {
-    const k1 = generateSessionKey();
-    const k2 = generateSessionKey();
+    const k1 = await generateSessionKey();
+    const k2 = await generateSessionKey();
     const ct = await encrypt(k1, utf8ToBytes("secret"));
     await expect(decrypt(k2, ct)).rejects.toBeDefined();
   });
@@ -59,7 +59,7 @@ describe("sdk crypto: AES-256-GCM", () => {
   });
 
   it("nonces differ across calls (so two ciphertexts of the same plaintext don't match)", async () => {
-    const key = generateSessionKey();
+    const key = await generateSessionKey();
     const pt = utf8ToBytes("same plaintext");
     const a = await encrypt(key, pt);
     const b = await encrypt(key, pt);
@@ -70,7 +70,7 @@ describe("sdk crypto: AES-256-GCM", () => {
 describe("sdk crypto: ECDH P-256 session-key wrapping", () => {
   it("session-key wrap -> unwrap round-trips identity", async () => {
     const recipient = await generateEcdhKeyPair();
-    const sessionKey = generateSessionKey();
+    const sessionKey = await generateSessionKey();
     const wrapped = await encryptSessionKey(sessionKey, recipient.publicKey);
     // Format: ephemeralPub(65) || nonce(12) || ct(32) || tag(16) = 125 bytes.
     expect(wrapped.length).toBe(65 + 12 + 32 + 16);
@@ -81,7 +81,7 @@ describe("sdk crypto: ECDH P-256 session-key wrapping", () => {
   it("a different recipient cannot unwrap", async () => {
     const intended = await generateEcdhKeyPair();
     const wrong = await generateEcdhKeyPair();
-    const wrapped = await encryptSessionKey(generateSessionKey(), intended.publicKey);
+    const wrapped = await encryptSessionKey(await generateSessionKey(), intended.publicKey);
     await expect(decryptSessionKey(wrapped, wrong.privateKey)).rejects.toBeDefined();
   });
 

@@ -9,9 +9,11 @@
  *   - AES-GCM ciphertext layout: nonce(12) || ciphertext || tag(16).
  *   - Encrypted session key layout: ephemeralPub(65) || nonce(12) || ciphertext || tag(16).
  *
- * Uses the Web Crypto API exposed via `globalThis.crypto.subtle`, available in
- * Node 18+ and all modern browsers. No Node-only dependencies; the SDK runs
- * unchanged in either environment.
+ * Uses the Web Crypto API. Tries `globalThis.crypto` first (real browsers +
+ * Node 19+ where it is global), then falls back to `node:crypto`'s
+ * `webcrypto` export (Node 18 and StackBlitz's WebContainer, which exposes
+ * the node: module but not the global). No hard dependency on Node, and no
+ * polyfill in the browser bundle.
  */
 
 const AES_KEY_BYTES = 32;
@@ -19,36 +21,80 @@ const GCM_NONCE_BYTES = 12;
 const P256_UNCOMPRESSED_KEY_BYTES = 65;
 const SESSION_KEY_BYTES = 32;
 
-function subtle(): SubtleCrypto {
-  const c = (globalThis as { crypto?: Crypto }).crypto;
-  if (!c?.subtle) throw new Error("Web Crypto unavailable - Node 18+ or a browser is required");
-  return c.subtle;
+// Resolved once on first use, then reused. Two-step initialization (the
+// promise during the in-flight first call, then the resolved object after)
+// prevents racing callers from each doing the dynamic import.
+interface CryptoProvider {
+  subtle: SubtleCrypto;
+  getRandomValues: (b: Uint8Array) => Uint8Array;
+}
+let resolvedCrypto: CryptoProvider | null = null;
+let resolvingCrypto: Promise<CryptoProvider> | null = null;
+
+async function getCrypto(): Promise<CryptoProvider> {
+  if (resolvedCrypto) return resolvedCrypto;
+  if (resolvingCrypto) return resolvingCrypto;
+  resolvingCrypto = (async (): Promise<CryptoProvider> => {
+    const g = (globalThis as { crypto?: Crypto }).crypto;
+    if (g?.subtle && typeof g.getRandomValues === "function") {
+      const provider: CryptoProvider = { subtle: g.subtle, getRandomValues: g.getRandomValues.bind(g) };
+      resolvedCrypto = provider;
+      return provider;
+    }
+    // Node 18 + StackBlitz WebContainer: globalThis.crypto is missing, but
+    // `node:crypto` exposes the same Web Crypto API via `webcrypto`.
+    try {
+      const mod = (await import("node:crypto")) as { webcrypto?: Crypto };
+      const wc = mod.webcrypto;
+      if (wc?.subtle && typeof wc.getRandomValues === "function") {
+        const provider: CryptoProvider = { subtle: wc.subtle, getRandomValues: wc.getRandomValues.bind(wc) };
+        resolvedCrypto = provider;
+        return provider;
+      }
+    } catch {
+      // node:crypto not importable - we're in a browser bundle without a
+      // global crypto. The fall-through error below explains the fix.
+    }
+    throw new Error(
+      "Web Crypto unavailable: globalThis.crypto is missing and node:crypto could not be loaded. " +
+        "The SDK requires Node 18+ or a modern browser.",
+    );
+  })();
+  try {
+    return await resolvingCrypto;
+  } finally {
+    resolvingCrypto = null;
+  }
 }
 
-function randomBytes(n: number): Uint8Array {
+async function subtle(): Promise<SubtleCrypto> {
+  return (await getCrypto()).subtle;
+}
+
+async function randomBytes(n: number): Promise<Uint8Array> {
   const buf = new Uint8Array(n);
-  (globalThis as { crypto: Crypto }).crypto.getRandomValues(buf);
+  (await getCrypto()).getRandomValues(buf);
   return buf;
 }
 
 /** A fresh 32-byte symmetric session key (random, never derived). */
-export function generateSessionKey(): Uint8Array {
+export function generateSessionKey(): Promise<Uint8Array> {
   return randomBytes(SESSION_KEY_BYTES);
 }
 
 /** Fresh ECDH P-256 keypair (extractable; we need to export the public key on the wire). */
-export function generateEcdhKeyPair(): Promise<CryptoKeyPair> {
-  return subtle().generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+export async function generateEcdhKeyPair(): Promise<CryptoKeyPair> {
+  return (await subtle()).generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
 }
 
 /** Export an ECDH public key to its raw uncompressed P-256 encoding (65 bytes). */
 export async function exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
-  return new Uint8Array(await subtle().exportKey("raw", key));
+  return new Uint8Array(await (await subtle()).exportKey("raw", key));
 }
 
 /** Import a raw uncompressed P-256 public key (65 bytes) into a CryptoKey. */
-export function importPublicKey(raw: Uint8Array): Promise<CryptoKey> {
-  return subtle().importKey("raw", raw as BufferSource, { name: "ECDH", namedCurve: "P-256" }, true, []);
+export async function importPublicKey(raw: Uint8Array): Promise<CryptoKey> {
+  return (await subtle()).importKey("raw", raw as BufferSource, { name: "ECDH", namedCurve: "P-256" }, true, []);
 }
 
 /**
@@ -57,15 +103,16 @@ export function importPublicKey(raw: Uint8Array): Promise<CryptoKey> {
  * protocol's `priv.ECDH(remotePub)` output exactly.
  */
 export async function deriveSharedSecret(privateKey: CryptoKey, remotePublicKey: CryptoKey): Promise<Uint8Array> {
-  return new Uint8Array(await subtle().deriveBits({ name: "ECDH", public: remotePublicKey }, privateKey, 256));
+  return new Uint8Array(await (await subtle()).deriveBits({ name: "ECDH", public: remotePublicKey }, privateKey, 256));
 }
 
 /** Encrypt with AES-256-GCM. Output: nonce(12) || ciphertext || tag(16). */
 export async function encrypt(key: Uint8Array, plaintext: Uint8Array): Promise<Uint8Array> {
   if (key.length !== AES_KEY_BYTES) throw new Error(`AES key must be ${AES_KEY_BYTES} bytes`);
-  const aesKey = await subtle().importKey("raw", key as BufferSource, "AES-GCM", false, ["encrypt"]);
-  const nonce = randomBytes(GCM_NONCE_BYTES);
-  const ctPlusTag = new Uint8Array(await subtle().encrypt({ name: "AES-GCM", iv: nonce as BufferSource }, aesKey, plaintext as BufferSource));
+  const s = await subtle();
+  const aesKey = await s.importKey("raw", key as BufferSource, "AES-GCM", false, ["encrypt"]);
+  const nonce = await randomBytes(GCM_NONCE_BYTES);
+  const ctPlusTag = new Uint8Array(await s.encrypt({ name: "AES-GCM", iv: nonce as BufferSource }, aesKey, plaintext as BufferSource));
   const out = new Uint8Array(GCM_NONCE_BYTES + ctPlusTag.byteLength);
   out.set(nonce, 0);
   out.set(ctPlusTag, GCM_NONCE_BYTES);
@@ -76,10 +123,11 @@ export async function encrypt(key: Uint8Array, plaintext: Uint8Array): Promise<U
 export async function decrypt(key: Uint8Array, ciphertext: Uint8Array): Promise<Uint8Array> {
   if (key.length !== AES_KEY_BYTES) throw new Error(`AES key must be ${AES_KEY_BYTES} bytes`);
   if (ciphertext.length < GCM_NONCE_BYTES + 16) throw new Error("ciphertext too short");
-  const aesKey = await subtle().importKey("raw", key as BufferSource, "AES-GCM", false, ["decrypt"]);
+  const s = await subtle();
+  const aesKey = await s.importKey("raw", key as BufferSource, "AES-GCM", false, ["decrypt"]);
   const nonce = ciphertext.slice(0, GCM_NONCE_BYTES);
   const body = ciphertext.slice(GCM_NONCE_BYTES);
-  return new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv: nonce as BufferSource }, aesKey, body as BufferSource));
+  return new Uint8Array(await s.decrypt({ name: "AES-GCM", iv: nonce as BufferSource }, aesKey, body as BufferSource));
 }
 
 /**

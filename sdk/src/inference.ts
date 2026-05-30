@@ -140,7 +140,7 @@ export interface SessionPreparation {
 export async function prepareSession(gateway: GatewayClient, modelTag: string): Promise<SessionPreparation> {
   const id = modelId(modelTag);
   const selected = await gateway.selectSession(id);
-  const sessionKey = generateSessionKey();
+  const sessionKey = await generateSessionKey();
 
   // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
   // accepts either.
