@@ -16,7 +16,19 @@ import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, type ProposalState }
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ETH_RPC = process.env.LIGHTNODE_ETH_RPC ?? "https://ethereum-rpc.publicnode.com";
+// Chain of public Ethereum RPCs. We hit them in order until one returns
+// something usable for getLogs. Free public endpoints get rate-limited or
+// time out on large block ranges, so the first one to answer wins.
+const ETH_RPCS: string[] = (
+  process.env.LIGHTNODE_ETH_RPC
+    ? [process.env.LIGHTNODE_ETH_RPC]
+    : [
+        "https://ethereum-rpc.publicnode.com",
+        "https://eth.merkle.io",
+        "https://rpc.ankr.com/eth",
+        "https://eth.drpc.org",
+      ]
+);
 
 const PROPOSAL_CREATED = parseAbiItem(
   "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)",
@@ -39,27 +51,53 @@ function deriveTitle(description: string): string {
   return cleaned.length ? cleaned.slice(0, 120) : "Untitled proposal";
 }
 
+async function findEventsAcrossRpcs(addresses: { governor: `0x${string}` }) {
+  const errors: string[] = [];
+  // Total window to scan: ~6 months on Ethereum (~1.3M blocks). Each RPC
+  // gets chunked into windows the free tier accepts (usually <= 100k blocks).
+  const WINDOW_BLOCKS = 1_300_000n;
+  const CHUNK = 100_000n;
+  for (const rpc of ETH_RPCS) {
+    try {
+      const pub = createPublicClient({ transport: http(rpc) });
+      const head = await pub.getBlockNumber();
+      const fromBlock = head > WINDOW_BLOCKS ? head - WINDOW_BLOCKS : 0n;
+      const all: Awaited<ReturnType<typeof pub.getLogs>> = [];
+      for (let start = fromBlock; start <= head; start += CHUNK) {
+        const end = start + CHUNK - 1n > head ? head : start + CHUNK - 1n;
+        try {
+          const chunk = await pub.getLogs({
+            address: addresses.governor,
+            event: PROPOSAL_CREATED,
+            fromBlock: start,
+            toBlock: end,
+          });
+          all.push(...chunk);
+        } catch (e) {
+          // Some RPCs cap getLogs per call; on a chunk failure abandon this
+          // RPC entirely rather than partial-result the page.
+          throw e;
+        }
+      }
+      return { pub, events: all };
+    } catch (e) {
+      errors.push(`${rpc.replace(/^https?:\/\//, "").slice(0, 24)}: ${(e as Error).message?.split("\n")[0]?.slice(0, 80)}`);
+      continue;
+    }
+  }
+  throw new Error("all RPCs failed: " + errors.join(" | "));
+}
+
 export async function GET() {
   try {
     const addresses = DAO_ADDRESSES.ethereum;
-    const pub = createPublicClient({ transport: http(ETH_RPC) });
-    // ProposalCreated logs span the whole life of the Governor. We scan only
-    // the last ~2.4M blocks (about a year on Ethereum) to keep getLogs cheap;
-    // that covers everything proposed since the LCAIGovernor deploy.
-    const head = await pub.getBlockNumber();
-    const fromBlock = head > 2_400_000n ? head - 2_400_000n : 0n;
-    const events = await pub.getLogs({
-      address: addresses.governor,
-      event: PROPOSAL_CREATED,
-      fromBlock,
-      toBlock: "latest",
-    });
+    const { pub, events } = await findEventsAcrossRpcs(addresses);
     // Newest first; cap at 6 to keep the per-card RPC pressure modest.
     const recent = events.slice().reverse().slice(0, 6);
     const abi = parseAbi(GOVERNOR_ABI as unknown as readonly string[]);
     const proposals = await Promise.all(
       recent.map(async (log) => {
-        const args = (log as { args: { proposalId: bigint; description: string; proposer: `0x${string}`; voteStart: bigint; voteEnd: bigint } }).args;
+        const args = (log as unknown as { args: { proposalId: bigint; description: string; proposer: `0x${string}`; voteStart: bigint; voteEnd: bigint } }).args;
         const id = args.proposalId;
         const [stateRaw, votes, deadline] = (await Promise.all([
           pub.readContract({ address: addresses.governor, abi, functionName: "state", args: [id] }).catch(() => -1),
@@ -104,7 +142,19 @@ export async function POST(req: Request) {
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   try {
     const addresses = DAO_ADDRESSES.ethereum;
-    const pub = createPublicClient({ transport: http(ETH_RPC) });
+    // Same RPC-chain pattern: try each one until one answers.
+    let pub: ReturnType<typeof createPublicClient> | null = null;
+    for (const rpc of ETH_RPCS) {
+      try {
+        const client = createPublicClient({ transport: http(rpc) });
+        await client.getBlockNumber();
+        pub = client;
+        break;
+      } catch {
+        continue;
+      }
+    }
+    if (!pub) throw new Error("no Ethereum RPC reachable");
     const abi = parseAbi(GOVERNOR_ABI as unknown as readonly string[]);
     const id = BigInt(body.id);
     const [stateRaw, votes, snapshot, deadline, proposer] = (await Promise.all([

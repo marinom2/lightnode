@@ -23,17 +23,35 @@ const ETH_RPC = process.env.LIGHTNODE_ETH_RPC ?? "https://ethereum-rpc.publicnod
 
 type MinimalPublicClient = Parameters<typeof quoteBridgeFee>[0];
 
+async function safeQuote(
+  client: MinimalPublicClient,
+  from: "ethereum" | "lightchain-mainnet",
+  to: "ethereum" | "lightchain-mainnet",
+): Promise<{ ok: true; wei: string } | { ok: false; error: string }> {
+  try {
+    const wei = await quoteBridgeFee(client, from, to);
+    return { ok: true, wei: wei.toString() };
+  } catch (e) {
+    const msg = (e as Error).message ?? "unknown";
+    return { ok: false, error: msg.split("\n")[0] };
+  }
+}
+
 export async function GET() {
   try {
     const ethPub = createPublicClient({ transport: http(ETH_RPC) }) as unknown as MinimalPublicClient;
     const lcPub = createPublicClient({ transport: http(BRIDGE_ROUTE["lightchain-mainnet"].rpc) }) as unknown as MinimalPublicClient;
     const [ethToLc, lcToEth] = await Promise.all([
-      quoteBridgeFee(ethPub, "ethereum", "lightchain-mainnet").catch(() => 0n),
-      quoteBridgeFee(lcPub, "lightchain-mainnet", "ethereum").catch(() => 0n),
+      safeQuote(ethPub, "ethereum", "lightchain-mainnet"),
+      safeQuote(lcPub, "lightchain-mainnet", "ethereum"),
     ]);
     return NextResponse.json({
-      ethereumToLightChain: { feeWei: ethToLc.toString(), feeEth: Number(ethToLc) / 1e18 },
-      lightChainToEthereum: { feeWei: lcToEth.toString(), feeLcai: Number(lcToEth) / 1e18 },
+      ethereumToLightChain: ethToLc.ok
+        ? { feeWei: ethToLc.wei, feeEth: Number(ethToLc.wei) / 1e18, ok: true }
+        : { ok: false, error: ethToLc.error },
+      lightChainToEthereum: lcToEth.ok
+        ? { feeWei: lcToEth.wei, feeLcai: Number(lcToEth.wei) / 1e18, ok: true }
+        : { ok: false, error: lcToEth.error },
       route: BRIDGE_ROUTE,
       fetchedAt: Date.now(),
     });

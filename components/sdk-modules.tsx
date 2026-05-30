@@ -256,9 +256,13 @@ function DocLinks({ m }: { m: ModuleDef }) {
 
 // --- Bridge live widget ----------------------------------------------------
 
+type DirQuote =
+  | { ok: true; feeWei: string; feeEth?: number; feeLcai?: number }
+  | { ok: false; error: string };
+
 interface BridgeQuoteResp {
-  ethereumToLightChain: { feeWei: string; feeEth: number };
-  lightChainToEthereum: { feeWei: string; feeLcai: number };
+  ethereumToLightChain: DirQuote;
+  lightChainToEthereum: DirQuote;
   route: {
     ethereum: { router: string; underlying: string | null; mailbox: string; explorer: string; chainId: number; label: string };
     "lightchain-mainnet": { router: string; underlying: string | null; mailbox: string; explorer: string; chainId: number; label: string };
@@ -300,18 +304,32 @@ function BridgeLive() {
       </p>
     );
   }
+  const ethToLc = data.ethereumToLightChain;
+  const lcToEth = data.lightChainToEthereum;
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
           <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">Ethereum {"->"} LightChain</div>
-          <div className="font-mono text-sm text-content-default">{data.ethereumToLightChain.feeEth.toFixed(6)} ETH</div>
-          <div className="text-[10px] text-content-soft">Hyperlane gas payment</div>
+          {ethToLc.ok ? (
+            <>
+              <div className="font-mono text-sm text-content-default">{(ethToLc.feeEth ?? 0).toFixed(6)} ETH</div>
+              <div className="text-[10px] text-content-soft">Hyperlane gas payment</div>
+            </>
+          ) : (
+            <div className="text-[11px] leading-relaxed text-warning">Live quote unavailable: {ethToLc.error.slice(0, 60)}</div>
+          )}
         </div>
         <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
           <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">LightChain {"->"} Ethereum</div>
-          <div className="font-mono text-sm text-content-default">{data.lightChainToEthereum.feeLcai.toFixed(6)} LCAI</div>
-          <div className="text-[10px] text-content-soft">Hyperlane gas payment</div>
+          {lcToEth.ok ? (
+            <>
+              <div className="font-mono text-sm text-content-default">{(lcToEth.feeLcai ?? 0).toFixed(6)} LCAI</div>
+              <div className="text-[10px] text-content-soft">Hyperlane gas payment</div>
+            </>
+          ) : (
+            <div className="text-[11px] leading-relaxed text-warning">Live quote unavailable: {lcToEth.error.slice(0, 60)}</div>
+          )}
         </div>
       </div>
       <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
