@@ -19,7 +19,6 @@ import {
   submitPrompt,
   decryptResponse,
   estimateJobFee,
-  consumerGatewayUrl,
   JOB_REGISTRY_CONSUMER_ABI,
   NETWORKS,
   type NetworkId,
@@ -185,20 +184,25 @@ export default function PlaygroundPage() {
     setS({ ...initial, phase: "auth" });
     let socket: WebSocket | null = null;
     try {
-      // === 1. SIWE handshake against the consumer gateway ===
+      // === 1. SIWE handshake via our same-origin proxy ===
+      // Browsers can't call chat-api.<net>.lightchain.ai directly (gateway
+      // doesn't include lightnode.app in its CORS allowlist), so every gateway
+      // call goes through /api/gw/<net>/* on this site. The proxy is stateless
+      // and forwards the exact bytes; the JWT lives only in the user's session.
+      const gwBase = `/api/gw/${net}`;
       setAuthPending(true);
-      const ch = await fetch(`${consumerGatewayUrl(net)}/api/auth/challenge?address=${address}`, {
+      const ch = await fetch(`${gwBase}/api/auth/challenge?address=${address}`, {
         headers: { Accept: "application/json" },
       }).then((r) => r.json() as Promise<{ message?: string }>);
       if (!ch?.message) throw new Error("auth challenge returned no message");
       const signature = await walletClient.signMessage({ message: ch.message });
-      const verify = await fetch(`${consumerGatewayUrl(net)}/api/auth/verify`, {
+      const verify = await fetch(`${gwBase}/api/auth/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ message: ch.message, signature }),
       }).then((r) => r.json() as Promise<{ token?: string }>);
       if (!verify?.token) throw new Error("auth verify did not return a token");
-      const gateway = new GatewayClient({ network: net, bearer: verify.token });
+      const gateway = new GatewayClient({ network: net, bearer: verify.token, baseUrl: gwBase });
       setAuthPending(false);
 
       // === 2. Prepare session (pick a worker, wrap session key, get dispatcher sig) ===
