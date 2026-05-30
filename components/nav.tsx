@@ -2,27 +2,148 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Boxes,
+  ChevronDown,
+  Database,
+  FileText,
+  Globe,
+  Menu,
+  Rocket,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
 import { NetworkToggle } from "@/components/network-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { isDesktop } from "@/lib/tauri";
 
-const ALL_LINKS = [
+type IconType = typeof Boxes;
+
+interface NavItem {
+  href: string;
+  label: string;
+  webOnly?: boolean;
+  /** When present, this nav item is a dropdown; the array describes the menu items. */
+  children?: Array<{
+    href: string;
+    label: string;
+    desc: string;
+    icon: IconType;
+  }>;
+}
+
+const ALL_LINKS: NavItem[] = [
   { href: "/onboard", label: "Become a worker" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/network", label: "Network" },
-  { href: "/build", label: "Build", webOnly: true },
+  {
+    href: "/build",
+    label: "Build",
+    webOnly: true,
+    children: [
+      { href: "/build", label: "Get started", desc: "Hero, install, scaffolders", icon: Rocket },
+      { href: "/build/sdks", label: "SDK modules", desc: "Bridge, DAO, chat, worker, dispute, models", icon: Boxes },
+      { href: "/build/cli", label: "CLI", desc: "Run lightnode commands interactively", icon: FileText },
+      { href: "/build/network", label: "Live network", desc: "Workers, models, jobs in real time", icon: Globe },
+      { href: "/build/reference", label: "Reference", desc: "Contracts, networks, changelog, ports", icon: Database },
+    ],
+  },
 ];
+
+/**
+ * Desktop dropdown anchored to a parent nav item. Closes on outside click,
+ * Escape, and route change. Mobile renders the same children as a flat list
+ * inside the burger menu so we don't ship two info architectures.
+ */
+function DesktopDropdown({
+  item,
+  active,
+}: {
+  item: NavItem;
+  active: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={cn(
+          "inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          active ? "text-gradient" : "text-content-soft hover:text-content-primary",
+        )}
+      >
+        {item.label}
+        <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+        {active && <span className="absolute inset-x-3 -bottom-px h-[2px] rounded-full bg-gradient-primary" />}
+      </button>
+
+      {open && item.children ? (
+        <div
+          role="menu"
+          className="absolute left-1/2 top-full z-50 mt-2 w-[420px] -translate-x-1/2 rounded-xl border border-bdr-soft bg-card/95 p-1.5 shadow-xl backdrop-blur-xl"
+        >
+          {item.children.map((c) => (
+            <Link
+              key={c.href}
+              role="menuitem"
+              href={c.href}
+              className={cn(
+                "group flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors",
+                pathname === c.href
+                  ? "bg-primary/10"
+                  : "hover:bg-surface-base-faint",
+              )}
+            >
+              <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border border-bdr-soft bg-surface-base-faint text-content-soft transition-colors group-hover:border-primary/40 group-hover:text-primary">
+                <c.icon className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-content-primary">{c.label}</span>
+                <span className="block text-[11px] text-content-soft">{c.desc}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function Nav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  // SSR-safe: assume web, then drop web-only links once we detect Tauri on mount.
   const [desktop, setDesktop] = useState(false);
-  useEffect(() => { setDesktop(isDesktop()); }, []);
+  useEffect(() => {
+    setDesktop(isDesktop());
+  }, []);
   const links = desktop ? ALL_LINKS.filter((l) => !l.webOnly) : ALL_LINKS;
 
   return (
@@ -43,6 +164,9 @@ export function Nav() {
         <nav className="hidden items-center gap-1 md:flex">
           {links.map((l) => {
             const active = pathname.startsWith(l.href);
+            if (l.children) {
+              return <DesktopDropdown key={l.href} item={l} active={active} />;
+            }
             return (
               <Link
                 key={l.href}
@@ -84,17 +208,36 @@ export function Nav() {
             {links.map((l) => {
               const active = pathname.startsWith(l.href);
               return (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  onClick={() => setOpen(false)}
-                  className={cn(
-                    "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    active ? "bg-surface-base-light text-gradient" : "text-content-soft hover:text-content-primary",
-                  )}
-                >
-                  {l.label}
-                </Link>
+                <div key={l.href} className="flex flex-col">
+                  <Link
+                    href={l.href}
+                    onClick={() => setOpen(false)}
+                    className={cn(
+                      "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      active ? "bg-surface-base-light text-gradient" : "text-content-soft hover:text-content-primary",
+                    )}
+                  >
+                    {l.label}
+                  </Link>
+                  {l.children
+                    ? l.children
+                        .filter((c) => c.href !== l.href)
+                        .map((c) => (
+                          <Link
+                            key={c.href}
+                            href={c.href}
+                            onClick={() => setOpen(false)}
+                            className={cn(
+                              "ml-4 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] transition-colors",
+                              pathname === c.href ? "text-content-primary" : "text-content-soft hover:text-content-primary",
+                            )}
+                          >
+                            <c.icon className="size-3.5" />
+                            {c.label}
+                          </Link>
+                        ))
+                    : null}
+                </div>
               );
             })}
           </nav>

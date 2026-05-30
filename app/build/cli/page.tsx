@@ -1,0 +1,126 @@
+import { AlertOctagon, FileText, TerminalSquare, Wallet2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { SectionHeader } from "@/components/build/section-header";
+import { BuildTabs } from "@/components/build/build-tabs";
+import { CliRunner } from "@/components/cli-runner";
+
+export const metadata = {
+  title: "CLI - Build with LightChain AI",
+  description:
+    "The lightnode CLI runs from any terminal. Eight read-only commands, five add scaffolders, plus wallet, chat, worker preflight + watch, bridge, dao. Try the read-only commands inline here.",
+};
+
+const CLI_ADD = [
+  { cmd: "lightnode add inference", desc: "Encrypted inference route or script. Next.js: app/api/inference/route.ts. Hono / Node: lightchain-inference.ts." },
+  { cmd: "lightnode add chat", desc: "Chat UI with conversation history. Next.js: app/chat/page.tsx. Node: terminal REPL with rolling memory." },
+  { cmd: "lightnode add agent", desc: "Scheduled / loop inference. Next.js: Vercel Cron route + vercel.json. Node: long-running setInterval daemon." },
+  { cmd: "lightnode add analytics-dashboard", desc: "Read-only network + worker analytics page. No wallet, no fees. Next.js: SSR page; Node: CLI script." },
+  { cmd: "lightnode add nft-mint-with-inference", desc: "AI-generated NFT metadata with on-chain provenance. Mint flow that anchors the answer to a content hash." },
+] as const;
+
+export default function BuildCliPage() {
+  return (
+    <div className="mx-auto max-w-5xl px-5 py-10">
+      <BuildTabs />
+
+      <div className="mb-8">
+        <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
+          lightnode CLI
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm text-content-soft">
+          Bundled in lightnode-sdk. Read-only commands run inline below; the rest run from your terminal. Five add
+          scaffolders patch an existing project.
+        </p>
+      </div>
+
+      {/* How to actually invoke the CLI in a real terminal. */}
+      <Card className="mb-3 border-warning/30 bg-warning/5 p-3">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-warning">
+          <AlertOctagon className="size-3" /> How to run these in your terminal
+        </div>
+        <p className="text-[11px] leading-relaxed text-content-default">
+          The npm package is <code className="font-mono text-content-default">lightnode-sdk</code> but the bundled
+          binary is named <code className="font-mono text-content-default">lightnode</code>, which clashes with another
+          package on npm. Three reliable invocations:
+        </p>
+        <pre className="mt-2 overflow-x-auto rounded-md code-surface p-2 font-mono text-[10px] leading-relaxed text-content-default">
+{`# One-shot (explicit package):
+npx --package=lightnode-sdk -- lightnode wallet new
+
+# Install in your project, then npx finds it:
+npm install lightnode-sdk
+npx lightnode wallet new
+
+# Global install for everyday use:
+npm install -g lightnode-sdk
+lightnode wallet new`}
+        </pre>
+      </Card>
+
+      {/* Interactive CLI runner */}
+      <div className="mb-12">
+        <SectionHeader
+          icon={TerminalSquare}
+          title="Try a command (no install)"
+          blurb="Pick a read-only command on the left, hit Run, see real JSON. Same output the CLI would print."
+        />
+        <CliRunner />
+      </div>
+
+      {/* Static catalogs */}
+      <div className="mb-12 grid gap-3 md:grid-cols-2">
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <FileText className="size-4 text-primary" />
+            <span className="text-sm font-semibold text-content-primary">add (writes files in your project)</span>
+          </div>
+          <ul className="space-y-2 text-xs">
+            {CLI_ADD.map((c) => (
+              <li key={c.cmd}>
+                <code className="block break-all font-mono text-content-default">{c.cmd}</code>
+                <span className="text-content-soft">{c.desc}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-[11px] text-content-soft">
+            All add commands accept <code className="font-mono">--template auto|nextjs-api|hono|node</code>,{" "}
+            <code className="font-mono">--net testnet|mainnet</code>, and{" "}
+            <code className="font-mono">--force</code>.
+          </p>
+        </Card>
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Wallet2 className="size-4 text-primary" />
+            <span className="text-sm font-semibold text-content-primary">Inferences + wallet (need PRIVATE_KEY)</span>
+          </div>
+          <ul className="space-y-2 text-xs">
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode chat &lt;prompt&gt;</code>
+              <span className="text-content-soft">One-shot encrypted inference. Streams answer to stdout, JSON receipt to stderr. Supports stdin too.</span>
+            </li>
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode wallet new|address|balance</code>
+              <span className="text-content-soft">Generate a key, read the address of your env key, check balance on mainnet/testnet.</span>
+            </li>
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode worker preflight</code>
+              <span className="text-content-soft">Submits ONE real test inference and prints a verdict. Useful as a CI gate.</span>
+            </li>
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode worker watch &lt;addr&gt;</code>
+              <span className="text-content-soft">Polls a worker, emits JSON line on state change (no key required).</span>
+            </li>
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode bridge addresses</code>
+              <span className="text-content-soft">Print the LCAI bridge route (Ethereum &lt;-&gt; LightChain).</span>
+            </li>
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode dao addresses|config</code>
+              <span className="text-content-soft">LCAI Governor addresses + live voting delay/period/threshold.</span>
+            </li>
+          </ul>
+        </Card>
+      </div>
+    </div>
+  );
+}

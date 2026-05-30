@@ -750,11 +750,27 @@ function ChatSample() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ message: text, history }),
       });
-      const json = (await res.json()) as ChatDemoResponse;
+      // Vercel Hobby tier caps functions at 10s and returns an HTML error
+      // body (not JSON) when the inference exceeds that. Parse defensively
+      // so the widget tells the user something useful instead of crashing
+      // on JSON.parse.
+      const raw = await res.text();
+      let json: ChatDemoResponse = {};
+      try {
+        json = JSON.parse(raw) as ChatDemoResponse;
+      } catch {
+        const looksLikeTimeout = /FUNCTION_INVOCATION_TIMEOUT/i.test(raw);
+        setErr(
+          looksLikeTimeout
+            ? "The worker took longer than this demo allows (10s server budget). Try again - the next inference usually lands in 5-8s. For unlimited tries, open the playground or run the example locally."
+            : `Demo failed (${res.status}). Try again, or run the example locally.`,
+        );
+        setHistory(history);
+        return;
+      }
       if (!res.ok || !json.answer) {
         setErr(json.error ?? `Demo failed (${res.status})`);
         if (json.howTo) setHowTo(json.howTo);
-        // Rewind the user turn since the assistant never answered.
         setHistory(history);
         return;
       }
