@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  Activity,
   AlertOctagon,
   Boxes,
   Code2,
@@ -24,11 +25,17 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
+import { LightNode } from "lightnode-sdk";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { HideOnDesktop } from "@/components/hide-on-desktop";
+
+// /build is server-rendered with live SDK data so the page reads as a
+// living artifact, not a docs page. revalidate keeps the data within ~60s
+// of fresh without forcing a request-time fetch for every visitor.
+export const revalidate = 60;
 
 // Examples live in their own tiny repo so StackBlitz / Codespaces clone in <1s
 // (cloning the full lightnode monorepo took 30s+ and often timed out).
@@ -183,7 +190,7 @@ const PAY_PATTERNS = [
   {
     icon: Server,
     name: "Server-pays",
-    line: "The familiar OpenAI-shape API.",
+    line: "Familiar REST shape; the user does not need a wallet.",
     desc: "You hold a hot wallet on the server, top it up, the user just hits your API. Build on runInferenceWithKey or the Next.js route in lightnode-examples. Your cost per call.",
     fits: ["Free tools", "Internal apps", "Anything the user does not have a wallet for"],
     examples: "Next.js API route, Hono server, agent / cron, NFT mint endpoint",
@@ -289,6 +296,159 @@ function TxRow({
   );
 }
 
+// --- live data pulled server-side ----------------------------------------
+
+interface LiveData {
+  network: { workers: number; active: number; jobsCompleted: number; earningsLcai: number; modelCount: number };
+  models: Array<{ name: string; feeLcai: number; maxTokens: number; live: boolean }>;
+  topWorkers: Array<{ address: string; completionPct: number; p50s: number | null; jobs: number; earningsLcai: number }>;
+  modelStats: Array<{ name: string; total: number; completionPct: number; p50s: number | null; p95s: number | null; incomplete: number }>;
+  fetchedAt: number;
+  error: string | null;
+}
+
+const NULL_LIVE: LiveData = {
+  network: { workers: 0, active: 0, jobsCompleted: 0, earningsLcai: 0, modelCount: 0 },
+  models: [],
+  topWorkers: [],
+  modelStats: [],
+  fetchedAt: 0,
+  error: null,
+};
+
+// Pulls a tiny live snapshot of the mainnet so the /build page can render
+// real numbers next to the code that produced them. Falls back to nulls if
+// any indexer/RPC query throws so the page still renders.
+async function fetchLive(): Promise<LiveData> {
+  try {
+    const ln = new LightNode("mainnet");
+    const [net, models, topWorkers, modelStats] = await Promise.all([
+      ln.getNetworkStats(),
+      ln.getModels(),
+      ln.getWorkerStats(500, 5),
+      ln.getModelStats(500),
+    ]);
+    return {
+      network: {
+        workers: net.total,
+        active: net.active,
+        jobsCompleted: net.jobsCompleted,
+        earningsLcai: net.totalEarnedLcai,
+        modelCount: net.models,
+      },
+      models: models.slice(0, 6).map((m) => ({
+        name: m.name,
+        feeLcai: Number(BigInt(m.fee ?? "0")) / 1e18,
+        maxTokens: m.max_output_tokens,
+        live: !!(m.is_whitelisted && m.is_enabled),
+      })),
+      topWorkers: topWorkers.map((w) => ({
+        address: w.address,
+        completionPct: Math.round((w.completionRate ?? 0) * 100),
+        p50s: w.p50,
+        jobs: w.total,
+        earningsLcai: w.earnings,
+      })),
+      modelStats: modelStats.slice(0, 5).map((s) => ({
+        name: s.name,
+        total: s.total,
+        completionPct: Math.round((s.completionRate ?? 0) * 100),
+        p50s: s.p50,
+        p95s: s.p95,
+        incomplete: s.incomplete,
+      })),
+      fetchedAt: Date.now(),
+      error: null,
+    };
+  } catch (e) {
+    return { ...NULL_LIVE, error: (e as Error).message };
+  }
+}
+
+function shortAddr(a: string) {
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function CodeBox({ children }: { children: string }) {
+  return (
+    <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default">
+      <code>{children}</code>
+    </pre>
+  );
+}
+
+function LiveDemoCard({
+  icon: Icon,
+  title,
+  desc,
+  snippet,
+  children,
+}: {
+  icon: typeof Boxes;
+  title: string;
+  desc: string;
+  snippet: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="size-4 text-primary" />
+        <span className="text-sm font-semibold text-content-primary">{title}</span>
+        <Badge tone="success" className="ml-auto">live · mainnet</Badge>
+      </div>
+      <p className="mb-3 text-xs leading-relaxed text-content-soft">{desc}</p>
+      <CodeBox>{snippet}</CodeBox>
+      <div className="mt-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+        <div className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-content-soft">
+          <Activity className="size-3 text-success" /> what that call returns right now
+        </div>
+        {children}
+      </div>
+    </Card>
+  );
+}
+
+// What's coming next on the SDK roadmap. Bridge, dispute, multi-turn, etc.
+const ROADMAP = [
+  {
+    title: "Bridge SDK",
+    blurb:
+      "Typed wrapper for the LightChain bridge (Hyperlane Warp Route). bridge.deposit({ from: 'ethereum', amount }), bridge.quoteFee, bridge.trackMessage. Today every dApp learns Hyperlane SDK from scratch.",
+    badge: "next",
+  },
+  {
+    title: "Multi-turn session helper",
+    blurb:
+      "ln.chat() that reuses one ECDH-wrapped session across turns instead of re-paying the createSession setup. Lower-level prepareSession + submitPrompt are already exported for handcrafted multi-turn today.",
+    badge: "next",
+  },
+  {
+    title: "Dispute / refund API",
+    blurb:
+      "Wrapper for the on-chain challenge + refund flow. The contracts exist (job state includes Disputed | Resolved); no tooling does. Lets a builder programmatically claim a refund when a worker stalls.",
+    badge: "planned",
+  },
+  {
+    title: "DAO SDK (LCAIGovernor)",
+    blurb:
+      "governor.propose / vote / queue / execute against the LCAIGovernor + Timelock contracts. The frontend at dao.lightchain.ai exists; no library to read proposals or build automation around them.",
+    badge: "planned",
+  },
+  {
+    title: "Worker preflight + watchdog",
+    blurb:
+      "lightnode worker preflight that runs one real test inference before joining a worker pool. Plus a liveness watchdog that pages on stale heartbeats. Addresses the #1 community pain point: silent worker failure.",
+    badge: "operator",
+  },
+  {
+    title: "On-chain model registry reader",
+    blurb:
+      "models.list(), models.getVariant(id), models.getAccessPolicy(id) against AIVMModelRegistry + BenchmarkRegistry. Today you hand-roll ABI calls; this exposes model metadata + IPFS CIDs + benchmarks as one client.",
+    badge: "planned",
+  },
+] as const;
+
 function SectionHeader({
   icon: Icon,
   title,
@@ -309,7 +469,9 @@ function SectionHeader({
   );
 }
 
-export default function BuildPage() {
+export default async function BuildPage() {
+  const live = await fetchLive();
+  const fmt = new Intl.NumberFormat("en-US");
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
       {/* ── HERO ─────────────────────────────────────────────────────── */}
@@ -583,6 +745,147 @@ export default function BuildPage() {
           <code className="font-mono">networkAnalytics</code>) if you want to build your own.
         </p>
       </Card>
+
+      {/* ── LIVE DEMO PANEL ──────────────────────────────────────────── */}
+      <div className="mb-12">
+        <SectionHeader
+          icon={Activity}
+          title="Try it live (no install, no key)"
+          blurb="Real mainnet data, refreshed about once a minute. Each card shows the SDK call that produced it - copy and run."
+        />
+        {live.error ? (
+          <Card className="p-5">
+            <p className="text-xs text-content-soft">
+              Couldn&apos;t reach the indexer right now. The SDK calls work regardless - try them locally.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <LiveDemoCard
+              icon={Globe}
+              title="Network at a glance"
+              desc="One call that summarizes the entire mainnet: workers, jobs completed, total earnings, model count."
+              snippet={`const ln = new LightNode("mainnet");
+const stats = await ln.getNetworkStats();`}
+            >
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                <span className="text-content-soft">workers (active / total)</span>
+                <span className="text-right font-mono text-content-default">{fmt.format(live.network.active)} / {fmt.format(live.network.workers)}</span>
+                <span className="text-content-soft">jobs completed</span>
+                <span className="text-right font-mono text-content-default">{fmt.format(live.network.jobsCompleted)}</span>
+                <span className="text-content-soft">total earnings</span>
+                <span className="text-right font-mono text-content-default">{live.network.earningsLcai.toFixed(2)} LCAI</span>
+                <span className="text-content-soft">registered models</span>
+                <span className="text-right font-mono text-content-default">{fmt.format(live.network.modelCount)}</span>
+              </div>
+            </LiveDemoCard>
+
+            <LiveDemoCard
+              icon={Database}
+              title="Top workers by reliability"
+              desc="Per-worker completion + p50 latency over the last 500 jobs. Use it to score worker selection in your dApp."
+              snippet={`const workers = await ln.getWorkerStats(500, 5);`}
+            >
+              {live.topWorkers.length === 0 ? (
+                <p className="text-xs text-content-soft">(no workers in the sample)</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-content-soft">
+                    <tr>
+                      <th className="pb-1 text-left font-medium">worker</th>
+                      <th className="pb-1 text-right font-medium">jobs</th>
+                      <th className="pb-1 text-right font-medium">complete</th>
+                      <th className="pb-1 text-right font-medium">p50</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {live.topWorkers.map((w) => (
+                      <tr key={w.address} className="border-t border-bdr-soft/40">
+                        <td className="py-1 font-mono text-content-default">{shortAddr(w.address)}</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{w.jobs}</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{w.completionPct}%</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{w.p50s != null ? `${w.p50s}s` : "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </LiveDemoCard>
+
+            <LiveDemoCard
+              icon={Boxes}
+              title="Registered models"
+              desc="Live model whitelist with on-chain fee + max output tokens. Drives a model picker in any builder UI."
+              snippet={`const models = await ln.getModels();`}
+            >
+              {live.models.length === 0 ? (
+                <p className="text-xs text-content-soft">(no models found)</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-content-soft">
+                    <tr>
+                      <th className="pb-1 text-left font-medium">model</th>
+                      <th className="pb-1 text-right font-medium">fee</th>
+                      <th className="pb-1 text-right font-medium">max out</th>
+                      <th className="pb-1 text-right font-medium">live</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {live.models.map((m) => (
+                      <tr key={m.name} className="border-t border-bdr-soft/40">
+                        <td className="py-1 font-mono text-content-default">{m.name}</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{m.feeLcai.toFixed(3)}</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{fmt.format(m.maxTokens)}</td>
+                        <td className="py-1 text-right">{m.live ? <Badge tone="success">yes</Badge> : <Badge tone="muted">off</Badge>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </LiveDemoCard>
+
+            <LiveDemoCard
+              icon={Gauge}
+              title="Per-model performance"
+              desc="Completion rate, p50 / p95 latency, incomplete count over the last 500 jobs. Builds the analytics tab of any dApp."
+              snippet={`const stats = await ln.getModelStats(500);`}
+            >
+              {live.modelStats.length === 0 ? (
+                <p className="text-xs text-content-soft">(no stats yet)</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-content-soft">
+                    <tr>
+                      <th className="pb-1 text-left font-medium">model</th>
+                      <th className="pb-1 text-right font-medium">jobs</th>
+                      <th className="pb-1 text-right font-medium">complete</th>
+                      <th className="pb-1 text-right font-medium">p50 / p95</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {live.modelStats.map((m) => (
+                      <tr key={m.name} className="border-t border-bdr-soft/40">
+                        <td className="py-1 font-mono text-content-default">{m.name}</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{m.total}</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{m.completionPct}%</td>
+                        <td className="py-1 text-right font-mono text-content-soft">{m.p50s != null ? `${m.p50s}s` : "-"} / {m.p95s != null ? `${m.p95s}s` : "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </LiveDemoCard>
+          </div>
+        )}
+        <p className="mt-3 text-[11px] text-content-soft">
+          Each panel is one SDK call. Paste the snippet into any Node, Next.js, or browser project and you get the same
+          shape. Data refreshes about once a minute via ISR. Or run from your terminal: {""}
+          <code className="font-mono text-content-default">lightnode network</code>,{" "}
+          <code className="font-mono text-content-default">lightnode reliability</code>,{" "}
+          <code className="font-mono text-content-default">lightnode models</code>,{" "}
+          <code className="font-mono text-content-default">lightnode analytics</code>.
+        </p>
+      </div>
 
       {/* ── CLI CATALOG ──────────────────────────────────────────────── */}
       <div className="mb-12">
@@ -871,6 +1174,44 @@ export default function BuildPage() {
             </Card>
           ))}
         </div>
+      </div>
+
+      {/* ── ROADMAP ──────────────────────────────────────────────────── */}
+      <div className="mb-12">
+        <SectionHeader
+          icon={Rocket}
+          title="What's next on the SDK"
+          blurb="LightChain's own docs list SDKs as 'soon'. lightnode-sdk is filling the gap. Here is what is queued."
+        />
+        <div className="grid gap-3 md:grid-cols-2">
+          {ROADMAP.map((r) => (
+            <Card key={r.title} className="p-5">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-sm font-semibold text-content-primary">{r.title}</span>
+                <Badge
+                  tone={r.badge === "next" ? "brand" : r.badge === "operator" ? "warning" : "muted"}
+                  className="ml-auto"
+                >
+                  {r.badge}
+                </Badge>
+              </div>
+              <p className="text-xs leading-relaxed text-content-soft">{r.blurb}</p>
+            </Card>
+          ))}
+        </div>
+        <p className="mt-3 text-[11px] text-content-soft">
+          Independent, community-built. Not affiliated with LightChain. If you want a specific surface filled sooner,
+          {" "}
+          <a
+            href="https://github.com/marinom2/lightnode/issues/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            open an issue
+          </a>
+          .
+        </p>
       </div>
 
       {/* ── CHANGELOG ────────────────────────────────────────────────── */}

@@ -25,10 +25,10 @@ Two completely separate use cases live in this repo. Pick the one that matches
 what you actually want.
 
 1. **You are a developer.** You want to add AI to your own app, paying per call,
-   without signing up to OpenAI. Install `lightnode-sdk`, paste five lines of
-   code, and your app can run encrypted prompts on the LightChain AI network. The
-   network is decentralized, so it is not one company running it. Your wallet
-   pays for each call directly on chain.
+   on a decentralized network instead of a single hosted vendor. Install
+   `lightnode-sdk`, paste five lines of code, and your app can run encrypted
+   prompts on the LightChain AI network. The network is decentralized, so it is
+   not one company running it. Your wallet pays for each call directly on chain.
 
 2. **You have a decent computer.** You want to make a bit of LCAI by serving
    prompts to other people's apps. Install the LightNode desktop app, click
@@ -208,8 +208,8 @@ The biggest decision when wiring inference into your app: **whose wallet pays
 for each call?**
 
 - **Server-pays** (the API-route examples). You hold a hot wallet on the
-  server, top it up, the user just hits your API. Familiar to anyone who has
-  used OpenAI. Cheaper UX for the user. You own the cost.
+  server, top it up, the user just hits your API. Familiar pattern: the user
+  does not need a wallet at all. Cheaper UX for the user. You own the cost.
 - **User-pays** (the playground). The user connects their own wallet and signs
   the two on-chain transactions per call. You hold no keys and bear no cost,
   but the user needs LCAI in their wallet. This is the closest to "AI as a
