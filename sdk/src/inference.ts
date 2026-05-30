@@ -794,10 +794,14 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
       : undefined);
   if (!wsCtor) {
     try {
-      const mod = (await import(/* webpackIgnore: true */ "ws")) as {
-        default?: WebSocketCtor;
-        WebSocket?: WebSocketCtor;
-      };
+      // Hide the module name from TS's static resolver via a Function-built
+      // dynamic import - otherwise TS errors trying to find @types/ws (we do
+      // not want that as a SDK devDep). The webpackIgnore-style comment also
+      // keeps browser bundlers from trying to resolve `ws`.
+      const dynamicImport = Function("n", "return import(/* webpackIgnore: true */ n)") as (
+        n: string,
+      ) => Promise<{ default?: WebSocketCtor; WebSocket?: WebSocketCtor }>;
+      const mod = await dynamicImport("ws");
       wsCtor = mod.default ?? mod.WebSocket;
     } catch {
       // `ws` not installed - keep wsCtor undefined and fall into the error below.
