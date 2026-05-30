@@ -46,6 +46,17 @@ import { cn } from "@/lib/utils";
 
 type Phase = "idle" | "auth" | "prepare" | "create" | "upload" | "submit" | "stream" | "done" | "error";
 
+// Tracks every paid attempt + its eventual refund timing, so the operator can
+// see why their wallet was charged multiple times if the first worker stalled.
+interface StalledAttempt {
+  jobId: string;
+  worker: `0x${string}`;
+  feeLcai: number;
+  submitTx: `0x${string}`;
+}
+
+const MAX_ATTEMPTS = 3;
+
 interface FlowState {
   phase: Phase;
   modelTag: string;
@@ -59,6 +70,9 @@ interface FlowState {
   output: string;
   error: string | null;
   elapsedMs: number;
+  // Auto-retry bookkeeping.
+  attempt: number; // 1..MAX_ATTEMPTS
+  stalled: StalledAttempt[]; // every prior attempt whose worker silently stalled
 }
 
 const initial: FlowState = {
@@ -74,7 +88,19 @@ const initial: FlowState = {
   output: "",
   error: null,
   elapsedMs: 0,
+  attempt: 1,
+  stalled: [],
 };
+
+// Sentinel error thrown by the inference attempt when the worker acknowledged
+// the job but never produced a result inside the deadline. Caught by the outer
+// run() loop to trigger an automatic retry with a different worker.
+class StalledWorkerError extends Error {
+  constructor(public jobId: bigint, public worker: `0x${string}`, public submitTx: `0x${string}`, public feeLcai: number) {
+    super("worker stalled");
+    this.name = "StalledWorkerError";
+  }
+}
 
 const STEPS: { id: Phase; label: string; icon: typeof Wallet2 }[] = [
   { id: "auth", label: "Authenticate", icon: Shield },
@@ -182,20 +208,22 @@ export default function PlaygroundPage() {
 
     startRef.current = Date.now();
     setS({ ...initial, phase: "auth" });
-    let socket: WebSocket | null = null;
+    // Capture narrowed handles so the inner runAttempt closure (which TS
+    // doesn't narrow across function boundaries) doesn't re-widen them.
+    const wal = walletClient;
+    const pub = publicClient;
+    // sockRef.current lives across an inner async closure; use a ref so TS doesn't
+    // narrow it to `never` after the closure mutates it from the outer scope.
+    const sockRef: { current: WebSocket | null } = { current: null };
     try {
-      // === 1. SIWE handshake via our same-origin proxy ===
-      // Browsers can't call chat-api.<net>.lightchain.ai directly (gateway
-      // doesn't include lightnode.app in its CORS allowlist), so every gateway
-      // call goes through /api/gw/<net>/* on this site. The proxy is stateless
-      // and forwards the exact bytes; the JWT lives only in the user's session.
+      // === 1. SIWE handshake via our same-origin proxy (done once for the run) ===
       const gwBase = `/api/gw/${net}`;
       setAuthPending(true);
       const ch = await fetch(`${gwBase}/api/auth/challenge?address=${address}`, {
         headers: { Accept: "application/json" },
       }).then((r) => r.json() as Promise<{ message?: string }>);
       if (!ch?.message) throw new Error("auth challenge returned no message");
-      const signature = await walletClient.signMessage({ message: ch.message });
+      const signature = await wal.signMessage({ message: ch.message });
       const verify = await fetch(`${gwBase}/api/auth/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -205,9 +233,58 @@ export default function PlaygroundPage() {
       const gateway = new GatewayClient({ network: net, bearer: verify.token, baseUrl: gwBase });
       setAuthPending(false);
 
+      // === 2..7. Retry loop. If a worker silently stalls (~5% of testnet)
+      // we record the lost-fee attempt, ask the dispatcher for a fresh worker,
+      // and run prepare -> createSession -> submitJob again with new wallet
+      // signatures. The stalled escrow is reclaimed by the protocol's own
+      // timeout/dispute pipeline (off the consumer's hot path), which is why
+      // we don't try to call timeoutJob from here. Capped at MAX_ATTEMPTS so
+      // a chronically broken testnet doesn't drain the wallet.
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        setS((p) => ({ ...p, attempt }));
+        try {
+          sockRef.current = await runAttempt(gateway);
+          break; // success - leave the retry loop
+        } catch (e) {
+          if (e instanceof StalledWorkerError && attempt < MAX_ATTEMPTS) {
+            // Remember this stalled attempt for the UI, close its WS, and loop.
+            try {
+              sockRef.current?.close();
+            } catch {
+              // ignore
+            }
+            sockRef.current = null;
+            setS((p) => ({
+              ...p,
+              stalled: [
+                ...p.stalled,
+                { jobId: e.jobId.toString(), worker: e.worker, feeLcai: e.feeLcai, submitTx: e.submitTx },
+              ],
+            }));
+            continue;
+          }
+          throw e;
+        }
+      }
+      // (runAttempt sets phase "done" itself on the successful attempt.)
+      return;
+    } catch (err) {
+      try {
+        // TS narrows `sockRef.current` to never across the inner async closure; the
+        // typed local reflects the real lifetime (any open WS we may still hold).
+        // sockRef.current is the live WS, if any.
+        sockRef.current?.close();
+      } catch {
+        // ignore
+      }
+      setAuthPending(false);
+      setS((p) => ({ ...p, phase: "error", error: err instanceof Error ? err.message : String(err) }));
+    }
+    // ---- inner helper -----------------------------------------------------
+    async function runAttempt(gateway: GatewayClient): Promise<WebSocket> {
       // === 2. Prepare session (pick a worker, wrap session key, get dispatcher sig) ===
-      setS((p) => ({ ...p, phase: "prepare" }));
-      const prepared = await prepareSession(gateway, prompt.length > 0 ? "llama3-8b" : "llama3-8b");
+      setS((p) => ({ ...p, phase: "prepare", createTx: null, submitTx: null, sessionId: null, jobId: null, output: "" }));
+      const prepared = await prepareSession(gateway, "llama3-8b");
       const fee = await estimateJobFee(cfg, "llama3-8b");
       setS((p) => ({
         ...p,
@@ -219,7 +296,7 @@ export default function PlaygroundPage() {
       // === 3. Sign createSession on-chain ===
       setS((p) => ({ ...p, phase: "create" }));
       const abi = parseAbi(JOB_REGISTRY_CONSUMER_ABI);
-      const createTx = await walletClient.writeContract({
+      const createTx = await wal.writeContract({
         address: cfg.jobRegistry as `0x${string}`,
         abi,
         functionName: "createSession",
@@ -234,12 +311,12 @@ export default function PlaygroundPage() {
         gas: 1_000_000n,
       });
       setS((p) => ({ ...p, createTx }));
-      const createReceipt = await publicClient.waitForTransactionReceipt({ hash: createTx });
+      const createReceipt = await pub.waitForTransactionReceipt({ hash: createTx });
       if (createReceipt.status !== "success") throw new Error("createSession reverted");
       const sessionCreated = parseAbiItem(
         "event SessionCreated(uint256 indexed sessionId, address indexed user, bytes32 indexed paramsHash, address worker, bytes encWorkerKey, bytes ephemeralPubKey)",
       );
-      const sessionLogs = await publicClient.getLogs({
+      const sessionLogs = await pub.getLogs({
         address: cfg.jobRegistry as `0x${string}`,
         event: sessionCreated,
         blockHash: createReceipt.blockHash,
@@ -261,15 +338,15 @@ export default function PlaygroundPage() {
         await new Promise((res) => setTimeout(res, 1000));
       }
       if (!relayToken) throw new Error("relay token never became ready");
-      socket = new WebSocket(`wss://relay.${net}.lightchain.ai/ws?token=${encodeURIComponent(relayToken)}`);
-      socket.binaryType = "arraybuffer";
+      sockRef.current = new WebSocket(`wss://relay.${net}.lightchain.ai/ws?token=${encodeURIComponent(relayToken)}`);
+      sockRef.current.binaryType = "arraybuffer";
       await new Promise<void>((res, rej) => {
-        socket!.addEventListener("open", () => res(), { once: true });
-        socket!.addEventListener("error", () => rej(new Error("relay WebSocket open failed")), { once: true });
+        sockRef.current!.addEventListener("open", () => res(), { once: true });
+        sockRef.current!.addEventListener("error", () => rej(new Error("relay WebSocket open failed")), { once: true });
         setTimeout(() => rej(new Error("relay WebSocket open timeout")), 20_000);
       });
       const chunks: string[] = [];
-      socket.addEventListener("message", async (ev) => {
+      sockRef.current.addEventListener("message", async (ev) => {
         const raw = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data as ArrayBuffer);
         let frame: { type?: string; payload?: string };
         try {
@@ -294,7 +371,7 @@ export default function PlaygroundPage() {
 
       // === 6. Sign submitJob on-chain, paying the fee ===
       setS((p) => ({ ...p, phase: "submit" }));
-      const submitTx = await walletClient.writeContract({
+      const submitTx = await wal.writeContract({
         address: cfg.jobRegistry as `0x${string}`,
         abi,
         functionName: "submitJob",
@@ -303,12 +380,12 @@ export default function PlaygroundPage() {
         gas: 500_000n,
       });
       setS((p) => ({ ...p, submitTx }));
-      const submitReceipt = await publicClient.waitForTransactionReceipt({ hash: submitTx });
+      const submitReceipt = await pub.waitForTransactionReceipt({ hash: submitTx });
       if (submitReceipt.status !== "success") throw new Error("submitJob reverted");
       const jobSubmitted = parseAbiItem(
         "event JobSubmitted(uint256 indexed jobId, uint256 indexed sessionId, address worker)",
       );
-      const jobLogs = await publicClient.getLogs({
+      const jobLogs = await pub.getLogs({
         address: cfg.jobRegistry as `0x${string}`,
         event: jobSubmitted,
         blockHash: submitReceipt.blockHash,
@@ -329,7 +406,7 @@ export default function PlaygroundPage() {
       let completed: Log | null = null;
       while (!completed && Date.now() < waitDeadlineMs) {
         await new Promise((res) => setTimeout(res, 3000));
-        const logs = await publicClient.getLogs({
+        const logs = await pub.getLogs({
           address: cfg.jobRegistry as `0x${string}`,
           event: jobCompleted,
           args: { jobId },
@@ -338,22 +415,16 @@ export default function PlaygroundPage() {
         if (logs.length) completed = logs[0] as Log;
       }
       if (!completed) {
-        throw new Error(
-          "Worker stalled: it accepted the job but didn't produce a result within 90s. This happens on a small percentage of testnet workers - reset and try again (you'll be assigned a different worker).",
-        );
+        // Throw a typed sentinel so the outer run() can catch + auto-retry with
+        // a different worker. The caller will close this WS and record the
+        // stalled attempt for the UI / refund-timing display.
+        throw new StalledWorkerError(jobId, prepared.createSessionArgs.worker, submitTx, fee);
       }
-      // Grace for the last relay frame.
+      // Grace for the last relay frame, then close cleanly.
       await new Promise((res) => setTimeout(res, 4000));
-      socket.close();
+      sockRef.current.close();
       setS((p) => ({ ...p, phase: "done", elapsedMs: Date.now() - startRef.current }));
-    } catch (err) {
-      try {
-        socket?.close();
-      } catch {
-        // ignore
-      }
-      setAuthPending(false);
-      setS((p) => ({ ...p, phase: "error", error: err instanceof Error ? err.message : String(err) }));
+      return sockRef.current;
     }
   };
 
@@ -534,6 +605,53 @@ export default function PlaygroundPage() {
           <p className="whitespace-pre-wrap rounded-xl border border-bdr-soft bg-surface-base-faint p-4 text-sm leading-relaxed text-content-default">
             {s.output}
           </p>
+        </Card>
+      )}
+
+      {s.stalled.length > 0 && (
+        <Card className="mb-6 border border-warning/30 bg-warning/5 p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="size-4 text-warning" />
+            <h2 className="text-sm font-semibold text-content-primary">
+              Retried with a different worker{s.stalled.length > 1 ? ` (${s.stalled.length} times)` : ""}
+            </h2>
+            <Badge tone="warning">attempt {s.attempt} of {MAX_ATTEMPTS}</Badge>
+          </div>
+          <p className="mb-3 text-xs leading-relaxed text-content-soft">
+            The fee from {s.stalled.length === 1 ? "this earlier attempt" : "these earlier attempts"} is escrowed
+            on-chain. The protocol marks stalled workers as timed out and refunds the fee to your wallet after the
+            dispute window (a few hours on testnet, ~24h on mainnet). You can confirm the JobTimedOut event later via
+            the explorer link below; nothing more to do from here.
+          </p>
+          <ul className="space-y-2 text-xs">
+            {s.stalled.map((a) => (
+              <li key={a.jobId} className="rounded-lg border border-bdr-soft bg-card p-3">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="text-content-soft">jobId</span>
+                  <span className="font-mono text-content-default">{a.jobId}</span>
+                  <span className="text-content-soft">·</span>
+                  <span className="text-content-soft">worker</span>
+                  <span className="font-mono text-content-default">
+                    {a.worker.slice(0, 6)}…{a.worker.slice(-4)}
+                  </span>
+                  <span className="text-content-soft">·</span>
+                  <span className="text-content-soft">fee</span>
+                  <span className="tabular-nums text-content-default">{a.feeLcai} LCAI</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-content-soft">submitJob</span>
+                  <a
+                    href={`${explorer}/tx/${a.submitTx}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-primary hover:underline"
+                  >
+                    {a.submitTx.slice(0, 14)}…{a.submitTx.slice(-12)} <ExternalLink className="ml-0.5 inline size-3" />
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 
