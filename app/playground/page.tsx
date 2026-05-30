@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { parseAbi, parseAbiItem, parseEther, type Log } from "viem";
 import { useAccount, usePublicClient, useWalletClient, useChainId, useSwitchChain } from "wagmi";
+import { useNetwork } from "@/lib/network-context";
 import {
   GatewayClient,
   prepareSession,
@@ -188,11 +189,11 @@ function statusOf(currentPhase: Phase, stepPhase: Phase, error: boolean): "pendi
 
 const DEFAULT_PROMPT = "Reply with a one-sentence fun fact about the ocean.";
 const TESTNET: NetworkId = "testnet";
-const MAINNET: NetworkId = "mainnet";
 
 export default function PlaygroundPage() {
-  // Default to testnet so a first-time visitor's call costs nothing.
-  const [net, setNet] = useState<NetworkId>(TESTNET);
+  // Use the global network context (the navbar's NetworkToggle is the single
+  // source of truth across the app) instead of a page-local switcher.
+  const { network: net } = useNetwork();
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [s, setS] = useState<FlowState>(initial);
   const [authPending, setAuthPending] = useState(false);
@@ -208,6 +209,14 @@ export default function PlaygroundPage() {
   const cfg = NETWORKS[net];
   const expectedChain = cfg.chainId;
   const wrongChain = isConnected && chainId !== expectedChain;
+
+  // A network flip via the navbar mid-run would leave a half-finished testnet
+  // flow on a mainnet-labelled page (or vice versa) - the UI would still show
+  // the prior network's tx hashes against the new network's explorer. Resetting
+  // the flow state on switch keeps "what you see" matched to "what you can run".
+  useEffect(() => {
+    setS(initial);
+  }, [net]);
 
   // Show elapsed time live so the operator sees progress even during the slowest stage.
   useEffect(() => {
@@ -468,23 +477,34 @@ export default function PlaygroundPage() {
       setS((p) => ({ ...p, jobId, phase: "stream" }));
 
       // === 7. Wait for JobCompleted (typed event filter to avoid matching JobSubmitted's signature) ===
-      // Healthy workers finish in 5-30s. A small percentage of testnet workers
-      // ack a job and then never produce a result; cap the wait at 120s so the
-      // operator gets a clear "try again" instead of a 5-minute hang.
+      // The actual *result* is the WS-delivered, session-key-decrypted ciphertext.
+      // JobCompleted is the worker's commit-result tx - an explorer pointer that
+      // anchors the answer to an on-chain hash. Polling rules:
       //
-      // KEY INVARIANT: the actual *result* is the WS-delivered, session-key-
-      // decrypted ciphertext. JobCompleted is just an explorer pointer (the
-      // worker's commit-result tx). If the WS already produced an answer
-      // (chunks.length > 0) we MUST accept it even if the on-chain event hasn't
-      // landed yet - throwing stalled here was wiping a delivered answer on
-      // retry, which read as "the page refreshed and nothing came back".
+      //   - No chunks yet: poll for the full 120s. If still nothing, throw
+      //     stalled so the outer loop can retry with a different worker.
+      //   - Chunks arrived (we have a real, session-key-authentic answer):
+      //     keep polling for a 45s grace window after the first chunk. Workers
+      //     usually commit JobCompleted within ~10s of broadcasting the answer,
+      //     so 45s is generous. If it still doesn't land, surface the answer
+      //     with completedTx=null (the "on-chain proof pending" footer renders).
       const jobCompleted = parseAbiItem(
         "event JobCompleted(uint256 indexed jobId, address indexed worker, bytes32 responseHash, bytes32 ciphertextHash)",
       );
-      const waitDeadlineMs = Date.now() + 120_000;
+      const POLL_DEADLINE_MS = 120_000;
+      const POST_CHUNKS_GRACE_MS = 45_000;
+      const waitStart = Date.now();
+      let firstChunkAt: number | null = chunks.length > 0 ? waitStart : null;
       let completed: Log | null = null;
-      while (!completed && Date.now() < waitDeadlineMs) {
+      while (!completed) {
+        const now = Date.now();
+        if (now - waitStart >= POLL_DEADLINE_MS) break;
+        if (firstChunkAt != null && now - firstChunkAt >= POST_CHUNKS_GRACE_MS) break;
         await new Promise((res) => setTimeout(res, 3000));
+        // Watch for the first chunk landing during the wait (so the grace
+        // window starts ticking from when the answer actually arrived, not
+        // from a stale earlier check).
+        if (firstChunkAt == null && chunks.length > 0) firstChunkAt = Date.now();
         const logs = await pub.getLogs({
           address: cfg.jobRegistry as `0x${string}`,
           event: jobCompleted,
@@ -495,15 +515,11 @@ export default function PlaygroundPage() {
           completed = logs[0] as Log;
           break;
         }
-        // If the WS already produced an answer mid-wait, accept it now. No
-        // point burning more time polling for a confirmation that's only used
-        // as an explorer link.
-        if (chunks.length > 0) break;
       }
-      // No on-chain event yet, but the WS DID deliver a valid answer:
-      // session-key decryption succeeded, so the result is cryptographically
-      // bound to this session. Surface it as "done", mark completedTx null so
-      // the UI shows "(jobCompleted on-chain confirmation pending)".
+      // No on-chain event after the grace window, but the WS DID deliver a
+      // valid answer: session-key decryption succeeded, so the result is
+      // cryptographically bound. Surface as "done" with completedTx null and
+      // let the UI render the "on-chain confirmation pending" footer.
       if (!completed && chunks.length > 0) {
         await new Promise((res) => setTimeout(res, 2000));
         sockRef.current.close();
@@ -549,51 +565,32 @@ export default function PlaygroundPage() {
           Run one real encrypted inference in your browser
         </h1>
         <p className="mt-3 max-w-2xl text-content-soft">
-          Connect a wallet, pick testnet (free LCAI from the faucet) or mainnet, type a prompt. The page drives the
-          same SDK any third-party dApp would call: SIWE auth → prepareSession → wallet-signed createSession + submitJob
-          → encrypted relay stream → decrypted answer.
+          Connect a wallet, type a prompt. The page drives the same SDK any third-party dApp would call: SIWE auth →
+          prepareSession → wallet-signed createSession + submitJob → encrypted relay stream → decrypted answer. Switch
+          network from the toggle in the top bar.
         </p>
       </div>
 
-      <Card className="mb-6 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-content-soft">Network</span>
-            <div className="inline-flex rounded-lg border border-bdr-soft bg-surface-base-faint p-0.5">
-              <button
-                type="button"
-                onClick={() => setNet(TESTNET)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  net === TESTNET ? "bg-card text-content-primary shadow" : "text-content-soft hover:text-content-primary",
-                )}
-              >
-                Testnet
-              </button>
-              <button
-                type="button"
-                onClick={() => setNet(MAINNET)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  net === MAINNET ? "bg-card text-content-primary shadow" : "text-content-soft hover:text-content-primary",
-                )}
-              >
-                Mainnet
-              </button>
-            </div>
-            <span className="text-xs text-content-soft">chain {cfg.chainId}</span>
+      <Card className="mb-6 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-content-soft">
+            <span>Network:</span>
+            <span className="rounded-full border border-bdr-soft bg-surface-base-faint px-2.5 py-1 font-medium text-content-default">
+              {cfg.label}
+            </span>
+            <span>chain {cfg.chainId}</span>
             {net === TESTNET && (
               <a
                 href="https://lightfaucet.ai"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
               >
                 Faucet <ExternalLink className="size-3" />
               </a>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2">
             {wallet ? (
               <span className="rounded-full border border-bdr-soft bg-surface-base-faint px-2.5 py-1 font-mono text-[11px] text-content-default">
                 {wallet.slice(0, 6)}…{wallet.slice(-4)}

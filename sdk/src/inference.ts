@@ -514,16 +514,28 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
   const jobId = topicAsUint(jobLog.topics[1]);
 
   // 6. wait for JobCompleted
-  // KEY INVARIANT: the real result is the WS-delivered, session-key-decrypted
-  // ciphertext. JobCompleted is an explorer pointer (the worker's commit-result
-  // tx). If the WS already produced an answer (chunks.length > 0) we MUST
-  // accept it even if the on-chain event hasn't landed - throwing stalled here
-  // wipes a delivered answer on retry, which reads as "the call returned nothing".
+  // The actual *result* is the WS-delivered, session-key-decrypted ciphertext.
+  // JobCompleted is an explorer pointer (the worker's commit-result tx).
+  // Polling rules:
+  //   - No chunks yet: poll for the full deadline (default 120s). Still nothing
+  //     -> throw stalled so the outer loop can retry with a different worker.
+  //   - Chunks arrived: keep polling for a 45s grace window after the FIRST
+  //     chunk. Workers usually commit JobCompleted within ~10s of broadcasting
+  //     the answer, so 45s is generous. If it still doesn't land, surface the
+  //     answer with txs.jobCompleted=null (the answer is still session-key
+  //     authentic; the on-chain proof can be polled for separately by callers).
   const deadline = Date.now() + jobCompletedTimeoutMs;
+  const POST_CHUNKS_GRACE_MS = 45_000;
+  const waitStart = Date.now();
+  let firstChunkAt: number | null = chunks.length > 0 ? waitStart : null;
   const jobIdTopic = (`0x${jobId.toString(16).padStart(64, "0")}`) as `0x${string}`;
   let completed: { transactionHash: `0x${string}` } | null = null;
-  while (!completed && Date.now() < deadline) {
+  while (!completed) {
+    const now = Date.now();
+    if (now >= deadline) break;
+    if (firstChunkAt != null && now - firstChunkAt >= POST_CHUNKS_GRACE_MS) break;
     await new Promise((res) => setTimeout(res, 3000));
+    if (firstChunkAt == null && chunks.length > 0) firstChunkAt = Date.now();
     const logs = await publicClient.getLogs({
       address: network.jobRegistry as `0x${string}`,
       fromBlock: submitReceipt.blockNumber,
@@ -532,9 +544,6 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     completed =
       logs.find((l) => l.topics[0] === JOB_COMPLETED_TOPIC && l.topics[1] === jobIdTopic) ?? null;
     if (completed) break;
-    // If the WS already delivered the answer, stop polling - no point burning
-    // more time on a confirmation that only serves as an explorer link.
-    if (chunks.length > 0) break;
   }
   if (!completed && chunks.length === 0) {
     try {
