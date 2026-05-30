@@ -7,6 +7,10 @@ import { AppleIcon, LinuxIcon, WindowsIcon } from "@/components/os-icons";
 import { detectClientOS, OS_LABEL, type DownloadOS } from "@/lib/os-detect";
 
 const RELEASES = "https://github.com/marinom2/lightnode/releases/latest";
+// One-line installer (served from /public/install.sh): picks the right package
+// for the user's distro, installs the runtime libs the app needs, and adds it to
+// the apps menu - the reliable "just works" path on Linux's fragmented packaging.
+const LINUX_INSTALL_CMD = "curl -fsSL https://lightnode.app/install.sh | bash";
 
 const OS_ICON: Record<DownloadOS, (p: { className?: string }) => ReactElement> = {
   mac: AppleIcon,
@@ -23,7 +27,19 @@ const ALL_OS: DownloadOS[] = ["mac", "windows", "linux"];
  */
 export function DownloadButton() {
   const [os, setOS] = useState<DownloadOS | null>(null);
+  const [copied, setCopied] = useState(false);
   useEffect(() => setOS(detectClientOS()), []);
+
+  const copyLinuxCmd = async () => {
+    try {
+      await navigator.clipboard.writeText(LINUX_INSTALL_CMD);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (e.g. insecure context): leave the command visible to copy manually.
+      setCopied(false);
+    }
+  };
 
   const PrimaryIcon = os ? OS_ICON[os] : null;
   const others = ALL_OS.filter((o) => o !== os);
@@ -71,6 +87,28 @@ export function DownloadButton() {
           First launch on macOS: <span className="text-content-primary">right-click the app → Open → Open</span> (one
           time). The app isn&apos;t notarized yet, so macOS asks once - no Terminal needed.
         </p>
+      )}
+
+      {os === "linux" && (
+        <div className="mt-1 w-full max-w-xl">
+          <p className="text-[11px] leading-relaxed text-content-soft">
+            Easiest on Linux - paste this in a terminal. It picks the right package for your distro, installs what the
+            app needs, and adds LightNode to your apps menu (the download above is a portable AppImage you&apos;d have to
+            make executable yourself):
+          </p>
+          <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-bdr-soft bg-surface-base-subtle px-3 py-2">
+            <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-content-primary">
+              {LINUX_INSTALL_CMD}
+            </code>
+            <button
+              type="button"
+              onClick={copyLinuxCmd}
+              className="shrink-0 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
