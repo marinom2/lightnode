@@ -22,6 +22,7 @@ import {
   estimateJobFee,
   JOB_REGISTRY_CONSUMER_ABI,
   consumerGatewayUrl,
+  consumerGatewayHost,
   prepareSession,
   submitPrompt,
   decryptResponse,
@@ -164,6 +165,7 @@ export {
   estimateJobFee,
   JOB_REGISTRY_CONSUMER_ABI,
   consumerGatewayUrl,
+  consumerGatewayHost,
   // v0.3 inference-submit surface (BETA - see README "Submitting inference").
   GatewayClient,
   GatewayHttpError,

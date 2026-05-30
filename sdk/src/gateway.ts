@@ -15,7 +15,43 @@ const GATEWAY_HOSTS = {
   testnet: "https://chat-api.testnet.lightchain.ai",
 } as const;
 
+// In browser-like contexts the gateway's CORS policy blocks third-party
+// origins, so the SDK routes through lightnode.app's public proxy instead.
+// The proxy is a thin pass-through (no state, no transformation), open to
+// any origin. In a real Node process this isn't needed - the gateway is
+// reached directly.
+const PROXY_HOSTS = {
+  mainnet: "https://lightnode.app/api/gw/mainnet",
+  testnet: "https://lightnode.app/api/gw/testnet",
+} as const;
+
+/**
+ * True when the current runtime is a browser, or a Node-in-browser shim
+ * (StackBlitz WebContainer, Bolt, etc.) where `fetch` enforces browser-style
+ * CORS. Used to decide whether to call the gateway direct or via the proxy.
+ */
+function looksLikeBrowserFetch(): boolean {
+  if (typeof window !== "undefined" && typeof document !== "undefined") return true;
+  // StackBlitz WebContainer exposes `process.versions.webcontainer`. Other
+  // Node-in-browser runtimes (Bolt, RunKit) may not, so we also check for
+  // the absence of a real Node TCP module via `process.versions.node` PLUS
+  // the presence of a global `WebSocket` (browser-only by spec).
+  const wc = (globalThis as { process?: { versions?: Record<string, string> } }).process?.versions?.webcontainer;
+  if (wc) return true;
+  return false;
+}
+
+/**
+ * Default gateway URL for a network. In Node, returns the gateway directly.
+ * In browser/WebContainer, returns the lightnode.app proxy (same upstream,
+ * but with permissive CORS so third-party origins work).
+ */
 export function consumerGatewayUrl(net: "mainnet" | "testnet"): string {
+  return looksLikeBrowserFetch() ? PROXY_HOSTS[net] : GATEWAY_HOSTS[net];
+}
+
+/** Gateway host without any proxy fallback. For diagnostics / advanced callers. */
+export function consumerGatewayHost(net: "mainnet" | "testnet"): string {
   return GATEWAY_HOSTS[net];
 }
 

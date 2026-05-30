@@ -192,7 +192,7 @@ export async function decryptResponse(sessionKey: Uint8Array, ciphertext: Uint8A
 }
 
 /** Re-export so callers don't have to import from a second module just for the URL helper. */
-export { consumerGatewayUrl, GatewayClient } from "./gateway.js";
+export { consumerGatewayUrl, consumerGatewayHost, GatewayClient } from "./gateway.js";
 
 /** Optional helper: generate the caller's own ECDH keypair if they want one (e.g. acting as the disputer). */
 export { generateEcdhKeyPair };
@@ -740,22 +740,48 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   // the caller doesn't need a second import; in browsers + Node it works the
   // same against the consumer-api gateway.
   const gwBase = args.gatewayUrl ?? consumerGatewayUrlFn(networkId);
-  const chRes = await fetch(`${gwBase}/api/auth/challenge?address=${account.address}`, {
-    headers: { Accept: "application/json" },
-  });
+  // `fetch failed` with no cause is the worst possible error for a builder
+  // running this for the first time - they need to know which host failed and
+  // what the underlying cause was. Wrap both SIWE calls so the error names a
+  // host (so a network/DNS/CORS problem is obvious) and a hint when the cause
+  // looks like a CORS or undici-level reachability error.
+  const fetchOrFail = async (url: string, init?: RequestInit, label?: string): Promise<Response> => {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      const code = cause?.code ?? "";
+      const msg = (err as Error).message ?? "fetch failed";
+      const detail = cause?.message ? ` (${cause.message})` : "";
+      const hint =
+        /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|UND_ERR_CONNECT|CERT_/.test(code) || msg.includes("CORS")
+          ? ` Tip: this host may be unreachable from this runtime (CORS, DNS, or TLS). Pass gatewayUrl: 'https://lightnode.app/api/gw/${networkId}' to route through the public proxy.`
+          : "";
+      throw new Error(`SIWE ${label ?? "request"} to ${url} failed: ${msg}${detail}${hint}`);
+    }
+  };
+  const chRes = await fetchOrFail(
+    `${gwBase}/api/auth/challenge?address=${account.address}`,
+    { headers: { Accept: "application/json" } },
+    "challenge",
+  );
   if (!chRes.ok) throw new GatewayAuthError(chRes.status, await chRes.text());
   const ch = (await chRes.json()) as { message?: string };
   if (!ch.message) throw new GatewayAuthError(chRes.status, "auth challenge returned no message");
   const signature = await wallet.signMessage({ account, message: ch.message });
-  const verifyRes = await fetch(`${gwBase}/api/auth/verify`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ message: ch.message, signature }),
-  });
+  const verifyRes = await fetchOrFail(
+    `${gwBase}/api/auth/verify`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ message: ch.message, signature }),
+    },
+    "verify",
+  );
   if (!verifyRes.ok) throw new GatewayAuthError(verifyRes.status, await verifyRes.text());
   const verify = (await verifyRes.json()) as { token?: string };
   if (!verify.token) throw new GatewayAuthError(verifyRes.status, "auth verify returned no token");
-  const gateway = new GatewayClientCtor({ network: networkId, bearer: verify.token, baseUrl: args.gatewayUrl });
+  const gateway = new GatewayClientCtor({ network: networkId, bearer: verify.token, baseUrl: args.gatewayUrl ?? gwBase });
 
   // Pick a WebSocket: the browser global if present, otherwise the caller-
   // supplied ctor. We deliberately do NOT try to dynamic-import "ws" - it
