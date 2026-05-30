@@ -33,6 +33,7 @@ import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
 import { useNetwork } from "@/lib/network-context";
 import { getSecret, getKeystorePasswordCandidates, getWorkerAddr, resolveManagedWorkerAddr, SECRET_WORKER_KEY } from "@/lib/secrets";
+import { fetchOnchainRegistered } from "@/lib/onchain-status";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { parseSpeedTest, type SpeedTestResult } from "@/lib/speedtest";
 import { SpeedTestResultCard } from "@/components/speed-test-result";
@@ -350,6 +351,29 @@ export function OperationsPanel() {
     setLastOp(op.key);
     if (op.key === "bench") setBenchResult(null); // clear the previous dial before re-running
     setLog([`$ ${op.label.toLowerCase()}...`]);
+    // Deregister short-circuit: if the on-chain reader confirms this worker is
+    // already deregistered, don't run a docker container that would burn LCAI
+    // for gas only to revert (or fail to broadcast - the wallet is empty by then).
+    // Tells the operator the lifecycle is already complete instead of showing
+    // them a generic "gas required exceeds allowance" error from the toolkit.
+    if (op.key === "dereg") {
+      const addr = resolveWorkerAddr();
+      if (/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+        const reg = await fetchOnchainRegistered(network, addr);
+        if (reg === false) {
+          if (runId.current === myRun) {
+            setLog((l) => [
+              ...l,
+              "✓ this worker is already deregistered on-chain - nothing to do.",
+              "  Stake (minus any slashing) was returned to the worker wallet on deregister.",
+              "  To move LCAI out of the worker wallet, use Withdraw on the dashboard.",
+            ]);
+            setActive(null);
+          }
+          return;
+        }
+      }
+    }
     // Sweep/Deregister are toolkit scripts that sign on-chain with the worker
     // key - they need it (+ keystore password + network). On desktop the native
     // runner injects them straight from the keychain by NAME (the web never

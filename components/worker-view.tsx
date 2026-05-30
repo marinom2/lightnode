@@ -364,13 +364,22 @@ export function WorkerView({
           </button>
         </div>
         {showWhy && <p className="mt-2 text-xs leading-relaxed text-content-soft">{meta.hint}</p>}
-        {offlineHere && (
+        {offlineHere && onchainRegistered === false ? (
+          // The local container is stopped AND the chain confirms this worker has
+          // already been deregistered. Don't push the operator toward Restart - the
+          // stake is no longer locked, and the static default message would falsely
+          // claim it is.
+          <p className="mt-3 flex items-start gap-2 text-sm text-content-soft">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+            Already deregistered on-chain - the stake has been returned to the worker wallet. No further action is needed here.
+          </p>
+        ) : offlineHere ? (
           <p className="mt-3 flex items-start gap-2 text-sm text-warning">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             Stopped on this machine, so it is not earning. Your stake stays registered. Use Operations &rarr; Restart to
             bring it back online.
           </p>
-        )}
+        ) : null}
       </Card>
 
       <EarningsPanel worker={worker} jobs={jobs} />
