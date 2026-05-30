@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { HideOnDesktop } from "@/components/hide-on-desktop";
 import { CliRunner } from "@/components/cli-runner";
+import { SDKModules } from "@/components/sdk-modules";
 
 // /build is server-rendered with live SDK data so the page reads as a
 // living artifact, not a docs page. revalidate keeps the data within ~60s
@@ -998,8 +999,8 @@ const stats = await ln.getNetworkStats();`}
       <Card className="mb-12 p-6">
         <SectionHeader
           icon={Workflow}
-          title="How it works under the hood"
-          blurb="Five stages. The SDK handles the protocol, your wallet signs the on-chain bits."
+          title="How encrypted inference works under the hood"
+          blurb="Five stages of the inference path specifically (Bridge / DAO / read-only have their own much shorter shapes). The SDK handles the protocol, your wallet signs the on-chain bits."
         />
         <ol className="space-y-2.5">
           {PHASES.map((p, i) => (
@@ -1205,28 +1206,16 @@ const stats = await ln.getNetworkStats();`}
         </div>
       </div>
 
-      {/* ── ECOSYSTEM SDKs ───────────────────────────────────────────── */}
+      {/* ── ECOSYSTEM SDKs (interactive) ─────────────────────────────── */}
       <div className="mb-12">
         <SectionHeader
           icon={Rocket}
-          title="SDK ecosystem - all six shipped"
-          blurb="LightChain's own docs list SDKs as 'soon'. lightnode-sdk fills the gap. Each card is a real module exported in 0.5.0."
+          title="SDK ecosystem - try each one inline"
+          blurb="Six real modules exported in 0.5.x. Each card has the snippet, deep links (npm + GitHub source + runnable example), and a 'Try it live' button that pulls real on-chain data or shows the runnable example."
         />
-        <div className="grid gap-3 md:grid-cols-2">
-          {ROADMAP.map((r) => (
-            <Card key={r.title} className="p-5">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="text-sm font-semibold text-content-primary">{r.title}</span>
-                <Badge tone="success" className="ml-auto">
-                  {r.badge}
-                </Badge>
-              </div>
-              <p className="text-xs leading-relaxed text-content-soft">{r.blurb}</p>
-            </Card>
-          ))}
-        </div>
+        <SDKModules />
         <p className="mt-3 text-[11px] text-content-soft">
-          Independent, community-built. Not affiliated with LightChain. If you want a new surface filled, {" "}
+          Independent, community-built. Not affiliated with LightChain. If you want a new surface filled,{" "}
           <a
             href="https://github.com/marinom2/lightnode/issues/new"
             target="_blank"
