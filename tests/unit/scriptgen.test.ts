@@ -165,6 +165,32 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(win).toContain("07-register (skipped - already registered");
   });
 
+  it("self-heals a keystore the saved passwords can't decrypt by re-importing when the app holds the key", () => {
+    // Field case: a worker (unregistered, 55k still in wallet) had a keystore left
+    // by an earlier attempt under a password the app no longer has. The app still
+    // holds the raw key, so the install must back up the stale keystore + ECDH and
+    // re-import under the current password instead of hard-blocking.
+    const win = desktopInstallCommand("windows", "mainnet");
+    expect(win).toContain("if ($env:WORKER_PRIVKEY)");
+    expect(win).toContain("re-importing this worker's key under the current password");
+    expect(win).toContain("$skipImport = $false");
+    const unix = desktopInstallCommand("macos", "mainnet");
+    expect(unix).toContain('if [ -n "${WORKER_PRIVKEY:-}" ]; then');
+    expect(unix).toContain("SKIP_IMPORT=0");
+    // Still blocks (no self-heal) when the raw key is NOT available.
+    expect(win).toContain("keystore-password-mismatch");
+    expect(unix).toContain("keystore-password-mismatch");
+  });
+
+  it("preflight does not BLOCK on a keystore-password mismatch when the app holds the key", () => {
+    const win = preflightCommand("windows", "mainnet");
+    expect(win).toContain("elseif ($env:WORKER_PRIVKEY)");
+    expect(win).toContain("install will re-import it under the current password");
+    const unix = preflightCommand("macos", "mainnet");
+    expect(unix).toContain('elif [ -n "${WORKER_PRIVKEY:-}" ]; then');
+    expect(unix).toContain("install will re-import it under the current password");
+  });
+
   it("windows status pre-check tolerates the worker binary's stderr (mirrors bash '|| true')", () => {
     // The worker 'status' subcommand logs to stderr. Under the install's
     // ErrorActionPreference=Stop, '2>&1 | Out-String' would promote that stderr to

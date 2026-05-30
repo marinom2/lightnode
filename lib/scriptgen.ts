@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-30.05";
+export const INSTALLER_REV = "2026-05-31.01";
 
 export interface ScriptBundle {
   os: OS;
@@ -436,7 +436,24 @@ function unixInstall(network: NetworkId, models: string[]): string {
       "}",
     ].join("\n"),
     'if [ "$SKIP_IMPORT" = "1" ]; then',
-    `  if ! resolve_password; then echo "⛔ keystore-password-mismatch: an existing worker key for $WORKER_ADDR is on this device, but the password set this session does not decrypt it. Re-enter the original password you set when this worker was first created, or open Recover a replaced key on the dashboard to switch to a different worker."; exit 1; fi`,
+    "  if ! resolve_password; then",
+    // The on-disk keystore was encrypted with a password none of the saved slots
+    // match. If the app still holds this worker's raw key (WORKER_PRIVKEY), we
+    // don't need the old password at all - back up the stale keystore + its
+    // password-encrypted ECDH/session state and re-import the key under the
+    // current password (phase 04 + 05 regenerate cleanly). The keystore is just
+    // an encrypted container for the key; the on-chain identity is the ADDRESS,
+    // so this changes nothing on-chain and never touches any stake. Only block
+    // when we genuinely can't reconstruct the key (no privkey AND no password).
+    '    if [ -n "${WORKER_PRIVKEY:-}" ]; then',
+    '      echo "▶ the on-disk keystore uses a password the app no longer has - re-importing this worker\'s key under the current password (on-chain identity is unchanged; no stake is touched)"',
+    '      mv "$KS" "${KS}.bak-$(date +%s)" 2>/dev/null || true',
+    '      for f in "$ENCKEY" "$SESS"; do [ -f "$f" ] && mv "$f" "${f}.bak-$(date +%s)"; done',
+    "      SKIP_IMPORT=0",
+    "    else",
+    `      echo "⛔ keystore-password-mismatch: an existing worker key for $WORKER_ADDR is on this device, but the password set this session does not decrypt it. Re-enter the original password you set when this worker was first created, or open Recover a replaced key on the dashboard to switch to a different worker."; exit 1`,
+    "    fi",
+    "  fi",
     "fi",
     `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then ST="$(WORKER_PASSWORD="$WORKER_PASSWORD" "$RUNBASH" status.sh 2>&1 || true)"; if printf '%s\\n' "$ST" | grep -qi "registered" && ! printf '%s\\n' "$ST" | grep -qiE "not[ _-]*registered"; then echo "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue; fi; gate_funding || exit 1; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; done`,
     // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
@@ -636,8 +653,21 @@ function Wait-Funding {
 }
 if ($skipImport) {
   if (-not (Resolve-WorkerPassword)) {
-    Write-Host "⛔ keystore-password-mismatch: an existing worker key for $($env:WORKER_ADDR) is on this device, but the password set this session does not decrypt it. Re-enter the original password you set when this worker was first created, or open Recover a replaced key on the dashboard to switch to a different worker."
-    exit 1
+    # The on-disk keystore was encrypted with a password none of the saved slots
+    # match. If the app still holds this worker's raw key, we don't need the old
+    # password - back up the stale keystore + its password-encrypted ECDH/session
+    # state and re-import under the current password (phase 04 + 05 regenerate
+    # cleanly). The keystore is just a container for the key; on-chain identity is
+    # the ADDRESS, so nothing on-chain changes and no stake is touched.
+    if ($env:WORKER_PRIVKEY) {
+      Write-Host "▶ the on-disk keystore uses a password the app no longer has - re-importing this worker's key under the current password (on-chain identity is unchanged; no stake is touched)"
+      Move-Item $ks "$ks.bak-$((Get-Date).Ticks)" -ErrorAction SilentlyContinue
+      foreach ($f in @($enc, $sess)) { if (Test-Path $f) { Move-Item $f "$f.bak-$((Get-Date).Ticks)" -ErrorAction SilentlyContinue } }
+      $skipImport = $false
+    } else {
+      Write-Host "⛔ keystore-password-mismatch: an existing worker key for $($env:WORKER_ADDR) is on this device, but the password set this session does not decrypt it. Re-enter the original password you set when this worker was first created, or open Recover a replaced key on the dashboard to switch to a different worker."
+      exit 1
+    }
   }
 }
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = ''; $eapS = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { $st = (& .\\status.ps1 2>&1 | Out-String) } catch { $st = "$_" } finally { $ErrorActionPreference = $eapS }; if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
@@ -1276,7 +1306,7 @@ export function preflightCommand(os: OS, network: NetworkId): string {
       // saved password slot decrypts it - so the install path's multi-password
       // resolve will succeed instead of failing at register. Only a BLOCK when a
       // keystore is on disk AND none of the saved passwords decrypt it.
-      `if (Get-Command cast -ErrorAction SilentlyContinue) { $ks = "$env:USERPROFILE\\lightchain-worker\\keys-${network}\\eth-keystore"; if (Test-Path $ks) { $ksFile = Get-ChildItem $ks -ErrorAction SilentlyContinue | Select-Object -First 1; if ($ksFile) { $okPw = $false; foreach ($pw in @($env:WORKER_PASSWORD, $env:WORKER_PASSWORD_ALT1, $env:WORKER_PASSWORD_ALT2, $env:WORKER_PASSWORD_ALT3)) { if (-not $pw) { continue }; & cast wallet decrypt-keystore $ksFile.Name --keystore-dir $ks --unsafe-password $pw *> $null; if ($LASTEXITCODE -eq 0) { $okPw = $true; break } }; if ($okPw) { Write-Host "OK - existing worker key decrypts with a saved password" } else { Write-Host "BLOCK - a worker key for this network exists on disk but none of the passwords the app has saved decrypts it. Re-enter the original password, or use Recover a replaced key on the dashboard."; $ok = $false } } } }`,
+      `if (Get-Command cast -ErrorAction SilentlyContinue) { $ks = "$env:USERPROFILE\\lightchain-worker\\keys-${network}\\eth-keystore"; if (Test-Path $ks) { $ksFile = Get-ChildItem $ks -ErrorAction SilentlyContinue | Select-Object -First 1; if ($ksFile) { $okPw = $false; foreach ($pw in @($env:WORKER_PASSWORD, $env:WORKER_PASSWORD_ALT1, $env:WORKER_PASSWORD_ALT2, $env:WORKER_PASSWORD_ALT3)) { if (-not $pw) { continue }; & cast wallet decrypt-keystore $ksFile.Name --keystore-dir $ks --unsafe-password $pw *> $null; if ($LASTEXITCODE -eq 0) { $okPw = $true; break } }; if ($okPw) { Write-Host "OK - existing worker key decrypts with a saved password" } elseif ($env:WORKER_PRIVKEY) { Write-Host "OK - keystore password differs, but the app holds this worker's key; install will re-import it under the current password (no stake touched)" } else { Write-Host "BLOCK - a worker key for this network exists on disk, none of the saved passwords decrypts it, and the app does not hold the raw key. Re-enter the original password, or use Recover a replaced key on the dashboard."; $ok = $false } } } }`,
       // Optional: when a raw key was passed to the app (fresh install path),
       // confirm it derives to the WORKER_ADDR we are about to register. A
       // mismatch here would silently sign the register tx with the wrong key.
@@ -1302,7 +1332,7 @@ export function preflightCommand(os: OS, network: NetworkId): string {
     // (a retry, or a "use a previous worker" flow), confirm at least one saved
     // password slot decrypts it - so the install path's multi-password resolve
     // will succeed. Only a BLOCK when a keystore is on disk AND none decrypt.
-    `if command -v cast >/dev/null 2>&1; then KS="$HOME/lightchain-worker/keys-${network}/eth-keystore"; KSF="$(ls -1 "$KS" 2>/dev/null | head -1)"; if [ -n "$KSF" ]; then OK_PW=""; for PW in "\${WORKER_PASSWORD:-}" "\${WORKER_PASSWORD_ALT1:-}" "\${WORKER_PASSWORD_ALT2:-}" "\${WORKER_PASSWORD_ALT3:-}"; do [ -z "$PW" ] && continue; if cast wallet decrypt-keystore "$KSF" --keystore-dir "$KS" --unsafe-password "$PW" >/dev/null 2>&1; then OK_PW=1; break; fi; done; if [ -n "$OK_PW" ]; then echo "✓ existing worker key decrypts with a saved password"; else echo "⛔ a worker key for this network exists on disk but none of the passwords the app has saved decrypts it. Re-enter the original password, or use Recover a replaced key on the dashboard."; OK=0; fi; fi; fi`,
+    `if command -v cast >/dev/null 2>&1; then KS="$HOME/lightchain-worker/keys-${network}/eth-keystore"; KSF="$(ls -1 "$KS" 2>/dev/null | head -1)"; if [ -n "$KSF" ]; then OK_PW=""; for PW in "\${WORKER_PASSWORD:-}" "\${WORKER_PASSWORD_ALT1:-}" "\${WORKER_PASSWORD_ALT2:-}" "\${WORKER_PASSWORD_ALT3:-}"; do [ -z "$PW" ] && continue; if cast wallet decrypt-keystore "$KSF" --keystore-dir "$KS" --unsafe-password "$PW" >/dev/null 2>&1; then OK_PW=1; break; fi; done; if [ -n "$OK_PW" ]; then echo "✓ existing worker key decrypts with a saved password"; elif [ -n "\${WORKER_PRIVKEY:-}" ]; then echo "✓ keystore password differs, but the app holds this worker's key; install will re-import it under the current password (no stake touched)"; else echo "⛔ a worker key for this network exists on disk, none of the saved passwords decrypts it, and the app does not hold the raw key. Re-enter the original password, or use Recover a replaced key on the dashboard."; OK=0; fi; fi; fi`,
     // Optional: when a raw key was passed (fresh install path), confirm it derives
     // to the WORKER_ADDR we're about to register. A mismatch here would silently
     // sign with the wrong key during install.
