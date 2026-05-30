@@ -314,6 +314,50 @@ export default function BuildPage() {
         </p>
       </Card>
 
+      <div className="mb-10">
+        <div className="mb-4 flex items-center gap-3">
+          <IconChip icon={Zap} size="md" />
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-content-primary">One command, you&apos;re integrated</h2>
+            <p className="text-xs text-content-soft">
+              Scaffold a brand-new project, or patch your existing one. Auto-detects Next.js, Hono, and Node.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Card className="p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-semibold text-content-primary">Brand-new project</span>
+              <Badge tone="success" className="ml-auto">
+                ~30 sec
+              </Badge>
+            </div>
+            <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-xs leading-relaxed text-content-default">
+              <code>npm create lightnode-app my-app</code>
+            </pre>
+            <p className="mt-3 text-xs leading-relaxed text-content-soft">
+              Pick from three templates (Node CLI, Next.js app, Hono server), set a private key, run. Same{" "}
+              <code>create-X-app</code> pattern as <code>create-next-app</code>.
+            </p>
+          </Card>
+          <Card className="p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-semibold text-content-primary">Existing project</span>
+              <Badge tone="brand" className="ml-auto">
+                in-place
+              </Badge>
+            </div>
+            <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-xs leading-relaxed text-content-default">
+              <code>npx lightnode add inference</code>
+            </pre>
+            <p className="mt-3 text-xs leading-relaxed text-content-soft">
+              Detects your framework (Next.js, Hono, Node) and writes the right file in the right place plus an{" "}
+              <code>.env.example</code>. Idempotent; never overwrites without <code>--force</code>.
+            </p>
+          </Card>
+        </div>
+      </div>
+
       <Card className="mb-10 p-6">
         <div className="mb-3 flex items-center gap-3">
           <IconChip icon={Code2} size="md" />

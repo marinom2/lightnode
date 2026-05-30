@@ -1,0 +1,47 @@
+{
+  "name": "create-lightnode-app",
+  "version": "0.1.0",
+  "description": "Scaffold a new project with end-to-end encrypted LightChain AI inference. Like create-next-app, for LightChain dApps. Run: npm create lightnode-app my-app",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "create-lightnode-app": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "lightchain",
+    "lightchain-ai",
+    "ai",
+    "create-app",
+    "scaffolder",
+    "starter",
+    "web3"
+  ],
+  "author": "KykyRykyPaloma",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinom2/lightnode.git",
+    "directory": "create-lightnode-app"
+  },
+  "homepage": "https://github.com/marinom2/lightnode/tree/main/create-lightnode-app#readme",
+  "bugs": {
+    "url": "https://github.com/marinom2/lightnode/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

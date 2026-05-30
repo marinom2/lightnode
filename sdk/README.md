@@ -80,6 +80,12 @@ npx lightnode registered 0x6781…6e0f      # true | false | null
 npx lightnode fee llama3-8b               # on-chain job fee
 npx lightnode analytics --csv             # per-model performance (CSV)
 npx lightnode reliability --csv           # per-worker reliability (CSV)
+
+# Scaffold inference into an existing project (auto-detects Next.js, Hono, or Node):
+npx lightnode add inference [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]
+
+# Or scaffold a brand-new project:
+npm create lightnode-app my-app
 ```
 
 ## Submitting inference
