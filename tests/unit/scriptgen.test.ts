@@ -164,6 +164,19 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(win).toContain("$st -notmatch 'NOT[ _-]*REGISTERED'");
     expect(win).toContain("07-register (skipped - already registered");
   });
+
+  it("windows status pre-check tolerates the worker binary's stderr (mirrors bash '|| true')", () => {
+    // The worker 'status' subcommand logs to stderr. Under the install's
+    // ErrorActionPreference=Stop, '2>&1 | Out-String' would promote that stderr to
+    // a terminating error and abort BEFORE register (the macOS bash path uses
+    // '|| true' and is fine). The pre-check must run under Continue + try/catch so
+    // a noisy/failed status never kills the install - register still gets to run.
+    const win = desktopInstallCommand("windows", "mainnet");
+    // The status probe and the register run must both be insulated from native stderr.
+    expect(win).toMatch(/\$ErrorActionPreference = 'Continue';[\s\S]*status\.ps1[\s\S]*catch \{ \$st =/);
+    // Bash side keeps its '|| true' tolerance.
+    expect(desktopInstallCommand("macos", "mainnet")).toContain("status.sh 2>&1 || true");
+  });
 });
 
 describe("benchmark (capacity/power test vs the job deadline)", () => {

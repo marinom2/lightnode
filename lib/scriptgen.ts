@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-30.04";
+export const INSTALLER_REV = "2026-05-30.05";
 
 export interface ScriptBundle {
   os: OS;
@@ -640,7 +640,7 @@ if ($skipImport) {
     exit 1
   }
 }
-foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = (& .\\status.ps1 2>&1 | Out-String); if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = ''; $eapS = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { $st = (& .\\status.ps1 2>&1 | Out-String) } catch { $st = "$_" } finally { $ErrorActionPreference = $eapS }; if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
 Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
 foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
