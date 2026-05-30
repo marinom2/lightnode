@@ -643,29 +643,72 @@ export default async function BuildPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <Card className="p-5">
             <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-semibold text-content-primary">Brand-new project</span>
+              <PackageOpen className="size-4 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">create-lightnode-app</span>
               <span className="ml-auto text-[10px] text-content-soft">about 30 sec</span>
             </div>
             <pre className="overflow-x-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-xs leading-relaxed text-content-default">
               <code>npm create lightnode-app my-app</code>
             </pre>
             <p className="mt-3 text-xs leading-relaxed text-content-soft">
-              Three templates (Node CLI, Next.js app, Hono server). Same shape as{" "}
-              <code className="font-mono">create-next-app</code>.
+              Scaffold a brand-new LightChain AI dApp. Interactive prompts ask for project name + template + network.
+              Three templates: <code className="font-mono text-content-default">node</code> CLI, {" "}
+              <code className="font-mono text-content-default">nextjs-api</code> App Router, and{" "}
+              <code className="font-mono text-content-default">hono</code> server. Or skip the prompts with{" "}
+              <code className="font-mono text-content-default">--template nextjs-api --network testnet</code>. Same
+              shape as <code className="font-mono">create-next-app</code>.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <a
+                href="https://www.npmjs.com/package/create-lightnode-app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
+              >
+                <PackageOpen className="size-3" /> npm <ExternalLink className="size-3" />
+              </a>
+              <a
+                href="https://github.com/marinom2/lightnode/tree/main/create-lightnode-app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
+              >
+                <Github className="size-3" /> source <ExternalLink className="size-3" />
+              </a>
+            </div>
           </Card>
           <Card className="p-5">
             <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-semibold text-content-primary">Existing project</span>
+              <FileText className="size-4 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">lightnode add (in lightnode-sdk)</span>
               <span className="ml-auto text-[10px] text-content-soft">in your project</span>
             </div>
             <pre className="overflow-x-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-xs leading-relaxed text-content-default">
               <code>npx lightnode add inference</code>
             </pre>
             <p className="mt-3 text-xs leading-relaxed text-content-soft">
-              Five add commands total (catalog below). Detects your framework, writes the right files, never overwrites
-              without <code className="font-mono">--force</code>.
+              Five add commands patch an existing project: inference, chat, agent, analytics-dashboard,
+              nft-mint-with-inference. Detects your framework, writes the right files, never overwrites without{" "}
+              <code className="font-mono">--force</code>. Catalog below.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <a
+                href="https://www.npmjs.com/package/lightnode-sdk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
+              >
+                <PackageOpen className="size-3" /> npm <ExternalLink className="size-3" />
+              </a>
+              <a
+                href="https://github.com/marinom2/lightnode/tree/main/sdk/src/add.ts"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
+              >
+                <Github className="size-3" /> source <ExternalLink className="size-3" />
+              </a>
+            </div>
           </Card>
         </div>
       </div>

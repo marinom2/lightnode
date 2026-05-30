@@ -21,7 +21,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60; // testnet inferences land in 5-30s typically
 
-const DEMO_KEY = process.env.LIGHTNODE_DEMO_PRIVATE_KEY as `0x${string}` | undefined;
+// `echo 0x... | vercel env add ...` puts a trailing newline into the stored
+// value, which silently breaks a strict length check downstream. Trim
+// defensively so future re-stores don't have to be perfect.
+const DEMO_KEY = (process.env.LIGHTNODE_DEMO_PRIVATE_KEY ?? "").trim() as `0x${string}` | "";
 
 // Per-IP throttle so one visitor can't drain the demo wallet's faucet
 // balance. Memory only - resets on cold-start, which is fine since

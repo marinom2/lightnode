@@ -839,15 +839,160 @@ function ChatSample() {
   );
 }
 
+interface JobStatusResp {
+  id?: string;
+  raw?: string;
+  category?: string;
+  worker?: string | null;
+  model?: string | null;
+  submittedAt?: number | null;
+  completedAt?: number | null;
+  workerShareLcai?: number;
+  refundable?: boolean;
+  jobId?: string;
+  status?: string;
+  error?: string;
+}
+
 function DisputeSample() {
+  type Net = "mainnet" | "testnet";
+  const [net, setNet] = useState<Net>("mainnet");
+  const [jobId, setJobId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<JobStatusResp | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function lookup() {
+    if (!jobId.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/sdk-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command: "job", net, arg: jobId.trim() }),
+      });
+      const json = (await res.json()) as JobStatusResp;
+      if (!res.ok) setErr(json.error ?? `Lookup failed (${res.status})`);
+      else setResult(json);
+    } catch (e) {
+      setErr((e as Error).message ?? "request failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const cat = result?.category ?? result?.status ?? "";
+  const catTone =
+    cat === "completed" ? "text-success" :
+    cat === "stalled" || cat === "disputed" ? "text-warning" :
+    cat === "in-flight" || cat === "submitted" ? "text-primary" :
+    "text-content-soft";
+
   return (
-    <p className="text-[11px] text-content-soft">
-      Try it live up in the &quot;Run a CLI command&quot; widget above: pick{" "}
-      <code className="font-mono text-content-default">lightnode job</code>, paste a job id, hit Run. You&apos;ll see
-      the category (<code className="font-mono">completed</code> /{" "}
-      <code className="font-mono">stalled</code> / <code className="font-mono">disputed</code>) and the{" "}
-      <code className="font-mono">refundable</code> flag.
-    </p>
+    <div className="space-y-3">
+      <p className="text-[11px] text-content-soft">
+        Paste a real job id from{" "}
+        <a href="https://mainnet.lightscan.app" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+          lightscan
+        </a>{" "}
+        to see <code className="font-mono text-content-default">ln.getJobStatus(jobId)</code>&apos;s classification.
+        The job-id is the numeric id from a JobSubmitted event (or a job&apos;s detail page).
+      </p>
+
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-content-soft">network</span>
+        <div className="inline-flex rounded-md border border-bdr-soft bg-surface-base-faint p-0.5">
+          {(["mainnet", "testnet"] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setNet(n)}
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
+                net === n ? "bg-card text-content-primary shadow" : "text-content-soft hover:text-content-primary",
+              )}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-end gap-2">
+        <input
+          type="text"
+          value={jobId}
+          onChange={(e) => setJobId(e.target.value.replace(/[^0-9]/g, ""))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void lookup();
+            }
+          }}
+          placeholder="job id (e.g. 1234)"
+          className="flex-1 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none transition-colors focus:border-primary/60"
+        />
+        <Button size="sm" onClick={() => void lookup()} disabled={!jobId.trim() || busy}>
+          {busy ? <Loader2 className="animate-spin" /> : <ArrowRight />}
+          Look up
+        </Button>
+      </div>
+
+      {err ? (
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-content-default">{err}</p>
+      ) : null}
+
+      {result ? (
+        <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+          {result.category ? (
+            <>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wide text-content-soft">job</span>
+                <code className="font-mono text-[11px] text-content-default">#{result.id}</code>
+                <span className={cn("ml-auto text-[11px] font-medium uppercase tracking-wide", catTone)}>
+                  {result.category}
+                </span>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                <dt className="text-content-soft">raw state</dt>
+                <dd className="text-right font-mono text-content-default">{result.raw ?? "-"}</dd>
+                <dt className="text-content-soft">refundable</dt>
+                <dd className={cn("text-right font-mono font-semibold", result.refundable ? "text-warning" : "text-content-soft")}>
+                  {result.refundable ? "true" : "false"}
+                </dd>
+                <dt className="text-content-soft">worker</dt>
+                <dd className="text-right font-mono text-content-default">
+                  {result.worker ? `${result.worker.slice(0, 8)}…${result.worker.slice(-6)}` : "-"}
+                </dd>
+                <dt className="text-content-soft">model</dt>
+                <dd className="text-right font-mono text-content-default">
+                  {result.model ? `${result.model.slice(0, 10)}…` : "-"}
+                </dd>
+                <dt className="text-content-soft">worker share</dt>
+                <dd className="text-right font-mono text-content-default">
+                  {(result.workerShareLcai ?? 0).toFixed(4)} LCAI
+                </dd>
+                <dt className="text-content-soft">submitted at</dt>
+                <dd className="text-right font-mono text-content-default">
+                  {result.submittedAt ? new Date(result.submittedAt * 1000).toISOString().slice(0, 16).replace("T", " ") : "-"}
+                </dd>
+                <dt className="text-content-soft">completed at</dt>
+                <dd className="text-right font-mono text-content-default">
+                  {result.completedAt ? new Date(result.completedAt * 1000).toISOString().slice(0, 16).replace("T", " ") : "-"}
+                </dd>
+              </dl>
+            </>
+          ) : (
+            <p className="text-[11px] text-content-soft">
+              Job <code className="font-mono">#{result.jobId}</code> not indexed yet (state:{" "}
+              <code className="font-mono">{result.status}</code>).
+            </p>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
