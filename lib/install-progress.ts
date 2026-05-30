@@ -135,6 +135,20 @@ export function diagnoseFailure(cleaned: string[]): string | null {
   if (/Docker engine didn.?t come up|Docker.*not.*running/i.test(text)) {
     return "Docker did not start in time. Open Docker Desktop once so it is running, then run install again.";
   }
+  // Phase 01 resolves the on-chain contract addresses via `cast` over RPC. A
+  // failure here means cast couldn't read the WorkerRegistry - almost always
+  // because cast isn't reachable or the RPC didn't answer (transient network /
+  // proxy / TLS), not a problem with your worker or wallet. The contracts are a
+  // genesis predeploy, so nothing on-chain needs changing - just retry.
+  if (/stopped at .*01-resolve-addresses|Failed to read (aiConfig|jobRegistry)/i.test(text)) {
+    const explorer = explorerFor(extractNetwork(cleaned));
+    return (
+      "Couldn't read the network's contract addresses to start setup. This is a connection issue, not a problem " +
+      "with your worker or wallet (no stake was touched). Check your internet/VPN, confirm " +
+      `${explorer} loads, then run install again. If it keeps failing, fully quit and reopen LightNode so Foundry's ` +
+      "cast tool is freshly on PATH."
+    );
+  }
   // Install-time keystore-password mismatch sentinel emitted by both Windows + bash
   // runners when a previous attempt left an encrypted key on disk and the password
   // entered this session doesn't decrypt it. The runner has already tried every

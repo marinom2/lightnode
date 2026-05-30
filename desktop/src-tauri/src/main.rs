@@ -183,11 +183,27 @@ fn run_command_streamed(
         .map_err(|e| format!("spawn failed: {e}"))?;
 
     let stdout = child.stdout.take().ok_or("no stdout")?;
+    let stderr = child.stderr.take().ok_or("no stderr")?;
+
+    // Drain stderr on its own thread and emit it as the same `setup-log` events.
+    // The installer writes real diagnostics there (PowerShell terminating errors,
+    // cast/RPC failures, the toolkit's `throw` messages, bash `set -e` aborts). If
+    // we pipe stderr but never read it, those lines are lost - a failed phase looks
+    // like a silent stop with no cause - and a full pipe buffer can stall the child.
+    let app_err = app.clone();
+    let stderr_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let _ = app_err.emit("setup-log", line);
+        }
+    });
+
     let app2 = app.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let _ = app2.emit("setup-log", line);
         }
+        // Flush all stderr to the UI before reporting the exit code.
+        let _ = stderr_thread.join();
         match child.wait() {
             Ok(status) => {
                 let _ = app2.emit("setup-exit", status.code().unwrap_or(-1));
