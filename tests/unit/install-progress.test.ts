@@ -80,6 +80,20 @@ describe("deriveInstallView", () => {
     expect(hint).toContain("mainnet.lightscan.app");
   });
 
+  it("does NOT blame funding when the funding gate already confirmed the wallet is funded", () => {
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev 2026-05-30.04 (mainnet)",
+      "▶ funding worker: send to 0xdf589ff8897C351d4E09E688b333C67fcB027802",
+      "✓ worker wallet funded (55000 LCAI)",
+      "▶ phase .\\07-register.ps1",
+      "register failed",
+    ])!;
+    expect(hint).toMatch(/not a funding problem/i);
+    expect(hint).toMatch(/do NOT send more/i);
+    expect(hint).not.toMatch(/top up/i);
+    expect(hint).toContain("0xdf589ff8897C351d4E09E688b333C67fcB027802");
+  });
+
   it("diagnoses a model-add revert (the gemma-on-testnet failure) with actionable guidance", () => {
     const log = [
       "▶ phase 07-register",

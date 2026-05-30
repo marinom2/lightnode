@@ -188,6 +188,25 @@ export function diagnoseFailure(cleaned: string[]): string | null {
   // operator can check + top up directly instead of guessing.
   const inRegisterPath = /phase\s*\.?\\?\/?0?7[- ]register|worker:latest\s+(?:status|register)|stopped at .*07-register/i.test(text);
   const online = /worker online|✅\s*worker/i.test(text);
+  // If the pre-register funding gate already CONFIRMED the wallet held enough
+  // LCAI ("✓ worker wallet funded (… LCAI)"), a later register failure is NOT a
+  // balance problem. Telling a funded operator to "top up" wastes their money and
+  // sends them down the wrong path (seen in the field: a 55,000-LCAI worker, stake
+  // is 50,000, told to add more). Point at the worker binary's real error instead.
+  const fundingConfirmed = /worker wallet funded/i.test(text);
+  if (inRegisterPath && !online && fundingConfirmed) {
+    const addr = extractWorkerAddress(cleaned);
+    const explorer = explorerFor(extractNetwork(cleaned));
+    const linkBit = addr
+      ? `The worker wallet at ${addr} already holds enough LCAI (confirm at ${explorer}/address/${addr}) - do NOT send more.`
+      : "The worker wallet already holds enough LCAI - do NOT send more.";
+    return (
+      "The worker was funded and reached the register step, but the on-chain registration didn't go through. " +
+      "This is not a funding problem. " + linkBit + " The exact reason is in the technical log below (the " +
+      "'register' output, just under the status line) - that line is what to act on. Common non-funding causes: " +
+      "the worker container couldn't reach the network, or the registration was rejected on-chain."
+    );
+  }
   if (inRegisterPath && !online) {
     const addr = extractWorkerAddress(cleaned);
     const explorer = explorerFor(extractNetwork(cleaned));
