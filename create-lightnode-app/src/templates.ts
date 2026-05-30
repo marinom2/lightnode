@@ -15,7 +15,7 @@ export interface GeneratedFile {
   contents: string;
 }
 
-const SDK_VERSION = "^0.4.3";
+const SDK_VERSION = "^0.4.7";
 const VIEM_VERSION = "^2.21.0";
 const WS_VERSION = "^8.18.0";
 const HONO_VERSION = "^4.6.0";

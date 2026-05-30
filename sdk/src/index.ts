@@ -150,6 +150,14 @@ export class LightNode {
   }
 }
 
+/**
+ * Build-time SDK version. Useful for diagnostic prints in examples and apps so
+ * the operator can confirm which version of the SDK is loaded at runtime
+ * (especially in registry-proxy environments like StackBlitz where lockfiles
+ * may pin an older minor than the local install command suggests).
+ */
+export const SDK_VERSION = "0.4.7";
+
 export {
   NETWORKS,
   WORKER_REGISTRY,

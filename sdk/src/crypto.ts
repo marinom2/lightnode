@@ -35,29 +35,39 @@ async function getCrypto(): Promise<CryptoProvider> {
   if (resolvedCrypto) return resolvedCrypto;
   if (resolvingCrypto) return resolvingCrypto;
   resolvingCrypto = (async (): Promise<CryptoProvider> => {
+    const diag: string[] = [];
     const g = (globalThis as { crypto?: Crypto }).crypto;
+    diag.push(`globalThis.crypto=${g ? "present" : "missing"}`);
+    if (g) diag.push(`globalThis.crypto.subtle=${g.subtle ? "present" : "missing"}`);
+    if (g) diag.push(`globalThis.crypto.getRandomValues=${typeof g.getRandomValues}`);
     if (g?.subtle && typeof g.getRandomValues === "function") {
       const provider: CryptoProvider = { subtle: g.subtle, getRandomValues: g.getRandomValues.bind(g) };
       resolvedCrypto = provider;
       return provider;
     }
-    // Node 18 + StackBlitz WebContainer: globalThis.crypto is missing, but
+    // Node 18 + StackBlitz WebContainer: globalThis.crypto may be missing, but
     // `node:crypto` exposes the same Web Crypto API via `webcrypto`.
+    let nodeCryptoError: string | null = null;
     try {
       const mod = (await import("node:crypto")) as { webcrypto?: Crypto };
+      diag.push(`node:crypto=imported`);
       const wc = mod.webcrypto;
+      diag.push(`node:crypto.webcrypto=${wc ? "present" : "missing"}`);
+      if (wc) diag.push(`node:crypto.webcrypto.subtle=${wc.subtle ? "present" : "missing"}`);
+      if (wc) diag.push(`node:crypto.webcrypto.getRandomValues=${typeof wc.getRandomValues}`);
       if (wc?.subtle && typeof wc.getRandomValues === "function") {
         const provider: CryptoProvider = { subtle: wc.subtle, getRandomValues: wc.getRandomValues.bind(wc) };
         resolvedCrypto = provider;
         return provider;
       }
-    } catch {
-      // node:crypto not importable - we're in a browser bundle without a
-      // global crypto. The fall-through error below explains the fix.
+    } catch (err) {
+      nodeCryptoError = (err as Error).message;
+      diag.push(`node:crypto=import threw: ${nodeCryptoError}`);
     }
     throw new Error(
-      "Web Crypto unavailable: globalThis.crypto is missing and node:crypto could not be loaded. " +
-        "The SDK requires Node 18+ or a modern browser.",
+      "Web Crypto unavailable. The SDK requires either globalThis.crypto (Node 19+ or any modern browser) " +
+        "or node:crypto.webcrypto (Node 18, StackBlitz WebContainer). Diagnostic: " +
+        diag.join("; "),
     );
   })();
   try {
