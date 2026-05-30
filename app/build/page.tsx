@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
+import { HideOnDesktop } from "@/components/hide-on-desktop";
 
 const STACKBLITZ_URL = "https://stackblitz.com/github/marinom2/lightnode/tree/main/examples/quickstart-inference";
 const EXAMPLE_REPO_URL = "https://github.com/marinom2/lightnode/tree/main/examples/quickstart-inference";
@@ -233,15 +234,19 @@ export default function BuildPage() {
                   Open in StackBlitz <ExternalLink />
                 </a>
               </Button>
-              <Button asChild size="sm" variant="outline" className="w-full">
-                <a
-                  href="https://codespaces.new/marinom2/lightnode?machine=basicLinux32gb"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Github /> Open in Codespaces <ExternalLink />
-                </a>
-              </Button>
+              {/* Codespaces is web-only - the desktop app already has a local
+                  environment, so this button would just dead-end there. */}
+              <HideOnDesktop>
+                <Button asChild size="sm" variant="outline" className="w-full">
+                  <a
+                    href="https://codespaces.new/marinom2/lightnode?machine=basicLinux32gb"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Github /> Open in Codespaces <ExternalLink />
+                  </a>
+                </Button>
+              </HideOnDesktop>
             </div>
           </Card>
           <Card className="flex flex-col p-5">
