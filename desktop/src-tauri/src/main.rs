@@ -142,7 +142,77 @@ fn detect_gpu() -> (String, Option<u64>, bool) {
         }
     }
 
+    // 4) Linux non-NVIDIA (AMD / Intel). nvidia-smi covered NVIDIA above; without
+    //    this branch every AMD/Intel box read "Unknown GPU" with no VRAM. Name
+    //    from lspci, VRAM from the amdgpu sysfs node (Intel iGPUs share system RAM
+    //    and expose no VRAM total, so vram stays None there).
+    #[cfg(target_os = "linux")]
+    {
+        let vram = linux_vram_gb();
+        let name = linux_gpu_name();
+        if vram.is_some() || name.is_some() {
+            return (name.unwrap_or_else(|| "GPU".to_string()), vram, false);
+        }
+    }
+
     ("Unknown GPU".to_string(), None, false)
+}
+
+/// Total dedicated VRAM (GiB) for a Linux discrete GPU, read from the amdgpu
+/// driver's sysfs node (bytes). Scans every cardN and takes the largest. Returns
+/// None when no card exposes it (e.g. Intel iGPUs, which share system RAM).
+#[cfg(target_os = "linux")]
+fn linux_vram_gb() -> Option<u64> {
+    use std::fs;
+    let mut best: u64 = 0;
+    for entry in fs::read_dir("/sys/class/drm").ok()?.flatten() {
+        let fname = entry.file_name();
+        let fname = fname.to_string_lossy();
+        // Top-level cards only (cardN), not connector subdirs (cardN-HDMI-A-1).
+        if !fname.starts_with("card") || fname.contains('-') {
+            continue;
+        }
+        let path = entry.path().join("device/mem_info_vram_total");
+        if let Ok(s) = fs::read_to_string(&path) {
+            if let Ok(bytes) = s.trim().parse::<u64>() {
+                best = best.max(bytes);
+            }
+        }
+    }
+    if best == 0 {
+        return None;
+    }
+    // bytes -> GiB, rounded to nearest.
+    Some((best + (1 << 29)) / (1 << 30))
+}
+
+/// Human GPU name on Linux via lspci (pciutils, present on ~every desktop).
+/// Pulls the marketing name out of the display-controller line, e.g.
+/// "...AMD/ATI Vega 20 [Radeon Pro VII] (rev 01)" -> "Radeon Pro VII".
+#[cfg(target_os = "linux")]
+fn linux_gpu_name() -> Option<String> {
+    let out = run(
+        "sh",
+        &[
+            "-c",
+            "lspci 2>/dev/null | grep -iE 'vga compatible controller|3d controller|display controller' | head -1",
+        ],
+    )?;
+    let line = out.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let mut after = line.splitn(2, ": ").nth(1).unwrap_or(line).trim().to_string();
+    if let Some(i) = after.rfind(" (rev ") {
+        after.truncate(i);
+    }
+    // Prefer the marketing name in the final [..] if present.
+    if let (Some(a), Some(b)) = (after.rfind('['), after.rfind(']')) {
+        if b > a + 1 {
+            return Some(after[a + 1..b].trim().to_string());
+        }
+    }
+    Some(after)
 }
 
 /// Runs a shell command and streams its output to the webview as `setup-log`
