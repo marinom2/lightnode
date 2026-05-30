@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {
+  Boxes,
   Code2,
+  Download,
   ExternalLink,
   Github,
   PackageOpen,
@@ -16,6 +18,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
+
+const STACKBLITZ_URL = "https://stackblitz.com/github/marinom2/lightnode/tree/main/examples/quickstart-inference";
+const EXAMPLE_REPO_URL = "https://github.com/marinom2/lightnode/tree/main/examples/quickstart-inference";
+const LCAI_IDE_URL = "https://github.com/lightchain-protocol/lcai-ide";
 
 export const metadata = {
   title: "Build with LightChain AI · LightNode",
@@ -157,6 +163,70 @@ export default function BuildPage() {
         </div>
       </div>
 
+      <div className="mb-10">
+        <div className="mb-4 flex items-center gap-3">
+          <IconChip icon={Boxes} size="md" />
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-content-primary">Three ways to try it</h2>
+            <p className="text-xs text-content-soft">
+              Pick one. Same flow, three runtimes - browser wallet, cloud IDE, or your laptop.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card className="flex flex-col p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <PlayCircle className="size-4 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">In the browser</span>
+              <Badge tone="success" className="ml-auto">no install</Badge>
+            </div>
+            <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
+              The live playground: connect a wallet, type a prompt, watch the decrypted answer stream. Free on testnet.
+            </p>
+            <Button asChild size="sm" className="w-full">
+              <Link href="/playground">
+                Open the playground <ExternalLink />
+              </Link>
+            </Button>
+          </Card>
+          <Card className="flex flex-col p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Code2 className="size-4 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">In a cloud IDE</span>
+              <Badge tone="brand" className="ml-auto">~30 sec</Badge>
+            </div>
+            <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
+              StackBlitz opens the runnable starter (Node + the SDK + viem + ws) pre-installed. Paste your funded
+              testnet key, hit Run, see one real inference complete.
+            </p>
+            <Button asChild size="sm" variant="outline" className="w-full">
+              <a href={STACKBLITZ_URL} target="_blank" rel="noopener noreferrer">
+                Open in StackBlitz <ExternalLink />
+              </a>
+            </Button>
+          </Card>
+          <Card className="flex flex-col p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Download className="size-4 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">On your laptop</span>
+              <Badge tone="muted" className="ml-auto">git clone</Badge>
+            </div>
+            <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
+              <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-[11px]">
+                examples/quickstart-inference
+              </code>{" "}
+              in the repo. <code className="font-mono">npm i</code> →{" "}
+              <code className="font-mono">cp .env.example .env</code> → <code className="font-mono">npm start</code>.
+            </p>
+            <Button asChild size="sm" variant="outline" className="w-full">
+              <a href={EXAMPLE_REPO_URL} target="_blank" rel="noopener noreferrer">
+                View on GitHub <ExternalLink />
+              </a>
+            </Button>
+          </Card>
+        </div>
+      </div>
+
       <Card className="mb-10 p-6">
         <div className="mb-3 flex items-center gap-3">
           <IconChip icon={TerminalSquare} size="md" />
@@ -249,7 +319,7 @@ export default function BuildPage() {
         </div>
       </div>
 
-      <Card className="p-6">
+      <Card className="mb-6 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <IconChip icon={PlayCircle} size="md" />
@@ -264,6 +334,29 @@ export default function BuildPage() {
             <Link href="/playground">
               Open playground <ExternalLink />
             </Link>
+          </Button>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <IconChip icon={ShieldCheck} size="md" />
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-content-primary">
+                Want to inspect the contracts directly?
+              </h2>
+              <p className="text-xs text-content-soft">
+                LightChain&apos;s Remix-fork IDE lets you load the JobRegistry / AIConfig contracts, decode tx
+                payloads, and write custom callers in Solidity. Great if you&apos;re building a contract that talks to
+                the protocol, not just a dApp that uses it.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline">
+            <a href={LCAI_IDE_URL} target="_blank" rel="noopener noreferrer">
+              Open lcai-ide <ExternalLink />
+            </a>
           </Button>
         </div>
       </Card>
