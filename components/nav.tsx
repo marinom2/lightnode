@@ -2,23 +2,28 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@/components/connect-button";
 import { NetworkToggle } from "@/components/network-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { isDesktop } from "@/lib/tauri";
 
-const links = [
+const ALL_LINKS = [
   { href: "/onboard", label: "Become a worker" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/network", label: "Network" },
-  { href: "/build", label: "Build" },
+  { href: "/build", label: "Build", webOnly: true },
 ];
 
 export function Nav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // SSR-safe: assume web, then drop web-only links once we detect Tauri on mount.
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => { setDesktop(isDesktop()); }, []);
+  const links = desktop ? ALL_LINKS.filter((l) => !l.webOnly) : ALL_LINKS;
 
   return (
     <header className="gradient-underline sticky top-0 z-40 border-b border-bdr-soft bg-background/65 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">

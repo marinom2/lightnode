@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/lib/network-context";
 import { NETWORKS } from "@/lib/network";
 import { openExternal } from "@/lib/tauri";
+import { HideOnDesktop } from "@/components/hide-on-desktop";
 import { modelStatsCsv, workerStatsCsv, type ModelStat, type WorkerStat, type NetworkAnalytics } from "@/lib/analytics";
 import { fmt, cn, shortAddr } from "@/lib/utils";
 
@@ -26,10 +27,12 @@ function SdkSnippet({ snippet, label }: { snippet: string; label: string }) {
           <Code2 className="size-3.5" /> {label}
         </span>
         <span className="inline-flex items-center gap-1.5 text-content-soft">
-          <Link href="/build" className="text-primary hover:underline">
-            Full quickstart in /build
-          </Link>
-          <span className="text-content-soft/40">·</span>
+          <HideOnDesktop>
+            <Link href="/build" className="text-primary hover:underline">
+              Full quickstart in /build
+            </Link>
+            <span className="text-content-soft/40">·</span>
+          </HideOnDesktop>
           <span className="text-content-soft">click to expand</span>
         </span>
       </summary>
