@@ -2,14 +2,21 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowRight,
+  Code2,
+  Coins,
+  Cpu,
+  Database,
   Download,
+  Gauge,
+  HeartPulse,
+  PackageOpen,
+  PlayCircle,
   Rocket,
   ShieldCheck,
-  Coins,
-  Gauge,
-  Cpu,
-  CheckCircle2,
-  HeartPulse,
+  Terminal,
+  Wallet2,
+  Workflow,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,13 +32,22 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { StakeAmount } from "@/components/stake-amount";
 import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 
-const FRICTIONS = ["the terminal", "Docker", "env vars", "wallets & keys", "ports", "Linux", "RPC configs", "the docs"];
+// What the builder track gives you. Eight SDKs in one package.
+const BUILDER_SDKS = [
+  { icon: Zap, name: "Encrypted inference", line: "5-line API. Wallet signs, SDK encrypts + streams the answer." },
+  { icon: Workflow, name: "Multi-turn chat", line: "Conversation class with history + system prompt." },
+  { icon: Database, name: "Read-only network client", line: "13 methods for workers, jobs, models, stats. No key needed." },
+  { icon: Coins, name: "Bridge SDK", line: "Move LCAI Ethereum <-> LightChain. Quote, approve, transfer." },
+  { icon: ShieldCheck, name: "DAO SDK", line: "Read + vote on LCAI Governor proposals on Ethereum." },
+  { icon: Gauge, name: "Worker preflight + watch", line: "One real test inference; event stream on state change." },
+];
 
-const STEPS = [
-  { icon: Download, title: "Download the app", body: "Get LightNode for macOS, Windows, or Linux. No sign-up, no API key." },
-  { icon: Gauge, title: "Check your machine", body: `It auto-detects your GPU/CPU/RAM and scores you against the ${HARDWARE.min.vramGb}GB-VRAM floor, with a live reward estimate.` },
-  { icon: Rocket, title: "Install in one click", body: "Press Install - it generates your worker keys, funds and stakes from your wallet, and starts the node. No terminal." },
-  { icon: HeartPulse, title: "Earn & manage", body: "Track jobs, earnings, and health, then settle, withdraw, and keep your worker online - all in the app." },
+// Worker-track install steps. Same flow as before, slightly reordered.
+const WORKER_STEPS = [
+  { icon: Download, title: "Download", body: "macOS, Windows, or Linux. No sign-up, no API key." },
+  { icon: Gauge, title: "Machine check", body: `Auto-detects GPU/CPU/RAM and scores against the ${HARDWARE.min.vramGb}GB-VRAM floor.` },
+  { icon: Rocket, title: "One-click install", body: "Generates keys, funds and stakes from your wallet, starts the node. No terminal." },
+  { icon: HeartPulse, title: "Earn & manage", body: "Track jobs, earnings, and health. Settle, withdraw, deregister - all in the app." },
 ];
 
 export default function Home() {
@@ -42,24 +58,75 @@ export default function Home() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-grid opacity-60" />
 
       {/* HERO */}
-      <section className="relative mx-auto max-w-6xl px-5 pt-24 pb-16 text-center">
+      <section className="relative mx-auto max-w-6xl px-5 pt-24 pb-12 text-center">
+        <Badge tone="brand" className="mb-4">Community-built ecosystem for LightChain AI</Badge>
         <h1 className="mx-auto max-w-3xl text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-content-primary md:text-6xl">
-          Run a LightChain AI worker in <span className="text-gradient">one flow</span>.
+          Build with, and run for, <span className="text-gradient">LightChain AI</span>.
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
-          Check your machine, fund and stake from your wallet, and go live in one click - then track
-          earnings, settle, and exit, all without touching a terminal. LightNode is the complete way to
-          earn <span className="text-content-primary font-medium">$LCAI</span> for serving real AI inference.
+          One project, two tracks. Add encrypted decentralized AI to your app in five lines of code,
+          or stake a GPU and earn <span className="text-content-primary font-medium">$LCAI</span> for serving
+          real inference. Pick one (most people only need one).
         </p>
-        <HomeHeroCta />
 
-        {/* worker rig hero device - soft overhead wash, grounded, lit from within */}
+        {/* Two-track CTA strip */}
+        <div className="mx-auto mt-8 grid max-w-4xl gap-3 md:grid-cols-2">
+          <Card className="p-5 text-left">
+            <div className="mb-2 flex items-center gap-2">
+              <IconChip icon={Code2} size="sm" />
+              <span className="text-sm font-semibold text-content-primary">Build</span>
+              <Badge tone="success" className="ml-auto">live</Badge>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-content-soft">
+              <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-[11px] text-content-default">lightnode-sdk</code>{" "}
+              for encrypted on-chain AI. Plus bridge, DAO, model registry, worker watch. Non-custodial.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm">
+                <Link href="/build">
+                  <PlayCircle /> Builder hub <ArrowRight />
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/playground">
+                  Open the playground
+                </Link>
+              </Button>
+            </div>
+          </Card>
+          <Card className="p-5 text-left">
+            <div className="mb-2 flex items-center gap-2">
+              <IconChip icon={Cpu} size="sm" />
+              <span className="text-sm font-semibold text-content-primary">Run a worker</span>
+              <Badge tone="success" className="ml-auto">live</Badge>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-content-soft">
+              One-click desktop app. Generates your worker keys, funds + stakes from your wallet,
+              brings the node online. Earn $LCAI per inference job.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="gradient">
+                <Link href="/onboard">
+                  Become a worker <ArrowRight />
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/network">
+                  See the network
+                </Link>
+              </Button>
+            </div>
+          </Card>
+        </div>
+
+        <div className="mt-6">
+          <HomeHeroCta />
+        </div>
+
+        {/* worker rig hero device - kept; speaks to the worker track */}
         <div className="relative mx-auto mt-12 w-fit">
-          {/* soft, wide overhead light wash (diffuse, not a hard spotlight) */}
           <div className="pointer-events-none absolute -top-28 left-1/2 -z-10 h-[440px] w-[860px] -translate-x-1/2 bg-[radial-gradient(ellipse_42%_56%_at_50%_0%,rgba(178,158,255,0.16),transparent_72%)] blur-2xl" />
-          {/* core glow behind the LCAI coin */}
           <div className="pointer-events-none absolute left-1/2 top-[36%] -z-10 size-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(124,90,233,0.36),transparent_60%)] blur-3xl" />
-          {/* contact shadow grounding the rig */}
           <div className="pointer-events-none absolute bottom-3 left-1/2 -z-10 h-12 w-[280px] -translate-x-1/2 rounded-[50%] bg-primary/25 blur-2xl" />
           <Image
             src="/images/rn-hero-device.png"
@@ -85,139 +152,124 @@ export default function Home() {
         <DownloadDesktop />
       </WebOnly>
 
-      {/* WHAT WE REMOVE */}
-      <section className="mx-auto max-w-6xl px-5 py-10">
-        <Card className="overflow-hidden">
-          <div className="grid gap-8 p-8 md:grid-cols-2 md:p-10">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
-                Set up in clicks, not hours.
-              </h2>
-              <p className="mt-3 text-content-soft">Check your machine. Install. Earn.</p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {FRICTIONS.map((f) => (
-                  <span
-                    key={f}
-                    className="rounded-lg border border-bdr-soft bg-surface-base-faint px-2.5 py-1 text-sm text-content-soft line-through decoration-destructive/60"
-                  >
-                    {f}
-                  </span>
-                ))}
+      {/* BUILD TRACK - SDK ecosystem grid */}
+      <section className="mx-auto max-w-6xl px-5 py-12">
+        <div className="mb-8 text-center">
+          <Badge tone="brand" className="mb-2">For builders</Badge>
+          <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
+            One install, eight SDKs.
+          </h2>
+          <p className="mx-auto mt-2 max-w-xl text-content-soft">
+            <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-content-default">npm install lightnode-sdk viem</code>
+            {" "}gets you encrypted inference plus the whole ecosystem.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+          {BUILDER_SDKS.map((s) => (
+            <Card key={s.name} className="flex flex-col p-5">
+              <div className="mb-2 flex items-center gap-2">
+                <IconChip icon={s.icon} size="sm" />
+                <span className="text-sm font-semibold text-content-primary">{s.name}</span>
               </div>
-            </div>
-            <div className="space-y-3 rounded-xl border border-bdr-soft bg-surface-base-subtle p-5">
-              {[
-                { icon: Coins, t: "Earn $LCAI", d: "Paid per inference job your worker completes." },
-                { icon: ShieldCheck, t: "Secure the network", d: "Stake LCAI and contribute censorship-resistant compute." },
-                { icon: Cpu, t: "Use real hardware", d: `Serve ${DEFAULT_MODEL} through Ollama on your own GPU.` },
-              ].map((b) => (
-                <div key={b.t} className="flex items-start gap-3">
-                  <IconChip icon={b.icon} size="sm" className="mt-0.5" />
-                  <div>
-                    <div className="font-medium text-content-primary">{b.t}</div>
-                    <div className="text-sm text-content-soft">{b.d}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
+              <p className="text-xs leading-relaxed text-content-soft">{s.line}</p>
+            </Card>
+          ))}
+        </div>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+          <Button asChild>
+            <Link href="/build">
+              Builder hub <ArrowRight />
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/playground">
+              <PlayCircle /> Try in browser
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <a href="https://www.npmjs.com/package/lightnode-sdk" target="_blank" rel="noopener noreferrer">
+              <PackageOpen /> npm
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href="https://github.com/marinom2/lightnode-examples" target="_blank" rel="noopener noreferrer">
+              <Terminal /> Examples
+            </a>
+          </Button>
+        </div>
       </section>
 
-      {/* HOW IT WORKS */}
-      <section className="mx-auto max-w-6xl px-5 py-10">
-        <h2 className="text-center text-2xl font-semibold tracking-tight text-content-primary">How it works</h2>
-        <p className="mx-auto mt-2 max-w-xl text-center text-content-soft">From download to earning - all in the app.</p>
-        <div className="mt-8 grid gap-4 md:grid-cols-4">
-          {STEPS.map((s, i) => (
+      {/* WORKER TRACK - how it works */}
+      <section className="mx-auto max-w-6xl px-5 py-12">
+        <div className="mb-8 text-center">
+          <Badge tone="success" className="mb-2">For operators</Badge>
+          <h2 className="text-2xl font-semibold tracking-tight text-content-primary">Set up in clicks, not hours.</h2>
+          <p className="mx-auto mt-2 max-w-xl text-content-soft">
+            Got a spare GPU and <StakeAmount /> LCAI? The desktop app handles keys, staking, Docker, and the watchdog.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-4">
+          {WORKER_STEPS.map((s, i) => (
             <Card key={s.title} className="p-6">
               <div className="mb-4 flex items-center justify-between">
                 <IconChip icon={s.icon} />
-                <span className="text-sm font-mono text-content-soft">0{i + 1}</span>
+                <span className="font-mono text-sm text-content-soft">0{i + 1}</span>
               </div>
               <h3 className="font-semibold text-content-primary">{s.title}</h3>
               <p className="mt-1.5 text-sm text-content-soft">{s.body}</p>
             </Card>
           ))}
         </div>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+          <Button asChild variant="gradient">
+            <Link href="/onboard">
+              Start onboarding <ArrowRight />
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/network">
+              See live worker stats
+            </Link>
+          </Button>
+        </div>
       </section>
 
-      {/* MODELS */}
-      <section className="mx-auto max-w-6xl px-5 py-10">
-        <h2 className="text-center text-2xl font-semibold tracking-tight text-content-primary">What you&apos;ll serve</h2>
+      {/* MODELS - serves both tracks */}
+      <section className="mx-auto max-w-6xl px-5 py-12">
+        <h2 className="text-center text-2xl font-semibold tracking-tight text-content-primary">
+          The models on the network
+        </h2>
         <p className="mx-auto mt-2 mb-8 max-w-xl text-center text-content-soft">
-          The models the network pays workers to run, with the live per-job fee.
+          What the network pays workers to serve. Builders call these via the SDK; operators serve one or more.
         </p>
         <Card className="p-6">
           <ModelsPanel compactHeader />
         </Card>
       </section>
 
-      {/* HARDWARE REQUIREMENTS */}
+      {/* HARDWARE - worker side */}
       <HardwareRequirements />
 
-      {/* ROLE CARDS */}
-      <section className="mx-auto max-w-6xl px-5 py-10">
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="relative overflow-hidden p-8">
-            <div className="absolute right-0 top-0 size-40 glow-radial opacity-70" />
-            <Badge tone="success">Available now</Badge>
-            <h3 className="mt-4 text-2xl font-semibold tracking-tight text-content-primary">Run a Worker</h3>
-            <p className="mt-2 text-content-soft">
-              Serve {DEFAULT_MODEL} inference and earn $LCAI. Needs an {HARDWARE.min.vramGb}GB+ GPU and a{" "}
-              <StakeAmount /> LCAI stake. This is the one-flow path - start here.
-            </p>
-            <ul className="mt-5 space-y-2 text-sm text-content-soft">
-              {["Auto machine check + a real slash-risk Speed test", "One-click install for macOS / Linux / Windows", "Built-in alias + liveness checks (no silent slashes)"].map((x) => (
-                <li key={x} className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-success" /> {x}
-                </li>
-              ))}
-            </ul>
-            <Link href="/onboard" className="mt-6 inline-block">
-              <Button variant="gradient">
-                Become a worker <ArrowRight />
-              </Button>
-            </Link>
-          </Card>
-
-          <Card className="p-8">
-            <Badge tone="muted">Roadmap</Badge>
-            <h3 className="mt-4 text-2xl font-semibold tracking-tight text-content-primary">Run a Validator</h3>
-            <p className="mt-2 text-content-soft">
-              Secure the chain at the consensus layer. This is a heavier, capital-gated path
-              (500,000 LCAI deposit + a full node), so we&apos;re shipping the worker flow first and
-              guided validator onboarding next.
-            </p>
-            <ul className="mt-5 space-y-2 text-sm text-content-soft">
-              {["Full-node sync + validator client", "500,000 LCAI deposit", "Monitoring & backups"].map((x) => (
-                <li key={x} className="flex items-center gap-2">
-                  <span className="size-1.5 rounded-full bg-content-extraLight" /> {x}
-                </li>
-              ))}
-            </ul>
-            <Button variant="outline" className="mt-6" disabled>
-              Coming soon
-            </Button>
-          </Card>
-        </div>
-      </section>
-
-      {/* CTA */}
+      {/* CTA - dual */}
       <section className="mx-auto max-w-6xl px-5 py-14">
         <Card className="bg-gradient-primary p-[1px]">
           <div className="rounded-[15px] bg-background/85 px-8 py-12 text-center backdrop-blur-sm">
-            <h2 className="text-3xl font-semibold tracking-tight text-content-primary">
-              Got a spare GPU and <StakeAmount format="compact" /> LCAI?
-            </h2>
-            <p className="mx-auto mt-3 max-w-xl text-content-soft">
-              Put it to work in a few minutes. LightNode walks you the whole way.
+            <h2 className="text-3xl font-semibold tracking-tight text-content-primary">Pick your path.</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-content-soft">
+              Two tracks, one community. Most people only need one. Both are live on mainnet today.
             </p>
-            <Link href="/onboard" className="mt-7 inline-block">
-              <Button variant="gradient" size="lg">
-                Start onboarding <ArrowRight />
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-2.5">
+              <Button asChild variant="gradient" size="lg">
+                <Link href="/build">
+                  <Code2 /> Build with the SDK <ArrowRight />
+                </Link>
               </Button>
-            </Link>
+              <Button asChild variant="outline" size="lg">
+                <Link href="/onboard">
+                  <Wallet2 /> Run a worker
+                </Link>
+              </Button>
+            </div>
           </div>
         </Card>
       </section>

@@ -41,22 +41,26 @@ one of them.
 
 ## Recently shipped
 
-- `lightnode-sdk@0.4.4`. Adds `runInferenceWithKey()`. This is the literal
-  5-line API: pass a network name, a private key, a prompt, get an answer
-  back. No viem clients to wire up, no SIWE handshake to write. Also fixes
-  a bug where a successful run could lose its on-chain `jobCompleted` proof
-  because the polling gave up too early.
-- Standalone examples repo at
-  [`marinom2/lightnode-examples`](https://github.com/marinom2/lightnode-examples).
-  60 KB, 12 files. Opens in StackBlitz in about a second. Used to be inside
-  this repo, so cloning the whole thing took 30+ seconds.
-- `npx lightnode add agent`. New scaffolder template for scheduled prompts.
-  Drops in a Vercel Cron route (Next.js) or a long-running `setInterval`
-  script (Node). Useful for daily summaries, monitoring agents, anything
-  that needs to run on a schedule.
-- Playground tidy-up. Network is now controlled by the toggle in the top
-  nav (one source of truth across the whole site). The on-chain proof
-  column is reliable again.
+- `lightnode-sdk@0.5.1`. Six new modules in one ecosystem release: **Bridge
+  SDK** (Hyperlane Warp Route, LCAI between Ethereum and LightChain),
+  **DAO SDK** (LCAIGovernor on Ethereum: read + vote + propose + queue +
+  execute), **OnchainModelRegistry reader** (AIVMModelRegistry +
+  BenchmarkRegistry typed ABI), **multi-turn `Conversation`** (history
+  client-side, one inference per turn), **`workerPreflight` + `workerWatch`**
+  (test inference + live state-change stream), and **`ln.getJobStatus`**
+  (refundable classification). Plus the existing `runInferenceWithKey`,
+  `runInferenceStream`, `LightNode` read-only client, five `add`
+  scaffolders, full crypto module, eight read-only CLI commands.
+- **Interactive CLI runner on `/build`**. Click a command on the left,
+  hit Run, see the real JSON output in the browser. Backed by a server
+  route that runs the LightNode method server-side.
+- **Live mainnet data on `/build`**. Four cards showing network stats +
+  top workers + registered models + per-model performance, refreshed
+  every minute, with the SDK snippet that produced each one.
+- **Standalone examples repo** at
+  [`marinom2/lightnode-examples`](https://github.com/marinom2/lightnode-examples)
+  with eight runnable examples (one per SDK module). Opens in StackBlitz
+  in seconds.
 - Live playground at <https://lightnode.app/playground>. Connect a wallet,
   type a prompt, run one real encrypted inference in your browser. Free on
   testnet.
@@ -128,7 +132,7 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.4.4` | Read-only chain client (workers, jobs, models, analytics, on-chain registration truth). Plus the encrypted inference submit flow (`runInferenceWithKey`, `runInference`, and the lower-level `prepareSession` + `submitPrompt` + `decryptResponse`). Plus the `lightnode` CLI with `add` subcommands. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.5.1` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (13 `LightNode` methods + CSV exporters), Bridge SDK, DAO SDK, OnchainModelRegistry reader, worker preflight + watch, job-status / refund query. Plus the `lightnode` CLI with read-only + write subcommands + five `add` scaffolders. |
 | [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.1.0` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. |
 | `lightnode add` (inside `lightnode-sdk`) | n/a | Patch an existing project. Auto-detects the framework, writes the right files. Safe to re-run. |
 
