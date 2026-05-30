@@ -1,0 +1,24 @@
+{
+  "name": "lightnode (Codespaces / dev container)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "postCreateCommand": "cd examples/quickstart-inference && npm install --no-audit --no-fund",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  "remoteUser": "node",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "Inference server / Next.js dev" }
+  },
+  "containerEnv": {
+    "DEV_NOTE": "After the container starts: cd examples/quickstart-inference && cp .env.example .env (paste a funded testnet key) && npm start \"your prompt\""
+  }
+}

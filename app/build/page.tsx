@@ -224,14 +224,25 @@ export default function BuildPage() {
               <Badge tone="brand" className="ml-auto">~30 sec</Badge>
             </div>
             <p className="mb-4 flex-1 text-xs leading-relaxed text-content-soft">
-              StackBlitz opens the runnable starter (Node + the SDK + viem + ws) pre-installed. Paste your funded
-              testnet key, hit Run, see one real inference complete.
+              Open the runnable starter (Node + the SDK + viem + ws) pre-installed in a full cloud dev environment.
+              Paste your funded testnet key, hit Run, see one real inference complete.
             </p>
-            <Button asChild size="sm" variant="outline" className="w-full">
-              <a href={STACKBLITZ_URL} target="_blank" rel="noopener noreferrer">
-                Open in StackBlitz <ExternalLink />
-              </a>
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button asChild size="sm" variant="outline" className="w-full">
+                <a href={STACKBLITZ_URL} target="_blank" rel="noopener noreferrer">
+                  Open in StackBlitz <ExternalLink />
+                </a>
+              </Button>
+              <Button asChild size="sm" variant="outline" className="w-full">
+                <a
+                  href="https://codespaces.new/marinom2/lightnode?machine=basicLinux32gb"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Github /> Open in Codespaces <ExternalLink />
+                </a>
+              </Button>
+            </div>
           </Card>
           <Card className="flex flex-col p-5">
             <div className="mb-3 flex items-center gap-2">

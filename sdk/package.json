@@ -1,6 +1,6 @@
 {
   "name": "lightnode-sdk",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Read-only TypeScript client for LightChain AI: workers, jobs, models, on-chain registration, and per-model network analytics. Independent, community-built (not an official LightChain package).",
   "type": "module",
   "main": "./dist/index.js",

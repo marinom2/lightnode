@@ -81,8 +81,11 @@ npx lightnode fee llama3-8b               # on-chain job fee
 npx lightnode analytics --csv             # per-model performance (CSV)
 npx lightnode reliability --csv           # per-worker reliability (CSV)
 
-# Scaffold inference into an existing project (auto-detects Next.js, Hono, or Node):
-npx lightnode add inference [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]
+# Patch an existing project (auto-detects Next.js, Hono, or Node):
+npx lightnode add inference                    # encrypted inference route/script
+npx lightnode add analytics-dashboard          # read-only network + worker analytics page
+npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
+# All `add` commands accept [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]
 
 # Or scaffold a brand-new project:
 npm create lightnode-app my-app

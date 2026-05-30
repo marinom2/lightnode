@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, type NetworkId } from "./index.js";
-import { addInference } from "./add.js";
+import { addInference, addAnalyticsDashboard, addNftMint } from "./add.js";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -29,8 +29,10 @@ const HELP = `lightnode <command> [--net mainnet|testnet]
   analytics [--csv]        per-model performance (completion, p50/p95, incomplete)
   reliability [--csv]      per-worker reliability, busiest first
 
-  add inference            patch the current project for end-to-end inference
-                           [--template auto|nextjs-api|hono|node] [--force]
+  add inference                   end-to-end encrypted inference route/script
+  add analytics-dashboard         read-only network + worker analytics page
+  add nft-mint-with-inference     AI-generated NFT metadata (provenance on-chain)
+                                  (all add commands: [--template auto|nextjs-api|hono|node] [--force])
 
 To scaffold a new project instead, run: npm create lightnode-app my-app`;
 
@@ -96,11 +98,20 @@ async function main() {
     }
     case "add": {
       const sub = positionals[1];
-      if (sub !== "inference") die("usage: lightnode add inference [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]");
       const template = (flag("--template") as "auto" | "nextjs-api" | "hono" | "node" | undefined) ?? "auto";
       const force = process.argv.includes("--force");
-      const result = addInference({ template, network: net === "mainnet" ? "mainnet" : "testnet", force });
-      console.log(`▶ add inference (${result.template} template, default network ${result.network})`);
+      const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
+      const known = ["inference", "analytics-dashboard", "nft-mint-with-inference"];
+      if (!known.includes(sub ?? "")) {
+        die(`usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`);
+      }
+      const result =
+        sub === "analytics-dashboard"
+          ? addAnalyticsDashboard({ template, network, force })
+          : sub === "nft-mint-with-inference"
+            ? addNftMint({ template, network, force })
+            : addInference({ template, network, force });
+      console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
       for (const f of result.written) {
         if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
         else console.log(`  ✓ ${f.path}`);
@@ -111,10 +122,28 @@ async function main() {
       } else {
         console.log(`\nNext steps:`);
         console.log(`  1. ${result.install}`);
-        console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
-        if (result.template === "nextjs-api") console.log(`  3. npm run dev  (then POST /api/inference)`);
-        else if (result.template === "hono") console.log(`  3. wire inferenceHandler into your Hono app, then start it`);
-        else console.log(`  3. tsx lightchain-inference.ts "your prompt"`);
+        if (sub === "nft-mint-with-inference" || sub === "inference") {
+          console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
+          if (sub === "nft-mint-with-inference" && result.template === "nextjs-api") {
+            console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
+            console.log(`  4. npm run dev, open /nft-mint`);
+          } else if (result.template === "nextjs-api") {
+            console.log(`  3. npm run dev  (then POST /api/inference)`);
+          } else if (result.template === "hono") {
+            console.log(`  3. wire inferenceHandler into your Hono app, then start it`);
+          } else if (sub === "nft-mint-with-inference") {
+            console.log(`  3. tsx nft-metadata.ts "My NFT" "concept goes here"`);
+          } else {
+            console.log(`  3. tsx lightchain-inference.ts "your prompt"`);
+          }
+        } else {
+          // analytics-dashboard - read-only, no private key needed.
+          if (result.template === "nextjs-api") {
+            console.log(`  2. npm run dev, open /lightnode-analytics`);
+          } else {
+            console.log(`  2. tsx lightnode-analytics.ts`);
+          }
+        }
         console.log(`\nFree testnet LCAI: https://lightfaucet.ai`);
         console.log(`Builder docs:     https://lightnode.app/build`);
       }
