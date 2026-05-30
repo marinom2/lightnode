@@ -319,12 +319,16 @@ export default function PlaygroundPage() {
       setS((p) => ({ ...p, jobId, phase: "stream" }));
 
       // === 7. Wait for JobCompleted (typed event filter to avoid matching JobSubmitted's signature) ===
+      // Healthy workers finish in 5-30s. A small percentage of testnet workers
+      // ack a job and then never produce a result; cap the wait at 90s so the
+      // operator gets a clear "try again" instead of a 5-minute hang.
       const jobCompleted = parseAbiItem(
         "event JobCompleted(uint256 indexed jobId, address indexed worker, bytes32 responseHash, bytes32 ciphertextHash)",
       );
+      const waitDeadlineMs = Date.now() + 90_000;
       let completed: Log | null = null;
-      for (let i = 0; i < 60 && !completed; i++) {
-        await new Promise((res) => setTimeout(res, 5000));
+      while (!completed && Date.now() < waitDeadlineMs) {
+        await new Promise((res) => setTimeout(res, 3000));
         const logs = await publicClient.getLogs({
           address: cfg.jobRegistry as `0x${string}`,
           event: jobCompleted,
@@ -333,7 +337,11 @@ export default function PlaygroundPage() {
         });
         if (logs.length) completed = logs[0] as Log;
       }
-      if (!completed) throw new Error("timed out waiting for JobCompleted");
+      if (!completed) {
+        throw new Error(
+          "Worker stalled: it accepted the job but didn't produce a result within 90s. This happens on a small percentage of testnet workers - reset and try again (you'll be assigned a different worker).",
+        );
+      }
       // Grace for the last relay frame.
       await new Promise((res) => setTimeout(res, 4000));
       socket.close();
