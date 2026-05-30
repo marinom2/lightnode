@@ -4,7 +4,7 @@
   "description": "Core APIs + IPC access for the hosted LightNode UI so detect_hardware and run_command_streamed work in the built app.",
   "windows": ["main"],
   "remote": {
-    "urls": ["https://lightnode.app", "https://lightnode.vercel.app", "http://localhost:3000"]
+    "urls": ["https://lightnode.app", "http://localhost:3000"]
   },
   "permissions": [
     "core:default",
