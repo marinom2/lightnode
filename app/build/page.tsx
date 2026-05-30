@@ -1259,6 +1259,27 @@ const stats = await ln.getNetworkStats();`}
         </ul>
       </Card>
 
+      {/* ── PYTHON PORT ──────────────────────────────────────────────── */}
+      <Card className="mb-6 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <IconChip icon={Code2} size="md" />
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-content-primary">Python? Yes.</h2>
+              <p className="text-xs text-content-soft">
+                <code className="font-mono">pip install lightnode-sdk</code> for the read-only client +{" "}
+                <code className="font-mono">run_inference_with_key</code>. Byte-perfect crypto vs the TS SDK.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline">
+            <a href="https://github.com/marinom2/lightnode-py" target="_blank" rel="noopener noreferrer">
+              <Github /> lightnode-py <ExternalLink />
+            </a>
+          </Button>
+        </div>
+      </Card>
+
       {/* ── BROWSER + LCAI-IDE PROMO (existing) ──────────────────────── */}
       <Card className="mb-6 p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
