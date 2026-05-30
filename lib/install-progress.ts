@@ -46,7 +46,15 @@ const MILESTONES: MilestoneDef[] = [
   {
     id: "model",
     label: "Getting the AI model ready",
-    doneRe: /model .* present|downloaded|aliased|pre-?warming|phase 0[4-9]|phase 1\d|funding worker|register/i,
+    doneRe: /model .* present|downloaded|aliased|pre-?warming|phase 0[1-9]|phase 1\d|funding worker|register/i,
+  },
+  {
+    // Phases 01-03 (resolve addresses, prepare ollama, pull image). This is the
+    // first thing that touches the network, so a connectivity/cast failure lands
+    // here - NOT on "Staking", which would wrongly imply funds were at risk.
+    id: "resolve",
+    label: "Connecting to the network",
+    doneRe: /ai_config_address\s*=|saved to .*resolved|phase 0[4-8]|import-key|generate-ecdh|register|worker online|already registered/i,
   },
   {
     id: "register",

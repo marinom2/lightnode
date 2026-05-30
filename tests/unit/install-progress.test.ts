@@ -48,6 +48,38 @@ describe("deriveInstallView", () => {
     expect(v.milestones.find((m) => m.id === "register")!.status).toBe("pending");
   });
 
+  it("lands a phase-01 failure on 'Connecting to the network', not on 'Staking'", () => {
+    // The reported shape: funding line printed, then the first phase died. The X
+    // must NOT sit on the staking row (no stake was touched) - it belongs to the
+    // address-resolution step that runs before registration.
+    const v = deriveInstallView(
+      [
+        "▶ LightNode installer rev 2026-05-30.03 (mainnet)",
+        "✓ model llama3-8b present",
+        "▶ funding worker: send to 0xdf589ff8897C351d4E09E688b333C67fcB027802",
+        "▶ phase .\\01-resolve-addresses.ps1",
+        "⛔ stopped at .\\01-resolve-addresses.ps1 - exit code 1",
+      ],
+      "failed",
+    );
+    expect(v.milestones.find((m) => m.id === "prepare")!.status).toBe("done");
+    expect(v.milestones.find((m) => m.id === "model")!.status).toBe("done");
+    expect(v.milestones.find((m) => m.id === "resolve")!.status).toBe("error");
+    expect(v.milestones.find((m) => m.id === "register")!.status).toBe("pending");
+  });
+
+  it("diagnoses an address-resolution / RPC failure as a connection issue (no stake touched)", () => {
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev 2026-05-30.03 (mainnet)",
+      "▶ phase .\\01-resolve-addresses.ps1",
+      "Failed to read aiConfig() from WorkerRegistry. Got:",
+      "⛔ stopped at .\\01-resolve-addresses.ps1 - exit code 1",
+    ])!;
+    expect(hint).toMatch(/connection issue|contract addresses/i);
+    expect(hint).toMatch(/no stake was touched|not a problem with your worker/i);
+    expect(hint).toContain("mainnet.lightscan.app");
+  });
+
   it("diagnoses a model-add revert (the gemma-on-testnet failure) with actionable guidance", () => {
     const log = [
       "▶ phase 07-register",
