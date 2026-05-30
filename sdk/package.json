@@ -1,6 +1,6 @@
 {
   "name": "lightnode-sdk",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "description": "Read-only TypeScript client for LightChain AI: workers, jobs, models, on-chain registration, and per-model network analytics. Independent, community-built (not an official LightChain package).",
   "type": "module",
   "main": "./dist/index.js",
@@ -46,6 +46,8 @@
     "url": "https://github.com/marinom2/lightnode/issues"
   },
   "dependencies": {
+    "@noble/ciphers": "^1.0.0",
+    "@noble/curves": "^1.0.0",
     "viem": ">=2"
   },
   "engines": {
