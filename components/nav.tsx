@@ -13,6 +13,7 @@ const links = [
   { href: "/onboard", label: "Become a worker" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/network", label: "Network" },
+  { href: "/build", label: "Build" },
 ];
 
 export function Nav() {

@@ -6,7 +6,10 @@
   "author": "KykyRykyPaloma",
   "license": "MIT",
   "homepage": "https://github.com/marinom2/lightnode",
-  "repository": { "type": "git", "url": "https://github.com/marinom2/lightnode.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marinom2/lightnode.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "prebuild": "npm --prefix sdk install --no-audit --no-fund && npm --prefix sdk run build"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.1",
@@ -26,6 +30,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^11.15.0",
+    "lightnode-sdk": "file:./sdk",
     "lucide-react": "^0.468.0",
     "next": "^15.5.18",
     "qrcode": "^1.5.4",

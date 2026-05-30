@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart3, Download, RefreshCw, Info, ShieldCheck, ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { BarChart3, Code2, Copy, Check, Download, RefreshCw, Info, ShieldCheck, ExternalLink } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNetwork } from "@/lib/network-context";
@@ -9,6 +10,74 @@ import { NETWORKS } from "@/lib/network";
 import { openExternal } from "@/lib/tauri";
 import { modelStatsCsv, workerStatsCsv, type ModelStat, type WorkerStat, type NetworkAnalytics } from "@/lib/analytics";
 import { fmt, cn, shortAddr } from "@/lib/utils";
+
+/**
+ * Compact "Use in your app" footer that lets a developer copy a working
+ * lightnode-sdk snippet that fetches the same data the table above is rendering,
+ * with a link into the /build hub for the full quickstart. The snippet is real,
+ * not pseudocode - paste-and-run after `npm i lightnode-sdk`.
+ */
+function SdkSnippet({ snippet, label }: { snippet: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <details className="group border-t border-bdr-soft px-5 py-3">
+      <summary className="flex cursor-pointer items-center justify-between gap-2 text-[11px] font-medium text-content-soft transition-colors hover:text-content-default">
+        <span className="inline-flex items-center gap-1.5">
+          <Code2 className="size-3.5" /> {label}
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-content-soft">
+          <Link href="/build" className="text-primary hover:underline">
+            Full quickstart in /build
+          </Link>
+          <span className="text-content-soft/40">·</span>
+          <span className="text-content-soft">click to expand</span>
+        </span>
+      </summary>
+      <div className="relative mt-3">
+        <pre className="overflow-x-auto rounded-lg border border-bdr-soft bg-[#0b0b14] p-3 font-mono text-[11px] leading-relaxed text-content-default">
+          <code>{snippet}</code>
+        </pre>
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(snippet).then(
+              () => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              },
+              () => undefined,
+            );
+          }}
+          className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-bdr-soft bg-card px-2 py-1 text-[11px] text-content-soft transition-colors hover:text-content-primary"
+          aria-label="Copy snippet"
+        >
+          {copied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
+    </details>
+  );
+}
+
+const MODEL_SNIPPET_TEMPLATE = (net: string) => `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("${net}");
+// Per-model performance: completion, p50/p95, incomplete, earnings
+const models = await ln.getModelStats();
+for (const m of models) {
+  console.log(m.name, m.total, \`completion=\${m.completionRate}\`, \`p50=\${m.p50}s\`);
+}`;
+
+const WORKER_SNIPPET_TEMPLATE = (net: string) => `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("${net}");
+// Per-worker reliability ordered by busiest first
+const workers = await ln.getWorkerStats(1000, 25);
+for (const w of workers) {
+  console.log(w.address, \`completion=\${w.completionRate}\`, \`incomplete=\${w.incomplete}\`);
+}
+// On-chain registration truth (independent of the indexer)
+const reg = await ln.isRegistered(workers[0].address); // true | false | null`;
 
 function pct(r: number | null): string {
   return r == null ? "-" : `${Math.round(r * 100)}%`;
@@ -180,6 +249,7 @@ export function ModelAnalytics() {
           minutes (it rarely marks them timed-out, so these would otherwise be missed). Latency is acknowledged to
           completed; earnings are settled worker share over the sampled window.
         </p>
+        <SdkSnippet label="Use this in your app (lightnode-sdk)" snippet={MODEL_SNIPPET_TEMPLATE(network)} />
       </Card>
 
       {workers.length > 0 && (
@@ -239,6 +309,7 @@ export function ModelAnalytics() {
               </tbody>
             </table>
           </div>
+          <SdkSnippet label="Use this in your app (lightnode-sdk)" snippet={WORKER_SNIPPET_TEMPLATE(network)} />
         </Card>
       )}
     </div>
