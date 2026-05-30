@@ -20,33 +20,71 @@
 
 import { parseAbi } from "viem";
 
-export type DaoChain = "ethereum";
+/**
+ * Both deployed DAOs we know about:
+ *
+ *   - `ethereum`         LCAIGovernor on Ethereum mainnet. Token holders
+ *                        wrap LCAI ERC-20 into LCAI-Ballots (IVotes) at
+ *                        https://ballots.lightchain.ai, then vote /
+ *                        propose / queue / execute through the Governor.
+ *                        Proposal threshold: 140,000 LCAI wrapped.
+ *
+ *   - `lightchain`       LightChainGovernor on LightChain mainnet (chain
+ *                        9200). Uses the NativeVotes precompile at
+ *                        0x...0001001 - native LCAI itself acts as the
+ *                        voting token, no wrapping needed. Governor is
+ *                        an upgradeable proxy controlled by the
+ *                        TimelockController.
+ *
+ * Addresses sourced from LightChain's official "Mainnet Contract Addresses"
+ * page.
+ */
+export type DaoChain = "ethereum" | "lightchain";
 
 export interface DaoAddresses {
   chainId: number;
-  /** OZ Governor contract. */
+  label: string;
+  /** OZ Governor contract (proxy when behind an upgradeable pattern). */
   governor: `0x${string}`;
   /** Timelock controller. queue/execute dispatch through this. */
   timelock: `0x${string}`;
-  /** ERC-20 wrapped as IVotes; this is what users delegate / hold to vote. */
-  ballots: `0x${string}`;
-  /** LCAI ERC-20 (the underlying governance token). */
-  token: `0x${string}`;
+  /** ERC-20 wrapped as IVotes (null when the chain uses a NativeVotes precompile). */
+  ballots: `0x${string}` | null;
+  /** Underlying governance token (LCAI ERC-20 on Ethereum, native LCAI on LightChain). */
+  token: `0x${string}` | null;
   /** Treasury contract holding DAO funds. */
   treasury: `0x${string}`;
+  /** Optional UI link (where regular users wrap / view proposals). */
+  wrapperUi?: string;
   explorer: string;
 }
 
-/** Confirmed Ethereum mainnet addresses (chain 1). */
+/**
+ * Confirmed deployment addresses. Each entry is what an SDK user passes to
+ * `new DAO(client, chainKey, walletClient?)`.
+ */
 export const DAO_ADDRESSES: Record<DaoChain, DaoAddresses> = {
   ethereum: {
     chainId: 1,
+    label: "Ethereum mainnet",
     governor: "0x6dfa413B5900a1a7947BC75E68AbBA093cB2492d",
     timelock: "0xbE1c37F8C4DA77dD06F4A8AC5098Ec70273093d7",
     ballots: "0x75F3D01c4D960FE986A598B7954A3b786B29cE49",
     token: "0x9cA8530CA349c966Fe9ef903Df17a75B8A778927",
     treasury: "0x07A716a551E5f4CA7D6C71Da9dF1cb1429Dba826",
+    wrapperUi: "https://ballots.lightchain.ai",
     explorer: "https://etherscan.io",
+  },
+  lightchain: {
+    chainId: 9200,
+    label: "LightChain mainnet",
+    governor: "0x262E9f9232933E8565253918db703baD58DE93aB",
+    timelock: "0x79e571420c5473Ca9b0FCd599B1b0062D7793c97",
+    // Native voting via the genesis predeploy precompile; no separate wrapping token.
+    ballots: "0x0000000000000000000000000000000000001001",
+    token: null,
+    treasury: "0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389",
+    explorer: "https://mainnet.lightscan.app",
   },
 };
 

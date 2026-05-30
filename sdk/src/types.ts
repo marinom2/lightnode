@@ -13,6 +13,16 @@ export interface NetworkConfig {
   aiConfig: string;
   jobRegistry: string;
   minStakeLcai: number;
+  /** FeePool genesis predeploy. Where per-job fees accumulate before payout. */
+  feePool?: string;
+  /** NativeVotes precompile (mainnet only - backs LightChainGovernor). */
+  nativeVotes?: string;
+  /** On-chain DAO governor (mainnet only today). */
+  governor?: string;
+  /** Governor timelock controller (mainnet only). */
+  timelock?: string;
+  /** DAO-controlled treasury (mainnet only). */
+  treasury?: string;
 }
 
 export interface Worker {

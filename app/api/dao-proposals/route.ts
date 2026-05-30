@@ -16,19 +16,20 @@ import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, type ProposalState }
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Chain of public Ethereum RPCs. We hit them in order until one returns
+// Chain of public RPCs per network. We hit them in order until one returns
 // something usable for getLogs. Free public endpoints get rate-limited or
 // time out on large block ranges, so the first one to answer wins.
-const ETH_RPCS: string[] = (
-  process.env.LIGHTNODE_ETH_RPC
+const RPCS_BY_CHAIN: Record<"ethereum" | "lightchain", string[]> = {
+  ethereum: process.env.LIGHTNODE_ETH_RPC
     ? [process.env.LIGHTNODE_ETH_RPC]
     : [
         "https://ethereum-rpc.publicnode.com",
         "https://eth.merkle.io",
         "https://rpc.ankr.com/eth",
         "https://eth.drpc.org",
-      ]
-);
+      ],
+  lightchain: ["https://rpc.mainnet.lightchain.ai"],
+};
 
 const PROPOSAL_CREATED = parseAbiItem(
   "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)",
@@ -51,14 +52,18 @@ function deriveTitle(description: string): string {
   return cleaned.length ? cleaned.slice(0, 120) : "Untitled proposal";
 }
 
-async function findEventsAcrossRpcs(addresses: { governor: `0x${string}` }) {
+async function findEventsAcrossRpcs(
+  addresses: { governor: `0x${string}` },
+  chain: "ethereum" | "lightchain",
+) {
   const errors: string[] = [];
   // Public RPCs (notably publicnode) cap getLogs at 50k blocks per call. We
-  // scan the last ~6 weeks (~300k blocks = 6 parallel 50k windows). Parallel
-  // keeps the route under Vercel's 10s serverless timeout even on cold start.
-  const WINDOW_BLOCKS = 300_000n;
+  // scan the last ~6 weeks (~300k blocks on Ethereum, much more on LightChain
+  // where blocks are faster but the governor is younger so we can just scan
+  // from genesis). Parallel keeps it under Vercel's 10s serverless cap.
+  const WINDOW_BLOCKS = chain === "ethereum" ? 300_000n : 1_500_000n;
   const CHUNK = 50_000n;
-  for (const rpc of ETH_RPCS) {
+  for (const rpc of RPCS_BY_CHAIN[chain]) {
     try {
       const pub = createPublicClient({ transport: http(rpc) });
       const head = await pub.getBlockNumber();
@@ -88,10 +93,13 @@ async function findEventsAcrossRpcs(addresses: { governor: `0x${string}` }) {
   throw new Error("all RPCs failed: " + errors.join(" | "));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const addresses = DAO_ADDRESSES.ethereum;
-    const { pub, events } = await findEventsAcrossRpcs(addresses);
+    const url = new URL(req.url);
+    const chainParam = (url.searchParams.get("chain") ?? "ethereum") as "ethereum" | "lightchain";
+    const chain = chainParam === "lightchain" ? "lightchain" : "ethereum";
+    const addresses = DAO_ADDRESSES[chain];
+    const { pub, events } = await findEventsAcrossRpcs(addresses, chain);
     // Newest first; cap at 6 to keep the per-card RPC pressure modest.
     const recent = events.slice().reverse().slice(0, 6);
     const abi = GOVERNOR_ABI;
@@ -122,6 +130,7 @@ export async function GET() {
       }),
     );
     return NextResponse.json({
+      chain,
       addresses,
       proposals,
       fetchedAt: Date.now(),
@@ -133,7 +142,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   // Drill-down: details for a single proposal id.
-  let body: { id?: string };
+  let body: { id?: string; chain?: "ethereum" | "lightchain" };
   try {
     body = await req.json();
   } catch {
@@ -141,10 +150,11 @@ export async function POST(req: Request) {
   }
   if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   try {
-    const addresses = DAO_ADDRESSES.ethereum;
+    const chain: "ethereum" | "lightchain" = body.chain === "lightchain" ? "lightchain" : "ethereum";
+    const addresses = DAO_ADDRESSES[chain];
     // Same RPC-chain pattern: try each one until one answers.
     let pub: ReturnType<typeof createPublicClient> | null = null;
-    for (const rpc of ETH_RPCS) {
+    for (const rpc of RPCS_BY_CHAIN[chain]) {
       try {
         const client = createPublicClient({ transport: http(rpc) });
         await client.getBlockNumber();

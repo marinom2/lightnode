@@ -25,7 +25,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import { LightNode } from "lightnode-sdk";
+import { LightNode, NETWORKS } from "lightnode-sdk";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -225,12 +225,25 @@ const NETWORK_TABLE = [
   { row: "Best for", testnet: "Builder testing, examples, CI", mainnet: "Real users, paid traffic, on-chain proof" },
 ] as const;
 
-// Public contract addresses (no key required to read).
-const CONTRACT_TABLE = [
-  { name: "WorkerRegistry", testnet: "0x0000000000000000000000000000000000001002", mainnet: "0x0000000000000000000000000000000000001002", note: "Genesis predeploy. Same on every LightChain network." },
-  { name: "AIConfig", testnet: "0xeCF4Ca5Ba6D97ae586993e170764a1E92231b67e", mainnet: "0x24D11533C354092ed6E18b964257819cE78Ce77D", note: "Model registry + fee config. Read calculateJobFee() to get the price." },
-  { name: "JobRegistry", testnet: "0x531b3a87c5d785441b9cf55b98169f20fd9056a7", mainnet: "0xfB15F90298e4CcD7106E76fFB5e520315cC42B0b", note: "createSession + submitJob + emits SessionCreated / JobSubmitted / JobCompleted." },
-] as const;
+// Contract addresses are derived from the SDK's NETWORKS constant
+// (sdk/src/networks.ts). Single source of truth - edit the SDK, the page
+// picks it up. No hardcoded duplicates here.
+const CONTRACT_KEYS = [
+  { key: "workerRegistry" as const, label: "WorkerRegistry", note: "Genesis predeploy. Worker stake + ECDH key + supported models." },
+  { key: "feePool" as const, label: "FeePool", note: "Genesis predeploy. Where per-job fees accumulate before payout." },
+  { key: "nativeVotes" as const, label: "NativeVotes", note: "Genesis predeploy. Voting weight backing LightChainGovernor (no wrapping)." },
+  { key: "aiConfig" as const, label: "AIConfig (proxy)", note: "Model whitelist + per-job fee + max output tokens. The model registry." },
+  { key: "jobRegistry" as const, label: "JobRegistry (proxy)", note: "createSession + submitJob + emits SessionCreated / JobSubmitted / JobCompleted." },
+  { key: "treasury" as const, label: "Treasury (proxy)", note: "DAO-controlled treasury holding protocol funds." },
+  { key: "governor" as const, label: "LightChainGovernor (proxy)", note: "On-chain DAO. Read + vote at dao.lightchain.ai. NativeVotes-backed." },
+  { key: "timelock" as const, label: "TimelockController", note: "Holds queue/execute delay for the LightChainGovernor." },
+];
+const CONTRACT_TABLE = CONTRACT_KEYS.map((c) => ({
+  name: c.label,
+  testnet: (NETWORKS.testnet as unknown as Record<string, string | undefined>)[c.key] ?? "",
+  mainnet: (NETWORKS.mainnet as unknown as Record<string, string | undefined>)[c.key] ?? "",
+  note: c.note,
+}));
 
 const CHANGELOG = [
   { v: "0.5.0", date: "May 2026", line: "Full SDK ecosystem release: Bridge SDK (Hyperlane Warp Route), DAO SDK (LCAIGovernor), on-chain Model Registry reader, multi-turn Conversation, worker preflight + watch, job status reader. Six new modules, all six landed in one cut." },
@@ -904,6 +917,34 @@ const stats = await ln.getNetworkStats();`}
           title="lightnode CLI"
           blurb="Bundled in lightnode-sdk. Run any of the read-only commands below right here in the browser. Five add scaffolders work from your project's terminal."
         />
+
+        {/* How to actually invoke the CLI in a real terminal. The npm package
+            is `lightnode-sdk` but the binary it provides is named `lightnode`,
+            which conflicts with an unrelated package - so `npx lightnode` alone
+            errors with "could not determine executable to run". */}
+        <Card className="mb-3 border-warning/30 bg-warning/5 p-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-warning">
+            <AlertOctagon className="size-3" /> How to run these in your terminal
+          </div>
+          <p className="text-[11px] leading-relaxed text-content-default">
+            The npm package is{" "}
+            <code className="font-mono text-content-default">lightnode-sdk</code> but the bundled binary is named{" "}
+            <code className="font-mono text-content-default">lightnode</code>, which clashes with another package on
+            npm. Three reliable invocations:
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded-md code-surface p-2 font-mono text-[10px] leading-relaxed text-content-default">
+{`# One-shot (explicit package):
+npx --package=lightnode-sdk -- lightnode wallet new
+
+# Install in your project, then npx finds it:
+npm install lightnode-sdk
+npx lightnode wallet new
+
+# Global install for everyday use:
+npm install -g lightnode-sdk
+lightnode wallet new`}
+          </pre>
+        </Card>
 
         {/* INTERACTIVE: click a command on the left, hit Run, see real JSON. */}
         <div className="mb-3">

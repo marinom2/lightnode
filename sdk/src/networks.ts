@@ -19,6 +19,12 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     aiConfig: "0x24D11533C354092ed6E18b964257819cE78Ce77D",
     jobRegistry: "0xfB15F90298e4CcD7106E76fFB5e520315cC42B0b",
     minStakeLcai: 50000,
+    // Sourced from LightChain's official "Mainnet Contract Addresses" page.
+    feePool: "0x0000000000000000000000000000000000001004",
+    nativeVotes: "0x0000000000000000000000000000000000001001",
+    governor: "0x262E9f9232933E8565253918db703baD58DE93aB",
+    timelock: "0x79e571420c5473Ca9b0FCd599B1b0062D7793c97",
+    treasury: "0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389",
   },
   testnet: {
     id: "testnet",
@@ -32,6 +38,9 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     aiConfig: "0xeCF4Ca5Ba6D97ae586993e170764a1E92231b67e",
     jobRegistry: "0x531b3a87c5d785441b9cf55b98169f20fd9056a7",
     minStakeLcai: 5000,
+    // Same genesis predeploys as mainnet (chain bytecode is identical).
+    feePool: "0x0000000000000000000000000000000000001004",
+    nativeVotes: "0x0000000000000000000000000000000000001001",
   },
 };
 

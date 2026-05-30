@@ -39,6 +39,7 @@ import {
   Terminal,
   Workflow,
 } from "lucide-react";
+import { NETWORKS } from "lightnode-sdk";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -167,24 +168,25 @@ console.log(status.category, status.refundable);
   {
     id: "models",
     icon: Boxes,
-    title: "On-chain Model Registry",
+    title: "Models on-chain (AIConfig)",
     blurb:
-      "Typed reader for AIVMModelRegistry + BenchmarkRegistry. Full ABI plus a builder-friendly access tier (free / paywalled / ticket-gated). Bring your own deployed address; LightChain has not published one yet.",
-    npm: "#on-chain-model-registry-reader-new-in-050",
-    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/onchain-models.ts",
-    example: "https://github.com/marinom2/lightnode-examples/tree/main/model-registry-read",
-    snippet: `import { OnchainModelRegistry } from "lightnode-sdk";
+      "On LightChain mainnet the official model registry is AIConfig - whitelisted models, fees, and output limits. ln.getModels() / ln.estimateFee() read it directly. The custom lcai_listSupportedModels RPC method returns the live whitelist.",
+    npm: "#read-only-lightnode-client-free-no-key",
+    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/onchain.ts",
+    snippet: `import { LightNode } from "lightnode-sdk";
 
-const reader = new OnchainModelRegistry({
-  publicClient,
-  registry: "0xYourDeployment...",
-});
+const ln = new LightNode("mainnet");
 
-const baseIds = await reader.getBaseModelIds();
-const variant = await reader.getVariant(id);
-const policy = await reader.getAccessPolicy(id);
-// policy.tier === "free" | "paywalled" | "ticket-gated"`,
-    triable: false,
+// Read every whitelisted model + fee + max tokens straight from AIConfig:
+const models = await ln.getModels();
+for (const m of models) {
+  console.log(m.name, m.fee, m.max_output_tokens);
+}
+
+// Or the on-chain fee for a single model:
+const fee = await ln.estimateFee("llama3-8b");   // -> 0.02 LCAI
+const id = ln.modelId("llama3-8b");              // keccak256(name)`,
+    triable: true,
   },
 ];
 
@@ -522,14 +524,21 @@ function lcai(wei: string): string {
   }
 }
 
+type DaoChainKey = "ethereum" | "lightchain";
+
 function DaoLive() {
+  const [chain, setChain] = useState<DaoChainKey>("ethereum");
   const [data, setData] = useState<DaoListResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch("/api/dao-proposals", { cache: "no-store" })
+    setLoading(true);
+    setData(null);
+    setErr(null);
+    setOpenId(null);
+    fetch(`/api/dao-proposals?chain=${chain}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((j: DaoListResp) => {
         if (!alive) return;
@@ -541,37 +550,99 @@ function DaoLive() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [chain]);
+  const chainToggle = (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] uppercase tracking-wide text-content-soft">Governor on</span>
+      <div className="inline-flex rounded-md border border-bdr-soft bg-surface-base-faint p-0.5">
+        {(["ethereum", "lightchain"] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setChain(k)}
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
+              chain === k ? "bg-card text-content-primary shadow" : "text-content-soft hover:text-content-primary",
+            )}
+          >
+            {k === "ethereum" ? "Ethereum" : "LightChain"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const intro = (
+    <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3 text-[11px] leading-relaxed text-content-default">
+      {chain === "ethereum" ? (
+        <>
+          <p className="mb-1">
+            <span className="font-medium text-content-primary">LCAIGovernor</span> on Ethereum mainnet. Token holders
+            wrap LCAI ERC-20 into <code className="font-mono">LCAI-Ballots</code> (IVotes) at{" "}
+            <a href="https://ballots.lightchain.ai" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+              ballots.lightchain.ai
+            </a>{" "}
+            to vote / propose. Proposal threshold: <span className="font-medium">140,000 LCAI</span> wrapped. 24h
+            voting delay, ~14d voting period.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="mb-1">
+            <span className="font-medium text-content-primary">LightChainGovernor</span> on LightChain mainnet (chain
+            9200). Uses the <code className="font-mono">NativeVotes</code> precompile so native LCAI itself acts as the
+            voting token, no wrapping needed. Live at{" "}
+            <a href="https://dao.lightchain.ai" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+              dao.lightchain.ai
+            </a>.
+          </p>
+        </>
+      )}
+    </div>
+  );
+
   if (loading) {
     return (
-      <p className="flex items-center gap-2 text-xs text-content-soft">
-        <Loader2 className="size-3.5 animate-spin" /> Reading LCAIGovernor on Ethereum…
-      </p>
+      <div className="space-y-3">
+        {chainToggle}
+        {intro}
+        <p className="flex items-center gap-2 text-xs text-content-soft">
+          <Loader2 className="size-3.5 animate-spin" /> Reading governor on {chain === "ethereum" ? "Ethereum" : "LightChain mainnet"}…
+        </p>
+      </div>
     );
   }
   if (err || !data) {
     return (
-      <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">
-        Couldn&apos;t reach the Governor right now. {err ?? ""}
-      </p>
+      <div className="space-y-3">
+        {chainToggle}
+        {intro}
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">
+          Couldn&apos;t reach the Governor right now. {err ?? ""}
+        </p>
+      </div>
     );
   }
   if (data.proposals.length === 0) {
     return (
-      <p className="rounded-md border border-bdr-soft bg-surface-base-faint px-3 py-2 text-xs text-content-soft">
-        No proposals indexed in the last year. The LCAIGovernor is at{" "}
-        <a href={`${data.addresses.explorer}/address/${data.addresses.governor}`} className="font-mono text-primary hover:underline" target="_blank" rel="noopener noreferrer">
-          {data.addresses.governor.slice(0, 10)}…{data.addresses.governor.slice(-6)}
-        </a>{" "}
-        on Ethereum.
-      </p>
+      <div className="space-y-3">
+        {chainToggle}
+        {intro}
+        <p className="rounded-md border border-bdr-soft bg-surface-base-faint px-3 py-2 text-xs text-content-soft">
+          No proposals indexed in the recent window. Governor at{" "}
+          <a href={`${data.addresses.explorer}/address/${data.addresses.governor}`} className="font-mono text-primary hover:underline" target="_blank" rel="noopener noreferrer">
+            {data.addresses.governor.slice(0, 10)}…{data.addresses.governor.slice(-6)}
+          </a>
+          .
+        </p>
+      </div>
     );
   }
   return (
-    <div className="space-y-2">
-      <p className="text-[11px] text-content-soft">
-        Live read of <code className="font-mono text-content-default">LCAIGovernor</code> on Ethereum. Click a row to expand.
-      </p>
+    <div className="space-y-3">
+      {chainToggle}
+      {intro}
+      <p className="text-[11px] text-content-soft">Click a row to expand.</p>
       {data.proposals.map((p) => {
         const isOpen = openId === p.id;
         return (
@@ -781,53 +852,160 @@ function DisputeSample() {
 }
 
 function ModelsExplainer() {
+  type Net = "mainnet" | "testnet";
+  interface ModelRow {
+    name: string;
+    fee?: string;
+    max_output_tokens?: number;
+    is_whitelisted?: boolean;
+    is_enabled?: boolean;
+  }
+  const [net, setNet] = useState<Net>("mainnet");
+  const [rows, setRows] = useState<ModelRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setRows(null);
+    setErr(null);
+    fetch("/api/sdk-demo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command: "models", net }),
+    })
+      .then((r) => r.json())
+      .then((j: ModelRow[] | { error?: string }) => {
+        if (!alive) return;
+        if (Array.isArray(j)) setRows(j);
+        else setErr((j as { error?: string }).error ?? "fetch failed");
+      })
+      .catch((e) => alive && setErr((e as Error).message))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [net]);
+
+  const lcai = (wei?: string) => {
+    if (!wei) return "-";
+    try {
+      return (Number(BigInt(wei)) / 1e18).toFixed(3) + " LCAI";
+    } catch {
+      return "-";
+    }
+  };
+
   return (
-    <div className="space-y-2 text-[11px] leading-relaxed text-content-soft">
-      <p>
-        LightChain hasn&apos;t published a public mainnet/testnet deployment for{" "}
-        <code className="font-mono text-content-default">AIVMModelRegistry</code> or{" "}
-        <code className="font-mono text-content-default">BenchmarkRegistry</code>. The SDK ships the full typed ABI;
-        you supply the deployment address when you have one.
+    <div className="space-y-3 text-[11px] leading-relaxed text-content-default">
+      <p className="text-content-soft">
+        The official LightChain model registry is the{" "}
+        <code className="font-mono text-content-default">AIConfig</code> contract. The read-only{" "}
+        <code className="font-mono text-content-default">LightNode</code> client wraps it -{" "}
+        <code className="font-mono text-content-default">ln.getModels()</code> is what built the table below right
+        now:
       </p>
-      <p>
-        Related AIVM contracts that <span className="text-content-default">are</span> on chain (testnet 8200, deployed
-        by the LightChallenge project):
-      </p>
-      <ul className="space-y-1">
-        <li className="flex items-start gap-2">
-          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
-          <span>
-            <code className="font-mono text-content-default">AIVMInferenceV2</code>{" "}
-            <a
-              href="https://testnet.lightscan.app/address/0x2d499C52312ca8F0AD3B7A53248113941650bA7E"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-primary hover:underline"
+
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-content-soft">network</span>
+        <div className="inline-flex rounded-md border border-bdr-soft bg-surface-base-faint p-0.5">
+          {(["mainnet", "testnet"] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setNet(n)}
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
+                net === n ? "bg-card text-content-primary shadow" : "text-content-soft hover:text-content-primary",
+              )}
             >
-              0x2d499C5...50bA7E
-            </a>{" "}
-            (inference, commits, PoI flow).
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
-          <span>
-            <code className="font-mono text-content-default">LCAIValidatorRegistry</code>{" "}
-            <a
-              href="https://testnet.lightscan.app/address/0x79C3473d3249fb3a70E2D3e386e9C45abE62752D"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-primary hover:underline"
-            >
-              0x79C3473d...62752D
-            </a>{" "}
-            (validator stake + PoI attestations).
-          </span>
-        </li>
-      </ul>
-      <p className="pt-1">
-        These don&apos;t expose model-list reads (different contract surface), but they&apos;re what&apos;s reachable
-        today if you want to call the AIVM directly.
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+        <div className="mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-content-soft">
+          <span className="size-1.5 animate-pulse rounded-full bg-success" />
+          Whitelisted on {net} via ln.getModels()
+        </div>
+        {loading ? (
+          <p className="flex items-center gap-2 text-[11px] text-content-soft">
+            <Loader2 className="size-3.5 animate-spin" /> Reading AIConfig…
+          </p>
+        ) : err ? (
+          <p className="rounded-md border border-warning/30 bg-warning/5 px-2 py-1.5 text-[11px] text-content-default">
+            {err}
+          </p>
+        ) : !rows || rows.length === 0 ? (
+          <p className="text-[11px] text-content-soft">No models registered.</p>
+        ) : (
+          <table className="w-full text-[11px]">
+            <thead className="text-content-soft">
+              <tr>
+                <th className="pb-1 text-left font-medium">Model</th>
+                <th className="pb-1 text-right font-medium">Fee per job</th>
+                <th className="pb-1 text-right font-medium">Max output</th>
+                <th className="pb-1 text-right font-medium">Live</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono text-content-default">
+              {rows.map((m) => (
+                <tr key={m.name} className="border-t border-bdr-soft/40">
+                  <td className="py-1">{m.name}</td>
+                  <td className="py-1 text-right">{lcai(m.fee)}</td>
+                  <td className="py-1 text-right">{m.max_output_tokens?.toLocaleString() ?? "-"}</td>
+                  <td className="py-1 text-right">
+                    {m.is_whitelisted && m.is_enabled ? (
+                      <span className="text-success">yes</span>
+                    ) : (
+                      <span className="text-content-soft">off</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wide text-content-soft">
+          AIConfig (model registry) addresses
+        </div>
+        <ul className="space-y-1.5">
+          {(["mainnet", "testnet"] as const).map((n) => {
+            const cfg = NETWORKS[n];
+            const addr = cfg.aiConfig;
+            return (
+              <li key={n} className="flex items-start gap-2">
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+                <span>
+                  <span className="text-content-soft">{cfg.label} (chain {cfg.chainId}):</span>{" "}
+                  <a
+                    href={`${cfg.explorer}/address/${addr}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-primary hover:underline"
+                  >
+                    {addr.slice(0, 10)}…{addr.slice(-6)}
+                  </a>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-2 text-[10px] text-content-soft">
+          For the live whitelist, you can also call the chain&apos;s custom{" "}
+          <code className="font-mono">lcai_listSupportedModels</code> RPC method directly.
+        </p>
+      </div>
+
+      <p className="text-content-soft">
+        Try it now: use the &quot;Run a CLI command&quot; widget above, pick{" "}
+        <code className="font-mono text-content-default">lightnode models</code>, hit Run.
       </p>
     </div>
   );
