@@ -63,7 +63,7 @@ export const BRIDGE_ROUTE: Record<BridgeChain, BridgeEndpoints> = {
     underlying: "0x9cA8530CA349c966Fe9ef903Df17a75B8A778927", // LCAI ERC-20
     mailbox: "0x287cf56E5b1435Ae59BF9Ce6443F055A0321a063",
     explorer: "https://etherscan.io",
-    rpc: "https://eth.llamarpc.com",
+    rpc: "https://ethereum-rpc.publicnode.com",
     label: "Ethereum",
   },
   "lightchain-mainnet": {

@@ -280,14 +280,29 @@ async function main() {
         // Live read against Ethereum mainnet. We use viem's HTTP transport
         // via a minimal inline client (no ethers dep). This is the only
         // ecosystem read that needs a live RPC, so we wire it lazily.
+        // Default to publicnode (reliable, no key required). Caller can
+        // override with --rpc <url> if they have a higher-quality endpoint.
         const { createPublicClient, http } = await import("viem");
-        const ethRpc = flag("--rpc") ?? "https://eth.llamarpc.com";
+        const ethRpc = flag("--rpc") ?? "https://ethereum-rpc.publicnode.com";
         const pub = createPublicClient({ transport: http(ethRpc) });
         // The DAO ctor accepts a structurally-typed MinimalPublicClient; viem's
         // PublicClient satisfies it. The unknown cast is the standard SDK pattern
         // for keeping the public API free of viem generic noise.
         const dao = new DAO(pub as unknown as ConstructorParameters<typeof DAO>[0], "ethereum");
-        const cfg = await dao.config();
+        let cfg;
+        try {
+          cfg = await dao.config();
+        } catch (e) {
+          const msg = (e as Error).message ?? String(e);
+          // Short-circuit the viem stack trace: a friendly one-liner is what
+          // the operator wants when the public RPC is having a bad day.
+          die(
+            `dao config: RPC call failed against ${ethRpc}.\n` +
+              `   Hint: try a different Ethereum RPC with --rpc <url>.\n` +
+              `   Public options: https://ethereum-rpc.publicnode.com, https://rpc.ankr.com/eth, https://eth.merkle.io\n` +
+              `   Underlying: ${msg.split("\n")[0]}`,
+          );
+        }
         console.log(
           JSON.stringify(
             {

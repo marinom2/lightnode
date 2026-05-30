@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { HideOnDesktop } from "@/components/hide-on-desktop";
+import { CliRunner } from "@/components/cli-runner";
 
 // /build is server-rendered with live SDK data so the page reads as a
 // living artifact, not a docs page. revalidate keeps the data within ~60s
@@ -894,27 +895,21 @@ const stats = await ln.getNetworkStats();`}
         <SectionHeader
           icon={TerminalSquare}
           title="lightnode CLI"
-          blurb="Bundled in lightnode-sdk. Run any of these without writing code. Eight read-only commands, five add scaffolders."
+          blurb="Bundled in lightnode-sdk. Run any of the read-only commands below right here in the browser. Five add scaffolders work from your project's terminal."
         />
+
+        {/* INTERACTIVE: click a command on the left, hit Run, see real JSON. */}
+        <div className="mb-3">
+          <CliRunner />
+        </div>
+
+        {/* Static catalog of `add` scaffolders, since those write into a
+            user project on disk and can't be run from the browser. */}
         <div className="grid gap-3 md:grid-cols-2">
           <Card className="p-5">
             <div className="mb-3 flex items-center gap-2">
-              <Database className="size-4 text-primary" />
-              <span className="text-sm font-semibold text-content-primary">Read-only (no key)</span>
-            </div>
-            <ul className="space-y-2 text-xs">
-              {CLI_READONLY.map((c) => (
-                <li key={c.cmd}>
-                  <code className="block break-all font-mono text-content-default">{c.cmd}</code>
-                  <span className="text-content-soft">{c.desc}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-          <Card className="p-5">
-            <div className="mb-3 flex items-center gap-2">
               <FileText className="size-4 text-primary" />
-              <span className="text-sm font-semibold text-content-primary">add (writes files)</span>
+              <span className="text-sm font-semibold text-content-primary">add (writes files in your project)</span>
             </div>
             <ul className="space-y-2 text-xs">
               {CLI_ADD.map((c) => (
@@ -928,6 +923,38 @@ const stats = await ln.getNetworkStats();`}
               All add commands accept <code className="font-mono">--template auto|nextjs-api|hono|node</code>,{" "}
               <code className="font-mono">--net testnet|mainnet</code>, and <code className="font-mono">--force</code>.
             </p>
+          </Card>
+          <Card className="p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <Wallet2 className="size-4 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">Run inferences + manage wallets (need PRIVATE_KEY)</span>
+            </div>
+            <ul className="space-y-2 text-xs">
+              <li>
+                <code className="block break-all font-mono text-content-default">lightnode chat &lt;prompt&gt;</code>
+                <span className="text-content-soft">One-shot encrypted inference. Streams answer to stdout, JSON receipt to stderr. Supports stdin too.</span>
+              </li>
+              <li>
+                <code className="block break-all font-mono text-content-default">lightnode wallet new|address|balance</code>
+                <span className="text-content-soft">Generate a key, read the address of your env key, check balance on mainnet/testnet.</span>
+              </li>
+              <li>
+                <code className="block break-all font-mono text-content-default">lightnode worker preflight</code>
+                <span className="text-content-soft">Submits ONE real test inference and prints a verdict. Useful as a CI gate.</span>
+              </li>
+              <li>
+                <code className="block break-all font-mono text-content-default">lightnode worker watch &lt;addr&gt;</code>
+                <span className="text-content-soft">Polls a worker, emits JSON line on state change (no key required).</span>
+              </li>
+              <li>
+                <code className="block break-all font-mono text-content-default">lightnode bridge addresses</code>
+                <span className="text-content-soft">Print the LCAI bridge route (Ethereum &lt;-&gt; LightChain).</span>
+              </li>
+              <li>
+                <code className="block break-all font-mono text-content-default">lightnode dao addresses|config</code>
+                <span className="text-content-soft">LCAI Governor addresses + live voting delay/period/threshold.</span>
+              </li>
+            </ul>
           </Card>
         </div>
       </div>
