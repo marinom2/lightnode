@@ -157,7 +157,20 @@ fn run_command_streamed(
     secret_env: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "windows") {
-        ("powershell", vec!["-NoProfile", "-Command", &command])
+        // -ExecutionPolicy Bypass so the toolkit's .ps1 phase scripts run on a
+        // default Windows client (policy is Restricted there, which blocks .ps1
+        // FILES). The install command also sets this process-scoped, so this is
+        // belt-and-suspenders for older web bundles.
+        (
+            "powershell",
+            vec![
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &command,
+            ],
+        )
     } else {
         ("bash", vec!["-lc", &command])
     };

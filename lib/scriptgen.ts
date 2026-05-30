@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-30.03";
+export const INSTALLER_REV = "2026-05-30.04";
 
 export interface ScriptBundle {
   os: OS;
@@ -462,6 +462,13 @@ function windowsInstall(network: NetworkId, models: string[]): string {
   const psList = "@(" + list.map((m) => `'${m}'`).join(",") + ")";
   return `$ErrorActionPreference = "Stop"
 Write-Host "▶ LightNode installer rev ${INSTALLER_REV} (${network})"
+# Let the toolkit's .ps1 phase scripts run regardless of the machine's execution
+# policy. Windows client defaults to Restricted, which blocks running .ps1 FILES:
+# this inline -Command install runs fine, but the first '& .\NN-*.ps1' phase is
+# refused with "running scripts is disabled on this system" - the silent stop at
+# 01-resolve-addresses. Process scope only; never touches the user/machine policy.
+try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force } catch {}
+Write-Host "✓ script execution enabled for this install"
 function Have($c){ $null -ne (Get-Command $c -ErrorAction SilentlyContinue) }
 function DockerUp { docker info *> $null; return ($LASTEXITCODE -eq 0) }
 
