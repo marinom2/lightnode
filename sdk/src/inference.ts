@@ -285,7 +285,7 @@ export interface RunInferenceArgs {
   onChunk?: (chunk: string, totalSoFar: string) => void;
   /** Retry count if a worker stalls. Default 2 (so up to 3 paid attempts). */
   maxRetries?: number;
-  /** How long to wait for JobCompleted before declaring the worker stalled. Default 90s. */
+  /** How long to wait for JobCompleted before declaring the worker stalled. Default 120s. */
   jobCompletedTimeoutMs?: number;
   /**
    * WebSocket constructor. In a browser, omit and `globalThis.WebSocket` is
@@ -306,7 +306,12 @@ export interface RunInferenceResult {
   txs: {
     createSession: `0x${string}`;
     submitJob: `0x${string}`;
-    jobCompleted: `0x${string}`;
+    /**
+     * Worker's commit-result tx. Null if the on-chain event hasn't landed by the
+     * deadline but the WS-delivered, session-key-decrypted answer DID arrive -
+     * in that case the answer is still authentic; this is just the explorer link.
+     */
+    jobCompleted: `0x${string}` | null;
   };
   /** The dispatcher-assigned worker that produced this response. */
   worker: `0x${string}`;
@@ -377,7 +382,7 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     network,
     model = "llama3-8b",
     onChunk,
-    jobCompletedTimeoutMs = 90_000,
+    jobCompletedTimeoutMs = 120_000,
   } = args;
   const WS = pickWebSocket(args.WebSocket);
   const relayUrl = args.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
@@ -509,6 +514,11 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
   const jobId = topicAsUint(jobLog.topics[1]);
 
   // 6. wait for JobCompleted
+  // KEY INVARIANT: the real result is the WS-delivered, session-key-decrypted
+  // ciphertext. JobCompleted is an explorer pointer (the worker's commit-result
+  // tx). If the WS already produced an answer (chunks.length > 0) we MUST
+  // accept it even if the on-chain event hasn't landed - throwing stalled here
+  // wipes a delivered answer on retry, which reads as "the call returned nothing".
   const deadline = Date.now() + jobCompletedTimeoutMs;
   const jobIdTopic = (`0x${jobId.toString(16).padStart(64, "0")}`) as `0x${string}`;
   let completed: { transactionHash: `0x${string}` } | null = null;
@@ -521,8 +531,12 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     });
     completed =
       logs.find((l) => l.topics[0] === JOB_COMPLETED_TOPIC && l.topics[1] === jobIdTopic) ?? null;
+    if (completed) break;
+    // If the WS already delivered the answer, stop polling - no point burning
+    // more time on a confirmation that only serves as an explorer link.
+    if (chunks.length > 0) break;
   }
-  if (!completed) {
+  if (!completed && chunks.length === 0) {
     try {
       ws.close();
     } catch {
@@ -546,7 +560,11 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
 
   return {
     answer: chunks.join(""),
-    txs: { createSession: createTx, submitJob: submitTx, jobCompleted: completed.transactionHash },
+    // completed may be null when the answer arrived via the WS but JobCompleted
+    // hasn't landed on-chain yet. The decrypted answer is still authentic
+    // (session-key bound); callers can poll for the event later if they want
+    // the explorer-link form of the proof.
+    txs: { createSession: createTx, submitJob: submitTx, jobCompleted: completed?.transactionHash ?? null },
     worker: prepared.createSessionArgs.worker,
     sessionId,
     jobId,

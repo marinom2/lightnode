@@ -469,12 +469,19 @@ export default function PlaygroundPage() {
 
       // === 7. Wait for JobCompleted (typed event filter to avoid matching JobSubmitted's signature) ===
       // Healthy workers finish in 5-30s. A small percentage of testnet workers
-      // ack a job and then never produce a result; cap the wait at 90s so the
+      // ack a job and then never produce a result; cap the wait at 120s so the
       // operator gets a clear "try again" instead of a 5-minute hang.
+      //
+      // KEY INVARIANT: the actual *result* is the WS-delivered, session-key-
+      // decrypted ciphertext. JobCompleted is just an explorer pointer (the
+      // worker's commit-result tx). If the WS already produced an answer
+      // (chunks.length > 0) we MUST accept it even if the on-chain event hasn't
+      // landed yet - throwing stalled here was wiping a delivered answer on
+      // retry, which read as "the page refreshed and nothing came back".
       const jobCompleted = parseAbiItem(
         "event JobCompleted(uint256 indexed jobId, address indexed worker, bytes32 responseHash, bytes32 ciphertextHash)",
       );
-      const waitDeadlineMs = Date.now() + 90_000;
+      const waitDeadlineMs = Date.now() + 120_000;
       let completed: Log | null = null;
       while (!completed && Date.now() < waitDeadlineMs) {
         await new Promise((res) => setTimeout(res, 3000));
@@ -484,7 +491,29 @@ export default function PlaygroundPage() {
           args: { jobId },
           fromBlock: submitReceipt.blockNumber,
         });
-        if (logs.length) completed = logs[0] as Log;
+        if (logs.length) {
+          completed = logs[0] as Log;
+          break;
+        }
+        // If the WS already produced an answer mid-wait, accept it now. No
+        // point burning more time polling for a confirmation that's only used
+        // as an explorer link.
+        if (chunks.length > 0) break;
+      }
+      // No on-chain event yet, but the WS DID deliver a valid answer:
+      // session-key decryption succeeded, so the result is cryptographically
+      // bound to this session. Surface it as "done", mark completedTx null so
+      // the UI shows "(jobCompleted on-chain confirmation pending)".
+      if (!completed && chunks.length > 0) {
+        await new Promise((res) => setTimeout(res, 2000));
+        sockRef.current.close();
+        setS((p) => ({
+          ...p,
+          phase: "done",
+          elapsedMs: Date.now() - startRef.current,
+          completedTx: null,
+        }));
+        return sockRef.current;
       }
       if (!completed) {
         // Throw a typed sentinel so the outer run() can catch + auto-retry with
@@ -818,6 +847,17 @@ export default function PlaygroundPage() {
             <span className="text-content-default">jobCompleted</span> is the worker&apos;s commit that
             anchors the decrypted answer to an on-chain hash you can verify later.
           </p>
+          {s.phase === "done" && !s.completedTx && s.submitTx && (
+            <p className="mt-2 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+              <span>
+                Answer delivered + decrypted with your session key (so the result is real). The{" "}
+                <span className="font-medium">jobCompleted</span> event hasn&apos;t shown up on-chain
+                yet - the worker either commits it shortly or the protocol marks the job timed-out
+                in the dispute window. Either way, the answer above stays valid.
+              </span>
+            </p>
+          )}
         </Card>
       )}
 
