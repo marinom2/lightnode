@@ -621,3 +621,159 @@ export async function runInference(args: RunInferenceArgs): Promise<RunInference
 
 /** Re-export the typed errors at this layer so a single import covers everything. */
 export { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError, isStalledWorker } from "./errors.js";
+
+// =============================================================================
+// runInferenceWithKey - the actual 5-line API.
+// =============================================================================
+//
+// `runInference` requires the caller to wire viem clients + a SIWE-authenticated
+// GatewayClient (~25 lines of boilerplate). That's fine for production apps
+// where those clients already exist, but it's overkill for a "hello world".
+// This helper bundles the wiring so the entire script collapses to:
+//
+//   const { answer } = await runInferenceWithKey({
+//     network: "testnet",
+//     privateKey: process.env.PRIVATE_KEY,
+//     prompt: "Reply with a one-sentence fun fact about the ocean.",
+//   });
+//
+// Under the hood it does everything `runInference` does, plus the viem setup
+// and the SIWE handshake.
+
+import type { NetworkId } from "./types.js";
+import { NETWORKS } from "./networks.js";
+import { GatewayClient as GatewayClientCtor, consumerGatewayUrl as consumerGatewayUrlFn } from "./gateway.js";
+import { GatewayAuthError } from "./errors.js";
+import { createPublicClient as viemCreatePublicClient, createWalletClient as viemCreateWalletClient, http as viemHttp } from "viem";
+import { privateKeyToAccount as viemPrivateKeyToAccount } from "viem/accounts";
+
+export interface RunInferenceWithKeyArgs {
+  /** Network ID (`"testnet"` / `"mainnet"`) or a custom NetworkConfig. */
+  network: NetworkId | NetworkConfig;
+  /**
+   * A funded EVM private key, hex with `0x` prefix. Pays the job fee + gas and
+   * signs createSession + submitJob. NEVER hardcode this - load from env.
+   */
+  privateKey: string;
+  /** The plaintext prompt to send. UTF-8 encoded before encryption. */
+  prompt: string;
+  /** Inference model tag. Default: `"llama3-8b"`. */
+  model?: string;
+  /**
+   * Streaming callback invoked once per decrypted relay chunk. Use for live
+   * stdout / UI updates. Optional - the final `answer` is returned either way.
+   */
+  onChunk?: (chunk: string, totalSoFar: string) => void;
+  /** Retry count if a worker stalls. Default 2 (so up to 3 paid attempts). */
+  maxRetries?: number;
+  /** How long to wait for JobCompleted before declaring the worker stalled. Default 120s. */
+  jobCompletedTimeoutMs?: number;
+  /**
+   * WebSocket constructor. In a browser this is auto-detected from
+   * `globalThis.WebSocket`. In Node, pass `WS` from the `ws` package
+   * (`import WS from "ws"`) - `ws` is not a hard dep of this SDK.
+   */
+  WebSocket?: WebSocketCtor;
+  /** Override the relay URL (defaults to `wss://relay.<network>.lightchain.ai/ws`). */
+  relayUrl?: string;
+  /**
+   * Override the consumer-api gateway URL. Defaults to a network-derived URL.
+   * Useful for tests / mirrors / proxying through your own backend.
+   */
+  gatewayUrl?: string;
+}
+
+/**
+ * One call, key-in / answer-out encrypted inference. Builds viem clients,
+ * runs the SIWE handshake, opens the encrypted session, submits + decrypts,
+ * and returns. Same proof chain (`createSession`, `submitJob`, `jobCompleted`)
+ * as the lower-level `runInference`.
+ *
+ * @example
+ * ```ts
+ * import { runInferenceWithKey } from "lightnode-sdk";
+ * import WS from "ws";
+ *
+ * const { answer, txs } = await runInferenceWithKey({
+ *   network: "testnet",
+ *   privateKey: process.env.PRIVATE_KEY!,
+ *   prompt: "Reply with a one-sentence fun fact about the ocean.",
+ *   WebSocket: WS, // omit in the browser
+ * });
+ *
+ * console.log(answer);
+ * ```
+ */
+export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promise<RunInferenceResult> {
+  // Resolve the network config and validate the key shape up front so a
+  // mistyped key fails BEFORE we touch the RPC or the gateway.
+  const network: NetworkConfig = typeof args.network === "string" ? NETWORKS[args.network] : args.network;
+  if (!network) throw new Error(`unknown network: ${String(args.network)}`);
+  const networkId: NetworkId = (typeof args.network === "string" ? args.network : "mainnet") as NetworkId;
+  const key = args.privateKey?.trim();
+  if (!key || !key.startsWith("0x") || key.length !== 66) {
+    throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
+  }
+
+  const account = viemPrivateKeyToAccount(key as `0x${string}`);
+  const chain = {
+    id: network.chainId,
+    name: network.label,
+    nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 },
+    rpcUrls: { default: { http: [network.rpc] } },
+  };
+  // Keep viem's real types here so signMessage / etc. are typed. The MinimalX
+  // casts only happen at the runInference() call site below.
+  const publicClient = viemCreatePublicClient({ transport: viemHttp(network.rpc), chain });
+  const wallet = viemCreateWalletClient({ account, transport: viemHttp(network.rpc), chain });
+
+  // One-shot SIWE handshake. We do this inline (rather than re-export it) so
+  // the caller doesn't need a second import; in browsers + Node it works the
+  // same against the consumer-api gateway.
+  const gwBase = args.gatewayUrl ?? consumerGatewayUrlFn(networkId);
+  const chRes = await fetch(`${gwBase}/api/auth/challenge?address=${account.address}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!chRes.ok) throw new GatewayAuthError(chRes.status, await chRes.text());
+  const ch = (await chRes.json()) as { message?: string };
+  if (!ch.message) throw new GatewayAuthError(chRes.status, "auth challenge returned no message");
+  const signature = await wallet.signMessage({ account, message: ch.message });
+  const verifyRes = await fetch(`${gwBase}/api/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ message: ch.message, signature }),
+  });
+  if (!verifyRes.ok) throw new GatewayAuthError(verifyRes.status, await verifyRes.text());
+  const verify = (await verifyRes.json()) as { token?: string };
+  if (!verify.token) throw new GatewayAuthError(verifyRes.status, "auth verify returned no token");
+  const gateway = new GatewayClientCtor({ network: networkId, bearer: verify.token, baseUrl: args.gatewayUrl });
+
+  // Pick a WebSocket: the browser global if present, otherwise the caller-
+  // supplied ctor. We deliberately do NOT try to dynamic-import "ws" - it
+  // isn't a hard dep, and a bundler trying to resolve it would fail noisily.
+  const wsCtor =
+    args.WebSocket ??
+    (typeof globalThis !== "undefined" && (globalThis as { WebSocket?: WebSocketCtor }).WebSocket
+      ? (globalThis as { WebSocket: WebSocketCtor }).WebSocket
+      : undefined);
+  if (!wsCtor) {
+    throw new Error(
+      "runInferenceWithKey: no WebSocket constructor available. In Node, install `ws` and pass it: " +
+        "`import WS from 'ws'; runInferenceWithKey({ WebSocket: WS, ... })`",
+    );
+  }
+
+  return runInference({
+    prompt: args.prompt,
+    gateway,
+    wallet: wallet as unknown as MinimalWalletClient,
+    publicClient: publicClient as unknown as MinimalPublicClient,
+    network,
+    model: args.model,
+    onChunk: args.onChunk,
+    maxRetries: args.maxRetries,
+    jobCompletedTimeoutMs: args.jobCompletedTimeoutMs,
+    WebSocket: wsCtor,
+    relayUrl: args.relayUrl,
+  });
+}

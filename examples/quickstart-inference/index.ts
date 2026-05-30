@@ -1,87 +1,97 @@
 /**
- * End-to-end encrypted LightChain AI inference, in ~40 lines, using the
- * lightnode-sdk's high-level `runInference()` helper. Streams the answer to
- * stdout as it arrives and auto-retries if a worker stalls.
+ * End-to-end encrypted LightChain AI inference, in ~30 lines, using
+ * `runInferenceWithKey()` - the SDK's key-in / answer-out shortcut.
  *
  *   npm install
- *   cp .env.example .env   # put a funded testnet (or mainnet) private key in .env
- *   npm start              # prints the decrypted answer + 3 tx hashes
+ *   npm start               # auto-generates a testnet key the first run,
+ *                           # prints the address + faucet link, then exits.
+ *                           # fund the address, run again, and the prompt fires.
  *
- * The lower-level helpers (prepareSession, submitPrompt, decryptResponse) are
- * still exported - this just shows the simplest possible path. Same flow,
- * same SDK, same code path that drives the live playground at
- * https://lightnode.app/playground.
+ * The same flow + same proof chain (createSession, submitJob, jobCompleted)
+ * that drives the live playground at https://lightnode.app/playground.
  */
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import WS from "ws";
-import { createPublicClient, createWalletClient, http, parseEther } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import {
-  LightNode,
-  GatewayClient,
-  runInference,
-  consumerGatewayUrl,
-  isStalledWorker,
-  type NetworkId,
-} from "lightnode-sdk";
+import { createPublicClient, http, parseEther } from "viem";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { runInferenceWithKey, isStalledWorker, LightNode, type NetworkId } from "lightnode-sdk";
 
 const NETWORK = (process.env.NETWORK ?? "testnet") as NetworkId;
 const MODEL = process.env.MODEL ?? "llama3-8b";
 const PROMPT = process.argv.slice(2).join(" ").trim() || "Reply with a one-sentence fun fact about the ocean.";
-const PRIVATE_KEY = process.env.PRIVATE_KEY as `0x${string}` | undefined;
-if (!PRIVATE_KEY?.startsWith("0x") || PRIVATE_KEY.length !== 66) {
-  console.error("set PRIVATE_KEY in .env");
-  process.exit(1);
+
+// Auto-load .env (no dotenv dep). `npm start` in StackBlitz / Codespaces
+// doesn't source .env via the shell, so without this PRIVATE_KEY would always
+// read as undefined.
+if (existsSync(".env")) {
+  for (const line of readFileSync(".env", "utf8").split("\n")) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
 }
 
+// If no key is set, generate ONE fresh key, write it to .env, print the
+// funding instructions, exit. Next `npm start` reuses it. This turns the cold
+// StackBlitz / Codespaces path from "errors out, no idea what to do" into
+// "tells you exactly which address to fund + where the faucet is."
+let PRIVATE_KEY = process.env.PRIVATE_KEY as `0x${string}` | undefined;
+const looksValid = PRIVATE_KEY?.startsWith("0x") && PRIVATE_KEY.length === 66 && !/^0x0+$/i.test(PRIVATE_KEY);
+if (!looksValid) {
+  const fresh = generatePrivateKey();
+  const addr = privateKeyToAccount(fresh).address;
+  const lines = existsSync(".env") ? readFileSync(".env", "utf8").split("\n") : [];
+  const filtered = lines.filter((l) => !/^\s*PRIVATE_KEY\s*=/.test(l));
+  filtered.push(`PRIVATE_KEY=${fresh}`);
+  writeFileSync(".env", filtered.join("\n").replace(/\n+$/, "") + "\n");
+  console.log("");
+  console.log("  No PRIVATE_KEY was set, so a fresh testnet key was generated and");
+  console.log("  written to .env. To run this example you need to fund it once:");
+  console.log("");
+  console.log(`    Address: ${addr}`);
+  console.log("    Faucet:  https://lightfaucet.ai   (paste the address, get free testnet LCAI)");
+  console.log("");
+  console.log("  Then run `npm start` again. The .env file is gitignored - the key");
+  console.log("  stays local to this workspace. (To use your own key instead, edit .env.)");
+  console.log("");
+  process.exit(0);
+}
+
+// Quick balance check so the error is helpful instead of "createSession reverted".
 const ln = new LightNode(NETWORK);
-const acct = privateKeyToAccount(PRIVATE_KEY);
-const chain = {
-  id: ln.network.chainId,
-  name: ln.network.label,
-  nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 },
-  rpcUrls: { default: { http: [ln.network.rpc] } },
-};
-const publicClient = createPublicClient({ transport: http(ln.network.rpc), chain });
-const wallet = createWalletClient({ account: acct, transport: http(ln.network.rpc), chain });
-
-// One SIWE handshake: sign a message, get a JWT, build the gateway client.
-const ch = await (await fetch(`${consumerGatewayUrl(NETWORK)}/api/auth/challenge?address=${acct.address}`)).json() as { message?: string };
-if (!ch.message) throw new Error("auth challenge failed");
-const sig = await wallet.signMessage({ message: ch.message });
-const verify = await (await fetch(`${consumerGatewayUrl(NETWORK)}/api/auth/verify`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ message: ch.message, signature: sig }),
-})).json() as { token?: string };
-if (!verify.token) throw new Error("auth verify failed");
-const gateway = new GatewayClient({ network: NETWORK, bearer: verify.token });
-
-const balance = await publicClient.getBalance({ address: acct.address });
-console.log(`▶ ${NETWORK} ${acct.address} balance=${Number(balance) / 1e18} LCAI`);
+const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
+const pub = createPublicClient({ transport: http(ln.network.rpc) });
+const balance = await pub.getBalance({ address: account.address });
+console.log(`▶ ${NETWORK} ${account.address} balance=${Number(balance) / 1e18} LCAI`);
 if (balance < parseEther("0.05")) {
-  console.error("top up (need ~0.05 LCAI for fee + gas)");
+  console.error("");
+  console.error(`  Wallet ${account.address} has too little LCAI to run one job (need ~0.05).`);
+  if (NETWORK === "testnet") console.error(`  Get free testnet LCAI: https://lightfaucet.ai`);
+  else console.error(`  Top up the address on mainnet (chain ${ln.network.chainId}).`);
+  console.error("");
   process.exit(1);
 }
 
+// ============================================================================
+// THE ACTUAL CALL. This is everything; the rest of the file is just the
+// "make StackBlitz / Codespaces / fresh-clone friendly" plumbing above.
+// ============================================================================
 try {
   process.stdout.write("\n");
-  const result = await runInference({
+  const { answer, txs, worker, sessionId, jobId, attempts, stalled } = await runInferenceWithKey({
+    network: NETWORK,
+    privateKey: PRIVATE_KEY as `0x${string}`,
     prompt: PROMPT,
-    gateway,
-    wallet,
-    publicClient,
-    network: ln.network,
     model: MODEL,
-    WebSocket: WS,
+    WebSocket: WS, // omit this whole line in the browser
     onChunk: (chunk) => process.stdout.write(chunk),
-    maxRetries: 2,
   });
   process.stdout.write("\n\n");
-  console.log(`createSession: ${result.txs.createSession}`);
-  console.log(`submitJob:     ${result.txs.submitJob}`);
-  console.log(`jobCompleted:  ${result.txs.jobCompleted}`);
-  console.log(`sessionId=${result.sessionId} jobId=${result.jobId} worker=${result.worker} attempts=${result.attempts}`);
-  if (result.stalled.length) console.log(`(${result.stalled.length} prior attempt(s) stalled; protocol refunds those fees automatically)`);
+  console.log(`answer:        ${answer.length} chars`);
+  console.log(`createSession: ${txs.createSession}`);
+  console.log(`submitJob:     ${txs.submitJob}`);
+  console.log(`jobCompleted:  ${txs.jobCompleted ?? "(pending on-chain; answer above is session-key authentic)"}`);
+  console.log(`sessionId=${sessionId} jobId=${jobId} worker=${worker} attempts=${attempts}`);
+  if (stalled.length) console.log(`(${stalled.length} prior attempt(s) stalled; protocol refunds those fees automatically)`);
   process.exit(0);
 } catch (e) {
   if (isStalledWorker(e)) console.error("3 workers in a row stalled; protocol refunds the fees, try again later");

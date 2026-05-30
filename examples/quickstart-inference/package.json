@@ -10,7 +10,7 @@
     "start:mainnet": "NETWORK=mainnet tsx index.ts \"Reply with a one-sentence fun fact about the ocean.\""
   },
   "dependencies": {
-    "lightnode-sdk": "^0.4.0",
+    "lightnode-sdk": "^0.4.3",
     "viem": "^2.21.0",
     "ws": "^8.18.0"
   },

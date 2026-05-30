@@ -27,6 +27,7 @@ import {
   decryptResponse,
   generateEcdhKeyPair,
   runInference,
+  runInferenceWithKey,
 } from "./inference.js";
 import {
   StalledWorkerError,
@@ -173,6 +174,8 @@ export {
   crypto,
   // v0.4 high-level orchestrator: one call, full flow.
   runInference,
+  // v0.4.3 key-in-answer-out shortcut: same flow, no viem/SIWE wiring.
+  runInferenceWithKey,
   StalledWorkerError,
   OnChainRevertError,
   RelayTokenTimeoutError,
@@ -180,5 +183,5 @@ export {
   isStalledWorker,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
-export type { SessionPreparation, RunInferenceArgs, RunInferenceResult } from "./inference.js";
+export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs } from "./inference.js";
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
