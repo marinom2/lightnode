@@ -796,7 +796,7 @@ export default function PlaygroundPage() {
           <p className="mt-3 text-[11px] text-content-soft">
             Three on-chain proofs: <span className="text-content-default">createSession</span> and{" "}
             <span className="text-content-default">submitJob</span> are signed by your wallet;{" "}
-            <span className="text-content-default">jobCompleted</span> is the worker's commit that
+            <span className="text-content-default">jobCompleted</span> is the worker&apos;s commit that
             anchors the decrypted answer to an on-chain hash you can verify later.
           </p>
         </Card>
