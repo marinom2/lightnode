@@ -66,6 +66,10 @@ interface FlowState {
   jobId: bigint | null;
   createTx: `0x${string}` | null;
   submitTx: `0x${string}` | null;
+  // The worker's own commit-result transaction (where JobCompleted fires with
+  // responseHash + ciphertextHash). It's NOT a tx the user signs; it's the
+  // third party in the chain of proof and worth showing alongside the user's.
+  completedTx: `0x${string}` | null;
   worker: `0x${string}` | null;
   output: string;
   error: string | null;
@@ -73,6 +77,9 @@ interface FlowState {
   // Auto-retry bookkeeping.
   attempt: number; // 1..MAX_ATTEMPTS
   stalled: StalledAttempt[]; // every prior attempt whose worker silently stalled
+  // True when the SIWE handshake was satisfied from the cached JWT (no wallet
+  // popup needed). Surfaces in the UI as "auth reused (cached)".
+  authCached: boolean;
 }
 
 const initial: FlowState = {
@@ -84,13 +91,49 @@ const initial: FlowState = {
   jobId: null,
   createTx: null,
   submitTx: null,
+  completedTx: null,
   worker: null,
   output: "",
   error: null,
   elapsedMs: 0,
   attempt: 1,
   stalled: [],
+  authCached: false,
 };
+
+// SIWE JWT cache so a builder running multiple prompts in the same browser
+// session only signs the auth message once. Lives in sessionStorage (cleared
+// on tab close), keyed by network+address, and gated by the issued-token
+// expiry minus a 30s safety margin so we never hand back a JWT that's about
+// to expire.
+const JWT_KEY = (net: string, address: string) => `lc.playground.jwt.${net}.${address.toLowerCase()}`;
+interface CachedJwt {
+  token: string;
+  expiresAt: number; // unix ms
+}
+function readCachedJwt(net: string, address: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(JWT_KEY(net, address));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as CachedJwt;
+    if (!v?.token || typeof v.expiresAt !== "number") return null;
+    if (Date.now() > v.expiresAt - 30_000) return null;
+    return v.token;
+  } catch {
+    return null;
+  }
+}
+function writeCachedJwt(net: string, address: string, token: string, expiresAtIso: string): void {
+  if (typeof window === "undefined") return;
+  const expiresAt = Date.parse(expiresAtIso);
+  if (!Number.isFinite(expiresAt)) return;
+  try {
+    window.sessionStorage.setItem(JWT_KEY(net, address), JSON.stringify({ token, expiresAt } satisfies CachedJwt));
+  } catch {
+    // sessionStorage may be unavailable (private mode); fall back to no caching.
+  }
+}
 
 // Sentinel error thrown by the inference attempt when the worker acknowledged
 // the job but never produced a result inside the deadline. Caught by the outer
@@ -216,22 +259,32 @@ export default function PlaygroundPage() {
     // narrow it to `never` after the closure mutates it from the outer scope.
     const sockRef: { current: WebSocket | null } = { current: null };
     try {
-      // === 1. SIWE handshake via our same-origin proxy (done once for the run) ===
+      // === 1. SIWE handshake via our same-origin proxy ===
+      // First try the cached JWT for this (network, address). When valid, the
+      // user signs nothing here - one fewer wallet popup for repeat prompts in
+      // the same browser session.
       const gwBase = `/api/gw/${net}`;
-      setAuthPending(true);
-      const ch = await fetch(`${gwBase}/api/auth/challenge?address=${address}`, {
-        headers: { Accept: "application/json" },
-      }).then((r) => r.json() as Promise<{ message?: string }>);
-      if (!ch?.message) throw new Error("auth challenge returned no message");
-      const signature = await wal.signMessage({ message: ch.message });
-      const verify = await fetch(`${gwBase}/api/auth/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ message: ch.message, signature }),
-      }).then((r) => r.json() as Promise<{ token?: string }>);
-      if (!verify?.token) throw new Error("auth verify did not return a token");
-      const gateway = new GatewayClient({ network: net, bearer: verify.token, baseUrl: gwBase });
-      setAuthPending(false);
+      let token = readCachedJwt(net, address);
+      if (token) {
+        setS((p) => ({ ...p, authCached: true }));
+      } else {
+        setAuthPending(true);
+        const ch = await fetch(`${gwBase}/api/auth/challenge?address=${address}`, {
+          headers: { Accept: "application/json" },
+        }).then((r) => r.json() as Promise<{ message?: string }>);
+        if (!ch?.message) throw new Error("auth challenge returned no message");
+        const signature = await wal.signMessage({ message: ch.message });
+        const verify = await fetch(`${gwBase}/api/auth/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ message: ch.message, signature }),
+        }).then((r) => r.json() as Promise<{ token?: string; expiresAt?: string }>);
+        if (!verify?.token) throw new Error("auth verify did not return a token");
+        token = verify.token;
+        if (verify.expiresAt) writeCachedJwt(net, address, token, verify.expiresAt);
+        setAuthPending(false);
+      }
+      const gateway = new GatewayClient({ network: net, bearer: token, baseUrl: gwBase });
 
       // === 2..7. Retry loop. If a worker silently stalls (~5% of testnet)
       // we record the lost-fee attempt, ask the dispatcher for a fresh worker,
@@ -423,7 +476,14 @@ export default function PlaygroundPage() {
       // Grace for the last relay frame, then close cleanly.
       await new Promise((res) => setTimeout(res, 4000));
       sockRef.current.close();
-      setS((p) => ({ ...p, phase: "done", elapsedMs: Date.now() - startRef.current }));
+      setS((p) => ({
+        ...p,
+        phase: "done",
+        elapsedMs: Date.now() - startRef.current,
+        // The worker's own commit-result transaction (where JobCompleted fired
+        // with responseHash + ciphertextHash). It's the third proof in the chain.
+        completedTx: completed.transactionHash as `0x${string}`,
+      }));
       return sockRef.current;
     }
   };
@@ -557,6 +617,11 @@ export default function PlaygroundPage() {
           <div className="mb-4 flex items-center gap-3">
             <IconChip icon={Workflow} size="md" />
             <h2 className="text-base font-semibold tracking-tight text-content-primary">Progress</h2>
+            {s.authCached && (
+              <Badge tone="success" className="ml-auto">
+                <Shield className="size-3" /> auth reused (cached)
+              </Badge>
+            )}
           </div>
           <ol className="space-y-2.5">
             {STEPS.map((step) => {
@@ -709,7 +774,31 @@ export default function PlaygroundPage() {
                 </dd>
               </div>
             )}
+            {s.completedTx && (
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <dt className="font-medium text-content-soft" title="Worker's commit-result transaction (JobCompleted event with responseHash + ciphertextHash)">
+                  jobCompleted
+                </dt>
+                <dd>
+                  <a
+                    href={`${explorer}/tx/${s.completedTx}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-primary hover:underline"
+                  >
+                    {s.completedTx.slice(0, 14)}…{s.completedTx.slice(-12)}{" "}
+                    <ExternalLink className="ml-0.5 inline size-3" />
+                  </a>
+                </dd>
+              </div>
+            )}
           </dl>
+          <p className="mt-3 text-[11px] text-content-soft">
+            Three on-chain proofs: <span className="text-content-default">createSession</span> and{" "}
+            <span className="text-content-default">submitJob</span> are signed by your wallet;{" "}
+            <span className="text-content-default">jobCompleted</span> is the worker's commit that
+            anchors the decrypted answer to an on-chain hash you can verify later.
+          </p>
         </Card>
       )}
 
