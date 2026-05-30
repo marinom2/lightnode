@@ -20,8 +20,11 @@ import { Button } from "@/components/ui/button";
 import { IconChip } from "@/components/ui/icon-chip";
 import { HideOnDesktop } from "@/components/hide-on-desktop";
 
-const STACKBLITZ_URL = "https://stackblitz.com/github/marinom2/lightnode/tree/main/examples/quickstart-inference";
-const EXAMPLE_REPO_URL = "https://github.com/marinom2/lightnode/tree/main/examples/quickstart-inference";
+// Examples live in their own tiny repo so StackBlitz / Codespaces clone in <1s
+// (cloning the full lightnode monorepo took 30s+ and often timed out).
+const EXAMPLES_REPO = "marinom2/lightnode-examples";
+const STACKBLITZ_URL = `https://stackblitz.com/github/${EXAMPLES_REPO}/tree/main/quickstart-inference`;
+const EXAMPLE_REPO_URL = `https://github.com/${EXAMPLES_REPO}/tree/main/quickstart-inference`;
 const LCAI_IDE_URL = "https://github.com/lightchain-protocol/lcai-ide";
 
 interface FrameworkExample {
@@ -31,23 +34,24 @@ interface FrameworkExample {
   badge: string;
 }
 
+// `path` is the subdir inside the lightnode-examples repo (one entry per folder).
 const FRAMEWORK_EXAMPLES: FrameworkExample[] = [
   {
     name: "Node CLI / script",
-    blurb: "Standalone Node + tsx. 120 lines, prints the decrypted answer + 3 tx hashes.",
-    path: "examples/quickstart-inference",
+    blurb: "Standalone Node + tsx. 30 lines using runInferenceWithKey. Auto-generates a testnet key on first run.",
+    path: "quickstart-inference",
     badge: "starter",
   },
   {
     name: "Next.js API route",
     blurb: "Drop-in app/api/inference/route.ts. POST a prompt from the browser, get JSON back.",
-    path: "examples/nextjs-api-route",
+    path: "nextjs-api-route",
     badge: "App Router",
   },
   {
     name: "Hono server",
     blurb: "Tiny standalone microservice. Same JSON contract; deploys to Bun, Node, Railway, Fly.",
-    path: "examples/hono-server",
+    path: "hono-server",
     badge: "any Node",
   },
 ];
@@ -239,7 +243,7 @@ export default function BuildPage() {
               <HideOnDesktop>
                 <Button asChild size="sm" variant="outline" className="w-full">
                   <a
-                    href="https://codespaces.new/marinom2/lightnode?machine=basicLinux32gb"
+                    href={`https://codespaces.new/${EXAMPLES_REPO}?machine=basicLinux32gb`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -294,7 +298,7 @@ export default function BuildPage() {
               <div className="flex flex-col gap-2">
                 <Button asChild size="sm" variant="outline" className="w-full">
                   <a
-                    href={`https://github.com/marinom2/lightnode/tree/main/${ex.path}`}
+                    href={`https://github.com/${EXAMPLES_REPO}/tree/main/${ex.path}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -303,7 +307,7 @@ export default function BuildPage() {
                 </Button>
                 <Button asChild size="sm" className="w-full">
                   <a
-                    href={`https://stackblitz.com/github/marinom2/lightnode/tree/main/${ex.path}`}
+                    href={`https://stackblitz.com/github/${EXAMPLES_REPO}/tree/main/${ex.path}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
