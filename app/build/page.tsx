@@ -231,6 +231,8 @@ const CONTRACT_TABLE = [
 ] as const;
 
 const CHANGELOG = [
+  { v: "0.5.0", date: "May 2026", line: "Full SDK ecosystem release: Bridge SDK (Hyperlane Warp Route), DAO SDK (LCAIGovernor), on-chain Model Registry reader, multi-turn Conversation, worker preflight + watch, job status reader. Six new modules, all six landed in one cut." },
+  { v: "0.4.9", date: "May 2026", line: "lightnode chat + lightnode wallet CLI commands. runInferenceStream (AsyncIterable<string>). Auto-resolve `ws` in Node so no WebSocket import needed." },
   { v: "0.4.8", date: "May 2026", line: "Crypto switched from Web Crypto to noble (P-256 + AES-GCM). Works in StackBlitz / Bolt WebContainer. Public type change: ECDH keys are Uint8Array, not CryptoKey." },
   { v: "0.4.7", date: "May 2026", line: "SDK_VERSION constant exported. Diagnostic crypto error so we know which platform branch broke." },
   { v: "0.4.6", date: "May 2026", line: "Webcrypto fallback via node:crypto for Node 18 + WebContainer." },
@@ -409,43 +411,43 @@ function LiveDemoCard({
   );
 }
 
-// What's coming next on the SDK roadmap. Bridge, dispute, multi-turn, etc.
+// The SDK ecosystem we ship today. All six landed in 0.5.0.
 const ROADMAP = [
   {
     title: "Bridge SDK",
     blurb:
-      "Typed wrapper for the LightChain bridge (Hyperlane Warp Route). bridge.deposit({ from: 'ethereum', amount }), bridge.quoteFee, bridge.trackMessage. Today every dApp learns Hyperlane SDK from scratch.",
-    badge: "next",
+      "Typed wrapper around the LightChain bridge (Hyperlane Warp Route). new Bridge(client).transfer({ from: 'ethereum', to: 'lightchain-mainnet', amount, recipient, fee }). Bake-in mainnet route + bytes32 padding helper + ERC-20 approve. Reverses too (LightChain to Ethereum, attaches LCAI as native value).",
+    badge: "shipped",
   },
   {
-    title: "Multi-turn session helper",
+    title: "Multi-turn Conversation",
     blurb:
-      "ln.chat() that reuses one ECDH-wrapped session across turns instead of re-paying the createSession setup. Lower-level prepareSession + submitPrompt are already exported for handcrafted multi-turn today.",
-    badge: "next",
+      "new Conversation({ network, privateKey }).send('hi') keeps history client-side and runs one full encrypted inference per turn. Optional system prompt + maxHistoryTurns cap. Works regardless of whether the protocol supports session reuse.",
+    badge: "shipped",
   },
   {
-    title: "Dispute / refund API",
+    title: "Dispute / refund queries",
     blurb:
-      "Wrapper for the on-chain challenge + refund flow. The contracts exist (job state includes Disputed | Resolved); no tooling does. Lets a builder programmatically claim a refund when a worker stalls.",
-    badge: "planned",
+      "ln.getJobStatus(jobId) classifies the job (submitted / in-flight / completed / stalled / disputed / resolved) and exposes a refundable flag so a dApp can know when to claim. lightnode job <id> from the CLI returns the same JSON.",
+    badge: "shipped",
   },
   {
     title: "DAO SDK (LCAIGovernor)",
     blurb:
-      "governor.propose / vote / queue / execute against the LCAIGovernor + Timelock contracts. The frontend at dao.lightchain.ai exists; no library to read proposals or build automation around them.",
-    badge: "planned",
+      "new DAO(client, 'ethereum').proposal(id) / castVote / propose / queue / execute against the OZ Governor v5 LCAIGovernor on Ethereum. Plus dao.config() returns voting delay/period/threshold live, and PROPOSAL_STATE_LABEL maps the 8-state enum.",
+    badge: "shipped",
   },
   {
-    title: "Worker preflight + watchdog",
+    title: "Worker preflight + watch",
     blurb:
-      "lightnode worker preflight that runs one real test inference before joining a worker pool. Plus a liveness watchdog that pages on stale heartbeats. Addresses the #1 community pain point: silent worker failure.",
-    badge: "operator",
+      "workerPreflight({ network, privateKey }) submits one real test inference and returns verdict (ok / over-deadline / stalled / failed). workerWatch(ln, addr) yields an async-iterable of state-change events (registered / went-stale / jobs-completed / earnings-up). lightnode worker preflight + lightnode worker watch.",
+    badge: "shipped",
   },
   {
     title: "On-chain model registry reader",
     blurb:
-      "models.list(), models.getVariant(id), models.getAccessPolicy(id) against AIVMModelRegistry + BenchmarkRegistry. Today you hand-roll ABI calls; this exposes model metadata + IPFS CIDs + benchmarks as one client.",
-    badge: "planned",
+      "new OnchainModelRegistry({ publicClient, registry, benchmarks }).getBaseModelIds / getVariant / getAccessPolicy / getVariantsForBaseModel. Full ABI for AIVMModelRegistry + BenchmarkRegistry; bring your own deployed address (no official public address yet).",
+    badge: "shipped",
   },
 ] as const;
 
@@ -1176,22 +1178,19 @@ const stats = await ln.getNetworkStats();`}
         </div>
       </div>
 
-      {/* ── ROADMAP ──────────────────────────────────────────────────── */}
+      {/* ── ECOSYSTEM SDKs ───────────────────────────────────────────── */}
       <div className="mb-12">
         <SectionHeader
           icon={Rocket}
-          title="What's next on the SDK"
-          blurb="LightChain's own docs list SDKs as 'soon'. lightnode-sdk is filling the gap. Here is what is queued."
+          title="SDK ecosystem - all six shipped"
+          blurb="LightChain's own docs list SDKs as 'soon'. lightnode-sdk fills the gap. Each card is a real module exported in 0.5.0."
         />
         <div className="grid gap-3 md:grid-cols-2">
           {ROADMAP.map((r) => (
             <Card key={r.title} className="p-5">
               <div className="mb-2 flex items-center gap-2">
                 <span className="text-sm font-semibold text-content-primary">{r.title}</span>
-                <Badge
-                  tone={r.badge === "next" ? "brand" : r.badge === "operator" ? "warning" : "muted"}
-                  className="ml-auto"
-                >
+                <Badge tone="success" className="ml-auto">
                   {r.badge}
                 </Badge>
               </div>
@@ -1200,8 +1199,7 @@ const stats = await ln.getNetworkStats();`}
           ))}
         </div>
         <p className="mt-3 text-[11px] text-content-soft">
-          Independent, community-built. Not affiliated with LightChain. If you want a specific surface filled sooner,
-          {" "}
+          Independent, community-built. Not affiliated with LightChain. If you want a new surface filled, {" "}
           <a
             href="https://github.com/marinom2/lightnode/issues/new"
             target="_blank"

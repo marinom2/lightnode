@@ -56,6 +56,16 @@ export async function fetchWorker(cfg: NetworkConfig, address: string): Promise<
   }
 }
 
+/** Fetch one job by its on-chain id. Null when the indexer has never seen it. */
+export async function fetchJob(cfg: NetworkConfig, jobId: string | bigint): Promise<Job | null> {
+  const id = typeof jobId === "bigint" ? jobId.toString() : jobId;
+  const data = await gql<{ job: Job | null }>(
+    cfg.subgraph,
+    `{ job(id:"${id}") { id state model_id worker submitted_at ack_at completed_at worker_share } }`,
+  );
+  return data.job ?? null;
+}
+
 export async function fetchWorkerJobs(cfg: NetworkConfig, address: string, first = 20): Promise<Job[]> {
   const data = await gql<{ jobs: Job[] }>(
     cfg.subgraph,

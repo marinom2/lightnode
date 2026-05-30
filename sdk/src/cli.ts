@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, isStalledWorker, type NetworkId } from "./index.js";
+import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, isStalledWorker, workerPreflight, workerWatch, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId } from "./index.js";
 import { addInference, addAnalyticsDashboard, addNftMint, addChat, addAgent } from "./add.js";
 import { createPublicClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
@@ -35,11 +35,23 @@ Read-only network commands (no key):
   network                  network summary (workers, jobs, models, earnings)
   models                   registered models + per-job fee
   worker <addr>            a worker: on-chain registration + recent jobs
+  worker watch <addr>      poll worker status, print event on change
+                           ([--interval 30] [--stale 90])
   jobs <addr> [--csv]      one worker's job history (table or CSV)
+  job <jobId>              one job's status (category, refundable, worker, timings)
   registered <addr>        true | false | null (read from chain events)
   fee [model]              on-chain inference fee (default llama3-8b)
   analytics [--csv]        per-model performance (completion, p50/p95, incomplete)
   reliability [--csv]      per-worker reliability, busiest first
+
+Preflight (needs PRIVATE_KEY in env):
+  worker preflight         run one real test inference, print verdict + timings
+                           ([--key 0x...] [--model llama3-8b] [--deadline 60])
+
+Ecosystem (read-only):
+  bridge addresses         print bridge route (Ethereum <-> LightChain) addresses
+  dao addresses            print LCAI Governor + Timelock + Treasury addresses
+  dao config               print voting delay / period / threshold (live read)
 
 Scaffold templates into the current project:
   add inference                   end-to-end encrypted inference route/script
@@ -146,9 +158,66 @@ async function main() {
       break;
     }
     case "worker": {
-      const addr = positionals[1] ?? die("usage: lightnode worker <address> [--net testnet]");
+      // Two sub-shapes: `lightnode worker <addr>` (one-shot status) and
+      // `lightnode worker watch <addr>` (long-running event stream) and
+      // `lightnode worker preflight` (submit a test inference).
+      const sub = positionals[1];
+      if (sub === "watch") {
+        const addr = positionals[2] ?? die("usage: lightnode worker watch <address> [--interval 30] [--stale 90]");
+        const intervalSec = Number(flag("--interval") ?? "30");
+        const staleSecs = Number(flag("--stale") ?? "90");
+        const handle = workerWatch(ln, addr, { intervalMs: intervalSec * 1000, staleSecs });
+        process.on("SIGINT", () => {
+          handle.stop();
+          process.exit(0);
+        });
+        for await (const event of handle.events) {
+          console.log(JSON.stringify(event));
+        }
+        break;
+      }
+      if (sub === "preflight") {
+        const privateKey = pickKey();
+        const model = flag("--model") ?? "llama3-8b";
+        const deadlineMs = Number(flag("--deadline") ?? "60") * 1000;
+        console.error(`> preflight against ${net} (model=${model}, deadline=${deadlineMs / 1000}s)...`);
+        const r = await workerPreflight({ network: net, privateKey, model, deadlineMs });
+        const explorer = ln.network.explorer;
+        console.log(
+          JSON.stringify(
+            {
+              verdict: r.verdict,
+              elapsedSec: Math.round(r.elapsedMs / 100) / 10,
+              worker: r.worker,
+              summary: r.summary,
+              txs: {
+                createSession: r.txs.createSession ? `${explorer}/tx/${r.txs.createSession}` : null,
+                submitJob: r.txs.submitJob ? `${explorer}/tx/${r.txs.submitJob}` : null,
+                jobCompleted: r.txs.jobCompleted ? `${explorer}/tx/${r.txs.jobCompleted}` : null,
+              },
+              error: r.error,
+            },
+            null,
+            2,
+          ),
+        );
+        if (r.verdict === "failed" || r.verdict === "stalled") process.exit(1);
+        break;
+      }
+      // Default: one-shot worker summary by address.
+      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight> [...]");
       const [w, registered, jobs] = await Promise.all([ln.getWorker(addr), ln.isRegistered(addr), ln.getWorkerJobs(addr, 5)]);
       console.log(JSON.stringify({ onchainRegistered: registered, worker: w, recentJobs: jobs.map((j) => ({ id: j.id, state: j.state })) }, null, 2));
+      break;
+    }
+    case "job": {
+      const id = positionals[1] ?? die("usage: lightnode job <jobId> [--net testnet]");
+      const status = await ln.getJobStatus(id);
+      if (!status) {
+        console.log(JSON.stringify({ jobId: id, status: "not-indexed" }, null, 2));
+        break;
+      }
+      console.log(JSON.stringify(status, null, 2));
       break;
     }
     case "jobs": {
@@ -190,6 +259,51 @@ async function main() {
       } else {
         for (const w of workers) console.log(`${w.address}\t${w.total}j\t${rate(w.completionRate)}\tp50 ${w.p50 ?? "-"}s\tinc ${w.incomplete}\t${w.earnings.toFixed(3)} LCAI`);
       }
+      break;
+    }
+    case "bridge": {
+      const sub = positionals[1];
+      if (sub === "addresses") {
+        console.log(JSON.stringify(BRIDGE_ROUTE, null, 2));
+        break;
+      }
+      die("usage: lightnode bridge <addresses>");
+      break;
+    }
+    case "dao": {
+      const sub = positionals[1];
+      if (sub === "addresses") {
+        console.log(JSON.stringify(DAO_ADDRESSES.ethereum, null, 2));
+        break;
+      }
+      if (sub === "config") {
+        // Live read against Ethereum mainnet. We use viem's HTTP transport
+        // via a minimal inline client (no ethers dep). This is the only
+        // ecosystem read that needs a live RPC, so we wire it lazily.
+        const { createPublicClient, http } = await import("viem");
+        const ethRpc = flag("--rpc") ?? "https://eth.llamarpc.com";
+        const pub = createPublicClient({ transport: http(ethRpc) });
+        // The DAO ctor accepts a structurally-typed MinimalPublicClient; viem's
+        // PublicClient satisfies it. The unknown cast is the standard SDK pattern
+        // for keeping the public API free of viem generic noise.
+        const dao = new DAO(pub as unknown as ConstructorParameters<typeof DAO>[0], "ethereum");
+        const cfg = await dao.config();
+        console.log(
+          JSON.stringify(
+            {
+              votingDelayBlocks: cfg.votingDelayBlocks.toString(),
+              votingPeriodBlocks: cfg.votingPeriodBlocks.toString(),
+              votingPeriodSecs: cfg.votingPeriodSecs,
+              proposalThresholdLcai: Number(cfg.proposalThresholdWei) / 1e18,
+              addresses: dao.addresses,
+            },
+            null,
+            2,
+          ),
+        );
+        break;
+      }
+      die("usage: lightnode dao <addresses|config> [--rpc <ethereum-rpc>]");
       break;
     }
     case "add": {

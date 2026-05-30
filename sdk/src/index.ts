@@ -3,6 +3,7 @@ import {
   fetchWorker,
   fetchWorkerJobs,
   fetchRecentJobs,
+  fetchJob,
   fetchModels,
   fetchWorkers,
   summarize,
@@ -31,6 +32,36 @@ import {
   runInferenceWithKey,
   runInferenceStream,
 } from "./inference.js";
+import { Conversation, chat } from "./chat.js";
+import { preflight as workerPreflight, watch as workerWatch } from "./worker.js";
+import {
+  Bridge,
+  BRIDGE_ROUTE,
+  HYPERLANE_ROUTER_ABI,
+  ERC20_ABI,
+  addressToBytes32,
+  quoteBridgeFee,
+  bridgeableBalance,
+  bridgeAllowance,
+  approveBridge,
+  bridgeTransfer,
+} from "./bridge.js";
+import {
+  DAO,
+  DAO_ADDRESSES,
+  ProposalState,
+  PROPOSAL_STATE_LABEL,
+  VoteSupport,
+  GOVERNOR_ABI,
+  VOTES_ABI,
+} from "./dao.js";
+import {
+  OnchainModelRegistry,
+  AIVM_MODEL_REGISTRY_ABI,
+  BENCHMARK_REGISTRY_ABI,
+  ModelStatus,
+  MODEL_STATUS_LABEL,
+} from "./onchain-models.js";
 import {
   StalledWorkerError,
   OnChainRevertError,
@@ -130,6 +161,59 @@ export class LightNode {
     return w ? fromWei(w.total_earned) : 0;
   }
 
+  /**
+   * One job's current status, classified for builders deciding whether to
+   * retry / claim a refund / accept the answer. `category` is the
+   * builder-friendly label; `raw` is the indexer's literal state string.
+   * Null when the indexer has never seen the job (still pending propagation).
+   */
+  async getJobStatus(jobId: string | bigint): Promise<{
+    id: string;
+    raw: string;
+    category: "submitted" | "in-flight" | "completed" | "stalled" | "disputed" | "resolved" | "unknown";
+    worker: string | null;
+    model: string | null;
+    submittedAt: number | null;
+    completedAt: number | null;
+    workerShareLcai: number;
+    refundable: boolean;
+  } | null> {
+    const j = await fetchJob(this.network, jobId);
+    if (!j) return null;
+    const state = (j.state ?? "").trim();
+    const stateLow = state.toLowerCase();
+    const category =
+      /completed|released|paid/.test(stateLow)
+        ? ("completed" as const)
+        : /timed.?out|stalled|expired/.test(stateLow)
+          ? ("stalled" as const)
+          : /disputed/.test(stateLow)
+            ? ("disputed" as const)
+            : /resolved/.test(stateLow)
+              ? ("resolved" as const)
+              : /ack/.test(stateLow)
+                ? ("in-flight" as const)
+                : /submitted/.test(stateLow)
+                  ? ("submitted" as const)
+                  : ("unknown" as const);
+    // A refund is on the table when the worker accepted the job but never
+    // produced an answer within the protocol's dispute window. The protocol's
+    // own timeout/dispute pipeline reclaims the fee; this flag is the SDK's
+    // builder-facing hint that the on-chain refund call is the right path.
+    const refundable = category === "stalled" || category === "disputed";
+    return {
+      id: j.id,
+      raw: state,
+      category,
+      worker: j.worker ?? null,
+      model: j.model_id ?? null,
+      submittedAt: j.submitted_at ?? null,
+      completedAt: j.completed_at ?? null,
+      workerShareLcai: fromWei(j.worker_share),
+      refundable,
+    };
+  }
+
   /** keccak256 of a model tag (its on-chain + indexer id). */
   modelId(tag: string): `0x${string}` {
     return computeModelId(tag);
@@ -157,7 +241,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.4.9";
+export const SDK_VERSION = "0.5.0";
 
 export {
   NETWORKS,
@@ -189,6 +273,37 @@ export {
   runInferenceWithKey,
   // v0.4.9 AsyncIterable<string> wrapper around runInferenceWithKey.
   runInferenceStream,
+  // v0.5.0 multi-turn conversation helper (history client-side; one inference per turn).
+  Conversation,
+  chat,
+  // v0.5.0 worker preflight + watch (one real test inference + status polling).
+  workerPreflight,
+  workerWatch,
+  // v0.5.0 Bridge SDK (Hyperlane Warp Route wrapper for LCAI <-> Ethereum).
+  Bridge,
+  BRIDGE_ROUTE,
+  HYPERLANE_ROUTER_ABI,
+  ERC20_ABI,
+  addressToBytes32,
+  quoteBridgeFee,
+  bridgeableBalance,
+  bridgeAllowance,
+  approveBridge,
+  bridgeTransfer,
+  // v0.5.0 DAO SDK (LCAIGovernor wrapper on Ethereum mainnet).
+  DAO,
+  DAO_ADDRESSES,
+  ProposalState,
+  PROPOSAL_STATE_LABEL,
+  VoteSupport,
+  GOVERNOR_ABI,
+  VOTES_ABI,
+  // v0.5.0 On-chain model registry reader (AIVMModelRegistry + BenchmarkRegistry).
+  OnchainModelRegistry,
+  AIVM_MODEL_REGISTRY_ABI,
+  BENCHMARK_REGISTRY_ABI,
+  ModelStatus,
+  MODEL_STATUS_LABEL,
   StalledWorkerError,
   OnChainRevertError,
   RelayTokenTimeoutError,
@@ -197,4 +312,9 @@ export {
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
 export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult } from "./inference.js";
+export type { ChatRole, ChatMessage, ConversationOptions, ConversationSendResult } from "./chat.js";
+export type { WorkerPreflightArgs, WorkerPreflightResult, WorkerWatchOptions, WorkerEventKind, WorkerEvent, WorkerWatchHandle } from "./worker.js";
+export type { BridgeChain, BridgeEndpoints, BridgeTransferArgs } from "./bridge.js";
+export type { DaoChain, DaoAddresses, ProposalSummary, DaoConfig } from "./dao.js";
+export type { BaseModel, ModelVariant, AccessTier, AccessPolicy, Benchmark, OnchainModelRegistryOptions } from "./onchain-models.js";
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
