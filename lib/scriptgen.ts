@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-30.01";
+export const INSTALLER_REV = "2026-05-30.02";
 
 export interface ScriptBundle {
   os: OS;
@@ -1264,6 +1264,16 @@ export function preflightCommand(os: OS, network: NetworkId): string {
       // still-pending funding tx before failing. Skipped if no address has been
       // picked yet (the user can run preflight before generating a worker).
       `if ($env:WORKER_ADDR) { try { $body = '{"jsonrpc":"2.0","method":"eth_getBalance","params":["' + $env:WORKER_ADDR + '","latest"],"id":1}'; $r = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5; $hex = ($r.result -replace '^0x',''); if ($hex.Length -gt 0 -and -not $hex.StartsWith('0')) { $hex = '0' + $hex }; $bal = if ($hex) { [System.Numerics.BigInteger]::Parse($hex, [System.Globalization.NumberStyles]::HexNumber) } else { [System.Numerics.BigInteger]::Zero }; $lcai = [Math]::Round([double]([System.Numerics.BigInteger]::Divide($bal, [System.Numerics.BigInteger]::Pow(10, 15))) / 1000, 3); if ($bal -ge [System.Numerics.BigInteger]::Parse('${thrWei}')) { Write-Host "OK - worker wallet funded ($lcai LCAI)" } else { Write-Host "WARN - worker wallet at $($env:WORKER_ADDR) has only $lcai LCAI; install will wait up to 90s for funding to confirm" } } catch { Write-Host "WARN - could not read worker wallet balance (RPC probe failed)" } }`,
+      // Worker key / password sanity. If a keystore for THIS worker already exists
+      // on disk (a retry, or a "use a previous worker" flow), confirm at least one
+      // saved password slot decrypts it - so the install path's multi-password
+      // resolve will succeed instead of failing at register. Only a BLOCK when a
+      // keystore is on disk AND none of the saved passwords decrypt it.
+      `if (Get-Command cast -ErrorAction SilentlyContinue) { $ks = "$env:USERPROFILE\\lightchain-worker\\keys-${network}\\eth-keystore"; if (Test-Path $ks) { $ksFile = Get-ChildItem $ks -ErrorAction SilentlyContinue | Select-Object -First 1; if ($ksFile) { $okPw = $false; foreach ($pw in @($env:WORKER_PASSWORD, $env:WORKER_PASSWORD_ALT1, $env:WORKER_PASSWORD_ALT2, $env:WORKER_PASSWORD_ALT3)) { if (-not $pw) { continue }; & cast wallet decrypt-keystore $ksFile.Name --keystore-dir $ks --unsafe-password $pw *> $null; if ($LASTEXITCODE -eq 0) { $okPw = $true; break } }; if ($okPw) { Write-Host "OK - existing worker key decrypts with a saved password" } else { Write-Host "BLOCK - a worker key for this network exists on disk but none of the passwords the app has saved decrypts it. Re-enter the original password, or use Recover a replaced key on the dashboard."; $ok = $false } } } }`,
+      // Optional: when a raw key was passed to the app (fresh install path),
+      // confirm it derives to the WORKER_ADDR we are about to register. A
+      // mismatch here would silently sign the register tx with the wrong key.
+      `if (Get-Command cast -ErrorAction SilentlyContinue) { if ($env:WORKER_PRIVKEY -and $env:WORKER_ADDR) { try { $derived = (cast wallet address --private-key $env:WORKER_PRIVKEY 2>$null).Trim(); if ($derived -and ($derived.ToLower() -eq $env:WORKER_ADDR.ToLower())) { Write-Host "OK - worker key matches the target address" } else { Write-Host "BLOCK - the worker private key the app holds derives $derived, not $($env:WORKER_ADDR). Generate a new worker or recover the correct key before installing."; $ok = $false } } catch { } } }`,
       'if ($ok) { Write-Host "PASS - preflight passed, safe to install" } else { Write-Host "BLOCK - fix the items above before installing (your stake is only spent once install proceeds)" }',
     ].join("\n");
   }
@@ -1281,6 +1291,15 @@ export function preflightCommand(os: OS, network: NetworkId): string {
     // Informational worker-wallet balance line (never a BLOCK - install waits up
     // to 90s for a still-pending funding tx). Skipped if no address is picked yet.
     `if [ -n "\${WORKER_ADDR:-}" ]; then BH="$(curl -s -m 5 -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WORKER_ADDR"'","latest"],"id":1}' '${net.rpc}' | sed -nE 's/.*"result":"(0x[0-9a-fA-F]+)".*/\\1/p')"; PFL="$(python3 -c 'import sys; print(round(int(sys.argv[1] or "0x0", 16)/10**18, 3))' "\${BH:-0x0}" 2>/dev/null || echo 0)"; if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1] or "0x0", 16) >= int(sys.argv[2]) else 1)' "\${BH:-0x0}" '${thrWei}' 2>/dev/null; then echo "✓ worker wallet funded ($PFL LCAI)"; else echo "⚠ worker wallet at $WORKER_ADDR has only $PFL LCAI; install will wait up to 90s for funding to confirm"; fi; fi`,
+    // Worker key / password sanity. If a keystore for THIS network already exists
+    // (a retry, or a "use a previous worker" flow), confirm at least one saved
+    // password slot decrypts it - so the install path's multi-password resolve
+    // will succeed. Only a BLOCK when a keystore is on disk AND none decrypt.
+    `if command -v cast >/dev/null 2>&1; then KS="$HOME/lightchain-worker/keys-${network}/eth-keystore"; KSF="$(ls -1 "$KS" 2>/dev/null | head -1)"; if [ -n "$KSF" ]; then OK_PW=""; for PW in "\${WORKER_PASSWORD:-}" "\${WORKER_PASSWORD_ALT1:-}" "\${WORKER_PASSWORD_ALT2:-}" "\${WORKER_PASSWORD_ALT3:-}"; do [ -z "$PW" ] && continue; if cast wallet decrypt-keystore "$KSF" --keystore-dir "$KS" --unsafe-password "$PW" >/dev/null 2>&1; then OK_PW=1; break; fi; done; if [ -n "$OK_PW" ]; then echo "✓ existing worker key decrypts with a saved password"; else echo "⛔ a worker key for this network exists on disk but none of the passwords the app has saved decrypts it. Re-enter the original password, or use Recover a replaced key on the dashboard."; OK=0; fi; fi; fi`,
+    // Optional: when a raw key was passed (fresh install path), confirm it derives
+    // to the WORKER_ADDR we're about to register. A mismatch here would silently
+    // sign with the wrong key during install.
+    `if command -v cast >/dev/null 2>&1; then if [ -n "\${WORKER_PRIVKEY:-}" ] && [ -n "\${WORKER_ADDR:-}" ]; then DERIVED="$(cast wallet address --private-key "$WORKER_PRIVKEY" 2>/dev/null)"; if [ -n "$DERIVED" ] && [ "$(printf %s "$DERIVED" | tr A-Z a-z)" = "$(printf %s "$WORKER_ADDR" | tr A-Z a-z)" ]; then echo "✓ worker key matches the target address"; else echo "⛔ the worker private key the app holds derives $DERIVED, not $WORKER_ADDR. Generate a new worker or recover the correct key before installing."; OK=0; fi; fi; fi`,
     '[ "$OK" = "1" ] && echo "✅ preflight passed - safe to install" || echo "⛔ preflight found blockers above - fix them before installing (your stake is only spent once install proceeds)"',
   ].join("\n");
 }

@@ -681,12 +681,30 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
   const runPreflight = async () => {
     setPfBusy(true);
     setPfLog([]);
+    // Pass the same secret env preflight needs to check what install would do:
+    //  - WORKER_ADDR for the balance / key-match check (empty = skip),
+    //  - WORKER_PASSWORD + WORKER_PASSWORD_ALT* for the keystore-decrypt check,
+    //  - WORKER_PRIVKEY (optional) for the privkey -> address match check.
+    // All values stay in this process's env, exactly like the install call.
+    const pwVal = pw || (await getSecret(SECRET_WORKER_PW, network));
+    const k = await getSecret(SECRET_WORKER_KEY, network);
+    const candidates = await getKeystorePasswordCandidates(network);
+    const altSlots: Record<string, string> = {};
+    let altI = 0;
+    for (const cand of candidates) {
+      if (cand === pwVal) continue;
+      altI += 1;
+      if (altI > 3) break;
+      altSlots[`WORKER_PASSWORD_ALT${altI}`] = cand;
+    }
     await runSetupStreamed(
       preflightCommand(os, network),
-      // The script reads $WORKER_ADDR to print an informational balance line
-      // when a worker has been picked. Empty value means "skip that check"
-      // (the user can run preflight before generating a worker address).
-      { WORKER_ADDR: target ?? "" },
+      {
+        WORKER_ADDR: target ?? "",
+        ...(pwVal ? { WORKER_PASSWORD: pwVal } : {}),
+        ...(k ? { WORKER_PRIVKEY: k } : {}),
+        ...altSlots,
+      },
       (line) => setPfLog((l) => [...l, line]),
       () => setPfBusy(false),
     );
