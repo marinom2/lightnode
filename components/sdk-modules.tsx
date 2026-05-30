@@ -64,7 +64,7 @@ const MODULES: ModuleDef[] = [
     icon: Coins,
     title: "Bridge SDK",
     blurb:
-      "Typed wrapper around the LightChain Hyperlane Warp Route. Quote, approve, transfer LCAI between Ethereum and LightChain mainnet (both directions).",
+      "Top up a server wallet, let users pay in ETH, or move earnings back. Typed wrapper around the LightChain Hyperlane Warp Route - quote, approve, transfer LCAI both directions. Pair it with a Uniswap swap for a complete ETH-to-native-LCAI flow.",
     npm: "#bridge-sdk-new-in-050",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/bridge.ts",
     example: "https://github.com/marinom2/lightnode-examples/tree/main/bridge-transfer",
@@ -378,13 +378,106 @@ function BridgeLive() {
           </tbody>
         </table>
       </div>
-      <Button asChild size="sm" variant="outline" className="w-full">
-        <a href="https://bridge.lightchain.ai" target="_blank" rel="noopener noreferrer">
-          Open the bridge UI <ExternalLink />
-        </a>
-      </Button>
+      {/* Purpose + USD/ETH-to-LCAI recipe */}
+      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+        <div className="mb-2 flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-content-soft">Why builders use this</span>
+        </div>
+        <ul className="space-y-1.5 text-[11px] leading-relaxed text-content-default">
+          <li className="flex items-start gap-2">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+            <span>Top up your server-side LCAI wallet from Ethereum so it can pay for inference jobs.</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+            <span>Let users pay in ETH (via Uniswap swap to LCAI ERC-20, then bridge) without holding LCAI first.</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+            <span>Move earnings off LightChain into ETH/USDC by bridging LCAI back to Ethereum and swapping.</span>
+          </li>
+        </ul>
+      </div>
+
+      {/* ETH -> LCAI orchestration: swap then bridge */}
+      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wide text-content-soft">
+          Full recipe: ETH on Ethereum &rarr; native LCAI on LightChain
+        </div>
+        <ol className="mb-3 space-y-1.5 text-[11px] leading-relaxed text-content-default">
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">1</span>
+            <span>
+              Swap ETH for LCAI ERC-20 on Uniswap (
+              <a
+                href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                deep link
+              </a>
+              ).
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">2</span>
+            <span>
+              <code className="font-mono text-content-default">bridge.approve()</code> the HypERC20Collateral (one-time, MaxUint256).
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">3</span>
+            <span>
+              <code className="font-mono text-content-default">bridge.transfer({"{ from: 'ethereum', to: 'lightchain-mainnet', amount, recipient }"})</code>. Hyperlane relays in ~30 to 60 minutes.
+            </span>
+          </li>
+        </ol>
+        <CopyButtonRow code={`// 1. Swap ETH -> LCAI ERC-20 on Uniswap (do this in the user's wallet)
+// 2. Approve + transferRemote on this side
+import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
+import { createPublicClient, createWalletClient, http, parseEther } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.PRIVATE_KEY!);
+const ethPub = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+const ethWal = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+
+const bridge = new Bridge(ethPub, ethWal);
+const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet");  // 0 ETH (pre-paid IGP)
+await bridge.approve();                                               // one-time approval
+await bridge.transfer({
+  from: "ethereum",
+  to: "lightchain-mainnet",
+  amount: parseEther("100"),
+  recipient: account.address,
+  fee,
+});
+// Hyperlane relay delivers native LCAI on chain 9200 within ~30-60 min.`} />
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button asChild size="sm" variant="outline" className="w-full">
+          <a
+            href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Uniswap (ETH to LCAI) <ExternalLink />
+          </a>
+        </Button>
+        <Button asChild size="sm" className="w-full">
+          <a href="https://bridge.lightchain.ai" target="_blank" rel="noopener noreferrer">
+            Open the bridge UI <ExternalLink />
+          </a>
+        </Button>
+      </div>
     </div>
   );
+}
+
+function CopyButtonRow({ code }: { code: string }) {
+  return <CodeBox code={code} />;
 }
 
 // --- DAO live widget -------------------------------------------------------
@@ -548,19 +641,129 @@ function PreflightSample() {
   );
 }
 
+interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface ChatDemoResponse {
+  answer?: string;
+  jobId?: string;
+  worker?: string;
+  remaining?: number;
+  error?: string;
+  runLocally?: boolean;
+  howTo?: string;
+}
+
 function ChatSample() {
+  const [history, setHistory] = useState<ChatTurn[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [howTo, setHowTo] = useState<string | null>(null);
+
+  async function send() {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setErr(null);
+    setHowTo(null);
+    const next: ChatTurn = { role: "user", content: text };
+    const newHistory = [...history, next];
+    setHistory(newHistory);
+    setDraft("");
+    try {
+      const res = await fetch("/api/chat-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: text, history }),
+      });
+      const json = (await res.json()) as ChatDemoResponse;
+      if (!res.ok || !json.answer) {
+        setErr(json.error ?? `Demo failed (${res.status})`);
+        if (json.howTo) setHowTo(json.howTo);
+        // Rewind the user turn since the assistant never answered.
+        setHistory(history);
+        return;
+      }
+      setHistory((h) => [...h, { role: "assistant", content: json.answer ?? "" }]);
+    } catch (e) {
+      setErr((e as Error).message ?? "request failed");
+      setHistory(history);
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <p className="text-[11px] text-content-soft">
-        Multi-turn chat costs ~0.022 LCAI per turn on mainnet (free on testnet) so it needs your wallet. The runnable
-        example is one command away:
+        Type a message. The server fires one real encrypted testnet inference per turn (free LCAI from the faucet),
+        rate-limited to 3 per hour per IP so the demo stays available. For your own keys + mainnet, use the runnable
+        example.
       </p>
-      <CodeBox
-        code={`git clone https://github.com/marinom2/lightnode-examples
-cd lightnode-examples/multi-turn-chat
-npm install
-PRIVATE_KEY=0x... npm start`}
-      />
+
+      {history.length > 0 ? (
+        <div className="max-h-[260px] space-y-2 overflow-y-auto rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+          {history.map((m, i) => (
+            <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+              <div
+                className={cn(
+                  "max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed",
+                  m.role === "user" ? "bg-primary/15 text-content-primary" : "bg-card text-content-default",
+                )}
+              >
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {sending ? (
+            <div className="flex justify-start">
+              <div className="rounded-2xl bg-card px-3 py-2">
+                <Loader2 className="size-3.5 animate-spin text-content-soft" />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="flex items-end gap-2">
+        <textarea
+          rows={2}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          placeholder="Try: Reply with a one-sentence fun fact."
+          className="flex-1 resize-none rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 text-xs text-content-primary outline-none transition-colors focus:border-primary/60"
+        />
+        <Button size="sm" onClick={() => void send()} disabled={!draft.trim() || sending}>
+          {sending ? <Loader2 className="animate-spin" /> : <ArrowRight />}
+          Send
+        </Button>
+      </div>
+
+      {err ? (
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-content-default">
+          {err}
+        </p>
+      ) : null}
+      {howTo ? <CodeBox code={howTo} /> : null}
+
+      {history.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setHistory([])}
+          className="text-[11px] text-content-soft hover:text-content-primary"
+        >
+          Clear conversation
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -579,12 +782,54 @@ function DisputeSample() {
 
 function ModelsExplainer() {
   return (
-    <p className="text-[11px] text-content-soft">
-      LightChain hasn&apos;t published a public mainnet/testnet deployment address for{" "}
-      <code className="font-mono text-content-default">AIVMModelRegistry</code> yet. The SDK ships the full typed ABI;
-      you supply the address. Once LightChain publishes one we&apos;ll bake it in. The source above has the wrapper +
-      every method signature.
-    </p>
+    <div className="space-y-2 text-[11px] leading-relaxed text-content-soft">
+      <p>
+        LightChain hasn&apos;t published a public mainnet/testnet deployment for{" "}
+        <code className="font-mono text-content-default">AIVMModelRegistry</code> or{" "}
+        <code className="font-mono text-content-default">BenchmarkRegistry</code>. The SDK ships the full typed ABI;
+        you supply the deployment address when you have one.
+      </p>
+      <p>
+        Related AIVM contracts that <span className="text-content-default">are</span> on chain (testnet 8200, deployed
+        by the LightChallenge project):
+      </p>
+      <ul className="space-y-1">
+        <li className="flex items-start gap-2">
+          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+          <span>
+            <code className="font-mono text-content-default">AIVMInferenceV2</code>{" "}
+            <a
+              href="https://testnet.lightscan.app/address/0x2d499C52312ca8F0AD3B7A53248113941650bA7E"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-primary hover:underline"
+            >
+              0x2d499C5...50bA7E
+            </a>{" "}
+            (inference, commits, PoI flow).
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+          <span>
+            <code className="font-mono text-content-default">LCAIValidatorRegistry</code>{" "}
+            <a
+              href="https://testnet.lightscan.app/address/0x79C3473d3249fb3a70E2D3e386e9C45abE62752D"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-primary hover:underline"
+            >
+              0x79C3473d...62752D
+            </a>{" "}
+            (validator stake + PoI attestations).
+          </span>
+        </li>
+      </ul>
+      <p className="pt-1">
+        These don&apos;t expose model-list reads (different contract surface), but they&apos;re what&apos;s reachable
+        today if you want to call the AIVM directly.
+      </p>
+    </div>
   );
 }
 

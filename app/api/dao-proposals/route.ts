@@ -10,7 +10,7 @@
  * by default to keep RPC pressure low.
  */
 import { NextResponse } from "next/server";
-import { createPublicClient, http, parseAbi, parseAbiItem } from "viem";
+import { createPublicClient, http, parseAbiItem } from "viem";
 import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, type ProposalState } from "lightnode-sdk";
 
 export const dynamic = "force-dynamic";
@@ -94,7 +94,7 @@ export async function GET() {
     const { pub, events } = await findEventsAcrossRpcs(addresses);
     // Newest first; cap at 6 to keep the per-card RPC pressure modest.
     const recent = events.slice().reverse().slice(0, 6);
-    const abi = parseAbi(GOVERNOR_ABI as unknown as readonly string[]);
+    const abi = GOVERNOR_ABI;
     const proposals = await Promise.all(
       recent.map(async (log) => {
         const args = (log as unknown as { args: { proposalId: bigint; description: string; proposer: `0x${string}`; voteStart: bigint; voteEnd: bigint } }).args;
@@ -155,7 +155,7 @@ export async function POST(req: Request) {
       }
     }
     if (!pub) throw new Error("no Ethereum RPC reachable");
-    const abi = parseAbi(GOVERNOR_ABI as unknown as readonly string[]);
+    const abi = GOVERNOR_ABI;
     const id = BigInt(body.id);
     const [stateRaw, votes, snapshot, deadline, proposer] = (await Promise.all([
       pub.readContract({ address: addresses.governor, abi, functionName: "state", args: [id] }).catch(() => -1),
