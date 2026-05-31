@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.06";
+export const INSTALLER_REV = "2026-05-31.07";
 
 export interface ScriptBundle {
   os: OS;
@@ -299,12 +299,15 @@ if [ "$OS" = "Linux" ]; then
     echo "✓ Ollama is reachable from the worker container (0.0.0.0)"
   elif systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
     echo "▶ allowing the worker container to reach Ollama (binding it to 0.0.0.0)"
-    if sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null && printf '[Service]\\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\\nEnvironment="OLLAMA_KEEP_ALIVE=-1"\\n' | sudo tee /etc/systemd/system/ollama.service.d/lightnode.conf >/dev/null 2>&1; then
-      sudo systemctl daemon-reload 2>/dev/null; sudo systemctl restart ollama 2>/dev/null
+    # Editing the system ollama.service needs root. Try, in order: passwordless
+    # sudo (silent), pkexec (a GRAPHICAL admin prompt - works from the GUI app
+    # where there is no terminal for sudo), then sudo (prompts on a real terminal).
+    OLLPRIV='mkdir -p /etc/systemd/system/ollama.service.d && printf "[Service]\\nEnvironment=\\"OLLAMA_HOST=0.0.0.0:11434\\"\\nEnvironment=\\"OLLAMA_KEEP_ALIVE=-1\\"\\n" > /etc/systemd/system/ollama.service.d/lightnode.conf && systemctl daemon-reload && systemctl restart ollama'
+    if sudo -n sh -c "$OLLPRIV" 2>/dev/null || { command -v pkexec >/dev/null 2>&1 && pkexec sh -c "$OLLPRIV" 2>/dev/null; } || sudo sh -c "$OLLPRIV" 2>/dev/null; then
       for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
       echo "✓ Ollama now listening on 0.0.0.0:11434 - the worker container can reach it"
     else
-      echo "⚠ Ollama only listens on 127.0.0.1, so the Dockerized worker can't reach it and jobs will fail at inference. Run the LightNode installer from a terminal (so it can use sudo), or set OLLAMA_HOST=0.0.0.0 on the ollama service and restart it."
+      echo "⚠ Ollama only listens on 127.0.0.1, so the Dockerized worker can't reach it and jobs will fail at inference. Approve the admin prompt if one appears, or run once in a terminal: sudo mkdir -p /etc/systemd/system/ollama.service.d && printf '[Service]\\nEnvironment=\"OLLAMA_HOST=0.0.0.0:11434\"\\n' | sudo tee /etc/systemd/system/ollama.service.d/lightnode.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama"
     fi
   else
     echo "▶ restarting Ollama bound to 0.0.0.0 so the worker container can reach it"
