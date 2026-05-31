@@ -19,7 +19,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HideOnDesktop } from "@/components/hide-on-desktop";
 import { SectionHeader } from "@/components/build/section-header";
-import { BuildTabs } from "@/components/build/build-tabs";
 
 const EXAMPLES_REPO = "marinom2/lightnode-examples";
 const STACKBLITZ_URL = `https://stackblitz.com/github/${EXAMPLES_REPO}/tree/main/quickstart-inference`;
@@ -77,8 +76,6 @@ const ROUTES = [
 export default function BuildHubPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <BuildTabs />
-
       {/* ── HERO ─────────────────────────────────────────────────────── */}
       <div className="mb-10">
         <Badge tone="brand" className="mb-4">For builders</Badge>

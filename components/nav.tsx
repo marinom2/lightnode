@@ -65,9 +65,13 @@ function DesktopDropdown({
   item: NavItem;
   active: boolean;
 }) {
+  // Hover-to-open with a short close delay (so the cursor can travel across
+  // the small gap between the trigger and the panel without dismissing).
+  // Click still works as a fallback for keyboard / touch.
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setOpen(false);
@@ -89,8 +93,27 @@ function DesktopDropdown({
     };
   }, [open]);
 
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpen(false), 120);
+  };
+
   return (
-    <div ref={rootRef} className="relative">
+    <div
+      ref={rootRef}
+      className="relative"
+      onMouseEnter={() => {
+        cancelClose();
+        setOpen(true);
+      }}
+      onMouseLeave={scheduleClose}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

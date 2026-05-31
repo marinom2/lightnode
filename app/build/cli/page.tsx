@@ -1,7 +1,6 @@
 import { AlertOctagon, FileText, TerminalSquare, Wallet2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { SectionHeader } from "@/components/build/section-header";
-import { BuildTabs } from "@/components/build/build-tabs";
 import { CliRunner } from "@/components/cli-runner";
 
 export const metadata = {
@@ -21,8 +20,6 @@ const CLI_ADD = [
 export default function BuildCliPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <BuildTabs />
-
       <div className="mb-8">
         <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
           lightnode CLI

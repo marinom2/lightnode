@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SectionHeader } from "@/components/build/section-header";
-import { BuildTabs } from "@/components/build/build-tabs";
 
 export const metadata = {
   title: "Reference - Build with LightChain AI",
@@ -106,8 +105,6 @@ const LCAI_IDE_URL = "https://github.com/lightchain-protocol/lcai-ide";
 export default function BuildReferencePage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <BuildTabs />
-
       <div className="mb-8">
         <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
           Reference

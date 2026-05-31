@@ -3,7 +3,6 @@ import { LightNode } from "lightnode-sdk";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/build/section-header";
-import { BuildTabs } from "@/components/build/build-tabs";
 
 export const revalidate = 60;
 
@@ -196,8 +195,6 @@ export default async function BuildNetworkPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <BuildTabs />
-
       <div className="mb-8">
         <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
           Live network
