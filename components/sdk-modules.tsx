@@ -23,6 +23,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  ArrowLeftRight,
   ArrowRight,
   Boxes,
   Check,
@@ -469,98 +470,118 @@ function BridgeLive() {
       </>
     );
   };
+  // Quick-glance summary of the two live quotes (used inside the collapsed details).
+  const quoteSummary = (q: DirQuote, unit: "ETH" | "LCAI") => {
+    if (!q.ok) return <span className="text-warning">unavailable</span>;
+    const v = unit === "ETH" ? q.feeEth ?? 0 : q.feeLcai ?? 0;
+    return <span className="font-mono text-content-default">{v === 0 ? `0 ${unit}` : `${v.toFixed(6)} ${unit}`}</span>;
+  };
   return (
-    <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">Ethereum {"->"} LightChain</div>
-          {renderQuote(ethToLc, "ETH")}
-        </div>
-        <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">LightChain {"->"} Ethereum</div>
-          {renderQuote(lcToEth, "LCAI")}
-        </div>
-      </div>
-      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-        <div className="mb-2 text-[10px] uppercase tracking-wide text-content-soft">Confirmed route addresses</div>
-        <table className="w-full text-[11px]">
-          <thead className="text-content-soft">
-            <tr>
-              <th className="pb-1 text-left font-medium">Side</th>
-              <th className="pb-1 text-left font-medium">Router</th>
-              <th className="pb-1 text-left font-medium">Underlying</th>
-            </tr>
-          </thead>
-          <tbody className="font-mono text-content-default">
-            <tr>
-              <td className="pr-2 text-content-soft">Ethereum</td>
-              <td>
-                <a href={`${data.route.ethereum.explorer}/address/${data.route.ethereum.router}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                  {data.route.ethereum.router.slice(0, 8)}…{data.route.ethereum.router.slice(-6)}
-                </a>
-              </td>
-              <td>
-                {data.route.ethereum.underlying ? (
-                  <a href={`${data.route.ethereum.explorer}/address/${data.route.ethereum.underlying}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                    {data.route.ethereum.underlying.slice(0, 8)}…{data.route.ethereum.underlying.slice(-6)}
-                  </a>
-                ) : (
-                  "(native)"
-                )}
-              </td>
-            </tr>
-            <tr>
-              <td className="pr-2 text-content-soft">LightChain</td>
-              <td>
-                <a href={`${data.route["lightchain-mainnet"].explorer}/address/${data.route["lightchain-mainnet"].router}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                  {data.route["lightchain-mainnet"].router.slice(0, 8)}…{data.route["lightchain-mainnet"].router.slice(-6)}
-                </a>
-              </td>
-              <td className="text-content-soft">(native LCAI)</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      {/* Purpose + USD/ETH-to-LCAI recipe */}
-      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-        <div className="mb-2 flex items-center gap-1.5">
-          <span className="text-[10px] uppercase tracking-wide text-content-soft">Why builders use this</span>
-        </div>
-        <ul className="space-y-1.5 text-[11px] leading-relaxed text-content-default">
-          <li className="flex items-start gap-2">
-            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
-            <span>Top up your server-side LCAI wallet from Ethereum so it can pay for inference jobs.</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
-            <span>Let users pay in ETH (via Uniswap swap to LCAI ERC-20, then bridge) without holding LCAI first.</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
-            <span>Move earnings off LightChain into ETH/USDC by bridging LCAI back to Ethereum and swapping.</span>
-          </li>
-        </ul>
-      </div>
-
-      {/* Interactive recipe + project wiring */}
+    <div className="space-y-4">
+      {/* The new bridge form is the main thing the visitor sees. */}
       <BridgeRecipe />
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Button asChild size="sm" variant="outline" className="w-full">
-          <a
-            href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Uniswap (ETH to LCAI) <ExternalLink />
-          </a>
-        </Button>
-        <Button asChild size="sm" className="w-full">
-          <a href="https://bridge.lightchain.ai" target="_blank" rel="noopener noreferrer">
-            Open the bridge UI <ExternalLink />
-          </a>
-        </Button>
-      </div>
+      {/* Everything below this is reference material - collapsed by default. */}
+      <details className="rounded-2xl border border-bdr-soft bg-surface-base-faint">
+        <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-xs font-semibold text-content-primary">
+          <span>Route details + why builders use this</span>
+          <ChevronDown className="ml-auto size-3.5 text-content-soft transition-transform [details[open]>summary>&]:rotate-180" />
+        </summary>
+        <div className="space-y-3 border-t border-bdr-soft px-4 py-3 text-xs">
+          {/* Live IGP fee quotes both directions - compact one-liners now */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-bdr-soft bg-card/40 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-content-soft">Ethereum {"->"} LightChain IGP fee</div>
+              <div className="mt-0.5">{quoteSummary(ethToLc, "ETH")}</div>
+            </div>
+            <div className="rounded-lg border border-bdr-soft bg-card/40 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-content-soft">LightChain {"->"} Ethereum IGP fee</div>
+              <div className="mt-0.5">{quoteSummary(lcToEth, "LCAI")}</div>
+            </div>
+          </div>
+
+          {/* Confirmed route addresses table */}
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">Confirmed route addresses</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead className="text-content-soft">
+                  <tr>
+                    <th className="pb-1 text-left font-medium">Side</th>
+                    <th className="pb-1 text-left font-medium">Router</th>
+                    <th className="pb-1 text-left font-medium">Underlying</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono text-content-default">
+                  <tr>
+                    <td className="pr-2 text-content-soft">Ethereum</td>
+                    <td>
+                      <a href={`${data.route.ethereum.explorer}/address/${data.route.ethereum.router}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        {data.route.ethereum.router.slice(0, 8)}…{data.route.ethereum.router.slice(-6)}
+                      </a>
+                    </td>
+                    <td>
+                      {data.route.ethereum.underlying ? (
+                        <a href={`${data.route.ethereum.explorer}/address/${data.route.ethereum.underlying}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                          {data.route.ethereum.underlying.slice(0, 8)}…{data.route.ethereum.underlying.slice(-6)}
+                        </a>
+                      ) : (
+                        "(native)"
+                      )}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="pr-2 text-content-soft">LightChain</td>
+                    <td>
+                      <a href={`${data.route["lightchain-mainnet"].explorer}/address/${data.route["lightchain-mainnet"].router}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        {data.route["lightchain-mainnet"].router.slice(0, 8)}…{data.route["lightchain-mainnet"].router.slice(-6)}
+                      </a>
+                    </td>
+                    <td className="text-content-soft">(native LCAI)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Why builders use this */}
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-content-soft">Why builders use this</div>
+            <ul className="space-y-1 text-[11px] leading-relaxed text-content-default">
+              <li className="flex items-start gap-2">
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+                <span>Top up your server-side LCAI wallet from Ethereum so it can pay for inference jobs.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+                <span>Let users pay in ETH (via Uniswap swap to LCAI ERC-20, then bridge) without holding LCAI first.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
+                <span>Move earnings off LightChain into ETH/USDC by bridging LCAI back to Ethereum and swapping.</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Two external alternatives - smaller now */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button asChild size="sm" variant="outline" className="w-full">
+              <a
+                href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Uniswap (ETH to LCAI) <ExternalLink />
+              </a>
+            </Button>
+            <Button asChild size="sm" variant="outline" className="w-full">
+              <a href="https://bridge.lightchain.ai" target="_blank" rel="noopener noreferrer">
+                Official LCAI Bridge <ExternalLink />
+              </a>
+            </Button>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
@@ -595,8 +616,20 @@ interface BridgeSnippet {
   fileHint: string;
 }
 
-function bridgeSnippet(tmpl: BridgeTemplate, amount: string): BridgeSnippet {
+function bridgeSnippet(tmpl: BridgeTemplate, amount: string, direction: BridgeDirection = "eth-to-lc"): BridgeSnippet {
   const safe = amount.trim() || "100";
+  const ethToLc = direction === "eth-to-lc";
+  // Source/destination chain keys + viem helpers driven by direction so the
+  // snippet matches whatever the visitor selected in the form above.
+  const fromKey = ethToLc ? "ethereum" : "lightchain-mainnet";
+  const toKey = ethToLc ? "lightchain-mainnet" : "ethereum";
+  const srcRouteVar = ethToLc ? "BRIDGE_ROUTE.ethereum" : "BRIDGE_ROUTE['lightchain-mainnet']";
+  const srcPubVar = ethToLc ? "ethPub" : "lcPub";
+  const srcWalVar = ethToLc ? "ethWal" : "lcWal";
+  const arrivesNote = ethToLc ? "Hyperlane delivers native LCAI on chain 9200 in ~30 to 60 min."
+                              : "Hyperlane delivers LCAI ERC-20 to your address on Ethereum in ~30 to 60 min.";
+  const approveNote = ethToLc ? "// one-time (only required on the ERC-20 side)" : "// no-op on native side";
+
   if (tmpl === "nextjs") {
     return {
       file: "app/api/bridge/route.ts",
@@ -607,17 +640,17 @@ import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
-const ethPub  = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
-const ethWal  = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
-const bridge  = new Bridge(ethPub, ethWal);
+const ${srcPubVar} = createPublicClient({ transport: http(${srcRouteVar}.rpc) });
+const ${srcWalVar} = createWalletClient({ account, transport: http(${srcRouteVar}.rpc) });
+const bridge      = new Bridge(${srcPubVar}, ${srcWalVar});
 
 export async function POST(req: Request) {
   const { amount = "${safe}", recipient } = await req.json();
-  const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet");
-  await bridge.approve();
+  const fee = await bridge.quoteFee("${fromKey}", "${toKey}");
+  await bridge.approve(); ${approveNote}
   const result = await bridge.transfer({
-    from: "ethereum",
-    to:   "lightchain-mainnet",
+    from: "${fromKey}",
+    to:   "${toKey}",
     amount: parseEther(String(amount)),
     recipient,
     fee,
@@ -627,16 +660,17 @@ export async function POST(req: Request) {
       setup: `# In your existing Next.js project:
 npm install lightnode-sdk viem
 
-# Add PRIVATE_KEY to .env.local (a server-only key holding LCAI ERC-20 on Ethereum):
+# Add PRIVATE_KEY to .env.local (a server key holding ${ethToLc ? "LCAI ERC-20 on Ethereum" : "native LCAI on LightChain"}):
 echo 'PRIVATE_KEY=0xYOUR_KEY_HERE' >> .env.local
 
 # Restart your dev server, then call the route:
 curl -X POST http://localhost:3000/api/bridge \\
   -H 'content-type: application/json' \\
-  -d '{"amount":"${safe}","recipient":"0xLIGHTCHAIN_RECIPIENT"}'`,
+  -d '{"amount":"${safe}","recipient":"0x${ethToLc ? "LIGHTCHAIN" : "ETHEREUM"}_RECIPIENT"}'`,
     };
   }
   if (tmpl === "react") {
+    const chainIdLit = ethToLc ? 1 : 9200;
     return {
       file: "components/BridgeButton.tsx",
       fileHint: "Save in your React/Next.js project at components/BridgeButton.tsx",
@@ -648,29 +682,30 @@ import { parseEther } from "viem";
 
 export function BridgeButton({ amount = "${safe}" }: { amount?: string }) {
   const { address } = useAccount();
-  const ethPub = usePublicClient({ chainId: 1 });
-  const { data: ethWal } = useWalletClient({ chainId: 1 });
+  const srcPub = usePublicClient({ chainId: ${chainIdLit} });
+  const { data: srcWal } = useWalletClient({ chainId: ${chainIdLit} });
 
   async function run() {
-    if (!ethPub || !ethWal || !address) return;
-    const bridge = new Bridge(ethPub, ethWal);
-    const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet");
-    await bridge.approve();
+    if (!srcPub || !srcWal || !address) return;
+    const bridge = new Bridge(srcPub, srcWal);
+    const fee = await bridge.quoteFee("${fromKey}", "${toKey}");
+    await bridge.approve(); ${approveNote}
     await bridge.transfer({
-      from: "ethereum",
-      to:   "lightchain-mainnet",
+      from: "${fromKey}",
+      to:   "${toKey}",
       amount: parseEther(amount),
       recipient: address,
       fee,
     });
   }
-  return <button onClick={run}>Bridge {amount} LCAI</button>;
+  return <button onClick={run}>Bridge {amount} LCAI ${ethToLc ? "to LightChain" : "to Ethereum"}</button>;
 }`,
       setup: `# Assumes you already have wagmi + Reown / RainbowKit / Web3Modal set up.
 # (If not, see /onboard for the worker UI which shows the same wallet integration.)
 npm install lightnode-sdk
 
-# Import the component anywhere in your app:
+# Make sure the user is on ${ethToLc ? "Ethereum mainnet (chainId 1)" : "LightChain mainnet (chainId 9200)"} when they click the button.
+# Drop the component anywhere in your app:
 # import { BridgeButton } from "@/components/BridgeButton";
 # <BridgeButton amount="${safe}" />`,
     };
@@ -679,26 +714,26 @@ npm install lightnode-sdk
   return {
     file: "bridge.ts",
     fileHint: "This is TypeScript - save it as bridge.ts in a folder, then run it with Node",
-    body: `// One-shot Node script. The 3 setup commands are below this snippet.
+    body: `// One-shot Node script. The setup commands are below this snippet.
 import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
-const ethPub  = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
-const ethWal  = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+const ${srcPubVar} = createPublicClient({ transport: http(${srcRouteVar}.rpc) });
+const ${srcWalVar} = createWalletClient({ account, transport: http(${srcRouteVar}.rpc) });
 
-const bridge = new Bridge(ethPub, ethWal);
-const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet"); // 0 ETH (pre-paid IGP)
-await bridge.approve();                                              // one-time
+const bridge = new Bridge(${srcPubVar}, ${srcWalVar});
+const fee = await bridge.quoteFee("${fromKey}", "${toKey}"); // ${ethToLc ? "0 ETH" : "0 LCAI"} (pre-paid IGP)
+await bridge.approve(); ${approveNote}
 await bridge.transfer({
-  from: "ethereum",
-  to:   "lightchain-mainnet",
+  from: "${fromKey}",
+  to:   "${toKey}",
   amount:    parseEther("${safe}"),
   recipient: account.address,
   fee,
 });
-console.log("Bridged. Hyperlane delivers native LCAI on chain 9200 in ~30 to 60 min.");`,
+console.log("Bridged. ${arrivesNote}");`,
     setup: `# 1. Create a folder + install deps:
 mkdir my-bridge && cd my-bridge
 npm init -y
@@ -706,8 +741,8 @@ npm install lightnode-sdk viem tsx
 
 # 2. Save the snippet above as bridge.ts in this folder.
 
-# 3. Put your funded Ethereum private key in .env (this key must already
-#    hold LCAI ERC-20 on Ethereum - get some from Uniswap first):
+# 3. Put your funded ${ethToLc ? "Ethereum" : "LightChain"} private key in .env (this key must already
+#    hold ${ethToLc ? "LCAI ERC-20 on Ethereum - swap ETH on Uniswap first" : "native LCAI on LightChain"}):
 echo 'PRIVATE_KEY=0xYOUR_KEY_HERE' > .env
 
 # 4. Run it:
@@ -947,7 +982,7 @@ function BridgeRecipe() {
   const [preview, setPreview] = useState<BridgePreviewResp | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const numericAmt = Number(amount) || 0;
-  const snippet = bridgeSnippet(tmpl, amount);
+  const snippet = bridgeSnippet(tmpl, amount, direction);
 
   async function runPreview() {
     setBusy(true);
@@ -979,83 +1014,139 @@ function BridgeRecipe() {
     }
   }
 
+  const fromChain = direction === "eth-to-lc"
+    ? { label: "Ethereum", sub: "LCAI ERC-20", color: "from-sky-500 to-indigo-500" }
+    : { label: "LightChain", sub: "native LCAI", color: "from-fuchsia-500 to-violet-500" };
+  const toChain = direction === "eth-to-lc"
+    ? { label: "LightChain", sub: "native LCAI", color: "from-fuchsia-500 to-violet-500" }
+    : { label: "Ethereum", sub: "LCAI ERC-20", color: "from-sky-500 to-indigo-500" };
+  const swapDirection = () => setDirection((d) => (d === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc"));
+  const feeShort = direction === "eth-to-lc" ? "0 ETH" : "0 LCAI";
+  const sourceGas = direction === "eth-to-lc" ? "~$0.50-2 in ETH" : "<0.01 LCAI";
+
   return (
-    <div className="space-y-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-      <div className="flex items-center gap-2">
-        <Badge tone="brand">interactive</Badge>
-        <span className="text-sm font-semibold text-content-primary">Run a bridge preview</span>
-        <span className="ml-auto text-[10px] uppercase tracking-wide text-content-soft">no spend, dry run</span>
-      </div>
-      <p className="text-[11px] leading-relaxed text-content-soft">
-        Pick an amount + direction, hit Run, see the JSON the SDK returns. Same shape as a real transfer - just without
-        signing. To actually execute, copy the snippet below into your project (which signs from your own wallet).
-      </p>
-
-      {/* Amount + direction inputs */}
-      <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
-        <label className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-2.5 py-1.5">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-content-soft">Amount</span>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="w-20 bg-transparent text-sm font-mono text-content-primary outline-none"
-            aria-label="Amount of LCAI to bridge"
-          />
-          <span className="text-[11px] text-content-soft">LCAI</span>
-        </label>
-        <div className="inline-flex items-center gap-1 rounded-lg border border-bdr-soft bg-card p-0.5">
-          {(["eth-to-lc", "lc-to-eth"] as const).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDirection(d)}
-              className={`flex-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                direction === d ? "bg-primary/15 text-content-primary" : "text-content-soft hover:text-content-primary"
-              }`}
-              aria-pressed={direction === d}
-            >
-              {d === "eth-to-lc" ? "Ethereum -> LightChain" : "LightChain -> Ethereum"}
-            </button>
-          ))}
+    <div className="space-y-4">
+      {/* The main bridge swap card. Visually echoes the official LCAI Bridge:
+          chain pills with a center swap button, big amount input with Max +
+          balance footer, fees + arrival summary, gradient Continue CTA. */}
+      <div className="relative overflow-hidden rounded-2xl border border-bdr-soft bg-card/70 p-5 shadow-[0_8px_30px_-16px_rgba(112,100,233,0.45)]">
+        <div className="pointer-events-none absolute -inset-12 -z-10 opacity-40 blur-3xl">
+          <div className="absolute -left-10 top-1/2 size-40 -translate-y-1/2 rounded-full bg-fuchsia-500/30" />
+          <div className="absolute -right-10 top-1/2 size-40 -translate-y-1/2 rounded-full bg-sky-500/30" />
         </div>
-        <Button size="sm" onClick={runPreview} disabled={busy || numericAmt <= 0}>
-          {busy ? <Loader2 className="animate-spin" /> : <PlayCircle />}
-          {busy ? "Running" : "Run"}
-        </Button>
+
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold tracking-tight text-content-primary">LCAI Bridge</h3>
+          <Badge tone="brand">interactive preview</Badge>
+        </div>
+
+        {/* Chain row: two pills + swap button between them */}
+        <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-bdr-soft bg-surface-base-faint p-2">
+          <ChainPill chain={fromChain} side="from" />
+          <button
+            type="button"
+            onClick={swapDirection}
+            className="grid size-8 place-items-center rounded-lg border border-bdr-soft bg-card text-content-soft transition-all hover:border-primary/60 hover:text-primary"
+            aria-label="Swap direction"
+            title="Swap direction"
+          >
+            <ArrowLeftRight className="size-4" />
+          </button>
+          <ChainPill chain={toChain} side="to" />
+        </div>
+
+        {/* Amount panel */}
+        <div className="mb-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-4">
+          <div className="flex items-start justify-between">
+            <input
+              type="number"
+              min={0}
+              step={1}
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-0 flex-1 bg-transparent text-3xl font-semibold tracking-tight text-content-primary outline-none placeholder:text-content-soft/40"
+              aria-label="Amount of LCAI to bridge"
+            />
+            <button
+              type="button"
+              onClick={() => setAmount("100")}
+              className="ml-2 rounded-full bg-primary/20 px-3 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/30"
+            >
+              Reset
+            </button>
+          </div>
+          <div className="mt-1 flex items-center justify-between text-[11px]">
+            <span className="text-content-soft">LCAI</span>
+            <span className="text-content-soft">
+              Source-chain gas: <span className="text-content-default">{sourceGas}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Recipient */}
+        <label className="mb-3 block">
+          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-content-soft">
+            Recipient (optional, destination address)
+          </span>
+          <input
+            type="text"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            placeholder="0x..."
+            className="w-full rounded-xl border border-bdr-soft bg-surface-base-faint px-3 py-2.5 font-mono text-xs text-content-primary outline-none transition-colors focus:border-primary/60"
+            aria-label="Recipient address on the destination chain"
+          />
+        </label>
+
+        {/* Fees / arrival summary */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-bdr-soft bg-surface-base-faint px-3 py-2 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 text-content-soft">
+            <Coins className="size-3" />
+            Hyperlane IGP fee: <span className="text-content-default">{feeShort}</span>
+            <span className="text-content-soft">(pre-paid)</span>
+          </span>
+          <span className="text-content-soft">
+            Arrives in <span className="text-content-default">~30 to 60 min</span>
+          </span>
+        </div>
+
+        {/* Big gradient Continue / Run button */}
+        <button
+          type="button"
+          onClick={runPreview}
+          disabled={busy || numericAmt <= 0}
+          className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-500 via-primary to-sky-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_8px_24px_-8px_rgba(112,100,233,0.6)] transition-all hover:shadow-[0_12px_36px_-8px_rgba(112,100,233,0.7)] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
+          {busy ? "Running" : numericAmt > 0 ? `Preview bridging ${numericAmt} LCAI` : "Enter an amount"}
+        </button>
+
+        <p className="mt-2 text-center text-[10px] uppercase tracking-wide text-content-soft">No spend / dry run</p>
       </div>
 
-      <label className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-2.5 py-1.5">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-content-soft">Recipient</span>
-        <input
-          type="text"
-          value={recipient}
-          onChange={(e) => setRecipient(e.target.value)}
-          placeholder="0x... (optional, destination address)"
-          className="w-full bg-transparent font-mono text-xs text-content-primary outline-none"
-          aria-label="Recipient address on the destination chain"
-        />
-      </label>
-
-      {/* Output panel - mirrors CLI Runner shape */}
+      {/* Result panel - mirrors CLI Runner shape */}
       {previewErr ? (
-        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-content-default">{previewErr}</p>
+        <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-xs text-content-default">{previewErr}</div>
       ) : preview ? (
-        <pre className="overflow-x-auto rounded-md code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
+        <details open className="rounded-xl border border-bdr-soft bg-card/60">
+          <summary className="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-xs font-semibold text-content-primary">
+            <span>Preview JSON</span>
+            <span className="text-[10px] font-normal uppercase tracking-wide text-content-soft">
+              same shape the SDK returns
+            </span>
+            <ChevronDown className="ml-auto size-3.5 text-content-soft transition-transform [details[open]>summary>&]:rotate-180" />
+          </summary>
+          <pre className="overflow-x-auto rounded-b-xl code-surface px-4 py-3 font-mono text-[11px] leading-relaxed text-content-default">
 {JSON.stringify(preview, null, 2)}
-        </pre>
-      ) : (
-        <p className="rounded-md border border-bdr-soft bg-card px-3 py-2 text-[11px] text-content-soft">
-          Click Run to get the JSON preview here. Same shape the SDK returns; no transaction signed.
-        </p>
-      )}
+          </pre>
+        </details>
+      ) : null}
 
-      {/* Divider line into the integration section */}
-      <div className="mt-2 border-t border-bdr-soft pt-3">
-        <div className="mb-2 flex items-center gap-2">
+      {/* Integration section */}
+      <div className="rounded-2xl border border-bdr-soft bg-surface-base-faint p-4">
+        <div className="mb-3 flex items-center gap-2">
           <span className="text-sm font-semibold text-content-primary">Use this in your project</span>
           <span className="ml-auto text-[10px] uppercase tracking-wide text-content-soft">pick your stack</span>
         </div>
@@ -1096,15 +1187,36 @@ function BridgeRecipe() {
           </Button>
         </div>
 
-        {/* The actual TypeScript code */}
+        {/* The actual TypeScript code (now honors `direction`) */}
         <CodeBox code={snippet.body} />
 
         {/* Setup commands so the user is not left wondering how to run it */}
-        <div className="mt-2 mb-1.5 inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
+        <div className="mt-3 mb-1.5 inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
           <Terminal className="size-3" />
           <span className="text-content-soft">Run these in your terminal (these ARE shell commands):</span>
         </div>
         <CodeBox code={snippet.setup} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One side of the bridge swap card: a token-style pill that shows which
+ * chain + which LCAI representation is on this side. Tuned to feel like
+ * a swap dropdown without actually being one (direction is driven by the
+ * center swap button).
+ */
+function ChainPill({ chain, side }: { chain: { label: string; sub: string; color: string }; side: "from" | "to" }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-3 py-2">
+      <div className={`grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br ${chain.color} text-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.4)]`}>
+        <Coins className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wide text-content-soft">{side === "from" ? "From" : "To"}</div>
+        <div className="truncate text-sm font-semibold text-content-primary">{chain.label}</div>
+        <div className="truncate text-[10px] text-content-soft">{chain.sub}</div>
       </div>
     </div>
   );
