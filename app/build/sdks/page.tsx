@@ -3,7 +3,7 @@ import { AlertOctagon, ArrowRight, Bot, Layers, Layers3, Rocket, Server, Sparkle
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/build/section-header";
-import { MODULES } from "@/components/sdk-modules";
+import { MODULES } from "@/lib/sdk-modules-data";
 
 export const metadata = {
   title: "SDK modules - Build with LightChain AI",
