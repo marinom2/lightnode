@@ -33,7 +33,7 @@ const WEB_STEPS = [
   { icon: Download, t: "Download", d: "Get the app for your OS: macOS, Windows, or Linux." },
   { icon: ScanLine, t: "Auto-detect", d: "It reads your real GPU, VRAM, CPU and RAM and scores your machine." },
   { icon: Rocket, t: "One click", d: "Press Install. It generates keys, funds and stakes, and starts the node." },
-  { icon: HeartPulse, t: "Earn", d: "Your worker goes live, serves jobs, and earns $LCAI. Manage it all in-app." },
+  { icon: HeartPulse, t: "Earn", d: "Your worker goes live, serves jobs, and earns LCAI. Manage it all in-app." },
 ];
 
 export default function OnboardPage() {
@@ -87,10 +87,10 @@ export default function OnboardPage() {
   // one-click wizard below renders only inside the desktop app.)
   if (!desktop) {
     return (
-      <div className="relative mx-auto max-w-4xl px-5 py-12">
+      <div className="relative mx-auto max-w-5xl px-5 py-12">
         <div className="pointer-events-none absolute inset-x-0 -top-10 h-80 glow-radial opacity-60" />
         <div className="text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-content-primary">Run a worker in one click</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">Run a worker in one click</h1>
           <p className="mx-auto mt-3 max-w-xl text-content-soft">
             Download the LightNode app. It checks your machine, installs everything, funds and stakes your worker, and
             keeps it online. No terminal, no config, no copy-paste.
@@ -142,11 +142,11 @@ export default function OnboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-5 py-10">
+    <div className="mx-auto max-w-5xl px-5 py-10">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight text-content-primary">Become a worker</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">Run a worker</h1>
         <p className="mt-2 text-content-soft">
-          Four steps from wallet to earning $LCAI on LightChain {NETWORKS[network].label.toLowerCase()}.
+          Four steps from wallet to earning LCAI on LightChain {NETWORKS[network].label.toLowerCase()}.
           {network === "testnet" && NETWORKS.testnet.faucet && (
             <>
               {" "}

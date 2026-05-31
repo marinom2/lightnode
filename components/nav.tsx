@@ -35,7 +35,8 @@ interface NavItem {
 }
 
 const ALL_LINKS: NavItem[] = [
-  { href: "/onboard", label: "Become a worker" },
+  { href: "/learn", label: "How it works", webOnly: true },
+  { href: "/onboard", label: "Run a worker" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/network", label: "Network" },
   {

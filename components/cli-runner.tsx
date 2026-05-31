@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { humanizeError } from "@/lib/humanize-error";
 import { PlayCircle, Loader2, Copy, Check } from "lucide-react";
 
 interface Command {
@@ -83,7 +84,7 @@ export function CliRunner() {
       }
       setOutput(text);
     } catch (e) {
-      setError((e as Error).message ?? "request failed");
+      setError(humanizeError(e));
     } finally {
       setBusy(false);
     }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowRight,
+  Bot,
   Code2,
   Coins,
   Cpu,
@@ -9,6 +10,7 @@ import {
   Download,
   Gauge,
   HeartPulse,
+  Layers3,
   PackageOpen,
   PlayCircle,
   Rocket,
@@ -34,14 +36,16 @@ import { HideOnDesktop } from "@/components/hide-on-desktop";
 import { ShowOnDesktop } from "@/components/show-on-desktop";
 import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 
-// What the builder track gives you. Eight SDKs in one package.
+// What the builder track gives you. Eight high-level SDKs in one package.
 const BUILDER_SDKS = [
   { icon: Zap, name: "Encrypted inference", line: "5-line API. Wallet signs, SDK encrypts + streams the answer." },
-  { icon: Workflow, name: "Multi-turn chat", line: "Conversation class with history + system prompt." },
-  { icon: Database, name: "Read-only network client", line: "13 methods for workers, jobs, models, stats. No key needed." },
+  { icon: Workflow, name: "Multi-turn Conversation", line: "Conversation class with history + system prompt." },
+  { icon: Database, name: "Read-only network client", line: "14 methods for workers, jobs, models, stats. No key needed." },
   { icon: Coins, name: "Bridge SDK", line: "Move LCAI Ethereum <-> LightChain. Quote, approve, transfer." },
-  { icon: ShieldCheck, name: "DAO SDK", line: "Read + vote on LCAI Governor proposals on Ethereum." },
+  { icon: ShieldCheck, name: "DAO SDK", line: "Read + vote on both governors (Ethereum + LightChain)." },
   { icon: Gauge, name: "Worker preflight + watch", line: "One real test inference; event stream on state change." },
+  { icon: Layers3, name: "runInferenceBatch (0.6.0)", line: "Parallel inference with capped concurrency. Per-slot errors." },
+  { icon: Bot, name: "Agent class (0.6.0)", line: "ReAct-style tool calling. Works on llama3-8b." },
 ];
 
 // Worker-track install steps. Same flow as before, slightly reordered.
@@ -69,7 +73,7 @@ export default function Home() {
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
             One project, two tracks. Add encrypted decentralized AI to your app in five lines of code,
-            or stake a GPU and earn <span className="text-content-primary font-medium">$LCAI</span> for serving
+            or stake a GPU and earn <span className="text-content-primary font-medium">LCAI</span> for serving
             real inference. Pick one (most people only need one).
           </p>
 
@@ -105,12 +109,12 @@ export default function Home() {
               </div>
               <p className="mb-3 text-xs leading-relaxed text-content-soft">
                 One-click desktop app. Generates your worker keys, funds + stakes from your wallet,
-                brings the node online. Earn $LCAI per inference job.
+                brings the node online. Earn LCAI per inference job.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button asChild size="sm" variant="gradient">
                   <Link href="/onboard">
-                    Become a worker <ArrowRight />
+                    Run a worker <ArrowRight />
                   </Link>
                 </Button>
                 <Button asChild size="sm" variant="outline">
@@ -131,7 +135,7 @@ export default function Home() {
           <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
             Check your machine, fund and stake from your wallet, and go live in one click. Then
             track earnings, settle, and exit, all without touching a terminal. Earn{" "}
-            <span className="text-content-primary font-medium">$LCAI</span> for real inference work.
+            <span className="text-content-primary font-medium">LCAI</span> for real inference work.
           </p>
         </ShowOnDesktop>
 
@@ -242,7 +246,7 @@ export default function Home() {
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
           <Button asChild variant="gradient">
             <Link href="/onboard">
-              Start onboarding <ArrowRight />
+              Run a worker <ArrowRight />
             </Link>
           </Button>
           <Button asChild variant="outline">
@@ -308,7 +312,7 @@ export default function Home() {
               <div className="mt-7 flex flex-wrap items-center justify-center gap-2.5">
                 <Button asChild variant="gradient" size="lg">
                   <Link href="/onboard">
-                    Start onboarding <ArrowRight />
+                    Run a worker <ArrowRight />
                   </Link>
                 </Button>
               </div>

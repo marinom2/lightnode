@@ -10,6 +10,7 @@ import { OperationsPanel } from "@/components/operations-panel";
 import { WithdrawWorker } from "@/components/withdraw-worker";
 import { UpdateModels } from "@/components/update-models";
 import { DownloadButton } from "@/components/download-button";
+import { humanizeError } from "@/lib/humanize-error";
 import { WorkerHealthPanel } from "@/components/worker-health-panel";
 import { WorkerAlerts } from "@/components/worker-alerts";
 import { WorkerView } from "@/components/worker-view";
@@ -76,7 +77,7 @@ export default function DashboardPage() {
         // any watchlisted worker is read-only, so it can't clobber the address
         // your Operations + funding target.
       } catch (e) {
-        setError((e as Error).message);
+        setError(humanizeError(e, { action: "the worker lookup" }));
         setWorker(undefined);
         setJobs([]);
         setOnchainRegistered(null);
@@ -160,7 +161,7 @@ export default function DashboardPage() {
         : false;
 
   return (
-    <div className="relative mx-auto max-w-4xl px-5 py-10">
+    <div className="relative mx-auto max-w-5xl px-5 py-10">
       <div className="pointer-events-none absolute inset-x-0 -top-10 h-80 glow-radial opacity-60" />
       <div className="mb-6">
         <h1 className="text-3xl font-semibold tracking-tight text-content-primary">Worker dashboard</h1>

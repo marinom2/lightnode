@@ -40,6 +40,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { NETWORKS } from "lightnode-sdk";
+import { humanizeError } from "@/lib/humanize-error";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -286,7 +287,7 @@ function BridgeLive() {
         if (j.error) setErr(j.error);
         else setData(j);
       })
-      .catch((e) => alive && setErr((e as Error).message))
+      .catch((e) => alive && setErr(humanizeError(e)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
@@ -545,7 +546,7 @@ function DaoLive() {
         if (j.error) setErr(j.error);
         else setData(j);
       })
-      .catch((e) => alive && setErr((e as Error).message))
+      .catch((e) => alive && setErr(humanizeError(e)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
@@ -776,7 +777,7 @@ function ChatSample() {
       }
       setHistory((h) => [...h, { role: "assistant", content: json.answer ?? "" }]);
     } catch (e) {
-      setErr((e as Error).message ?? "request failed");
+      setErr(humanizeError(e));
       setHistory(history);
     } finally {
       setSending(false);
@@ -893,7 +894,7 @@ function DisputeSample() {
       if (!res.ok) setErr(json.error ?? `Lookup failed (${res.status})`);
       else setResult(json);
     } catch (e) {
-      setErr((e as Error).message ?? "request failed");
+      setErr(humanizeError(e));
     } finally {
       setBusy(false);
     }
@@ -1042,7 +1043,7 @@ function ModelsExplainer() {
         if (Array.isArray(j)) setRows(j);
         else setErr((j as { error?: string }).error ?? "fetch failed");
       })
-      .catch((e) => alive && setErr((e as Error).message))
+      .catch((e) => alive && setErr(humanizeError(e)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;

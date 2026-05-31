@@ -250,7 +250,7 @@ const stats = await ln.getNetworkStats();`}
               {live.topWorkers.length === 0 ? (
                 <p className="text-xs text-content-soft">(no workers in the sample)</p>
               ) : (
-                <table className="w-full text-xs">
+                <div className="overflow-x-auto"><table className="w-full text-xs">
                   <thead className="text-[10px] uppercase tracking-wide text-content-soft">
                     <tr>
                       <th className="pb-1 text-left font-medium">worker</th>
@@ -269,7 +269,7 @@ const stats = await ln.getNetworkStats();`}
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
             </LiveDemoCard>
 
@@ -282,7 +282,7 @@ const stats = await ln.getNetworkStats();`}
               {live.models.length === 0 ? (
                 <p className="text-xs text-content-soft">(no models found)</p>
               ) : (
-                <table className="w-full text-xs">
+                <div className="overflow-x-auto"><table className="w-full text-xs">
                   <thead className="text-[10px] uppercase tracking-wide text-content-soft">
                     <tr>
                       <th className="pb-1 text-left font-medium">model</th>
@@ -301,7 +301,7 @@ const stats = await ln.getNetworkStats();`}
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
             </LiveDemoCard>
 
@@ -314,7 +314,7 @@ const stats = await ln.getNetworkStats();`}
               {live.modelStats.length === 0 ? (
                 <p className="text-xs text-content-soft">(no stats yet)</p>
               ) : (
-                <table className="w-full text-xs">
+                <div className="overflow-x-auto"><table className="w-full text-xs">
                   <thead className="text-[10px] uppercase tracking-wide text-content-soft">
                     <tr>
                       <th className="pb-1 text-left font-medium">model</th>
@@ -333,7 +333,7 @@ const stats = await ln.getNetworkStats();`}
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
             </LiveDemoCard>
           </div>
