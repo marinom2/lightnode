@@ -98,11 +98,63 @@ fn detect_hardware() -> Hardware {
 }
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(cmd).args(args).output().ok()?;
+    let mut c = Command::new(cmd);
+    c.args(args);
+    sanitize_appimage_env(&mut c);
+    let out = c.output().ok()?;
     if !out.status.success() {
         return None;
     }
     Some(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+/// Strip the AppImage's bundled-library paths from a child process's environment.
+///
+/// When the app runs as an AppImage, its runtime exports `LD_LIBRARY_PATH` (and
+/// friends) pointing at the bundle's own libs. Any SYSTEM tool we shell out to
+/// (curl, docker, git, cast, lspci) then loads those bundled libs instead of the
+/// system ones and crashes - e.g. the system `curl` picks up the AppImage's newer
+/// libcurl against the system's older libnghttp2: "undefined symbol:
+/// nghttp2_option_set_no_rfc9113_...". Children must run in the host's library
+/// environment, so we remove only the bundle-prefixed entries (preserving any the
+/// user set). No-op when not inside an AppImage / not on Linux.
+fn sanitize_appimage_env(cmd: &mut Command) {
+    #[cfg(target_os = "linux")]
+    {
+        let appdir = match std::env::var("APPDIR") {
+            Ok(d) if !d.is_empty() => d,
+            _ => return, // not running from an AppImage - nothing to clean
+        };
+        // Colon-separated search paths the AppImage runtime prepends to.
+        const PATH_VARS: &[&str] = &[
+            "LD_LIBRARY_PATH",
+            "LD_PRELOAD",
+            "GTK_PATH",
+            "GIO_MODULE_DIR",
+            "GST_PLUGIN_SYSTEM_PATH_1_0",
+            "GDK_PIXBUF_MODULE_FILE",
+            "GDK_PIXBUF_MODULEDIR",
+            "GSETTINGS_SCHEMA_DIR",
+            "PYTHONPATH",
+            "PYTHONHOME",
+            "PERLLIB",
+            "XDG_DATA_DIRS",
+        ];
+        for var in PATH_VARS {
+            let Ok(val) = std::env::var(var) else { continue };
+            let kept: Vec<&str> = val
+                .split(':')
+                .filter(|p| !p.is_empty() && !p.starts_with(appdir.as_str()))
+                .collect();
+            if kept.is_empty() {
+                cmd.env_remove(var);
+            } else {
+                cmd.env(var, kept.join(":"));
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = cmd;
 }
 
 fn detect_gpu() -> (String, Option<u64>, bool) {
@@ -257,13 +309,16 @@ fn run_command_streamed(
         }
     }
 
-    let mut child = Command::new(program)
-        .args(&args)
+    let mut cmd = Command::new(program);
+    cmd.args(&args)
         .envs(envs)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("spawn failed: {e}"))?;
+        .stderr(Stdio::piped());
+    // Run children in the host library environment, not the AppImage's bundled
+    // one - otherwise system curl/docker/git load mismatched bundled libs and
+    // crash (the libcurl/libnghttp2 undefined-symbol failure on Linux AppImages).
+    sanitize_appimage_env(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("spawn failed: {e}"))?;
 
     let stdout = child.stdout.take().ok_or("no stdout")?;
     let stderr = child.stderr.take().ok_or("no stderr")?;
