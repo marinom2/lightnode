@@ -57,6 +57,14 @@ interface ModuleDef {
   example?: string;
   snippet: string;
   triable: boolean;
+  /**
+   * Complete, self-contained version of the snippet that runs in a Node
+   * sandbox (StackBlitz) without the visitor having to wire viem clients
+   * or fill in placeholders. Falls back to `snippet` when omitted.
+   */
+  sandboxBody?: string;
+  /** Sandbox needs PRIVATE_KEY in .env to do anything useful. */
+  sandboxNeedsKey?: boolean;
 }
 
 type ModuleId = "bridge" | "dao" | "chat" | "preflight" | "models" | "dispute";
@@ -104,6 +112,32 @@ const p = await dao.proposal(12345n);
 console.log(p.stateLabel, p.votes);
 
 await dao.castVote(12345n, VoteSupport.For, "I support this");`,
+    sandboxBody: `import { DAO } from "lightnode-sdk";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { mainnet } from "viem/chains";
+import { privateKeyToAccount } from "viem/accounts";
+
+const transport = http("https://ethereum-rpc.publicnode.com");
+const publicClient = createPublicClient({ chain: mainnet, transport });
+
+// Voting requires PRIVATE_KEY in .env. Reading proposals works without it.
+const KEY = process.env.PRIVATE_KEY as \`0x\${string}\` | undefined;
+const walletClient = KEY
+  ? createWalletClient({ account: privateKeyToAccount(KEY), chain: mainnet, transport })
+  : undefined;
+
+const dao = new DAO(publicClient, "ethereum", walletClient);
+
+// List recent proposals on LCAIGovernor (Ethereum mainnet):
+const proposals = await dao.proposals();
+for (const p of proposals.slice(0, 5)) {
+  console.log(p.id.toString(), p.stateLabel, p.title.slice(0, 60));
+}
+
+// To vote (needs PRIVATE_KEY + LCAI Ballots delegated to your address):
+// import { VoteSupport } from "lightnode-sdk";
+// await dao.castVote(proposals[0].id, VoteSupport.For, "support this");`,
+    sandboxNeedsKey: false,
     triable: true,
   },
   {
@@ -127,6 +161,27 @@ const chat = new Conversation({
 await chat.send("Who wrote The Great Gatsby?");
 await chat.send("In what year?");      // sees prior turn
 chat.messages();                       // full transcript`,
+    sandboxBody: `import { Conversation } from "lightnode-sdk";
+
+const chat = new Conversation({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  system: "You are a concise assistant. Reply in one short sentence.",
+  maxHistoryTurns: 20,
+});
+
+console.log("\\nTurn 1:");
+const r1 = await chat.send("Who wrote The Great Gatsby?");
+console.log("answer :", r1.answer);
+console.log("worker :", r1.worker, "  job:", r1.jobId.toString());
+
+console.log("\\nTurn 2 (history-aware):");
+const r2 = await chat.send("In what year?");
+console.log("answer :", r2.answer);
+
+console.log("\\nFull transcript :");
+console.log(JSON.stringify(chat.messages(), null, 2));`,
+    sandboxNeedsKey: true,
     triable: true,
   },
   {
@@ -149,6 +204,27 @@ const ln = new LightNode("mainnet");
 for await (const event of workerWatch(ln, "0xWorker...", { intervalMs: 30_000 }).events) {
   console.log(event.kind, event.state);
 }`,
+    sandboxBody: `import { workerPreflight, LightNode } from "lightnode-sdk";
+
+// One real testnet inference. PRIVATE_KEY in .env must be funded
+// (the testnet faucet at https://lightfaucet.ai gives free LCAI).
+const verdict = await workerPreflight({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  deadlineMs: 60_000,
+});
+console.log("verdict       :", verdict.verdict);
+console.log("worker        :", verdict.worker ?? "(none assigned)");
+console.log("job id        :", verdict.jobId?.toString() ?? "(no job)");
+console.log("submit -> done:", verdict.elapsedMs, "ms");
+
+// Read top mainnet workers (no key required for the read side):
+const ln = new LightNode("mainnet");
+const top = await ln.getWorkerStats(500, 5);
+console.log("\\nTop 5 mainnet workers (last 500 jobs):");
+for (const w of top) console.log(w.address, "  jobs:", w.jobsCompleted, "  p50:", w.p50ProcessingSecs, "s");`,
+    sandboxNeedsKey: true,
     triable: true,
   },
   {
@@ -165,6 +241,27 @@ const ln = new LightNode("mainnet");
 const status = await ln.getJobStatus(1234n);
 console.log(status.category, status.refundable);
 // "stalled" | "disputed" -> refundable=true`,
+    sandboxBody: `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("mainnet");
+
+// Walk a small range and classify each job. No PRIVATE_KEY needed; this
+// is a pure read against the subgraph + chain.
+const FIRST = 1n, LAST = 10n;
+for (let id = FIRST; id <= LAST; id++) {
+  const s = await ln.getJobStatus(id);
+  if (!s) {
+    console.log(id.toString().padStart(4), "  not found (yet)");
+    continue;
+  }
+  console.log(
+    id.toString().padStart(4),
+    s.category.padEnd(10),
+    "refundable=" + s.refundable,
+    "  worker=" + (s.worker?.slice(0, 8) ?? "(none)") + "...",
+  );
+}`,
+    sandboxNeedsKey: false,
     triable: true,
   },
   {
@@ -188,6 +285,28 @@ for (const m of models) {
 // Or the on-chain fee for a single model:
 const fee = await ln.estimateFee("llama3-8b");   // -> 0.02 LCAI
 const id = ln.modelId("llama3-8b");              // keccak256(name)`,
+    sandboxBody: `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("mainnet");
+
+console.log("All whitelisted models on mainnet AIConfig:\\n");
+const models = await ln.getModels();
+for (const m of models) {
+  console.log(
+    m.name.padEnd(20),
+    "fee=" + m.fee.padStart(10),
+    "max_out=" + m.max_output_tokens.toString().padStart(6),
+    "whitelisted=" + m.is_whitelisted,
+  );
+}
+
+// On-chain fee for one model + its computed id:
+const tag = "llama3-8b";
+const feeLcai = await ln.estimateFee(tag);
+const id = ln.modelId(tag);
+console.log("\\nestimateFee('" + tag + "') = " + feeLcai + " LCAI");
+console.log("modelId('" + tag + "')     = " + id);`,
+    sandboxNeedsKey: false,
     triable: true,
   },
 ];
@@ -226,6 +345,10 @@ function CodeBox({ code }: { code: string }) {
 }
 
 function DocLinks({ m }: { m: ModuleDef }) {
+  // Bridge has its own multi-template StackBlitz launcher inside BridgeRecipe;
+  // every other module gets a single Open-in-StackBlitz badge here.
+  const sandboxBody = m.sandboxBody ?? m.snippet;
+  const showStackBlitz = m.id !== "bridge";
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <a
@@ -253,6 +376,22 @@ function DocLinks({ m }: { m: ModuleDef }) {
         >
           <Terminal className="size-3" /> runnable example <ExternalLink className="size-3" />
         </a>
+      ) : null}
+      {showStackBlitz ? (
+        <button
+          type="button"
+          onClick={() =>
+            openSnippetInStackBlitz({
+              title: m.title,
+              snippet: sandboxBody,
+              needsPrivateKey: m.sandboxNeedsKey ?? false,
+            })
+          }
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/15"
+          aria-label={`Open ${m.title} in StackBlitz`}
+        >
+          <PlayCircle className="size-3" /> Open in StackBlitz
+        </button>
       ) : null}
     </div>
   );
@@ -749,6 +888,53 @@ function openInStackBlitz(snippet: BridgeSnippet, tmpl: BridgeTemplate) {
       files: bridgeStackBlitzFiles(snippet, tmpl),
     },
     { openFile: snippet.file },
+  );
+}
+
+/**
+ * Open ANY card's snippet in a one-file Node sandbox on StackBlitz. Used by
+ * the cards that don't have multi-template integration shapes (DAO,
+ * Conversation, preflight, dispute, models). Visitor lands in a real
+ * WebContainer with the snippet as index.ts, deps installed, .env stub,
+ * and "npm start" wired to run it.
+ */
+function openSnippetInStackBlitz(opts: {
+  /** Module display name, e.g. "DAO SDK", used in the project title. */
+  title: string;
+  /** Plain TypeScript body of the snippet (no leading slashes, no markdown). */
+  snippet: string;
+  /** Whether this snippet calls anything that needs a wallet (PRIVATE_KEY env). */
+  needsPrivateKey?: boolean;
+}) {
+  const pkg = {
+    name: `lightnode-${opts.title.toLowerCase().replace(/\s+sdk\b/, "").replace(/\W+/g, "-")}-example`,
+    version: "0.0.0",
+    private: true,
+    type: "module" as const,
+    scripts: { start: opts.needsPrivateKey ? "tsx --env-file=.env index.ts" : "tsx index.ts" },
+    dependencies: { "lightnode-sdk": "^0.6.2", viem: "^2.21.0" },
+    devDependencies: { tsx: "^4.19.0" },
+  };
+  const files: Record<string, string> = {
+    "index.ts": opts.snippet,
+    "package.json": JSON.stringify(pkg, null, 2),
+    "README.md": `# ${opts.title} example (lightnode-sdk)\n\n${
+      opts.needsPrivateKey
+        ? "1. Put a funded private key in `.env`:\n   ```\n   PRIVATE_KEY=0xYOUR_KEY\n   ```\n2. Click the green Start button - it runs `npm start`.\n"
+        : "Click the green Start button - it runs `npm start`. No env vars needed; this snippet is read-only.\n"
+    }`,
+  };
+  if (opts.needsPrivateKey) {
+    files[".env"] = "# Replace with a funded EVM private key.\nPRIVATE_KEY=0xYOUR_KEY_HERE\n";
+  }
+  sdk.openProject(
+    {
+      title: `LightNode - ${opts.title}`,
+      description: `Try ${opts.title} from lightnode-sdk in a runnable StackBlitz WebContainer.`,
+      template: "node",
+      files,
+    },
+    { openFile: "index.ts" },
   );
 }
 
