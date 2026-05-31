@@ -353,7 +353,7 @@ async function main() {
       if (!anyWritten) {
         console.log("\nNothing to do - all target files already exist. Pass --force to overwrite.");
       } else {
-        console.log(`\nNext steps:`);
+        console.log(`\nNext steps (these files were added to your CURRENT folder, not a new project):`);
         console.log(`  1. ${result.install}`);
         if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent") {
           console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
@@ -361,12 +361,12 @@ async function main() {
             console.log(`  3. Set CRON_SECRET in your Vercel env vars + edit AGENT_TASK in .env`);
             console.log(`  4. Deploy. Vercel Cron fires /api/agent on the schedule in vercel.json`);
           } else if (sub === "agent") {
-            console.log(`  3. AGENT_INTERVAL_MS=3600000 tsx agent.ts   # or run under pm2/systemd`);
+            console.log(`  3. AGENT_INTERVAL_MS=3600000 npx tsx agent.ts   # or run under pm2/systemd`);
           } else if (sub === "chat" && result.template === "nextjs-api") {
             console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
             console.log(`  4. npm run dev, open /chat`);
           } else if (sub === "chat") {
-            console.log(`  3. tsx chat-repl.ts  (interactive terminal chat)`);
+            console.log(`  3. npx tsx chat-repl.ts  (interactive terminal chat)`);
           } else if (sub === "nft-mint-with-inference" && result.template === "nextjs-api") {
             console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
             console.log(`  4. npm run dev, open /nft-mint`);
@@ -375,20 +375,24 @@ async function main() {
           } else if (result.template === "hono") {
             console.log(`  3. wire inferenceHandler into your Hono app, then start it`);
           } else if (sub === "nft-mint-with-inference") {
-            console.log(`  3. tsx nft-metadata.ts "My NFT" "concept goes here"`);
+            console.log(`  3. npx tsx nft-metadata.ts "My NFT" "concept goes here"`);
           } else {
-            console.log(`  3. tsx lightchain-inference.ts "your prompt"`);
+            console.log(`  3. npx tsx lightchain-inference.ts "your prompt"`);
           }
         } else {
           // analytics-dashboard - read-only, no private key needed.
           if (result.template === "nextjs-api") {
             console.log(`  2. npm run dev, open /lightnode-analytics`);
           } else {
-            console.log(`  2. tsx lightnode-analytics.ts`);
+            console.log(`  2. npx tsx lightnode-analytics.ts`);
           }
+        }
+        if (result.network === "testnet") {
+          console.log(`\nNo wallet yet? Make one:  npx lightnode wallet new   then fund it free below.`);
         }
         console.log(`\nFree testnet LCAI: https://lightfaucet.ai`);
         console.log(`Builder docs:     https://lightnode.app/build`);
+        console.log(`New to all this?  See GETTING-STARTED.md in the lightnode repo.`);
       }
       break;
     }

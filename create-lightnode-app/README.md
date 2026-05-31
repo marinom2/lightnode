@@ -9,6 +9,19 @@ npm create lightnode-app my-app
 
 Pick a template, set a private key, you're inference-enabled in ~2 minutes.
 
+First time? Read the [Getting Started guide](../GETTING-STARTED.md). It walks you
+through making a wallet, getting free testnet funds, and your first AI call with
+no prior experience.
+
+Note: this command creates a new folder (`my-app/`). You must `cd my-app` before
+running `npm install` or `npm run dev`. Running them in the parent folder fails
+with `npm error Missing script: "dev"`.
+
+Want to add inference to a folder you already have instead of making a new
+project? Use `npx lightnode add inference` (see
+[the SDK](https://www.npmjs.com/package/lightnode-sdk)). That writes files into
+your current folder and does not create a subfolder.
+
 ## Templates
 
 | Template | What you get | Run |

@@ -105,17 +105,24 @@ async function main() {
 
   console.log(`\n✅ scaffolded ${projectName} (${template}, ${network}) at ${dest}`);
   console.log("\nNext steps:");
-  console.log(`  cd ${projectName}`);
-  console.log(`  cp .env.example .env   # put a funded ${network} private key in PRIVATE_KEY`);
+  console.log(`  cd ${projectName}      # do this first. Every command below only works inside this folder.`);
+  console.log(`  cp .env.example .env   # then paste a funded ${network} private key into PRIVATE_KEY`);
   console.log(`  npm install`);
   if (template === "nextjs-api") {
-    console.log(`  npm run dev            # open http://localhost:3000\n`);
+    console.log(`  npm run dev            # open http://localhost:3000`);
   } else if (template === "hono") {
-    console.log(`  npm start              # server on http://localhost:3000/inference\n`);
+    console.log(`  npm start              # server on http://localhost:3000/inference`);
   } else {
-    console.log(`  npm start "your prompt"\n`);
+    console.log(`  npm start "your prompt"`);
   }
-  console.log(`Free testnet LCAI at https://lightfaucet.ai.`);
+  console.log("");
+  console.log(`(If you see  npm error Missing script: "dev"  you ran it in the wrong folder. Run cd ${projectName} first.)`);
+  if (network === "testnet") {
+    console.log(`No wallet yet? Make one:  npx lightnode wallet new   then fund it free at https://lightfaucet.ai`);
+  } else {
+    console.log(`Heads up: mainnet spends real LCAI per call. To try it free, re-scaffold with --network testnet.`);
+    console.log(`Free testnet LCAI at https://lightfaucet.ai.`);
+  }
   console.log(`Live in-browser playground at https://lightnode.app/playground.`);
 }
 
