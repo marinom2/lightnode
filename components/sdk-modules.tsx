@@ -118,10 +118,12 @@ export function DocLinks({ m }: { m: ModuleDef }) {
               needsPrivateKey: m.sandboxNeedsKey ?? false,
             })
           }
-          className="inline-flex items-center gap-1.5 rounded-full bg-[#7064E9] px-3 py-1.5 text-xs font-medium text-[#CCCEEF] transition-opacity hover:opacity-90"
+          className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-[#CCCEEF] shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+          style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
           aria-label={`Open ${m.title} in StackBlitz`}
         >
-          <PlayCircle className="size-3" /> Open in StackBlitz
+          <PlayCircle className="size-3 transition-transform group-hover:scale-110" />
+          Open in StackBlitz
         </button>
       ) : null}
     </div>
@@ -723,13 +725,17 @@ const CHAIN_BRAND: Record<ChainBrand["key"], ChainBrand> = {
 };
 
 function ChainAvatar({ logo, label, size = 36 }: { logo: string; label: string; size?: number }) {
+  // No background chip - the LCAI orb + Ethereum mark each carry their own
+  // transparent canvas, so a dark navy wrapper just adds noise around them.
   return (
-    <div
-      className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#14152C]"
+    <Image
+      src={logo}
+      alt={label}
+      width={size}
+      height={size}
+      className="shrink-0 object-contain"
       style={{ width: size, height: size }}
-    >
-      <Image src={logo} alt={label} width={size} height={size} className="object-contain" />
-    </div>
+    />
   );
 }
 
@@ -771,21 +777,64 @@ function StepDot({ n, current, label }: { n: number; current: BridgeStep; label:
   const isCurrent = current === n;
   return (
     <div className="flex items-center gap-2">
-      <div
-        className={`grid size-7 place-items-center rounded-full text-xs font-semibold transition-colors ${
-          isCurrent
-            ? "bg-[#7064E9] text-[#CCCEEF]"
-            : isDone
-              ? "bg-[#7064E9]/30 text-[#CCCEEF]"
-              : "bg-[#14152C] text-[#7376AA]"
+      <div className="relative">
+        {/* Animated pulse halo on the current step. Pure CSS, GPU-friendly. */}
+        {isCurrent ? (
+          <span
+            aria-hidden
+            className="absolute inset-0 -m-1 animate-ping rounded-full bg-[#7064E9]/40"
+            style={{ animationDuration: "2s" }}
+          />
+        ) : null}
+        <div
+          className={`relative grid size-8 place-items-center rounded-full text-xs font-semibold transition-all duration-300 ${
+            isCurrent
+              ? "bg-gradient-to-br from-[#7064E9] to-[#5a4fd6] text-[#CCCEEF] shadow-[0_0_16px_-2px_rgba(112,100,233,0.7)]"
+              : isDone
+                ? "bg-[#7064E9]/25 text-[#CCCEEF]"
+                : "bg-[#14152C] text-[#7376AA]"
+          }`}
+        >
+          {isDone ? <Check className="size-3.5" /> : n}
+        </div>
+      </div>
+      <span
+        className={`hidden text-sm font-medium transition-colors sm:inline ${
+          isCurrent ? "text-[#CCCEEF]" : isDone ? "text-[#CCCEEF]/70" : "text-[#7376AA]"
         }`}
       >
-        {isDone ? <Check className="size-3.5" /> : n}
-      </div>
-      <span className={`hidden text-xs font-medium transition-colors sm:inline ${isCurrent ? "text-[#CCCEEF]" : "text-[#7376AA]"}`}>
         {label}
       </span>
     </div>
+  );
+}
+
+/** Connector line between two step dots. Fills with the brand purple as
+ *  progress moves past the previous step. */
+function StepConnector({ filled }: { filled: boolean }) {
+  return (
+    <div className="relative h-px flex-1 overflow-hidden">
+      <div className="absolute inset-0 bg-[rgba(112,100,233,0.15)]" />
+      <div
+        className={`absolute inset-y-0 left-0 bg-gradient-to-r from-[#7064E9] to-[#7064E9]/40 transition-all duration-500 ${
+          filled ? "w-full" : "w-0"
+        }`}
+      />
+    </div>
+  );
+}
+
+/** Pill-style Back button. Bigger affordance than a bare text link, with a
+ *  hover state that matches the brand accent. */
+function StepBack({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-1.5 text-xs font-medium text-[#CCCEEF] transition-all hover:-translate-x-0.5 hover:border-[#7064E9]/60 hover:bg-[#7064E9]/10 hover:shadow-[0_0_12px_-4px_rgba(112,100,233,0.8)]"
+    >
+      <ArrowLeft className="size-3.5" /> Back
+    </button>
   );
 }
 
@@ -838,12 +887,12 @@ function BridgeRecipe() {
 
   return (
     <div className="space-y-6">
-      {/* Step indicator */}
+      {/* Step indicator with animated pulse + gradient progress connectors */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4">
         <StepDot n={1} current={step} label="Direction" />
-        <div className="h-px flex-1 bg-[rgba(112,100,233,0.20)]" />
+        <StepConnector filled={step > 1} />
         <StepDot n={2} current={step} label="Amount" />
-        <div className="h-px flex-1 bg-[rgba(112,100,233,0.20)]" />
+        <StepConnector filled={step > 2} />
         <StepDot n={3} current={step} label="Use it" />
       </div>
 
@@ -872,13 +921,7 @@ function BridgeRecipe() {
 
         {step === 2 ? (
           <div>
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="mb-4 inline-flex items-center gap-1.5 text-xs text-[#7376AA] transition-colors hover:text-[#CCCEEF]"
-            >
-              <ArrowLeft className="size-3" /> Back
-            </button>
+            <StepBack onClick={() => setStep(1)} />
             <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">How much</h3>
             <p className="mt-1 text-sm text-[#7376AA]">
               Bridging <span className="text-[#CCCEEF]">{fromChain.label}</span> to{" "}
@@ -982,9 +1025,11 @@ function BridgeRecipe() {
                 <button
                   type="button"
                   onClick={() => setStep(3)}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[rgba(112,100,233,0.40)] px-4 py-2.5 text-sm font-medium text-[#CCCEEF] transition-colors hover:bg-[#14152C]"
+                  className="group mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-[#CCCEEF] shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+                  style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
                 >
-                  Get the code for your project <ArrowRight className="size-3.5" />
+                  Get the code for your project
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
                 </button>
               </div>
             ) : null}
@@ -993,13 +1038,7 @@ function BridgeRecipe() {
 
         {step === 3 ? (
           <div>
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              className="mb-4 inline-flex items-center gap-1.5 text-xs text-[#7376AA] transition-colors hover:text-[#CCCEEF]"
-            >
-              <ArrowLeft className="size-3" /> Back
-            </button>
+            <StepBack onClick={() => setStep(2)} />
             <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">Use it in your project</h3>
             <p className="mt-1 text-sm text-[#7376AA]">Pick your stack. We give you a runnable example you can paste in.</p>
 
@@ -1022,14 +1061,16 @@ function BridgeRecipe() {
             </div>
             <p className="mt-2 text-xs text-[#7376AA]">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2 text-xs text-[#CCCEEF]">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2.5 text-xs text-[#CCCEEF]">
               <span className="truncate text-[#7376AA]">{snippet.fileHint}</span>
               <button
                 type="button"
                 onClick={() => openInStackBlitz(snippet, tmpl)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#7064E9] px-3 py-1.5 text-xs font-medium text-[#CCCEEF] transition-opacity hover:opacity-90"
+                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-[#CCCEEF] shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+                style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
               >
-                <PlayCircle className="size-3" /> Open in StackBlitz
+                <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
+                Open in StackBlitz
               </button>
             </div>
 

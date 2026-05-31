@@ -29,6 +29,12 @@ export interface ModuleDef {
   sandboxBody?: string;
   /** Sandbox needs PRIVATE_KEY in .env to do anything useful. */
   sandboxNeedsKey?: boolean;
+  /**
+   * Optional hero illustration shown on this module's /build/sdks/<id> sub-
+   * page. Loaded with next/image at large size on desktop, stacked below
+   * the copy on mobile. Path is relative to /public.
+   */
+  heroImage?: string;
 }
 
 export const MODULES: ModuleDef[] = [
@@ -56,6 +62,7 @@ await bridge.transfer({
   recipient: account.address,
   fee,
 });`,
+    heroImage: "/images/sdk/bridge-hero.webp",
     triable: true,
   },
   {

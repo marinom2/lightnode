@@ -9,6 +9,7 @@
  * page so the focus is on what the SDK does, not on the chrome around it.
  */
 
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Boxes } from "lucide-react";
 import { MODULES, type ModuleId } from "@/lib/sdk-modules-data";
@@ -33,19 +34,35 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         Modules
       </Link>
 
-      {/* Hero. Generous vertical room, soft eyebrow, large title, soft blurb. */}
-      <header className="mb-12">
-        <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-[#14152C]">
-          <m.icon className="size-6 text-[#7064E9]" />
+      {/* Hero. Optional illustration on the right when the module provides
+          one, stacked under the copy on mobile so it still gets a moment. */}
+      <header className={`mb-12 ${m.heroImage ? "grid items-center gap-8 lg:grid-cols-[1.2fr_minmax(0,360px)]" : ""}`}>
+        <div>
+          <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-[#14152C]">
+            <m.icon className="size-6 text-[#7064E9]" />
+          </div>
+          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
+          <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl">
+            {m.title}
+          </h1>
+          <p className="mt-5 max-w-2xl text-balance text-base leading-relaxed text-[#7376AA] sm:text-lg">
+            {tagline}
+          </p>
+          <DocLinks m={m} />
         </div>
-        <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
-        <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl">
-          {m.title}
-        </h1>
-        <p className="mt-5 max-w-2xl text-balance text-base leading-relaxed text-[#7376AA] sm:text-lg">
-          {tagline}
-        </p>
-        <DocLinks m={m} />
+        {m.heroImage ? (
+          <div className="relative mx-auto w-full max-w-md lg:max-w-none">
+            <div className="pointer-events-none absolute inset-0 -z-10 scale-110 rounded-full bg-[radial-gradient(closest-side,rgba(112,100,233,0.18),transparent)] blur-2xl" />
+            <Image
+              src={m.heroImage}
+              alt={`${m.title} illustration`}
+              width={1200}
+              height={1000}
+              priority
+              className="h-auto w-full"
+            />
+          </div>
+        ) : null}
       </header>
 
       {/* The widget in a calm, deep panel - the main event. */}

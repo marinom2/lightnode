@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { AlertOctagon, ArrowRight, Bot, Layers, Layers3, Server, Sparkles, User2, Wallet2 } from "lucide-react";
 import { SectionHeader } from "@/components/build/section-header";
@@ -62,15 +63,50 @@ const TYPED_ERRORS = [
 export default function BuildSdksPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      {/* Generous, calm hero. Title large, blurb soft, no badges. */}
-      <div className="mb-14 text-center sm:text-left">
-        <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
-        <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl">
-          Eight modules. One install.
-        </h1>
-        <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#7376AA] sm:mx-0">
-          Open any module for a focused page with live data, runnable snippets, and one-click sandboxes.
-        </p>
+      {/* Hero with isometric SDK illustration as the visual CTA. Two-column
+          on desktop, stacked on mobile. The image is the main thing the
+          eye lands on - bordered card on the right side. */}
+      <div className="mb-16 grid items-center gap-10 lg:grid-cols-[1fr_minmax(0,420px)]">
+        <div>
+          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
+          <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl lg:text-6xl">
+            Eight modules. One install.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-[#7376AA] sm:text-lg">
+            Open any module for a focused page with live data, runnable snippets, and one-click sandboxes.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center gap-4 text-sm">
+            <a
+              href="https://www.npmjs.com/package/lightnode-sdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 font-semibold text-[#CCCEEF] shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+              style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
+            >
+              npm install lightnode-sdk
+            </a>
+            <a
+              href="https://github.com/marinom2/lightnode/blob/main/sdk/README.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#7376AA] underline-offset-4 transition-colors hover:text-[#CCCEEF] hover:underline"
+            >
+              Read the SDK README
+            </a>
+          </div>
+        </div>
+        <div className="relative mx-auto w-full max-w-md lg:max-w-none">
+          {/* Soft radial halo behind the illustration so it floats. */}
+          <div className="pointer-events-none absolute inset-0 -z-10 scale-110 rounded-full bg-[radial-gradient(closest-side,rgba(112,100,233,0.18),transparent)] blur-2xl" />
+          <Image
+            src="/images/sdk/sdk-hero.webp"
+            alt="LightNode SDK illustration"
+            width={1200}
+            height={1049}
+            priority
+            className="h-auto w-full"
+          />
+        </div>
       </div>
 
       {/* ── SDK MODULES (LINK CARDS) ────────────────────────────────── */}
