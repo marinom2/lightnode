@@ -359,7 +359,9 @@ function writeFile(abs: string, contents: string, force: boolean): WrittenFile {
 function depsNeeded(template: Template): string[] {
   if (template === "nextjs-api") return ["lightnode-sdk", "viem", "ws"];
   if (template === "hono") return ["lightnode-sdk", "viem", "ws"];
-  return ["lightnode-sdk", "viem", "ws"];
+  // The node/script template is run with `npx tsx <file>.ts`, so tsx must be
+  // installed too, otherwise `tsx ...` fails with "command not found".
+  return ["lightnode-sdk", "viem", "ws", "tsx"];
 }
 
 /**

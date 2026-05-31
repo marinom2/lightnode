@@ -16,6 +16,12 @@ npm install lightnode-sdk viem
 LightChain's own docs list official SDKs as "soon"; this fills the gap. Not
 affiliated with LightChain.
 
+New to blockchain or Node.js? Read the
+[Getting Started guide](../GETTING-STARTED.md) first. It covers wallets, testnet
+vs mainnet, the `.env` file, and your first AI call in about 5 minutes. Then come
+back here for the full reference. The rest of this README assumes you're
+comfortable with TypeScript and a terminal.
+
 ## Five-line "hello world"
 
 ```ts

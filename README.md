@@ -19,6 +19,15 @@ for running a worker. One project, two tracks.
 
 </div>
 
+## Never done this before? Start here
+
+If you're new to blockchain or Node.js development, read
+[GETTING-STARTED.md](GETTING-STARTED.md) first. It assumes no experience and
+covers, in about 5 minutes, making a wallet, getting free testnet funds, your first
+AI call, and the difference between the two ways to build (so you don't end up
+with a confusing mix of files). The rest of this README and the SDK docs assume
+you're already comfortable with a terminal and TypeScript.
+
 ## What you can do with this
 
 Two completely separate use cases live in this repo. Pick the one that matches
