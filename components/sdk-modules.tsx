@@ -91,32 +91,19 @@ export function DocLinks({ m }: { m: ModuleDef }) {
   // every other module gets a single Open-in-StackBlitz badge here.
   const sandboxBody = m.sandboxBody ?? m.snippet;
   const showStackBlitz = m.id !== "bridge";
+  const linkCls =
+    "inline-flex items-center gap-1.5 rounded-full border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-1.5 text-xs text-[#7376AA] transition-colors hover:border-[rgba(112,100,233,0.40)] hover:text-[#CCCEEF]";
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <a
-        href={`https://www.npmjs.com/package/lightnode-sdk${m.npm}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
-      >
+    <div className="mt-6 flex flex-wrap items-center gap-2">
+      <a href={`https://www.npmjs.com/package/lightnode-sdk${m.npm}`} target="_blank" rel="noopener noreferrer" className={linkCls}>
         <PackageOpen className="size-3" /> npm <ExternalLink className="size-3" />
       </a>
-      <a
-        href={m.github}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
-      >
-        <Github className="size-3" /> source <ExternalLink className="size-3" />
+      <a href={m.github} target="_blank" rel="noopener noreferrer" className={linkCls}>
+        <Github className="size-3" /> Source <ExternalLink className="size-3" />
       </a>
       {m.example ? (
-        <a
-          href={m.example}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-bdr-soft px-2 py-1 text-[11px] text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary"
-        >
-          <Terminal className="size-3" /> runnable example <ExternalLink className="size-3" />
+        <a href={m.example} target="_blank" rel="noopener noreferrer" className={linkCls}>
+          <Terminal className="size-3" /> Example <ExternalLink className="size-3" />
         </a>
       ) : null}
       {showStackBlitz ? (
@@ -129,7 +116,7 @@ export function DocLinks({ m }: { m: ModuleDef }) {
               needsPrivateKey: m.sandboxNeedsKey ?? false,
             })
           }
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/15"
+          className="inline-flex items-center gap-1.5 rounded-full bg-[#7064E9] px-3 py-1.5 text-xs font-medium text-[#CCCEEF] transition-opacity hover:opacity-90"
           aria-label={`Open ${m.title} in StackBlitz`}
         >
           <PlayCircle className="size-3" /> Open in StackBlitz
@@ -767,104 +754,117 @@ function BridgeRecipe() {
 
   return (
     <div className="space-y-4">
-      {/* The main bridge swap card. Visually echoes the official LCAI Bridge:
-          chain pills with a center swap button, big amount input with Max +
-          balance footer, fees + arrival summary, gradient Continue CTA. */}
-      <div className="relative overflow-hidden rounded-2xl border border-bdr-soft bg-card/70 p-5 shadow-[0_8px_30px_-16px_rgba(112,100,233,0.45)]">
-        <div className="pointer-events-none absolute -inset-12 -z-10 opacity-40 blur-3xl">
-          <div className="absolute -left-10 top-1/2 size-40 -translate-y-1/2 rounded-full bg-fuchsia-500/30" />
-          <div className="absolute -right-10 top-1/2 size-40 -translate-y-1/2 rounded-full bg-sky-500/30" />
+      {/* The main bridge swap card.
+          Style tokens lifted directly from lightchain-protocol/bridge-ui:
+            outer border:  rgba(112,100,233,0.24)
+            inner border:  rgba(112,100,233,0.20)
+            backgrounds:   #14152C (darker2), #070710 (dark), #1A1B38 (dark2)
+            text:          #CCCEEF body, #7376AA muted
+            accent:        #7064E9
+            Continue gradient: 94deg, #dd00ac -> #7130c3 -> #410093 */}
+      <div className="relative mx-auto w-full max-w-xl overflow-hidden rounded-xl border border-[rgba(112,100,233,0.24)] shadow-[0_4px_18px_rgba(0,0,0,0.2)]">
+        <div className="relative z-[2] rounded-t-xl bg-[#14152C] px-3 py-6">
+          <h3 className="text-center text-2xl font-semibold leading-[1.3] text-[#CCCEEF]">LCAI Bridge</h3>
+          <p className="mt-1 text-center text-[11px] uppercase tracking-wide text-[#7376AA]">
+            Interactive preview - no spend, dry run
+          </p>
         </div>
+        <div className="bg-[#070710] px-4 py-6 sm:p-6">
+          {/* Chain row */}
+          <div className="relative grid grid-cols-2 gap-[33px] rounded-xl border border-[rgba(112,100,233,0.20)] bg-[rgba(204,206,239,0.02)] p-2.5">
+            <ChainPill chain={fromChain} side="from" />
+            <ChainPill chain={toChain} side="to" />
+            <div className="absolute left-1/2 top-1/2 z-[2] -translate-x-1/2 -translate-y-1/2 rounded-md border-4 border-[#070710] sm:border-[6px]">
+              <button
+                type="button"
+                onClick={swapDirection}
+                className="flex size-8 items-center justify-center bg-[#1A1B38] transition-colors hover:bg-[#14152C] sm:size-[44px]"
+                aria-label="Swap direction"
+                title="Swap direction"
+              >
+                <ArrowLeftRight className="size-4 text-[#7064E9]" />
+              </button>
+            </div>
+          </div>
 
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold tracking-tight text-content-primary">LCAI Bridge</h3>
-          <Badge tone="brand">interactive preview</Badge>
-        </div>
+          {/* Amount panel */}
+          <div className="mt-4 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-0 flex-1 border-none bg-transparent text-xl font-normal text-[#CCCEEF] outline-none placeholder:text-[#7376AA] sm:text-2xl"
+                aria-label="Amount of LCAI to bridge"
+              />
+              <button
+                type="button"
+                onClick={() => setAmount("100")}
+                className="flex h-6 min-w-[52px] items-center justify-center rounded-full bg-[#7064E9] px-3 text-xs font-semibold leading-none text-[#CCCEEF] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs leading-[18px] text-[#7376AA]">
+              <span>LCAI</span>
+              <span>
+                Source-chain gas: <span className="text-[#CCCEEF]">{sourceGas}</span>
+              </span>
+            </div>
+          </div>
 
-        {/* Chain row: two pills + swap button between them */}
-        <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-bdr-soft bg-surface-base-faint p-2">
-          <ChainPill chain={fromChain} side="from" />
+          {/* Recipient */}
+          <label className="mt-4 block">
+            <span className="mb-1.5 block pl-0.5 text-sm text-[#7376AA]">
+              Recipient (optional, destination address)
+            </span>
+            <input
+              type="text"
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+              placeholder="0x..."
+              className="w-full rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2.5 font-mono text-xs text-[#CCCEEF] outline-none transition-colors placeholder:text-[#7376AA] focus:border-[rgba(112,100,233,0.40)]"
+              aria-label="Recipient address on the destination chain"
+            />
+          </label>
+
+          {/* Fees + arrival */}
+          <div className="mt-4 space-y-2 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-3 text-xs text-[#CCCEEF]">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 text-[#7376AA]">
+                <Coins className="size-3" />
+                Hyperlane IGP fee
+              </span>
+              <span>
+                <span className="font-semibold text-[#CCCEEF]">{feeShort}</span>{" "}
+                <span className="text-[#7376AA]">(pre-paid)</span>
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[#7376AA]">Estimated arrival</span>
+              <span className="text-[#CCCEEF]">~30 to 60 min</span>
+            </div>
+          </div>
+
+          {/* Continue button - LCAI brand gradient (94deg, magenta -> purple -> deep) */}
           <button
             type="button"
-            onClick={swapDirection}
-            className="grid size-8 place-items-center rounded-lg border border-bdr-soft bg-card text-content-soft transition-all hover:border-primary/60 hover:text-primary"
-            aria-label="Swap direction"
-            title="Swap direction"
+            onClick={runPreview}
+            disabled={busy || numericAmt <= 0}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-base font-semibold text-[#CCCEEF] shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              background:
+                "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)",
+            }}
           >
-            <ArrowLeftRight className="size-4" />
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
+            {busy ? "Running" : numericAmt > 0 ? `Preview bridging ${numericAmt} LCAI` : "Continue"}
           </button>
-          <ChainPill chain={toChain} side="to" />
         </div>
-
-        {/* Amount panel */}
-        <div className="mb-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-4">
-          <div className="flex items-start justify-between">
-            <input
-              type="number"
-              min={0}
-              step={1}
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="w-0 flex-1 bg-transparent text-3xl font-semibold tracking-tight text-content-primary outline-none placeholder:text-content-soft/40"
-              aria-label="Amount of LCAI to bridge"
-            />
-            <button
-              type="button"
-              onClick={() => setAmount("100")}
-              className="ml-2 rounded-full bg-primary/20 px-3 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/30"
-            >
-              Reset
-            </button>
-          </div>
-          <div className="mt-1 flex items-center justify-between text-[11px]">
-            <span className="text-content-soft">LCAI</span>
-            <span className="text-content-soft">
-              Source-chain gas: <span className="text-content-default">{sourceGas}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Recipient */}
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-content-soft">
-            Recipient (optional, destination address)
-          </span>
-          <input
-            type="text"
-            value={recipient}
-            onChange={(e) => setRecipient(e.target.value)}
-            placeholder="0x..."
-            className="w-full rounded-xl border border-bdr-soft bg-surface-base-faint px-3 py-2.5 font-mono text-xs text-content-primary outline-none transition-colors focus:border-primary/60"
-            aria-label="Recipient address on the destination chain"
-          />
-        </label>
-
-        {/* Fees / arrival summary */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-bdr-soft bg-surface-base-faint px-3 py-2 text-[11px]">
-          <span className="inline-flex items-center gap-1.5 text-content-soft">
-            <Coins className="size-3" />
-            Hyperlane IGP fee: <span className="text-content-default">{feeShort}</span>
-            <span className="text-content-soft">(pre-paid)</span>
-          </span>
-          <span className="text-content-soft">
-            Arrives in <span className="text-content-default">~30 to 60 min</span>
-          </span>
-        </div>
-
-        {/* Big gradient Continue / Run button */}
-        <button
-          type="button"
-          onClick={runPreview}
-          disabled={busy || numericAmt <= 0}
-          className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-500 via-primary to-sky-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_8px_24px_-8px_rgba(112,100,233,0.6)] transition-all hover:shadow-[0_12px_36px_-8px_rgba(112,100,233,0.7)] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
-        >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
-          {busy ? "Running" : numericAmt > 0 ? `Preview bridging ${numericAmt} LCAI` : "Enter an amount"}
-        </button>
-
-        <p className="mt-2 text-center text-[10px] uppercase tracking-wide text-content-soft">No spend / dry run</p>
       </div>
 
       {/* Result panel - mirrors CLI Runner shape */}
@@ -949,15 +949,15 @@ function BridgeRecipe() {
  * center swap button).
  */
 function ChainPill({ chain, side }: { chain: { label: string; sub: string; color: string }; side: "from" | "to" }) {
+  const padding = side === "from" ? "pr-2 sm:pr-8" : "flex-row-reverse pl-2 sm:pl-8";
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-3 py-2">
-      <div className={`grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br ${chain.color} text-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.4)]`}>
+    <div className={`flex items-center gap-3 ${padding}`}>
+      <div className={`grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br ${chain.color} text-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.4)]`}>
         <Coins className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wide text-content-soft">{side === "from" ? "From" : "To"}</div>
-        <div className="truncate text-sm font-semibold text-content-primary">{chain.label}</div>
-        <div className="truncate text-[10px] text-content-soft">{chain.sub}</div>
+        <div className="truncate text-base font-semibold leading-tight text-[#CCCEEF]">{chain.label}</div>
+        <div className="truncate text-xs text-[#7376AA]">{chain.sub}</div>
       </div>
     </div>
   );

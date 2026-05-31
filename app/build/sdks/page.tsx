@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { AlertOctagon, ArrowRight, Bot, Layers, Layers3, Rocket, Server, Sparkles, User2, Wallet2 } from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { AlertOctagon, ArrowRight, Bot, Layers, Layers3, Server, Sparkles, User2, Wallet2 } from "lucide-react";
 import { SectionHeader } from "@/components/build/section-header";
 import { MODULES } from "@/lib/sdk-modules-data";
 
@@ -64,43 +62,35 @@ const TYPED_ERRORS = [
 export default function BuildSdksPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <div className="mb-10">
-        <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
-          SDK modules
+      {/* Generous, calm hero. Title large, blurb soft, no badges. */}
+      <div className="mb-14 text-center sm:text-left">
+        <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
+        <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl">
+          Eight modules. One install.
         </h1>
-        <p className="mt-2 max-w-2xl text-sm text-content-soft">
-          Six real modules exported in lightnode-sdk@0.6.x. Click any card for a focused page: live data, runnable
-          snippets, project-template wiring, and Open-in-StackBlitz buttons - one SDK at a time.
+        <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-[#7376AA] sm:mx-0">
+          Open any module for a focused page with live data, runnable snippets, and one-click sandboxes.
         </p>
       </div>
 
       {/* ── SDK MODULES (LINK CARDS) ────────────────────────────────── */}
-      <div className="mb-14">
-        <SectionHeader
-          icon={Rocket}
-          title="The six modules"
-          blurb="Each card is a short summary. Click to open a dedicated page for that SDK."
-        />
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+      <div className="mb-16">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {MODULES.map((m) => (
             <Link
               key={m.id}
               href={`/build/sdks/${m.id}`}
               aria-label={`Open ${m.title}`}
-              className="group relative flex flex-col rounded-2xl border border-bdr-soft bg-card/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card/80 hover:shadow-[0_8px_24px_-10px_rgba(112,100,233,0.45)]"
+              className="group relative flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6 transition-all hover:-translate-y-0.5 hover:border-[rgba(112,100,233,0.40)] hover:bg-[#0a0a18]"
             >
-              <div className="mb-2 flex items-center gap-2">
-                <div className="grid size-9 place-items-center rounded-lg border border-bdr-soft bg-surface-base-faint text-primary">
-                  <m.icon className="size-4" />
-                </div>
-                <span className="text-sm font-semibold text-content-primary">{m.title}</span>
-                <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-success" title="Shipped in lightnode-sdk@0.6.x">
-                  <span className="size-1.5 rounded-full bg-success" /> 0.6.x
-                </span>
+              <div className="mb-4 grid size-10 place-items-center rounded-lg bg-[#14152C]">
+                <m.icon className="size-5 text-[#7064E9]" />
               </div>
-              <p className="mb-4 line-clamp-3 text-xs leading-relaxed text-content-soft">{m.blurb}</p>
-              <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-primary">
-                Open <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+              <h3 className="mb-1.5 text-base font-semibold tracking-tight text-[#CCCEEF]">{m.title}</h3>
+              <p className="mb-6 line-clamp-3 flex-1 text-sm leading-relaxed text-[#7376AA]">{m.blurb}</p>
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-[#7064E9]">
+                Open
+                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
               </span>
             </Link>
           ))}
@@ -115,11 +105,11 @@ export default function BuildSdksPage() {
           blurb="Two higher-level abstractions on top of runInferenceWithKey. Same proof chain, same encrypted session - just less boilerplate for common patterns."
         />
         <div className="grid gap-3 md:grid-cols-2">
-          <Card className="flex flex-col p-5">
+          <div className="flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
             <div className="mb-2 flex items-center gap-2">
               <Layers3 className="size-5 text-primary" />
               <span className="text-sm font-semibold text-content-primary">runInferenceBatch</span>
-              <Badge tone="brand">0.6.0</Badge>
+              <span className="ml-auto inline-flex items-center rounded-full bg-[#7064E9]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#7064E9]">0.6.0</span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-content-soft">
               Fan out many prompts as parallel encrypted inferences with a capped concurrency. Stable result order, per-slot
@@ -149,12 +139,12 @@ const results = await runInferenceBatch({
               <span className="font-medium text-content-default">Fits:</span> batch evals, content scoring, RAG re-ranking,
               parallel rewrites.
             </p>
-          </Card>
-          <Card className="flex flex-col p-5">
+          </div>
+          <div className="flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
             <div className="mb-2 flex items-center gap-2">
               <Bot className="size-5 text-primary" />
               <span className="text-sm font-semibold text-content-primary">Agent (tool calling)</span>
-              <Badge tone="brand">0.6.0</Badge>
+              <span className="ml-auto inline-flex items-center rounded-full bg-[#7064E9]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#7064E9]">0.6.0</span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-content-soft">
               ReAct-style loop: model thinks, picks a tool, runs it, observes the result, iterates. Uses simple string markers
@@ -184,7 +174,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
               <span className="font-medium text-content-default">Fits:</span> autonomous tasks, search + summarize, lookup
               chains, multi-step reasoning with deterministic side-effects.
             </p>
-          </Card>
+          </div>
         </div>
         <p className="mt-3 text-[11px] text-content-soft">
           Plus <code className="font-mono">AbortSignal</code> support added to <code className="font-mono">runInferenceWithKey</code>{" "}
@@ -201,7 +191,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
         />
         <div className="grid gap-3 md:grid-cols-3">
           {INFERENCE_TIERS.map((tier) => (
-            <Card key={tier.name} className="flex flex-col p-5">
+            <div key={tier.name} className="flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
               <code className="mb-1 break-all font-mono text-sm font-semibold text-content-primary">{tier.name}</code>
               <span className="mb-3 text-xs font-medium text-primary">{tier.line}</span>
               <p className="mb-3 flex-1 text-xs leading-relaxed text-content-soft">{tier.body}</p>
@@ -209,7 +199,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
                 <span className="text-[10px] uppercase tracking-wide text-content-soft">Fits</span>
                 <p className="mt-0.5 text-xs text-content-default">{tier.fit}</p>
               </div>
-            </Card>
+            </div>
           ))}
         </div>
       </div>
@@ -223,7 +213,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
         />
         <div className="grid gap-3 md:grid-cols-2">
           {PAY_PATTERNS.map((p) => (
-            <Card key={p.name} className="p-5">
+            <div key={p.name} className="rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
               <div className="mb-2 flex items-center gap-2">
                 <p.icon className="size-5 text-primary" />
                 <span className="text-sm font-semibold text-content-primary">{p.name}</span>
@@ -244,13 +234,13 @@ const { answer, steps } = await agent.run("17 + 25?");`}
               <p className="text-[11px] text-content-soft">
                 <span className="font-medium text-content-default">Examples:</span> {p.examples}
               </p>
-            </Card>
+            </div>
           ))}
         </div>
       </div>
 
       {/* ── TYPED ERRORS ─────────────────────────────────────────────── */}
-      <Card className="mb-6 p-6">
+      <div className="mb-6 rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6 sm:p-8">
         <SectionHeader
           icon={AlertOctagon}
           title="Typed errors and recovery"
@@ -282,7 +272,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
           Plus <code className="font-mono">isStalledWorker(e)</code> as a type guard so a TS narrowing branch lights up
           without an instanceof check.
         </p>
-      </Card>
+      </div>
     </div>
   );
 }
