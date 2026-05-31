@@ -21,8 +21,10 @@
  * standalone example in lightnode-examples).
  */
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import {
+  ArrowLeft,
   ArrowLeftRight,
   ArrowRight,
   Boxes,
@@ -701,16 +703,108 @@ function openSnippetInStackBlitz(opts: {
   );
 }
 
+// --- Bridge stepper --------------------------------------------------------
+// 3-step focused flow. Replaces a single dense form with: direction ->
+// amount -> integrate. Reference content (route addresses, exported API)
+// lives below the stepper.
+
+type BridgeStep = 1 | 2 | 3;
+
+interface ChainBrand {
+  key: "ethereum" | "lightchain";
+  label: string;
+  sub: string;
+  logo: string;
+}
+
+const CHAIN_BRAND: Record<ChainBrand["key"], ChainBrand> = {
+  ethereum: { key: "ethereum", label: "Ethereum", sub: "LCAI ERC-20", logo: "/logos/eth.svg" },
+  lightchain: { key: "lightchain", label: "LightChain", sub: "native LCAI", logo: "/logos/lcai.png" },
+};
+
+function ChainAvatar({ logo, label, size = 36 }: { logo: string; label: string; size?: number }) {
+  return (
+    <div
+      className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#14152C]"
+      style={{ width: size, height: size }}
+    >
+      <Image src={logo} alt={label} width={size} height={size} className="object-contain" />
+    </div>
+  );
+}
+
+function DirectionTile({
+  from,
+  to,
+  selected,
+  onClick,
+}: {
+  from: ChainBrand;
+  to: ChainBrand;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex items-center gap-3 rounded-xl border bg-[#070710] p-5 text-left transition-all hover:-translate-y-0.5 ${
+        selected
+          ? "border-[#7064E9] shadow-[0_0_0_1px_#7064E9_inset]"
+          : "border-[rgba(112,100,233,0.20)] hover:border-[rgba(112,100,233,0.40)]"
+      }`}
+      aria-pressed={selected}
+    >
+      <ChainAvatar logo={from.logo} label={from.label} size={36} />
+      <ArrowRight className="size-4 shrink-0 text-[#7376AA] transition-colors group-hover:text-[#7064E9]" />
+      <ChainAvatar logo={to.logo} label={to.label} size={36} />
+      <div className="ml-auto min-w-0 text-right">
+        <div className="truncate text-sm font-semibold text-[#CCCEEF]">{from.label} to {to.label}</div>
+        <div className="truncate text-xs text-[#7376AA]">{from.sub} to {to.sub}</div>
+      </div>
+    </button>
+  );
+}
+
+function StepDot({ n, current, label }: { n: number; current: BridgeStep; label: string }) {
+  const isDone = current > n;
+  const isCurrent = current === n;
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className={`grid size-7 place-items-center rounded-full text-xs font-semibold transition-colors ${
+          isCurrent
+            ? "bg-[#7064E9] text-[#CCCEEF]"
+            : isDone
+              ? "bg-[#7064E9]/30 text-[#CCCEEF]"
+              : "bg-[#14152C] text-[#7376AA]"
+        }`}
+      >
+        {isDone ? <Check className="size-3.5" /> : n}
+      </div>
+      <span className={`hidden text-xs font-medium transition-colors sm:inline ${isCurrent ? "text-[#CCCEEF]" : "text-[#7376AA]"}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function BridgeRecipe() {
-  const [amount, setAmount] = useState<string>("100");
+  const [step, setStep] = useState<BridgeStep>(1);
   const [direction, setDirection] = useState<BridgeDirection>("eth-to-lc");
+  const [amount, setAmount] = useState<string>("100");
   const [recipient, setRecipient] = useState<string>("");
   const [tmpl, setTmpl] = useState<BridgeTemplate>("node");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<BridgePreviewResp | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
+
   const numericAmt = Number(amount) || 0;
   const snippet = bridgeSnippet(tmpl, amount, direction);
+  const fromChain = direction === "eth-to-lc" ? CHAIN_BRAND.ethereum : CHAIN_BRAND.lightchain;
+  const toChain = direction === "eth-to-lc" ? CHAIN_BRAND.lightchain : CHAIN_BRAND.ethereum;
+  const sourceUnit = direction === "eth-to-lc" ? "ETH" : "LCAI";
+  const sourceGas = direction === "eth-to-lc" ? "~$0.50-2 in ETH" : "<0.01 LCAI";
 
   async function runPreview() {
     setBusy(true);
@@ -742,222 +836,217 @@ function BridgeRecipe() {
     }
   }
 
-  const fromChain = direction === "eth-to-lc"
-    ? { label: "Ethereum", sub: "LCAI ERC-20", color: "from-sky-500 to-indigo-500" }
-    : { label: "LightChain", sub: "native LCAI", color: "from-fuchsia-500 to-violet-500" };
-  const toChain = direction === "eth-to-lc"
-    ? { label: "LightChain", sub: "native LCAI", color: "from-fuchsia-500 to-violet-500" }
-    : { label: "Ethereum", sub: "LCAI ERC-20", color: "from-sky-500 to-indigo-500" };
-  const swapDirection = () => setDirection((d) => (d === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc"));
-  const feeShort = direction === "eth-to-lc" ? "0 ETH" : "0 LCAI";
-  const sourceGas = direction === "eth-to-lc" ? "~$0.50-2 in ETH" : "<0.01 LCAI";
-
   return (
-    <div className="space-y-4">
-      {/* The main bridge swap card.
-          Style tokens lifted directly from lightchain-protocol/bridge-ui:
-            outer border:  rgba(112,100,233,0.24)
-            inner border:  rgba(112,100,233,0.20)
-            backgrounds:   #14152C (darker2), #070710 (dark), #1A1B38 (dark2)
-            text:          #CCCEEF body, #7376AA muted
-            accent:        #7064E9
-            Continue gradient: 94deg, #dd00ac -> #7130c3 -> #410093 */}
-      <div className="relative mx-auto w-full max-w-xl overflow-hidden rounded-xl border border-[rgba(112,100,233,0.24)] shadow-[0_4px_18px_rgba(0,0,0,0.2)]">
-        <div className="relative z-[2] rounded-t-xl bg-[#14152C] px-3 py-6">
-          <h3 className="text-center text-2xl font-semibold leading-[1.3] text-[#CCCEEF]">LCAI Bridge</h3>
-          <p className="mt-1 text-center text-[11px] uppercase tracking-wide text-[#7376AA]">
-            Interactive preview - no spend, dry run
-          </p>
-        </div>
-        <div className="bg-[#070710] px-4 py-6 sm:p-6">
-          {/* Chain row */}
-          <div className="relative grid grid-cols-2 gap-[33px] rounded-xl border border-[rgba(112,100,233,0.20)] bg-[rgba(204,206,239,0.02)] p-2.5">
-            <ChainPill chain={fromChain} side="from" />
-            <ChainPill chain={toChain} side="to" />
-            <div className="absolute left-1/2 top-1/2 z-[2] -translate-x-1/2 -translate-y-1/2 rounded-md border-4 border-[#070710] sm:border-[6px]">
-              <button
-                type="button"
-                onClick={swapDirection}
-                className="flex size-8 items-center justify-center bg-[#1A1B38] transition-colors hover:bg-[#14152C] sm:size-[44px]"
-                aria-label="Swap direction"
-                title="Swap direction"
-              >
-                <ArrowLeftRight className="size-4 text-[#7064E9]" />
-              </button>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4">
+        <StepDot n={1} current={step} label="Direction" />
+        <div className="h-px flex-1 bg-[rgba(112,100,233,0.20)]" />
+        <StepDot n={2} current={step} label="Amount" />
+        <div className="h-px flex-1 bg-[rgba(112,100,233,0.20)]" />
+        <StepDot n={3} current={step} label="Use it" />
+      </div>
 
-          {/* Amount panel */}
-          <div className="mt-4 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-4">
-            <div className="flex items-center justify-between gap-2">
-              <input
-                type="number"
-                min={0}
-                step={1}
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-                className="w-0 flex-1 border-none bg-transparent text-xl font-normal text-[#CCCEEF] outline-none placeholder:text-[#7376AA] sm:text-2xl"
-                aria-label="Amount of LCAI to bridge"
+      {/* Step card */}
+      <div className="rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6 sm:p-8">
+        {step === 1 ? (
+          <div>
+            <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">Choose direction</h3>
+            <p className="mt-1 text-sm text-[#7376AA]">Where is your LCAI now, and where do you want it to go.</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <DirectionTile
+                from={CHAIN_BRAND.ethereum}
+                to={CHAIN_BRAND.lightchain}
+                selected={direction === "eth-to-lc"}
+                onClick={() => { setDirection("eth-to-lc"); setStep(2); }}
               />
+              <DirectionTile
+                from={CHAIN_BRAND.lightchain}
+                to={CHAIN_BRAND.ethereum}
+                selected={direction === "lc-to-eth"}
+                onClick={() => { setDirection("lc-to-eth"); setStep(2); }}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className="mb-4 inline-flex items-center gap-1.5 text-xs text-[#7376AA] transition-colors hover:text-[#CCCEEF]"
+            >
+              <ArrowLeft className="size-3" /> Back
+            </button>
+            <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">How much</h3>
+            <p className="mt-1 text-sm text-[#7376AA]">
+              Bridging <span className="text-[#CCCEEF]">{fromChain.label}</span> to{" "}
+              <span className="text-[#CCCEEF]">{toChain.label}</span>.
+            </p>
+
+            <div className="mt-6 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-0 flex-1 border-none bg-transparent text-2xl font-normal text-[#CCCEEF] outline-none placeholder:text-[#7376AA] sm:text-3xl"
+                  aria-label="Amount of LCAI to bridge"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setAmount("100")}
+                  className="flex h-7 min-w-[52px] items-center justify-center rounded-full bg-[#7064E9] px-3 text-xs font-semibold text-[#CCCEEF] transition-colors hover:opacity-90"
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs text-[#7376AA]">
+                <span>LCAI</span>
+                <span>Source-chain gas: <span className="text-[#CCCEEF]">{sourceGas}</span></span>
+              </div>
+            </div>
+
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-xs text-[#7376AA]">Recipient (optional)</span>
+              <input
+                type="text"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                placeholder="0x... destination address"
+                className="w-full rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2.5 font-mono text-xs text-[#CCCEEF] outline-none placeholder:text-[#7376AA] focus:border-[rgba(112,100,233,0.40)]"
+              />
+            </label>
+
+            <div className="mt-4 grid gap-1 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[#7376AA]">Hyperlane IGP fee</span>
+                <span className="text-[#CCCEEF]">0 {sourceUnit} <span className="text-[#7376AA]">(pre-paid)</span></span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#7376AA]">Estimated arrival</span>
+                <span className="text-[#CCCEEF]">~30 to 60 min</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={runPreview}
+              disabled={busy || numericAmt <= 0}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-[#CCCEEF] shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+              {busy ? "Running preview" : numericAmt > 0 ? `Preview bridging ${numericAmt} LCAI` : "Enter an amount"}
+            </button>
+
+            {previewErr ? (
+              <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{previewErr}</p>
+            ) : null}
+
+            {preview ? (
+              <div className="mt-6 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-4">
+                <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">SDK preview</p>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#7376AA]">Route</span>
+                    <span className="text-[#CCCEEF]">{fromChain.label} -&gt; {toChain.label}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#7376AA]">Amount</span>
+                    <span className="text-[#CCCEEF]">{preview.amountLcai} LCAI</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#7376AA]">Fee</span>
+                    <span className="text-[#CCCEEF]">0 {sourceUnit} <span className="text-[#7376AA]">(pre-paid IGP)</span></span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#7376AA]">Arrives in</span>
+                    <span className="text-[#CCCEEF]">{preview.estimatedRelayMinutes} min</span>
+                  </div>
+                </div>
+                <details className="mt-3 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#070710]">
+                  <summary className="cursor-pointer px-3 py-2 text-[11px] text-[#7376AA] hover:text-[#CCCEEF]">
+                    Show raw JSON
+                  </summary>
+                  <pre className="overflow-x-auto border-t border-[rgba(112,100,233,0.20)] px-3 py-2 font-mono text-[11px] text-[#CCCEEF]">
+{JSON.stringify(preview, null, 2)}
+                  </pre>
+                </details>
+                <button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[rgba(112,100,233,0.40)] px-4 py-2.5 text-sm font-medium text-[#CCCEEF] transition-colors hover:bg-[#14152C]"
+                >
+                  Get the code for your project <ArrowRight className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {step === 3 ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="mb-4 inline-flex items-center gap-1.5 text-xs text-[#7376AA] transition-colors hover:text-[#CCCEEF]"
+            >
+              <ArrowLeft className="size-3" /> Back
+            </button>
+            <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">Use it in your project</h3>
+            <p className="mt-1 text-sm text-[#7376AA]">Pick your stack. We give you a runnable example you can paste in.</p>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              {BRIDGE_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTmpl(t.id)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    tmpl === t.id
+                      ? "border-[#7064E9] bg-[#7064E9]/15 text-[#CCCEEF]"
+                      : "border-[rgba(112,100,233,0.20)] bg-[#14152C] text-[#7376AA] hover:text-[#CCCEEF]"
+                  }`}
+                  aria-pressed={tmpl === t.id}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-[#7376AA]">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2 text-xs text-[#CCCEEF]">
+              <span className="truncate text-[#7376AA]">{snippet.fileHint}</span>
               <button
                 type="button"
-                onClick={() => setAmount("100")}
-                className="flex h-6 min-w-[52px] items-center justify-center rounded-full bg-[#7064E9] px-3 text-xs font-semibold leading-none text-[#CCCEEF] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => openInStackBlitz(snippet, tmpl)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#7064E9] px-3 py-1.5 text-xs font-medium text-[#CCCEEF] transition-opacity hover:opacity-90"
               >
-                Reset
+                <PlayCircle className="size-3" /> Open in StackBlitz
               </button>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs leading-[18px] text-[#7376AA]">
-              <span>LCAI</span>
-              <span>
-                Source-chain gas: <span className="text-[#CCCEEF]">{sourceGas}</span>
-              </span>
+
+            <div className="mt-3">
+              <CodeBox code={snippet.body} />
             </div>
+
+            <details className="mt-4 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C]">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-[#7376AA] hover:text-[#CCCEEF]">
+                <Terminal className="size-3" /> Terminal setup commands
+              </summary>
+              <div className="border-t border-[rgba(112,100,233,0.20)] p-3">
+                <CodeBox code={snippet.setup} />
+              </div>
+            </details>
           </div>
-
-          {/* Recipient */}
-          <label className="mt-4 block">
-            <span className="mb-1.5 block pl-0.5 text-sm text-[#7376AA]">
-              Recipient (optional, destination address)
-            </span>
-            <input
-              type="text"
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              placeholder="0x..."
-              className="w-full rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2.5 font-mono text-xs text-[#CCCEEF] outline-none transition-colors placeholder:text-[#7376AA] focus:border-[rgba(112,100,233,0.40)]"
-              aria-label="Recipient address on the destination chain"
-            />
-          </label>
-
-          {/* Fees + arrival */}
-          <div className="mt-4 space-y-2 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-3 text-xs text-[#CCCEEF]">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 text-[#7376AA]">
-                <Coins className="size-3" />
-                Hyperlane IGP fee
-              </span>
-              <span>
-                <span className="font-semibold text-[#CCCEEF]">{feeShort}</span>{" "}
-                <span className="text-[#7376AA]">(pre-paid)</span>
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[#7376AA]">Estimated arrival</span>
-              <span className="text-[#CCCEEF]">~30 to 60 min</span>
-            </div>
-          </div>
-
-          {/* Continue button - LCAI brand gradient (94deg, magenta -> purple -> deep) */}
-          <button
-            type="button"
-            onClick={runPreview}
-            disabled={busy || numericAmt <= 0}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-base font-semibold text-[#CCCEEF] shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              background:
-                "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)",
-            }}
-          >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />}
-            {busy ? "Running" : numericAmt > 0 ? `Preview bridging ${numericAmt} LCAI` : "Continue"}
-          </button>
-        </div>
-      </div>
-
-      {/* Result panel - mirrors CLI Runner shape */}
-      {previewErr ? (
-        <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-xs text-content-default">{previewErr}</div>
-      ) : preview ? (
-        <details open className="rounded-xl border border-bdr-soft bg-card/60">
-          <summary className="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-xs font-semibold text-content-primary">
-            <span>Preview JSON</span>
-            <span className="text-[10px] font-normal uppercase tracking-wide text-content-soft">
-              same shape the SDK returns
-            </span>
-            <ChevronDown className="ml-auto size-3.5 text-content-soft transition-transform [details[open]>summary>&]:rotate-180" />
-          </summary>
-          <pre className="overflow-x-auto rounded-b-xl code-surface px-4 py-3 font-mono text-[11px] leading-relaxed text-content-default">
-{JSON.stringify(preview, null, 2)}
-          </pre>
-        </details>
-      ) : null}
-
-      {/* Integration section */}
-      <div className="rounded-2xl border border-bdr-soft bg-surface-base-faint p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <span className="text-sm font-semibold text-content-primary">Use this in your project</span>
-          <span className="ml-auto text-[10px] uppercase tracking-wide text-content-soft">pick your stack</span>
-        </div>
-
-        {/* Template chooser */}
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {BRIDGE_TEMPLATES.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTmpl(t.id)}
-              className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                tmpl === t.id
-                  ? "border-primary/60 bg-primary/10 text-content-primary"
-                  : "border-bdr-soft bg-card text-content-soft hover:text-content-primary"
-              }`}
-              aria-pressed={tmpl === t.id}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <p className="mb-2 text-[11px] text-content-soft">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
-
-        {/* File hint + Open in StackBlitz */}
-        <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
-            <span className="text-content-soft">{snippet.fileHint}</span>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => openInStackBlitz(snippet, tmpl)}
-            className="ml-auto"
-          >
-            <PlayCircle />
-            Open in StackBlitz
-          </Button>
-        </div>
-
-        {/* The actual TypeScript code (now honors `direction`) */}
-        <CodeBox code={snippet.body} />
-
-        {/* Setup commands so the user is not left wondering how to run it */}
-        <div className="mt-3 mb-1.5 inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
-          <Terminal className="size-3" />
-          <span className="text-content-soft">Run these in your terminal (these ARE shell commands):</span>
-        </div>
-        <CodeBox code={snippet.setup} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * One side of the bridge swap card: a token-style pill that shows which
- * chain + which LCAI representation is on this side. Tuned to feel like
- * a swap dropdown without actually being one (direction is driven by the
- * center swap button).
- */
-function ChainPill({ chain, side }: { chain: { label: string; sub: string; color: string }; side: "from" | "to" }) {
-  const padding = side === "from" ? "pr-2 sm:pr-8" : "flex-row-reverse pl-2 sm:pl-8";
-  return (
-    <div className={`flex items-center gap-3 ${padding}`}>
-      <div className={`grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br ${chain.color} text-white shadow-[0_4px_12px_-2px_rgba(0,0,0,0.4)]`}>
-        <Coins className="size-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-base font-semibold leading-tight text-[#CCCEEF]">{chain.label}</div>
-        <div className="truncate text-xs text-[#7376AA]">{chain.sub}</div>
+        ) : null}
       </div>
     </div>
   );

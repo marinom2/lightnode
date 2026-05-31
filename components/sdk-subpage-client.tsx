@@ -12,11 +12,15 @@
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Boxes } from "lucide-react";
 import { MODULES, type ModuleId } from "@/lib/sdk-modules-data";
-import { Widget, DocLinks, CodeBox } from "@/components/sdk-modules";
+import { Widget, DocLinks } from "@/components/sdk-modules";
 
 export function SdkSubpageClient({ id }: { id: ModuleId }) {
   const m = MODULES.find((x) => x.id === id);
   if (!m) return null;
+  // Hero tagline = first sentence only. The full blurb is verbose and
+  // duplicates what the widget makes clear; one sentence sets context
+  // and the widget IS the explanation.
+  const tagline = m.blurb.split(". ")[0].replace(/\.$/, "") + ".";
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-12 sm:py-16">
@@ -38,8 +42,8 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl">
           {m.title}
         </h1>
-        <p className="mt-5 max-w-3xl text-balance text-base leading-relaxed text-[#7376AA] sm:text-lg">
-          {m.blurb}
+        <p className="mt-5 max-w-2xl text-balance text-base leading-relaxed text-[#7376AA] sm:text-lg">
+          {tagline}
         </p>
         <DocLinks m={m} />
       </header>
@@ -49,13 +53,6 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         <div className="rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-5 sm:p-8">
           <Widget id={m.id} />
         </div>
-      </section>
-
-      {/* The exported API. Quiet section title, code block. */}
-      <section className="mb-14">
-        <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">The exported API</p>
-        <h2 className="mb-4 text-2xl font-semibold tracking-tight text-[#CCCEEF]">A small surface to learn</h2>
-        <CodeBox code={m.snippet} />
       </section>
 
       {/* Cross-link grid - one row, simple, no decoration. */}
