@@ -40,6 +40,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { NETWORKS } from "lightnode-sdk";
+import sdk from "@stackblitz/sdk";
 import { humanizeError } from "@/lib/humanize-error";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -592,6 +593,165 @@ interface BridgePreviewResp {
   note?: string;
 }
 
+/**
+ * Build the file map for "Open in StackBlitz". Uses the `node` template
+ * (a full WebContainer with npm + tsx + Next.js dev server, depending on
+ * what package.json declares).
+ */
+function bridgeStackBlitzFiles(snippet: BridgeSnippet, tmpl: BridgeTemplate): Record<string, string> {
+  if (tmpl === "node") {
+    return {
+      "bridge.ts": snippet.body,
+      "package.json": JSON.stringify(
+        {
+          name: "lightnode-bridge-example",
+          version: "0.0.0",
+          private: true,
+          type: "module",
+          scripts: { start: "tsx --env-file=.env bridge.ts" },
+          dependencies: { "lightnode-sdk": "^0.6.1", viem: "^2.21.0" },
+          devDependencies: { tsx: "^4.19.0" },
+        },
+        null,
+        2,
+      ),
+      ".env": "# Replace with a funded Ethereum private key that holds LCAI ERC-20.\nPRIVATE_KEY=0xYOUR_KEY_HERE\n",
+      "README.md":
+        "# Bridge example (lightnode-sdk)\n\n1. Set PRIVATE_KEY in `.env`\n2. Click the green Start button (runs `npm start`)\n",
+    };
+  }
+  if (tmpl === "nextjs") {
+    return {
+      "app/api/bridge/route.ts": snippet.body,
+      "app/page.tsx": `export default function Page() {
+  return (
+    <main style={{ fontFamily: "system-ui", padding: 40 }}>
+      <h1>LightNode Bridge - Next.js API example</h1>
+      <p>POST <code>/api/bridge</code> with {"{ amount, recipient }"} to trigger the bridge.</p>
+      <pre style={{ background: "#111", color: "#0f0", padding: 12 }}>
+{\`curl -X POST http://localhost:3000/api/bridge \\\\
+  -H 'content-type: application/json' \\\\
+  -d '{"amount":"100","recipient":"0xLIGHTCHAIN_RECIPIENT"}'\`}
+      </pre>
+    </main>
+  );
+}`,
+      "app/layout.tsx": `export default function Layout({ children }: { children: React.ReactNode }) {
+  return <html lang="en"><body>{children}</body></html>;
+}`,
+      "next.config.mjs": "export default { reactStrictMode: true };",
+      "package.json": JSON.stringify(
+        {
+          name: "lightnode-bridge-nextjs-example",
+          version: "0.0.0",
+          private: true,
+          scripts: { dev: "next dev", build: "next build", start: "next start" },
+          dependencies: {
+            next: "^14.2.0",
+            react: "^18.3.0",
+            "react-dom": "^18.3.0",
+            "lightnode-sdk": "^0.6.1",
+            viem: "^2.21.0",
+          },
+          devDependencies: { typescript: "^5.4.0", "@types/react": "^18.3.0", "@types/node": "^20.0.0" },
+        },
+        null,
+        2,
+      ),
+      ".env.local": "# Replace with a funded Ethereum private key that holds LCAI ERC-20.\nPRIVATE_KEY=0xYOUR_KEY_HERE\n",
+      "tsconfig.json": JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2020",
+            lib: ["dom", "dom.iterable", "esnext"],
+            allowJs: true,
+            skipLibCheck: true,
+            strict: true,
+            noEmit: true,
+            esModuleInterop: true,
+            module: "esnext",
+            moduleResolution: "bundler",
+            resolveJsonModule: true,
+            isolatedModules: true,
+            jsx: "preserve",
+            incremental: true,
+            plugins: [{ name: "next" }],
+          },
+          include: ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+        },
+        null,
+        2,
+      ),
+      "README.md":
+        "# Bridge example - Next.js API route (lightnode-sdk)\n\n1. Set PRIVATE_KEY in `.env.local`\n2. `npm run dev`\n3. POST `/api/bridge` with `{ amount, recipient }`\n",
+    };
+  }
+  // react
+  return {
+    "src/components/BridgeButton.tsx": snippet.body,
+    "src/App.tsx": `import { BridgeButton } from "./components/BridgeButton";
+export default function App() {
+  return (
+    <main style={{ fontFamily: "system-ui", padding: 40 }}>
+      <h1>LightNode Bridge - React + wagmi example</h1>
+      <p>Wire your wagmi provider in main.tsx, then drop in the button:</p>
+      <BridgeButton />
+    </main>
+  );
+}`,
+    "src/main.tsx": `import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+// Wire wagmi here when you add your own RPC + WalletConnect projectId.`,
+    "index.html": `<!doctype html>
+<html><body><div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body></html>`,
+    "package.json": JSON.stringify(
+      {
+        name: "lightnode-bridge-react-example",
+        version: "0.0.0",
+        private: true,
+        type: "module",
+        scripts: { dev: "vite", build: "vite build" },
+        dependencies: {
+          react: "^18.3.0",
+          "react-dom": "^18.3.0",
+          wagmi: "^2.0.0",
+          viem: "^2.21.0",
+          "lightnode-sdk": "^0.6.1",
+        },
+        devDependencies: { vite: "^5.0.0", "@vitejs/plugin-react": "^4.0.0", typescript: "^5.4.0" },
+      },
+      null,
+      2,
+    ),
+    "tsconfig.json": JSON.stringify(
+      { compilerOptions: { target: "ES2020", jsx: "react-jsx", module: "ESNext", moduleResolution: "bundler", strict: true } },
+      null,
+      2,
+    ),
+    "vite.config.ts": `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+export default defineConfig({ plugins: [react()] });`,
+    "README.md":
+      "# Bridge example - React + wagmi (lightnode-sdk)\n\n1. Add your wagmi config in src/main.tsx\n2. `npm run dev`\n",
+  };
+}
+
+function openInStackBlitz(snippet: BridgeSnippet, tmpl: BridgeTemplate) {
+  sdk.openProject(
+    {
+      title: `LightNode Bridge - ${tmpl}`,
+      description: `Bridge LCAI from Ethereum to LightChain using lightnode-sdk (${tmpl} template)`,
+      template: "node",
+      files: bridgeStackBlitzFiles(snippet, tmpl),
+    },
+    { openFile: snippet.file },
+  );
+}
+
 function BridgeRecipe() {
   const [amount, setAmount] = useState<string>("100");
   const [direction, setDirection] = useState<BridgeDirection>("eth-to-lc");
@@ -734,9 +894,20 @@ function BridgeRecipe() {
         </div>
         <p className="mb-2 text-[11px] text-content-soft">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
 
-        {/* File hint */}
-        <div className="mb-1.5 inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
-          <span className="text-content-soft">{snippet.fileHint}</span>
+        {/* File hint + Open in StackBlitz */}
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
+            <span className="text-content-soft">{snippet.fileHint}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openInStackBlitz(snippet, tmpl)}
+            className="ml-auto"
+          >
+            <PlayCircle />
+            Open in StackBlitz
+          </Button>
         </div>
 
         {/* The actual TypeScript code */}
