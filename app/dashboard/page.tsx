@@ -286,7 +286,7 @@ export default function DashboardPage() {
             <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full bg-gradient-primary opacity-15 blur-3xl" />
             <div className="relative flex flex-wrap items-center justify-between gap-4">
               <div className="max-w-md">
-                <h3 className="text-sm font-semibold text-content-primary">Manage your worker from the app</h3>
+                <h2 className="text-sm font-semibold text-content-primary">Manage your worker from the app</h2>
                 <p className="mt-1 text-sm text-content-soft">
                   Install, settle earnings, withdraw, and keep your worker online with one click in the LightNode desktop
                   app. This page tracks any worker live; the controls live in the app.

@@ -36,6 +36,11 @@ export function ModelsPanel({ compactHeader = false }: { compactHeader?: boolean
       )}
 
       {err && !models && <p className="text-sm text-content-soft">Model registry unavailable right now.</p>}
+      {!err && models && models.length === 0 && (
+        <p className="rounded-xl border border-bdr-soft bg-card/30 p-4 text-sm text-content-soft">
+          No models registered on this network yet.
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {(models ?? skeleton).map((m, i) => {

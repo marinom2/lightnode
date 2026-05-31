@@ -34,6 +34,11 @@ export function LiveStats() {
   }, [network]);
 
   const s = data?.stats;
+  // "Network responded with all zeros" is meaningfully different from "still
+  // loading" or "fetch failed" - a fresh testnet day or an indexer reset both
+  // look like this. Distinguish so the headline doesn't read like a healthy
+  // empty pool.
+  const isEmpty = !!s && s.total === 0 && s.models === 0 && s.jobsCompleted === 0;
   // "Online" = workers the chain reports as active (registered + staked + not
   // deregistered). The 20-min heartbeat ("live") is a finer per-worker signal we
   // surface on the dashboard - it's too volatile to headline (it can read 0 even
@@ -64,6 +69,10 @@ export function LiveStats() {
       <p className="col-span-2 -mt-1 text-xs text-content-soft md:col-span-4">
         {err ? (
           <span className="text-warning">Live network feed unavailable right now.</span>
+        ) : isEmpty ? (
+          <span className="text-content-soft">
+            The {NETWORKS[network].label.toLowerCase()} indexer is reporting an empty pool right now. Refreshes every 30s; check back shortly.
+          </span>
         ) : (
           <span className="inline-flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-success animate-pulse-dot" />

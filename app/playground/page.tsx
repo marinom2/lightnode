@@ -772,7 +772,7 @@ export default function PlaygroundPage() {
             {s.worker && (
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <dt className="font-medium text-content-soft">worker</dt>
-                <dd className="font-mono text-content-default">{s.worker}</dd>
+                <dd className="break-all font-mono text-content-default">{s.worker}</dd>
               </div>
             )}
             {s.sessionId != null && (
