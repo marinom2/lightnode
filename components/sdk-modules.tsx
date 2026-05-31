@@ -402,62 +402,8 @@ function BridgeLive() {
         </ul>
       </div>
 
-      {/* ETH -> LCAI orchestration: swap then bridge */}
-      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-        <div className="mb-2 text-[10px] uppercase tracking-wide text-content-soft">
-          Full recipe: ETH on Ethereum &rarr; native LCAI on LightChain
-        </div>
-        <ol className="mb-3 space-y-1.5 text-[11px] leading-relaxed text-content-default">
-          <li className="flex items-start gap-2">
-            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">1</span>
-            <span>
-              Swap ETH for LCAI ERC-20 on Uniswap (
-              <a
-                href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                deep link
-              </a>
-              ).
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">2</span>
-            <span>
-              <code className="font-mono text-content-default">bridge.approve()</code> the HypERC20Collateral (one-time, MaxUint256).
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">3</span>
-            <span>
-              <code className="font-mono text-content-default">bridge.transfer({"{ from: 'ethereum', to: 'lightchain-mainnet', amount, recipient }"})</code>. Hyperlane relays in ~30 to 60 minutes.
-            </span>
-          </li>
-        </ol>
-        <CopyButtonRow code={`// 1. Swap ETH -> LCAI ERC-20 on Uniswap (do this in the user's wallet)
-// 2. Approve + transferRemote on this side
-import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
-import { createPublicClient, createWalletClient, http, parseEther } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-
-const account = privateKeyToAccount(process.env.PRIVATE_KEY!);
-const ethPub = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
-const ethWal = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
-
-const bridge = new Bridge(ethPub, ethWal);
-const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet");  // 0 ETH (pre-paid IGP)
-await bridge.approve();                                               // one-time approval
-await bridge.transfer({
-  from: "ethereum",
-  to: "lightchain-mainnet",
-  amount: parseEther("100"),
-  recipient: account.address,
-  fee,
-});
-// Hyperlane relay delivers native LCAI on chain 9200 within ~30-60 min.`} />
-      </div>
+      {/* Interactive recipe + project wiring */}
+      <BridgeRecipe />
 
       <div className="grid gap-2 sm:grid-cols-2">
         <Button asChild size="sm" variant="outline" className="w-full">
@@ -481,6 +427,193 @@ await bridge.transfer({
 
 function CopyButtonRow({ code }: { code: string }) {
   return <CodeBox code={code} />;
+}
+
+// --- Bridge recipe: interactive amount + project-template chooser ---------
+// The user asked two questions on this widget:
+//   1. "How do we fund it and set amount when there is no option?"
+//      -> Amount field below, scales the snippet's parseEther("X").
+//   2. "And how this we connect to particular project?"
+//      -> Template chooser switches the snippet between a one-shot Node
+//         script, a Next.js App Router API route, and a React + wagmi
+//         user-pays component. Same SDK, three integration shapes.
+
+type BridgeTemplate = "node" | "nextjs" | "react";
+
+const BRIDGE_TEMPLATES: { id: BridgeTemplate; label: string; line: string }[] = [
+  { id: "node", label: "Node / CLI", line: "One-shot script with a PRIVATE_KEY env var." },
+  { id: "nextjs", label: "Next.js API", line: "App Router route - server pays, user POSTs amount + recipient." },
+  { id: "react", label: "React + wagmi", line: "User-pays component - the user's wallet signs both txs." },
+];
+
+function bridgeSnippet(tmpl: BridgeTemplate, amount: string): string {
+  const safe = amount.trim() || "100";
+  if (tmpl === "nextjs") {
+    return `// app/api/bridge/route.ts (Next.js App Router)
+// Server-pays: your hot wallet bridges on behalf of the user.
+import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
+import { createPublicClient, createWalletClient, http, parseEther } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
+const ethPub  = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+const ethWal  = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+const bridge  = new Bridge(ethPub, ethWal);
+
+export async function POST(req: Request) {
+  const { amount = "${safe}", recipient } = await req.json();
+  const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet");
+  await bridge.approve();
+  const result = await bridge.transfer({
+    from: "ethereum",
+    to:   "lightchain-mainnet",
+    amount: parseEther(String(amount)),
+    recipient,
+    fee,
+  });
+  return Response.json({ ok: true, txHash: result.txHash });
+}`;
+  }
+  if (tmpl === "react") {
+    return `// User-pays component - the user's wallet signs and pays.
+"use client";
+import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { parseEther } from "viem";
+
+export function BridgeButton({ amount = "${safe}" }: { amount?: string }) {
+  const { address } = useAccount();
+  const ethPub = usePublicClient({ chainId: 1 });
+  const { data: ethWal } = useWalletClient({ chainId: 1 });
+
+  async function run() {
+    if (!ethPub || !ethWal || !address) return;
+    const bridge = new Bridge(ethPub, ethWal);
+    const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet");
+    await bridge.approve();
+    await bridge.transfer({
+      from: "ethereum",
+      to:   "lightchain-mainnet",
+      amount: parseEther(amount),
+      recipient: address,
+      fee,
+    });
+  }
+  return <button onClick={run}>Bridge {amount} LCAI</button>;
+}`;
+  }
+  // node
+  return `// One-shot Node script. Run with: node --env-file=.env bridge.ts
+import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
+import { createPublicClient, createWalletClient, http, parseEther } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
+const ethPub  = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+const ethWal  = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
+
+const bridge = new Bridge(ethPub, ethWal);
+const fee = await bridge.quoteFee("ethereum", "lightchain-mainnet"); // 0 ETH (pre-paid IGP)
+await bridge.approve();                                              // one-time
+await bridge.transfer({
+  from: "ethereum",
+  to:   "lightchain-mainnet",
+  amount:    parseEther("${safe}"),
+  recipient: account.address,
+  fee,
+});
+// Hyperlane relays native LCAI to chain 9200 in ~30-60 min.`;
+}
+
+function BridgeRecipe() {
+  const [amount, setAmount] = useState<string>("100");
+  const [tmpl, setTmpl] = useState<BridgeTemplate>("node");
+  const numericAmt = Number(amount) || 0;
+  return (
+    <div className="space-y-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
+      <div className="text-[10px] uppercase tracking-wide text-content-soft">Wire this into your project</div>
+
+      {/* Amount + summary */}
+      <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+        <label className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-2.5 py-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-content-soft">Amount</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="w-20 bg-transparent text-sm font-mono text-content-primary outline-none"
+            aria-label="Amount of LCAI to bridge"
+          />
+          <span className="text-[11px] text-content-soft">LCAI</span>
+        </label>
+        <div className="rounded-lg border border-bdr-soft bg-card px-3 py-1.5 text-[11px] leading-snug text-content-default">
+          <span className="font-medium text-content-primary">
+            {numericAmt > 0 ? `Bridging ${numericAmt} LCAI` : "Pick an amount"}
+          </span>{" "}
+          <span className="text-content-soft">
+            Ethereum &rarr; LightChain. Hyperlane fee: 0 LCAI (IGP pre-paid). You only pay source-chain gas. Arrives in ~30 to 60 min.
+          </span>
+        </div>
+      </div>
+
+      {/* Template chooser */}
+      <div className="flex flex-wrap gap-1.5">
+        {BRIDGE_TEMPLATES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTmpl(t.id)}
+            className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              tmpl === t.id
+                ? "border-primary/60 bg-primary/10 text-content-primary"
+                : "border-bdr-soft bg-card text-content-soft hover:text-content-primary"
+            }`}
+            aria-pressed={tmpl === t.id}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-content-soft">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
+
+      {/* Snippet */}
+      <CodeBox code={bridgeSnippet(tmpl, amount)} />
+
+      {/* Steps - condensed */}
+      <ol className="space-y-1.5 text-[11px] leading-relaxed text-content-default">
+        <li className="flex items-start gap-2">
+          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">1</span>
+          <span>
+            Hold LCAI ERC-20 on Ethereum first (
+            <a
+              href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Uniswap deep link
+            </a>
+            {numericAmt > 0 ? ` - aim for at least ${numericAmt} LCAI plus a small buffer for slippage` : ""}).
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">2</span>
+          <span>
+            <code className="font-mono text-content-default">bridge.approve()</code> the HypERC20Collateral - one-time, MaxUint256. Funds an allowance from your wallet to the bridge router.
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">3</span>
+          <span>
+            <code className="font-mono text-content-default">bridge.transfer(...)</code> with your amount + recipient. Hyperlane delivers native LCAI on chain 9200 in ~30 to 60 min.
+          </span>
+        </li>
+      </ol>
+    </div>
+  );
 }
 
 // --- DAO live widget -------------------------------------------------------
