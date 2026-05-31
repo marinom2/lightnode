@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.03";
+export const INSTALLER_REV = "2026-05-31.04";
 
 export interface ScriptBundle {
   os: OS;
@@ -638,6 +638,12 @@ $env:FORCE = "1"
 # each saved slot the app passed; lock onto the one that decrypts. Mirrors the
 # settle/deregister/withdraw multi-slot fix.
 function Resolve-WorkerPassword {
+  # Trying a wrong password makes cast print "Error: Mac Mismatch" to stderr, which
+  # under the install's ErrorActionPreference=Stop PowerShell promotes to a
+  # terminating NativeCommandError - killing the install on an EXPECTED wrong-guess
+  # (the exact failure that stranded the Windows tester). Tolerate native stderr
+  # here (function-scoped, like the preflight already does) and judge by exit code.
+  $ErrorActionPreference = 'Continue'
   $ksFile = Get-ChildItem $ks -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $ksFile) { return $true }
   foreach ($pw in @($env:WORKER_PASSWORD, $env:WORKER_PASSWORD_ALT1, $env:WORKER_PASSWORD_ALT2, $env:WORKER_PASSWORD_ALT3)) {
