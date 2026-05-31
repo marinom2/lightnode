@@ -90,6 +90,7 @@ const FRAMEWORK_EXAMPLES = [
 const EXAMPLES_REPO = "marinom2/lightnode-examples";
 
 const CHANGELOG = [
+  { v: "0.6.0", date: "May 2026", line: "runInferenceBatch (parallel inference with capped concurrency + per-slot errors). Agent class (ReAct-style tool calling, works on llama3-8b). AbortSignal support across runInference / runInferenceWithKey for cancellable UI flows." },
   { v: "0.5.1", date: "May 2026", line: "DAO covers both governors (Ethereum LCAIGovernor + LightChain LightChainGovernor with NativeVotes). All contract addresses now derived from NETWORKS. dao config CLI gets a friendlier RPC fallback." },
   { v: "0.5.0", date: "May 2026", line: "Full SDK ecosystem release: Bridge SDK, DAO SDK, on-chain Model Registry reader, multi-turn Conversation, worker preflight + watch, job status reader." },
   { v: "0.4.9", date: "May 2026", line: "lightnode chat + lightnode wallet CLI commands. runInferenceStream (AsyncIterable<string>). Auto-resolve `ws` in Node so no WebSocket import needed." },

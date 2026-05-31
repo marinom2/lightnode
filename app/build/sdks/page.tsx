@@ -1,5 +1,6 @@
-import { AlertOctagon, Layers, Rocket, Server, User2, Wallet2 } from "lucide-react";
+import { AlertOctagon, Bot, Layers, Layers3, Rocket, Server, Sparkles, User2, Wallet2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/build/section-header";
 import { BuildTabs } from "@/components/build/build-tabs";
 import { SDKModules } from "@/components/sdk-modules";
@@ -70,7 +71,7 @@ export default function BuildSdksPage() {
           SDK modules
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-content-soft">
-          Six real modules exported in lightnode-sdk@0.5.x. Each card has a runnable snippet, deep links to npm + the
+          Six real modules exported in lightnode-sdk@0.6.x. Each card has a runnable snippet, deep links to npm + the
           GitHub source + the matching example, and a Try it live button that pulls real on-chain data inline.
         </p>
       </div>
@@ -83,6 +84,91 @@ export default function BuildSdksPage() {
           blurb="Click Try it live on each card. Real on-chain reads, real chat, real worker status."
         />
         <SDKModules />
+      </div>
+
+      {/* ── 0.6.0 NEW: BATCH + AGENT ─────────────────────────────────── */}
+      <div className="mb-12">
+        <SectionHeader
+          icon={Sparkles}
+          title="New in 0.6.0: Batch runner + Agent loop"
+          blurb="Two higher-level abstractions on top of runInferenceWithKey. Same proof chain, same encrypted session - just less boilerplate for common patterns."
+        />
+        <div className="grid gap-3 md:grid-cols-2">
+          <Card className="flex flex-col p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <Layers3 className="size-5 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">runInferenceBatch</span>
+              <Badge tone="brand">0.6.0</Badge>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-content-soft">
+              Fan out many prompts as parallel encrypted inferences with a capped concurrency. Stable result order, per-slot
+              errors so one stalled worker does not kill the batch. Optional <code className="font-mono">onSlotComplete</code> for
+              live progress UI, optional <code className="font-mono">AbortSignal</code> to cancel queued work.
+            </p>
+            <pre className="overflow-x-auto rounded-md code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
+{`import { runInferenceBatch } from "lightnode-sdk";
+
+const results = await runInferenceBatch({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  model: "llama3-8b",
+  system: "Reply in one short sentence.",
+  concurrency: 4,
+  prompts: [
+    "fact about the ocean",
+    "fact about the moon",
+    "fact about coffee",
+  ],
+  onSlotComplete: ({ index, result, error }) => {
+    console.log(\`#\${index}\`, error?.message ?? result?.answer);
+  },
+});`}
+            </pre>
+            <p className="mt-2 text-[11px] text-content-soft">
+              <span className="font-medium text-content-default">Fits:</span> batch evals, content scoring, RAG re-ranking,
+              parallel rewrites.
+            </p>
+          </Card>
+          <Card className="flex flex-col p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <Bot className="size-5 text-primary" />
+              <span className="text-sm font-semibold text-content-primary">Agent (tool calling)</span>
+              <Badge tone="brand">0.6.0</Badge>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-content-soft">
+              ReAct-style loop: model thinks, picks a tool, runs it, observes the result, iterates. Uses simple string markers
+              (<code className="font-mono">&lt;tool&gt;</code> / <code className="font-mono">&lt;answer&gt;</code>) so it
+              works on small open models like llama3-8b without native function-calling support.
+            </p>
+            <pre className="overflow-x-auto rounded-md code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
+{`import { Agent } from "lightnode-sdk";
+
+const agent = new Agent({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  model: "llama3-8b",
+  system: "You are a careful research assistant.",
+  tools: [{
+    name: "add",
+    description: "Add two integers, return the sum.",
+    args: { a: "int", b: "int" },
+    handler: ({ a, b }) => Number(a) + Number(b),
+  }],
+  maxIterations: 4,
+});
+
+const { answer, steps } = await agent.run("17 + 25?");`}
+            </pre>
+            <p className="mt-2 text-[11px] text-content-soft">
+              <span className="font-medium text-content-default">Fits:</span> autonomous tasks, search + summarize, lookup
+              chains, multi-step reasoning with deterministic side-effects.
+            </p>
+          </Card>
+        </div>
+        <p className="mt-3 text-[11px] text-content-soft">
+          Plus <code className="font-mono">AbortSignal</code> support added to <code className="font-mono">runInferenceWithKey</code>{" "}
+          for cancellable UI flows (in-flight on-chain txs still settle; the SDK just stops awaiting).
+        </p>
       </div>
 
       {/* ── API TIERS ────────────────────────────────────────────────── */}

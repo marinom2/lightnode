@@ -33,6 +33,8 @@ import {
   runInferenceStream,
 } from "./inference.js";
 import { Conversation, chat } from "./chat.js";
+import { runInferenceBatch } from "./batch.js";
+import { Agent, parseAgentOutput } from "./agent.js";
 import { preflight as workerPreflight, watch as workerWatch } from "./worker.js";
 import {
   Bridge,
@@ -241,7 +243,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.5.1";
+export const SDK_VERSION = "0.6.0";
 
 export {
   NETWORKS,
@@ -276,6 +278,11 @@ export {
   // v0.5.0 multi-turn conversation helper (history client-side; one inference per turn).
   Conversation,
   chat,
+  // v0.6.0 batch runner: many prompts, capped parallelism, stable result order.
+  runInferenceBatch,
+  // v0.6.0 ReAct-style agent: tool calling on any LightChain-hosted model.
+  Agent,
+  parseAgentOutput,
   // v0.5.0 worker preflight + watch (one real test inference + status polling).
   workerPreflight,
   workerWatch,
@@ -313,6 +320,8 @@ export {
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
 export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult } from "./inference.js";
 export type { ChatRole, ChatMessage, ConversationOptions, ConversationSendResult } from "./chat.js";
+export type { BatchPrompt, BatchResult, RunInferenceBatchArgs } from "./batch.js";
+export type { AgentTool, AgentStep, AgentOptions, AgentRunResult } from "./agent.js";
 export type { WorkerPreflightArgs, WorkerPreflightResult, WorkerWatchOptions, WorkerEventKind, WorkerEvent, WorkerWatchHandle } from "./worker.js";
 export type { BridgeChain, BridgeEndpoints, BridgeTransferArgs } from "./bridge.js";
 export type { DaoChain, DaoAddresses, ProposalSummary, DaoConfig } from "./dao.js";

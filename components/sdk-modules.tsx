@@ -1195,8 +1195,8 @@ export function SDKModules() {
               <div className="mb-2 flex items-center gap-2">
                 <m.icon className="size-4 text-primary" />
                 <span className="text-sm font-semibold text-content-primary">{m.title}</span>
-                <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-success" title="Shipped in lightnode-sdk@0.5.x">
-                  <span className="size-1.5 rounded-full bg-success" /> in 0.5.x
+                <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-success" title="Shipped in lightnode-sdk@0.6.x">
+                  <span className="size-1.5 rounded-full bg-success" /> in 0.6.x
                 </span>
               </div>
               <p className="text-xs leading-relaxed text-content-soft">{m.blurb}</p>

@@ -18,8 +18,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Conversation, type ChatMessage } from "lightnode-sdk";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const maxDuration = 60; // testnet inferences land in 5-30s typically
+// Edge runtime gives 30s wall clock on Hobby vs 10s for serverless functions,
+// which is the cap that matters for an end-to-end encrypted inference (worker
+// pickup + decode + answer typically lands in 5-25s). The SDK's WebSocket
+// auto-resolution falls through to `globalThis.WebSocket` which Edge provides.
+export const runtime = "edge";
+export const maxDuration = 30;
 
 // `echo 0x... | vercel env add ...` puts a trailing newline into the stored
 // value, which silently breaks a strict length check downstream. Trim

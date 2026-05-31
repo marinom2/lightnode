@@ -297,6 +297,11 @@ export interface RunInferenceArgs {
    * Useful for tests / mirrors.
    */
   relayUrl?: string;
+  /**
+   * Cancellation signal. Aborts pending awaits inside the run; in-flight
+   * submitJob transactions still settle on chain (the SDK stops listening).
+   */
+  signal?: AbortSignal;
 }
 
 export interface RunInferenceResult {
@@ -613,11 +618,12 @@ export async function runInference(args: RunInferenceArgs): Promise<RunInference
   const maxRetries = args.maxRetries ?? 2;
   const stalled: RunInferenceResult["stalled"] = [];
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    if (args.signal?.aborted) throw new Error("runInference: aborted");
     try {
       const result = await runOneAttempt(args, attempt);
       return { ...result, stalled };
     } catch (err) {
-      if (err instanceof StalledWorkerError && attempt <= maxRetries) {
+      if (err instanceof StalledWorkerError && attempt <= maxRetries && !args.signal?.aborted) {
         stalled.push({ jobId: err.jobId, worker: err.worker, submitTx: err.submitTx });
         continue;
       }
@@ -690,6 +696,13 @@ export interface RunInferenceWithKeyArgs {
    * Useful for tests / mirrors / proxying through your own backend.
    */
   gatewayUrl?: string;
+  /**
+   * Cancellation signal. Aborts the SIWE handshake and stops awaiting the
+   * relay; in-flight submitJob transactions still settle on chain (the SDK
+   * just stops listening). Throws `Error("aborted")` synchronously if the
+   * signal is already fired when the call starts.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -723,6 +736,9 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   if (!key || !key.startsWith("0x") || key.length !== 66) {
     throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
   }
+  if (args.signal?.aborted) {
+    throw new Error("runInferenceWithKey: aborted before start");
+  }
 
   const account = viemPrivateKeyToAccount(key as `0x${string}`);
   const chain = {
@@ -747,7 +763,7 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   // looks like a CORS or undici-level reachability error.
   const fetchOrFail = async (url: string, init?: RequestInit, label?: string): Promise<Response> => {
     try {
-      return await fetch(url, init);
+      return await fetch(url, { ...init, signal: args.signal });
     } catch (err) {
       const cause = (err as { cause?: { code?: string; message?: string } }).cause;
       const code = cause?.code ?? "";
@@ -827,6 +843,7 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
     jobCompletedTimeoutMs: args.jobCompletedTimeoutMs,
     WebSocket: wsCtor,
     relayUrl: args.relayUrl,
+    signal: args.signal,
   });
 }
 

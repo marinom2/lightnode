@@ -4,10 +4,12 @@ package-lock.json
 
 # Scratch files produced by running `npx lightnode add <template>` inside this
 # directory while testing the CLI - they belong in a sandbox app, not the SDK source.
-agent.ts
-chat-repl.ts
-lightchain-inference.ts
-lightnode-analytics.ts
-nft-metadata.ts
+# Anchored to the repo root with a leading `/` so we don't accidentally hide
+# legitimate source files like `src/agent.ts`.
+/agent.ts
+/chat-repl.ts
+/lightchain-inference.ts
+/lightnode-analytics.ts
+/nft-metadata.ts
 .env
 .env.example
