@@ -207,6 +207,16 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(unix).toContain("install will re-import it under the current password");
   });
 
+  it("windows passes -Force to 07-register so it never blocks on the 'type register' prompt", () => {
+    // 07-register.ps1 uses a -Force SWITCH to skip its Read-Host confirmation (the
+    // bash side uses a FORCE env var). Without -Force the desktop install pops a
+    // "Type 'register' to confirm" prompt it can't answer, and closing it aborts.
+    const win = desktopInstallCommand("windows", "mainnet");
+    expect(win).toContain("if ($p -like '*07-register*') { & $p -Force 2>&1");
+    // The unix side keeps its FORCE=1 env convention.
+    expect(desktopInstallCommand("macos", "mainnet")).toContain('FORCE=1 "$RUNBASH" "$p.sh"');
+  });
+
   it("windows status pre-check tolerates the worker binary's stderr (mirrors bash '|| true')", () => {
     // The worker 'status' subcommand logs to stderr. Under the install's
     // ErrorActionPreference=Stop, '2>&1 | Out-String' would promote that stderr to
