@@ -165,6 +165,22 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(win).toContain("07-register (skipped - already registered");
   });
 
+  it("strips AppImage bundle libs from the shell env so system curl/git don't crash", () => {
+    // AppImage exports LD_LIBRARY_PATH at its bundled libs -> system curl loads the
+    // bundle's libcurl vs the host libnghttp2 -> undefined-symbol crash -> every
+    // RPC/gateway/indexer probe "fails". The unix install + preflight must repair
+    // the env (gated on APPDIR so .deb/.dmg are untouched).
+    for (const cmd of [desktopInstallCommand("linux", "mainnet"), preflightCommand("linux", "mainnet")]) {
+      expect(cmd).toContain('if [ -n "${APPDIR:-}" ]; then');
+      expect(cmd).toContain("LD_LIBRARY_PATH");
+      expect(cmd).toContain('grep -vF "$APPDIR"');
+    }
+    // Preflight also names the cause + the .deb fix if curl is still broken.
+    const pf = preflightCommand("macos", "mainnet"); // same unix branch
+    expect(pf).toContain("! curl --version");
+    expect(pf).toContain("sudo apt install ./LightNode_*.deb");
+  });
+
   it("self-heals a keystore the saved passwords can't decrypt by re-importing when the app holds the key", () => {
     // Field case: a worker (unregistered, 55k still in wallet) had a keystore left
     // by an earlier attempt under a password the app no longer has. The app still

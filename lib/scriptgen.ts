@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.01";
+export const INSTALLER_REV = "2026-05-31.02";
 
 export interface ScriptBundle {
   os: OS;
@@ -138,6 +138,23 @@ const AWAKE_ON_UNIX =
   'if [ "$(uname -s)" = "Darwin" ]; then launchctl load -w "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; elif command -v systemd-inhibit >/dev/null 2>&1; then pgrep -f "systemd-inhibit.*lightnode-awake" >/dev/null 2>&1 || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & ); fi';
 const AWAKE_OFF_UNIX =
   'if [ "$(uname -s)" = "Darwin" ]; then launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; fi; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true; echo "✓ sleep prevention off - the machine can sleep again"';
+
+// AppImage library-pollution guard (unix). An AppImage exports LD_LIBRARY_PATH
+// (and friends) pointing at its OWN bundled libs; the system curl/git/docker we
+// shell out to then load those mismatched libs and crash - e.g. the system curl
+// picks up the bundle's newer libcurl against the host's older libnghttp2:
+// "undefined symbol: nghttp2_option_set_no_rfc9113_...". Strip the bundle-prefixed
+// entries (keeping any the user set) so host tools use host libraries. No-op
+// unless launched from an AppImage (APPDIR set) - so .deb/.dmg/.exe are untouched.
+// Ships web-side, so it fixes even users still on an older AppImage binary.
+const APPIMAGE_ENV_GUARD_UNIX =
+  `if [ -n "\${APPDIR:-}" ]; then for V in LD_LIBRARY_PATH LD_PRELOAD GIO_MODULE_DIR GTK_PATH GST_PLUGIN_SYSTEM_PATH_1_0 PYTHONPATH PYTHONHOME PERLLIB; do APPV="\${!V}"; [ -z "$APPV" ] && continue; APPNEW="$(printf '%s' "$APPV" | tr ':' '\\n' | grep -vF "$APPDIR" | paste -sd: -)"; if [ -z "$APPNEW" ]; then unset "$V"; else export "$V=$APPNEW"; fi; done; fi`;
+
+// Fallback when the guard above didn't (or couldn't) repair a broken system curl:
+// say plainly it's the AppImage build and point at the .deb, instead of the
+// misleading "RPC unreachable / check your connection" the curl failure produces.
+const APPIMAGE_CURL_HINT_UNIX =
+  'if command -v curl >/dev/null 2>&1 && ! curl --version >/dev/null 2>&1; then echo "⛔ your system curl is crashing on startup (a broken library link - common with the AppImage build). That is why the network checks fail, NOT your connection. Install the .deb instead: download it from lightnode.app, or run: sudo apt install ./LightNode_*.deb - it has no bundled libraries. (Updating to the latest AppImage also fixes it.)"; OK=0; fi';
 
 /** One command: clone, set the password, run all 9 phases (06 prompts for the funder key). */
 function bootstrap(os: OS, network: NetworkId, model: string): string {
@@ -294,6 +311,7 @@ function unixInstall(network: NetworkId, models: string[]): string {
   return [
     "set -e",
     "exec 2>&1", // surface stderr (git clone, cast, etc.) in the streamed log
+    APPIMAGE_ENV_GUARD_UNIX, // host libs for shelled-out curl/git/docker on AppImage
     `echo "▶ LightNode installer rev ${INSTALLER_REV} (${network})"`,
     SMART_PREREQS,
     // The app's working dir may be "/" (non-writable). Work in a real home dir.
@@ -1317,8 +1335,11 @@ export function preflightCommand(os: OS, network: NetworkId): string {
   return [
     "exec 2>&1",
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
+    APPIMAGE_ENV_GUARD_UNIX, // repair AppImage-broken curl before any probe runs
     `echo "▶ preflight for the LightChain ${network} worker"`,
     "OK=1",
+    APPIMAGE_CURL_HINT_UNIX, // if curl is still broken, name the cause + the .deb fix
+
     'if command -v docker >/dev/null 2>&1; then if docker info >/dev/null 2>&1; then echo "✓ Docker is running"; else echo "⚠ Docker is installed but not running - install will start Docker Desktop for you"; fi; else echo "⚠ Docker Desktop not installed - install Docker Desktop manually (the installer needs it) then re-run install"; fi',
     'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then echo "✓ Ollama is responding (127.0.0.1:11434)"; elif command -v ollama >/dev/null 2>&1; then echo "⚠ Ollama is installed but not responding - install will start it"; else echo "⚠ Ollama not installed - install will set it up via brew"; fi',
     `FREE_G="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"; if [ "\${FREE_G:-0}" -ge 15 ]; then echo "✓ disk: $FREE_G GB free"; else echo "⚠ disk: only \${FREE_G:-?} GB free - the model + image need ~10 GB"; fi`,
