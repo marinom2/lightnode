@@ -446,11 +446,22 @@ const BRIDGE_TEMPLATES: { id: BridgeTemplate; label: string; line: string }[] = 
   { id: "react", label: "React + wagmi", line: "User-pays component - the user's wallet signs both txs." },
 ];
 
-function bridgeSnippet(tmpl: BridgeTemplate, amount: string): string {
+interface BridgeSnippet {
+  file: string;
+  body: string;
+  /** Bash commands to actually run this snippet, top to bottom. */
+  setup: string;
+  /** One-line reminder so the visitor does not paste the body into a shell. */
+  fileHint: string;
+}
+
+function bridgeSnippet(tmpl: BridgeTemplate, amount: string): BridgeSnippet {
   const safe = amount.trim() || "100";
   if (tmpl === "nextjs") {
-    return `// app/api/bridge/route.ts (Next.js App Router)
-// Server-pays: your hot wallet bridges on behalf of the user.
+    return {
+      file: "app/api/bridge/route.ts",
+      fileHint: "Save in your Next.js project at app/api/bridge/route.ts",
+      body: `// Server-pays: your hot wallet bridges on behalf of the user.
 import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -472,10 +483,24 @@ export async function POST(req: Request) {
     fee,
   });
   return Response.json({ ok: true, txHash: result.txHash });
-}`;
+}`,
+      setup: `# In your existing Next.js project:
+npm install lightnode-sdk viem
+
+# Add PRIVATE_KEY to .env.local (a server-only key holding LCAI ERC-20 on Ethereum):
+echo 'PRIVATE_KEY=0xYOUR_KEY_HERE' >> .env.local
+
+# Restart your dev server, then call the route:
+curl -X POST http://localhost:3000/api/bridge \\
+  -H 'content-type: application/json' \\
+  -d '{"amount":"${safe}","recipient":"0xLIGHTCHAIN_RECIPIENT"}'`,
+    };
   }
   if (tmpl === "react") {
-    return `// User-pays component - the user's wallet signs and pays.
+    return {
+      file: "components/BridgeButton.tsx",
+      fileHint: "Save in your React/Next.js project at components/BridgeButton.tsx",
+      body: `// User-pays component - the user's wallet signs and pays.
 "use client";
 import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
@@ -500,10 +525,21 @@ export function BridgeButton({ amount = "${safe}" }: { amount?: string }) {
     });
   }
   return <button onClick={run}>Bridge {amount} LCAI</button>;
-}`;
+}`,
+      setup: `# Assumes you already have wagmi + Reown / RainbowKit / Web3Modal set up.
+# (If not, see /onboard for the worker UI which shows the same wallet integration.)
+npm install lightnode-sdk
+
+# Import the component anywhere in your app:
+# import { BridgeButton } from "@/components/BridgeButton";
+# <BridgeButton amount="${safe}" />`,
+    };
   }
   // node
-  return `// One-shot Node script. Run with: node --env-file=.env bridge.ts
+  return {
+    file: "bridge.ts",
+    fileHint: "This is TypeScript - save it as bridge.ts in a folder, then run it with Node",
+    body: `// One-shot Node script. The 3 setup commands are below this snippet.
 import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -522,19 +558,95 @@ await bridge.transfer({
   recipient: account.address,
   fee,
 });
-// Hyperlane relays native LCAI to chain 9200 in ~30-60 min.`;
+console.log("Bridged. Hyperlane delivers native LCAI on chain 9200 in ~30 to 60 min.");`,
+    setup: `# 1. Create a folder + install deps:
+mkdir my-bridge && cd my-bridge
+npm init -y
+npm install lightnode-sdk viem tsx
+
+# 2. Save the snippet above as bridge.ts in this folder.
+
+# 3. Put your funded Ethereum private key in .env (this key must already
+#    hold LCAI ERC-20 on Ethereum - get some from Uniswap first):
+echo 'PRIVATE_KEY=0xYOUR_KEY_HERE' > .env
+
+# 4. Run it:
+npx tsx --env-file=.env bridge.ts`,
+  };
+}
+
+type BridgeDirection = "eth-to-lc" | "lc-to-eth";
+
+interface BridgePreviewResp {
+  ok?: boolean;
+  error?: string;
+  direction?: BridgeDirection;
+  amountLcai?: string;
+  amountWei?: string;
+  igpFee?: { ok: boolean; wei?: string | null; eth?: number | null; lcai?: number | null; note?: string; error?: string };
+  estimatedSourceGas?: string;
+  estimatedRelayMinutes?: string;
+  arrives?: string;
+  route?: unknown;
+  projectedCall?: unknown;
+  note?: string;
 }
 
 function BridgeRecipe() {
   const [amount, setAmount] = useState<string>("100");
+  const [direction, setDirection] = useState<BridgeDirection>("eth-to-lc");
+  const [recipient, setRecipient] = useState<string>("");
   const [tmpl, setTmpl] = useState<BridgeTemplate>("node");
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<BridgePreviewResp | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
   const numericAmt = Number(amount) || 0;
+  const snippet = bridgeSnippet(tmpl, amount);
+
+  async function runPreview() {
+    setBusy(true);
+    setPreviewErr(null);
+    setPreview(null);
+    try {
+      const res = await fetch("/api/bridge-preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount, direction, recipient: recipient || undefined }),
+      });
+      const text = await res.text();
+      let json: BridgePreviewResp;
+      try {
+        json = JSON.parse(text) as BridgePreviewResp;
+      } catch {
+        setPreviewErr("The server returned an unexpected response. Try again.");
+        return;
+      }
+      if (!res.ok || json.error) {
+        setPreviewErr(json.error ?? "Preview failed.");
+        return;
+      }
+      setPreview(json);
+    } catch (e) {
+      setPreviewErr(humanizeError(e, { action: "the bridge preview" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-3">
-      <div className="text-[10px] uppercase tracking-wide text-content-soft">Wire this into your project</div>
+      <div className="flex items-center gap-2">
+        <Badge tone="brand">interactive</Badge>
+        <span className="text-sm font-semibold text-content-primary">Run a bridge preview</span>
+        <span className="ml-auto text-[10px] uppercase tracking-wide text-content-soft">no spend, dry run</span>
+      </div>
+      <p className="text-[11px] leading-relaxed text-content-soft">
+        Pick an amount + direction, hit Run, see the JSON the SDK returns. Same shape as a real transfer - just without
+        signing. To actually execute, copy the snippet below into your project (which signs from your own wallet).
+      </p>
 
-      {/* Amount + summary */}
-      <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+      {/* Amount + direction inputs */}
+      <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
         <label className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-2.5 py-1.5">
           <span className="text-[10px] font-medium uppercase tracking-wide text-content-soft">Amount</span>
           <input
@@ -549,69 +661,94 @@ function BridgeRecipe() {
           />
           <span className="text-[11px] text-content-soft">LCAI</span>
         </label>
-        <div className="rounded-lg border border-bdr-soft bg-card px-3 py-1.5 text-[11px] leading-snug text-content-default">
-          <span className="font-medium text-content-primary">
-            {numericAmt > 0 ? `Bridging ${numericAmt} LCAI` : "Pick an amount"}
-          </span>{" "}
-          <span className="text-content-soft">
-            Ethereum &rarr; LightChain. Hyperlane fee: 0 LCAI (IGP pre-paid). You only pay source-chain gas. Arrives in ~30 to 60 min.
-          </span>
-        </div>
-      </div>
-
-      {/* Template chooser */}
-      <div className="flex flex-wrap gap-1.5">
-        {BRIDGE_TEMPLATES.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTmpl(t.id)}
-            className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-              tmpl === t.id
-                ? "border-primary/60 bg-primary/10 text-content-primary"
-                : "border-bdr-soft bg-card text-content-soft hover:text-content-primary"
-            }`}
-            aria-pressed={tmpl === t.id}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <p className="text-[11px] text-content-soft">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
-
-      {/* Snippet */}
-      <CodeBox code={bridgeSnippet(tmpl, amount)} />
-
-      {/* Steps - condensed */}
-      <ol className="space-y-1.5 text-[11px] leading-relaxed text-content-default">
-        <li className="flex items-start gap-2">
-          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">1</span>
-          <span>
-            Hold LCAI ERC-20 on Ethereum first (
-            <a
-              href="https://app.uniswap.org/swap?chain=ethereum&inputCurrency=ETH&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline"
+        <div className="inline-flex items-center gap-1 rounded-lg border border-bdr-soft bg-card p-0.5">
+          {(["eth-to-lc", "lc-to-eth"] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDirection(d)}
+              className={`flex-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                direction === d ? "bg-primary/15 text-content-primary" : "text-content-soft hover:text-content-primary"
+              }`}
+              aria-pressed={direction === d}
             >
-              Uniswap deep link
-            </a>
-            {numericAmt > 0 ? ` - aim for at least ${numericAmt} LCAI plus a small buffer for slippage` : ""}).
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">2</span>
-          <span>
-            <code className="font-mono text-content-default">bridge.approve()</code> the HypERC20Collateral - one-time, MaxUint256. Funds an allowance from your wallet to the bridge router.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">3</span>
-          <span>
-            <code className="font-mono text-content-default">bridge.transfer(...)</code> with your amount + recipient. Hyperlane delivers native LCAI on chain 9200 in ~30 to 60 min.
-          </span>
-        </li>
-      </ol>
+              {d === "eth-to-lc" ? "Ethereum -> LightChain" : "LightChain -> Ethereum"}
+            </button>
+          ))}
+        </div>
+        <Button size="sm" onClick={runPreview} disabled={busy || numericAmt <= 0}>
+          {busy ? <Loader2 className="animate-spin" /> : <PlayCircle />}
+          {busy ? "Running" : "Run"}
+        </Button>
+      </div>
+
+      <label className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-card px-2.5 py-1.5">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-content-soft">Recipient</span>
+        <input
+          type="text"
+          value={recipient}
+          onChange={(e) => setRecipient(e.target.value)}
+          placeholder="0x... (optional, destination address)"
+          className="w-full bg-transparent font-mono text-xs text-content-primary outline-none"
+          aria-label="Recipient address on the destination chain"
+        />
+      </label>
+
+      {/* Output panel - mirrors CLI Runner shape */}
+      {previewErr ? (
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-content-default">{previewErr}</p>
+      ) : preview ? (
+        <pre className="overflow-x-auto rounded-md code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
+{JSON.stringify(preview, null, 2)}
+        </pre>
+      ) : (
+        <p className="rounded-md border border-bdr-soft bg-card px-3 py-2 text-[11px] text-content-soft">
+          Click Run to get the JSON preview here. Same shape the SDK returns; no transaction signed.
+        </p>
+      )}
+
+      {/* Divider line into the integration section */}
+      <div className="mt-2 border-t border-bdr-soft pt-3">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-sm font-semibold text-content-primary">Use this in your project</span>
+          <span className="ml-auto text-[10px] uppercase tracking-wide text-content-soft">pick your stack</span>
+        </div>
+
+        {/* Template chooser */}
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {BRIDGE_TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTmpl(t.id)}
+              className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                tmpl === t.id
+                  ? "border-primary/60 bg-primary/10 text-content-primary"
+                  : "border-bdr-soft bg-card text-content-soft hover:text-content-primary"
+              }`}
+              aria-pressed={tmpl === t.id}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <p className="mb-2 text-[11px] text-content-soft">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
+
+        {/* File hint */}
+        <div className="mb-1.5 inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
+          <span className="text-content-soft">{snippet.fileHint}</span>
+        </div>
+
+        {/* The actual TypeScript code */}
+        <CodeBox code={snippet.body} />
+
+        {/* Setup commands so the user is not left wondering how to run it */}
+        <div className="mt-2 mb-1.5 inline-flex items-center gap-2 rounded-md bg-card px-2 py-1 text-[11px] text-content-default">
+          <Terminal className="size-3" />
+          <span className="text-content-soft">Run these in your terminal (these ARE shell commands):</span>
+        </div>
+        <CodeBox code={snippet.setup} />
+      </div>
     </div>
   );
 }
