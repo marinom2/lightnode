@@ -41,16 +41,19 @@ one of them.
 
 ## Recently shipped
 
-- `lightnode-sdk@0.5.1`. Six new modules in one ecosystem release: **Bridge
+- `lightnode-sdk@0.6.x`. Higher-level abstractions on top of the encrypted
+  inference layer: **`runInferenceBatch`** (parallel inference with capped
+  concurrency, stable result order, per-slot errors), the **`Agent`** class
+  (ReAct-style tool calling with `<tool>` / `<answer>` markers, works on
+  llama3-8b without native function calling), and **`AbortSignal`** support
+  across `runInference` + `runInferenceWithKey` so a UI can cancel pending
+  awaits. CLI gains `lightnode batch <prompts.json>` and `lightnode agent <task>`.
+- `lightnode-sdk@0.5.x`. Six SDK modules in one ecosystem release: **Bridge
   SDK** (Hyperlane Warp Route, LCAI between Ethereum and LightChain),
-  **DAO SDK** (LCAIGovernor on Ethereum: read + vote + propose + queue +
-  execute), **OnchainModelRegistry reader** (AIVMModelRegistry +
-  BenchmarkRegistry typed ABI), **multi-turn `Conversation`** (history
-  client-side, one inference per turn), **`workerPreflight` + `workerWatch`**
-  (test inference + live state-change stream), and **`ln.getJobStatus`**
-  (refundable classification). Plus the existing `runInferenceWithKey`,
-  `runInferenceStream`, `LightNode` read-only client, five `add`
-  scaffolders, full crypto module, eight read-only CLI commands.
+  **DAO SDK** (LCAIGovernor on Ethereum + LightChainGovernor with NativeVotes
+  precompile on chain 9200), **OnchainModelRegistry reader**, **multi-turn
+  `Conversation`**, **`workerPreflight` + `workerWatch`**, and
+  **`ln.getJobStatus`** (refundable classification).
 - **Interactive CLI runner on `/build`**. Click a command on the left,
   hit Run, see the real JSON output in the browser. Backed by a server
   route that runs the LightNode method server-side.
@@ -132,8 +135,8 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.5.1` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (13 `LightNode` methods + CSV exporters), Bridge SDK, DAO SDK, OnchainModelRegistry reader, worker preflight + watch, job-status / refund query. Plus the `lightnode` CLI with read-only + write subcommands + five `add` scaffolders. |
-| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.1.0` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.6.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, `AbortSignal` everywhere, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (13 `LightNode` methods + CSV exporters), Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, job-status / refund query. Plus the `lightnode` CLI with 11 read-only + write subcommands + five `add` scaffolders. |
+| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Now pins `lightnode-sdk ^0.6.0` so new projects get batch + agent + abort out of the box. |
 | `lightnode add` (inside `lightnode-sdk`) | n/a | Patch an existing project. Auto-detects the framework, writes the right files. Safe to re-run. |
 
 ### The `add` catalog

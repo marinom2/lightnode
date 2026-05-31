@@ -205,6 +205,84 @@ for await (const event of handle.events) {
 }
 ```
 
+### Batch runner (new in 0.6.0)
+
+Fan out many prompts as parallel encrypted inferences. Capped concurrency, stable result order, per-slot errors so one stalled worker does not kill the batch.
+
+```ts
+import { runInferenceBatch } from "lightnode-sdk";
+
+const results = await runInferenceBatch({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  model: "llama3-8b",
+  system: "Reply in one short sentence.",
+  concurrency: 4,
+  prompts: [
+    "one-line fact about the ocean",
+    "one-line fact about the moon",
+    "one-line fact about coffee",
+  ],
+  onSlotComplete: ({ index, result, error }) => {
+    console.log(`#${index}`, error?.message ?? result?.answer);
+  },
+});
+
+for (const r of results) {
+  if (r.error) console.warn(`slot ${r.index} failed:`, r.error.message);
+  else console.log(r.result.answer);
+}
+```
+
+Fits: batch evals, content scoring, RAG re-ranking, parallel rewrites. Pass `{signal}` (`AbortSignal`) to cancel queued slots mid-run.
+
+### Agent class (new in 0.6.0)
+
+ReAct-style tool calling on top of `runInferenceWithKey`. The model emits `<tool>name {"k":"v"}</tool>` or `<answer>...</answer>`; the SDK parses, runs the handler, threads the observation back. Works on small open models (llama3-8b) without native function calling.
+
+```ts
+import { Agent } from "lightnode-sdk";
+
+const agent = new Agent({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  model: "llama3-8b",
+  system: "You are a careful research assistant.",
+  tools: [
+    {
+      name: "add",
+      description: "Add two integers and return the sum.",
+      args: { a: "first integer", b: "second integer" },
+      handler: ({ a, b }) => Number(a) + Number(b),
+    },
+  ],
+  maxIterations: 3,
+  onStep: (step) => console.log(step.kind, step),
+});
+
+const { answer, steps, hitLimit } = await agent.run("What is 17 + 25?");
+console.log(answer);   // "42"
+console.log(steps);    // [{ kind: "tool_call", ... }, { kind: "answer", text: "42" }]
+```
+
+Each iteration is one inference (one on-chain `submitJob`); cap `maxIterations` to keep wall-clock + cost bounded. Tool handlers are plain functions that may be async; return JSON-serializable data so the model can read the observation.
+
+### Cancellation (new in 0.6.0)
+
+`runInference` and `runInferenceWithKey` accept an `AbortSignal`. In-flight on-chain transactions still settle (the protocol is the source of truth); the SDK just stops awaiting and rejects with `Error("aborted")`.
+
+```ts
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 15_000);
+
+await runInferenceWithKey({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  prompt: "short answer please",
+  signal: controller.signal,
+});
+```
+
 ### Typed errors
 
 ```ts

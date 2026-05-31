@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, isStalledWorker, workerPreflight, workerWatch, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId } from "./index.js";
+import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
 import { addInference, addAnalyticsDashboard, addNftMint, addChat, addAgent } from "./add.js";
 import { createPublicClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
@@ -25,6 +25,10 @@ const HELP = `lightnode <command> [--net mainnet|testnet]
 Run one inference (needs PRIVATE_KEY in env):
   chat <prompt>            stream one encrypted inference answer to stdout
                            ([--model llama3-8b] [--key 0x...])
+  batch <prompts.json>     run N prompts in parallel, JSON line per result
+                           ([--model] [--concurrency 4])
+  agent <task>             ReAct-style agent with built-in add + now tools
+                           ([--model] [--max-iter 4])
 
 Wallet helpers:
   wallet new               generate a fresh testnet key, print it
@@ -388,9 +392,136 @@ async function main() {
       }
       break;
     }
+    case "batch": {
+      // `lightnode batch <prompts.json>` or `lightnode batch -` (stdin).
+      // Input shape: ["prompt one","prompt two"] OR
+      //   { "model": "llama3-8b", "system": "...", "prompts": ["...", "..."] }
+      // Output: one JSON object per line (index, answer or error). Composes
+      // with `jq` for downstream processing.
+      const arg = positionals[1] ?? "";
+      if (!arg) die("usage: lightnode batch <prompts.json>   (or `lightnode batch -` to read stdin)");
+      const raw = await (arg === "-" ? readStdin() : readFile(arg));
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        die("invalid JSON: " + (e as Error).message);
+      }
+      const cfg = normalizeBatchInput(parsed);
+      const model = flag("--model") ?? cfg.model ?? "llama3-8b";
+      const concurrency = Number(flag("--concurrency") ?? "4") || 4;
+      const privateKey = pickKey();
+      process.stderr.write(`Running ${cfg.prompts.length} prompts on ${net} via ${model} (concurrency=${concurrency})\n`);
+      const results = await runInferenceBatch({
+        network: net,
+        privateKey,
+        model,
+        system: cfg.system,
+        concurrency,
+        prompts: cfg.prompts,
+        onSlotComplete: ({ index, result, error }) => {
+          process.stdout.write(JSON.stringify({
+            index,
+            ok: error == null,
+            answer: result?.answer ?? null,
+            error: error?.message ?? null,
+            jobId: result?.jobId.toString() ?? error?.jobId ?? null,
+          }) + "\n");
+        },
+      });
+      const okCount = results.filter((r) => r.error == null).length;
+      process.stderr.write(`Done: ${okCount}/${results.length} succeeded\n`);
+      break;
+    }
+    case "agent": {
+      // Quick one-shot agent demo: built-in `add` + `now` tools. Bring the
+      // model your prompt as positional args (or pipe via stdin) and watch
+      // the step trace on stderr while the answer streams to stdout.
+      const inline = positionals.slice(1).join(" ").trim();
+      const task = inline || (await readStdin()).trim();
+      if (!task) die("usage: lightnode agent <task>   (or pipe the task to stdin)");
+      const model = flag("--model") ?? "llama3-8b";
+      const maxIter = Number(flag("--max-iter") ?? "4") || 4;
+      const privateKey = pickKey();
+      // A tiny built-in toolset so the command is runnable without writing
+      // a wrapper. For real tools, import Agent from the SDK and pass your own.
+      const tools: AgentTool[] = [
+        {
+          name: "add",
+          description: "Add two integers and return the sum.",
+          args: { a: "first integer", b: "second integer" },
+          handler: ({ a, b }) => Number(a) + Number(b),
+        },
+        {
+          name: "now",
+          description: "Return the current ISO timestamp.",
+          args: {},
+          handler: () => new Date().toISOString(),
+        },
+      ];
+      const agent = new Agent({
+        network: net,
+        privateKey,
+        model,
+        system: "You are a careful assistant. Use tools when they help; otherwise answer directly.",
+        tools,
+        maxIterations: maxIter,
+        onStep: (step) => {
+          if (step.kind === "tool_call") {
+            process.stderr.write(`[tool] ${step.name}(${JSON.stringify(step.args)}) -> ${JSON.stringify(step.result)}\n`);
+          } else if (step.kind === "tool_error") {
+            process.stderr.write(`[tool-error] ${step.name}: ${step.error}\n`);
+          } else if (step.kind === "thought") {
+            process.stderr.write(`[think] ${step.text.slice(0, 200)}\n`);
+          }
+        },
+      });
+      try {
+        const { answer, steps, iterations, hitLimit } = await agent.run(task);
+        process.stdout.write(answer + "\n");
+        process.stderr.write(JSON.stringify({ iterations, steps: steps.length, hitLimit }) + "\n");
+      } catch (e) {
+        die("agent failed: " + (e as Error).message);
+      }
+      break;
+    }
     default:
       console.log(HELP);
   }
+}
+
+async function readStdin(): Promise<string> {
+  return new Promise<string>((resolve) => {
+    let buf = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (d) => (buf += d));
+    process.stdin.on("end", () => resolve(buf));
+  });
+}
+
+async function readFile(path: string): Promise<string> {
+  const fs = await import("node:fs/promises");
+  return fs.readFile(path, "utf8");
+}
+
+function normalizeBatchInput(parsed: unknown): { prompts: string[]; system?: string; model?: string } {
+  if (Array.isArray(parsed)) {
+    const prompts = parsed.filter((p): p is string => typeof p === "string");
+    if (!prompts.length) die("batch input: array must contain at least one string prompt");
+    return { prompts };
+  }
+  if (parsed && typeof parsed === "object") {
+    const obj = parsed as { prompts?: unknown; system?: unknown; model?: unknown };
+    const prompts = Array.isArray(obj.prompts) ? obj.prompts.filter((p): p is string => typeof p === "string") : [];
+    if (!prompts.length) die("batch input: object must have a `prompts` array of strings");
+    return {
+      prompts,
+      system: typeof obj.system === "string" ? obj.system : undefined,
+      model: typeof obj.model === "string" ? obj.model : undefined,
+    };
+  }
+  die("batch input: expected JSON array of strings OR object { prompts, system?, model? }");
+  return { prompts: [] };
 }
 
 main().catch((e) => die(String(e?.message ?? e)));

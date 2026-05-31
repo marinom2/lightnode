@@ -99,6 +99,14 @@ lightnode wallet new`}
               <span className="text-content-soft">One-shot encrypted inference. Streams answer to stdout, JSON receipt to stderr. Supports stdin too.</span>
             </li>
             <li>
+              <code className="block break-all font-mono text-content-default">lightnode batch &lt;prompts.json&gt;</code>
+              <span className="text-content-soft">Parallel inference. Reads JSON array or {"{prompts, system?, model?}"}; one JSON line per result to stdout. Supports <code className="font-mono">-</code> for stdin and <code className="font-mono">--concurrency 4</code>. <span className="text-primary">(0.6.x)</span></span>
+            </li>
+            <li>
+              <code className="block break-all font-mono text-content-default">lightnode agent &lt;task&gt;</code>
+              <span className="text-content-soft">ReAct-style agent with built-in <code className="font-mono">add</code> + <code className="font-mono">now</code> tools. Streams the step trace to stderr, final answer to stdout. Cap with <code className="font-mono">--max-iter 4</code>. <span className="text-primary">(0.6.x)</span></span>
+            </li>
+            <li>
               <code className="block break-all font-mono text-content-default">lightnode wallet new|address|balance</code>
               <span className="text-content-soft">Generate a key, read the address of your env key, check balance on mainnet/testnet.</span>
             </li>
