@@ -48,7 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-interface ModuleDef {
+export interface ModuleDef {
   id: ModuleId;
   icon: typeof Boxes;
   title: string;
@@ -68,9 +68,9 @@ interface ModuleDef {
   sandboxNeedsKey?: boolean;
 }
 
-type ModuleId = "bridge" | "dao" | "chat" | "preflight" | "models" | "dispute";
+export type ModuleId = "bridge" | "dao" | "chat" | "preflight" | "models" | "dispute";
 
-const MODULES: ModuleDef[] = [
+export const MODULES: ModuleDef[] = [
   {
     id: "bridge",
     icon: Coins,
@@ -334,7 +334,7 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-function CodeBox({ code }: { code: string }) {
+export function CodeBox({ code }: { code: string }) {
   return (
     <div className="relative">
       <pre className="max-h-[280px] overflow-auto rounded-lg border border-bdr-soft code-surface p-3 font-mono text-[11px] leading-relaxed text-content-default">
@@ -345,7 +345,7 @@ function CodeBox({ code }: { code: string }) {
   );
 }
 
-function DocLinks({ m }: { m: ModuleDef }) {
+export function DocLinks({ m }: { m: ModuleDef }) {
   // Bridge has its own multi-template StackBlitz launcher inside BridgeRecipe;
   // every other module gets a single Open-in-StackBlitz badge here.
   const sandboxBody = m.sandboxBody ?? m.snippet;
@@ -1912,7 +1912,7 @@ function ModelsExplainer() {
   );
 }
 
-function Widget({ id }: { id: ModuleId }) {
+export function Widget({ id }: { id: ModuleId }) {
   if (id === "bridge") return <BridgeLive />;
   if (id === "dao") return <DaoLive />;
   if (id === "preflight") return <PreflightSample />;

@@ -1,8 +1,9 @@
-import { AlertOctagon, Bot, Layers, Layers3, Rocket, Server, Sparkles, User2, Wallet2 } from "lucide-react";
+import Link from "next/link";
+import { AlertOctagon, ArrowRight, Bot, Layers, Layers3, Rocket, Server, Sparkles, User2, Wallet2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/build/section-header";
-import { SDKModules } from "@/components/sdk-modules";
+import { MODULES } from "@/components/sdk-modules";
 
 export const metadata = {
   title: "SDK modules - Build with LightChain AI",
@@ -63,24 +64,47 @@ const TYPED_ERRORS = [
 export default function BuildSdksPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-10">
-      <div className="mb-8">
+      <div className="mb-10">
         <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
           SDK modules
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-content-soft">
-          Six real modules exported in lightnode-sdk@0.6.x. Each card has a runnable snippet, deep links to npm + the
-          GitHub source + the matching example, and a Try it live button that pulls real on-chain data inline.
+          Six real modules exported in lightnode-sdk@0.6.x. Click any card for a focused page: live data, runnable
+          snippets, project-template wiring, and Open-in-StackBlitz buttons - one SDK at a time.
         </p>
       </div>
 
-      {/* ── SDK MODULES ──────────────────────────────────────────────── */}
-      <div className="mb-12">
+      {/* ── SDK MODULES (LINK CARDS) ────────────────────────────────── */}
+      <div className="mb-14">
         <SectionHeader
           icon={Rocket}
           title="The six modules"
-          blurb="Click Try it live on each card. Real on-chain reads, real chat, real worker status."
+          blurb="Each card is a short summary. Click to open a dedicated page for that SDK."
         />
-        <SDKModules />
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {MODULES.map((m) => (
+            <Link
+              key={m.id}
+              href={`/build/sdks/${m.id}`}
+              aria-label={`Open ${m.title}`}
+              className="group relative flex flex-col rounded-2xl border border-bdr-soft bg-card/60 p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card/80 hover:shadow-[0_8px_24px_-10px_rgba(112,100,233,0.45)]"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <div className="grid size-9 place-items-center rounded-lg border border-bdr-soft bg-surface-base-faint text-primary">
+                  <m.icon className="size-4" />
+                </div>
+                <span className="text-sm font-semibold text-content-primary">{m.title}</span>
+                <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-success" title="Shipped in lightnode-sdk@0.6.x">
+                  <span className="size-1.5 rounded-full bg-success" /> 0.6.x
+                </span>
+              </div>
+              <p className="mb-4 line-clamp-3 text-xs leading-relaxed text-content-soft">{m.blurb}</p>
+              <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-primary">
+                Open <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* ── 0.6.0 NEW: BATCH + AGENT ─────────────────────────────────── */}
