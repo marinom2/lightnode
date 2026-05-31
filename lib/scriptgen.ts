@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.05";
+export const INSTALLER_REV = "2026-05-31.06";
 
 export interface ScriptBundle {
   os: OS;
@@ -287,6 +287,33 @@ echo "… waiting for Ollama on 127.0.0.1:11434"
 for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
 curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || { echo "⛔ Ollama isn't responding on 127.0.0.1:11434 - open the Ollama app (or run 'ollama serve'), then re-run."; exit 1; }
 echo "✓ Ollama server running"
+# Linux ONLY: the worker runs in Docker and reaches Ollama on the host via
+# host.docker.internal -> the docker-bridge gateway (172.17.0.1). Ollama defaults
+# to listening on 127.0.0.1 ONLY, so that connection is REFUSED ("dial tcp
+# 172.17.0.1:11434: connect: connection refused") and EVERY job fails at the
+# inference stage. (macOS/Windows are fine: Docker Desktop's VM proxies
+# host.docker.internal to the host loopback - bare-metal Linux has no such proxy.)
+# Bind Ollama to 0.0.0.0 so the bridge can reach it. Idempotent.
+if [ "$OS" = "Linux" ]; then
+  if systemctl show ollama 2>/dev/null | grep -q 'OLLAMA_HOST=0.0.0.0'; then
+    echo "✓ Ollama is reachable from the worker container (0.0.0.0)"
+  elif systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
+    echo "▶ allowing the worker container to reach Ollama (binding it to 0.0.0.0)"
+    if sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null && printf '[Service]\\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\\nEnvironment="OLLAMA_KEEP_ALIVE=-1"\\n' | sudo tee /etc/systemd/system/ollama.service.d/lightnode.conf >/dev/null 2>&1; then
+      sudo systemctl daemon-reload 2>/dev/null; sudo systemctl restart ollama 2>/dev/null
+      for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+      echo "✓ Ollama now listening on 0.0.0.0:11434 - the worker container can reach it"
+    else
+      echo "⚠ Ollama only listens on 127.0.0.1, so the Dockerized worker can't reach it and jobs will fail at inference. Run the LightNode installer from a terminal (so it can use sudo), or set OLLAMA_HOST=0.0.0.0 on the ollama service and restart it."
+    fi
+  else
+    echo "▶ restarting Ollama bound to 0.0.0.0 so the worker container can reach it"
+    pkill -f 'ollama serve' 2>/dev/null || true; sleep 1
+    OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE=-1 nohup ollama serve >/dev/null 2>&1 &
+    for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
+    echo "✓ Ollama listening on 0.0.0.0:11434"
+  fi
+fi
 
 # 4) Foundry must be on PATH for the cast calls in the toolkit phases.
 export PATH="$HOME/.foundry/bin:$PATH"
