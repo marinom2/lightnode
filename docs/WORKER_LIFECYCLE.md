@@ -5,16 +5,15 @@ to the moment you withdraw your last LCAI, and the on-chain mechanics behind the
 parts that are easy to get wrong (earnings, payouts, and switching networks or
 models on one machine).
 
-If you just want the short version, the README's
-[How earnings and withdrawals work](../README.md#how-earnings-and-withdrawals-work)
-covers the essentials. This document is the full picture.
+If you just want the short version, the [README](../README.md) covers the
+essentials. This document is the full picture.
 
 ---
 
 ## The stages
 
 ```
-install --> run (keep-online) --> settle earnings --> deregister --> withdraw --> free up memory
+install --> run (keep-online) --> settle earnings --> clear stuck jobs (if any) --> deregister --> withdraw --> free up memory
 ```
 
 ### 1. Install
@@ -79,7 +78,26 @@ implementation is a proxy and not verified on the explorer):
 If a job is still inside its window, Settle reports it as "still in its release
 window" and you simply run it again later. The dashboard shows the claimable ETA.
 
-### 4. Deregister
+### 4. Clear stuck jobs (only if you have any)
+
+A job your worker **acknowledged but never completed** (Ollama was down, the
+machine slept, the deadline passed) stays in the `Acknowledged` state on-chain
+forever. Settling does not touch it (settle only releases *completed* jobs), and
+it **blocks deregistration**: the protocol refuses to deregister while any job is
+still in-flight.
+
+The fix is `claimTimeout`, which the JobRegistry exposes permissionlessly, so the
+worker can clear its own stuck jobs. In the desktop app this is the **Clear stuck
+jobs** operation; from the SDK it is `clearStuck()` / `unstickAndDeregister()`;
+from the CLI it is `lightnode worker clearstuck`.
+
+Important: clearing a stuck job finalizes it as `TimedOut`, which on **mainnet**
+realizes the completion-timeout slash (a percentage of stake per job; testnet has
+slashing disabled). It is the deliberate price of unblocking an exit that a stuck
+job would otherwise block forever, so clear only jobs you accept are lost. Jobs
+not yet past their deadline are skipped automatically.
+
+### 5. Deregister
 
 Deregister exits the network and returns your **stake** to the worker wallet. The
 app does this safely:
@@ -90,10 +108,13 @@ app does this safely:
   active jobs and all completed jobs have been released,
 - on success it stops the container and removes the keep-online watchdog.
 
-If deregister is blocked, it is almost always because completed jobs are still in
-their release window. Your stake is safe; settle again once the windows pass.
+If deregister is blocked, there are two causes. Most commonly, completed jobs are
+still in their release window: your stake is safe, settle again once the windows
+pass. Less commonly, an acknowledged-but-unfinished (stuck) job is still in-flight:
+clear it first with **Clear stuck jobs** (see stage 4), which the app's
+`unstickAndDeregister` flow does automatically before retrying the exit.
 
-### 5. Withdraw
+### 6. Withdraw
 
 **Withdraw Funds** sends the worker wallet's spendable LCAI to any address you
 choose (it defaults to your connected wallet, but you can enter another). After
@@ -109,7 +130,7 @@ Signing happens locally, two ways depending on what the app holds:
 
 Either way the raw key never leaves your machine.
 
-### 6. Free up memory
+### 7. Free up memory
 
 A finished or stopped worker still holds RAM: the model is pinned in Ollama
 (several GB) and Docker keeps its VM. **Free up memory** unloads the model, stops

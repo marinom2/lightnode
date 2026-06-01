@@ -50,6 +50,16 @@ one of them.
 
 ## Recently shipped
 
+- `lightnode-sdk@0.7.x`. The **worker-operator** surface: run a worker's full
+  on-chain lifecycle from code, the part that previously needed the worker
+  Docker image or reverse-engineering unverified contracts. `WorkerOperator`
+  covers register, stake (`topUpStake` / `withdrawStake` / `reinstate`), settle
+  (`releaseJob` / `releaseAll` / `withdraw`), live protocol config, and the
+  headline **stuck-job recovery** (`claimTimeout` / `clearStuck` /
+  `unstickAndDeregister`) that clears acknowledged-but-unfinished jobs which
+  otherwise block deregistration, plus `decodeWorkerError` for plain-English
+  reverts. New CLI: `lightnode worker status | can-deregister | settle |
+  clearstuck | withdraw | deregister`.
 - `lightnode-sdk@0.6.x`. Higher-level abstractions on top of the encrypted
   inference layer: **`runInferenceBatch`** (parallel inference with capped
   concurrency, stable result order, per-slot errors), the **`Agent`** class
@@ -144,8 +154,8 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.6.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, `AbortSignal` everywhere, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (13 `LightNode` methods + CSV exporters), Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, job-status / refund query. Plus the `lightnode` CLI with 11 read-only + write subcommands + five `add` scaffolders. |
-| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Now pins `lightnode-sdk ^0.6.0` so new projects get batch + agent + abort out of the box. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.7.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, `AbortSignal` everywhere, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (`LightNode` methods + CSV exporters), Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + five `add` scaffolders. |
+| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins `lightnode-sdk ^0.7.0` so new projects get the full ecosystem out of the box. |
 | `lightnode add` (inside `lightnode-sdk`) | n/a | Patch an existing project. Auto-detects the framework, writes the right files. Safe to re-run. |
 
 ### The `add` catalog
@@ -403,7 +413,7 @@ npm run test:e2e
 cd sdk && npm run typecheck && npm run build
 ```
 
-State on `main`: lint clean, typecheck clean, 196 unit tests, 13 E2E,
+State on `main`: lint clean, typecheck clean, 220 unit tests, 16 test files,
 production build clean, SDK build clean, both CLIs smoke-tested live against
 real testnet and mainnet inferences.
 

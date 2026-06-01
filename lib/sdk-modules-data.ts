@@ -140,23 +140,34 @@ const walletClient = KEY
 const dao = new DAO(publicClient, "ethereum", walletClient);
 
 // List recent proposals on LCAIGovernor (Ethereum mainnet):
-const proposals = await dao.proposals();
-for (const p of proposals.slice(0, 5)) {
-  console.log(p.id.toString(), p.stateLabel, p.title.slice(0, 60));
+const rows = await dao.recentProposals({ lookbackBlocks: 300_000, limit: 5 });
+for (const p of rows) {
+  console.log(p.id.toString(), p.stateLabel.padEnd(10), p.title);
 }
+
+// Live voting config (delay / period / threshold):
+const cfg = await dao.config();
+console.log("\\nVoting delay :", cfg.votingDelayBlocks.toString(), "blocks");
+console.log("Voting period:", cfg.votingPeriodBlocks.toString(), "blocks (~", Math.round(cfg.votingPeriodSecs / 86400), "days)");
 
 // To vote (needs PRIVATE_KEY + LCAI Ballots delegated to your address):
 // import { VoteSupport } from "lightnode-sdk";
-// await dao.castVote(proposals[0].id, VoteSupport.For, "support this");`,
+// await dao.castVote(rows[0].id, VoteSupport.For, "support this");`,
     sandboxNeedsKey: false,
     triable: true,
   },
   {
     id: "chat",
     icon: Workflow,
-    title: "Multi-turn Conversation",
+    title: "Conversation SDK",
     blurb:
       "new Conversation({ network, privateKey }).send('hi') keeps history client-side and runs one encrypted inference per turn. Optional system prompt + maxHistoryTurns cap.",
+    titleAccent: "SDK",
+    kicker: "Multi-turn chat",
+    tagline: "Stateful AI chat. No server.",
+    subtitle:
+      "Conversation keeps history client-side and signs one encrypted inference per turn. Drop it into a Node script, a Next.js API route, or a React component.",
+    cta: { label: "Try the chat", href: "#try-it" },
     npm: "#five-line-hello-world",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/chat.ts",
     example: "https://github.com/marinom2/lightnode-examples/tree/main/multi-turn-chat",
@@ -198,9 +209,15 @@ console.log(JSON.stringify(chat.messages(), null, 2));`,
   {
     id: "preflight",
     icon: PlayCircle,
-    title: "Worker preflight + watch",
+    title: "Preflight SDK",
     blurb:
       "workerPreflight submits ONE real test inference + returns verdict. workerWatch streams state-change events (registered, went-stale, jobs-completed) for any worker, no key required.",
+    titleAccent: "SDK",
+    kicker: "Worker preflight + watch",
+    tagline: "Test inference. Watch workers.",
+    subtitle:
+      "Drop workerPreflight into CI to verify the network responds before a release. Stream live state changes on any worker with workerWatch - no key needed.",
+    cta: { label: "Run preflight", href: "#try-it" },
     npm: "#worker-preflight--watch-new-in-050",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/worker.ts",
     example: "https://github.com/marinom2/lightnode-examples/tree/main/worker-preflight",
@@ -241,9 +258,15 @@ for (const w of top) console.log(w.address, "  jobs:", w.jobsCompleted, "  p50:"
   {
     id: "dispute",
     icon: Database,
-    title: "Dispute / refund queries",
+    title: "Refund SDK",
     blurb:
       "ln.getJobStatus(jobId) classifies a job (submitted / in-flight / completed / stalled / disputed / resolved) and exposes a refundable flag.",
+    titleAccent: "SDK",
+    kicker: "Dispute + refund",
+    tagline: "Know when a job is owed a refund.",
+    subtitle:
+      "ln.getJobStatus(id) classifies any job and tells you whether a refund is on the table - no chain-state guessing, no manual state machines.",
+    cta: { label: "Inspect a job", href: "#try-it" },
     npm: "#read-only-lightnode-client-free-no-key",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/index.ts",
     snippet: `import { LightNode } from "lightnode-sdk";
@@ -278,9 +301,15 @@ for (let id = FIRST; id <= LAST; id++) {
   {
     id: "models",
     icon: Boxes,
-    title: "Models on-chain (AIConfig)",
+    title: "Models SDK",
     blurb:
       "On LightChain mainnet the official model registry is AIConfig - whitelisted models, fees, and output limits. ln.getModels() / ln.estimateFee() read it directly. The custom lcai_listSupportedModels RPC method returns the live whitelist.",
+    titleAccent: "SDK",
+    kicker: "On-chain model registry",
+    tagline: "Every model. Every fee. Live.",
+    subtitle:
+      "ln.getModels() pulls the canonical model list from AIConfig on chain. No off-chain config to drift, no hand-maintained JSON to break.",
+    cta: { label: "Browse models", href: "#try-it" },
     npm: "#read-only-lightnode-client-free-no-key",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/onchain.ts",
     snippet: `import { LightNode } from "lightnode-sdk";

@@ -111,12 +111,12 @@ export interface SessionPreparation {
    * Parameter names match the canonical on-chain ABI (paramsHash,
    * ephemeralPubKey, initState) verified live in the LightChain inference
    * integration guide. The slot mapping is:
-   *   - paramsHash      ← keccak256(model tag)
-   *   - worker          ← prepared.worker
-   *   - encWorkerKey    ← hex(encWorker)              // ECDH-wrap for the worker
-   *   - ephemeralPubKey ← hex(encDisputer)            // ECDH-wrap for the disputer
-   *   - initState       ← prepared.signature          // dispatcher EIP-712 signature
-   *   - expiry          ← prepared.expiry
+   *   - paramsHash      from keccak256(model tag)
+   *   - worker          from prepared.worker
+   *   - encWorkerKey    from hex(encWorker)              // ECDH-wrap for the worker
+   *   - ephemeralPubKey from hex(encDisputer)            // ECDH-wrap for the disputer
+   *   - initState       from prepared.signature          // dispatcher EIP-712 signature
+   *   - expiry          from prepared.expiry
    */
   createSessionArgs: {
     paramsHash: `0x${string}`;

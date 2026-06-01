@@ -665,7 +665,7 @@ function openInStackBlitz(snippet: BridgeSnippet, tmpl: BridgeTemplate) {
  * WebContainer with the snippet as index.ts, deps installed, .env stub,
  * and "npm start" wired to run it.
  */
-function openSnippetInStackBlitz(opts: {
+export function openSnippetInStackBlitz(opts: {
   /** Module display name, e.g. "DAO SDK", used in the project title. */
   title: string;
   /** Plain TypeScript body of the snippet (no leading slashes, no markdown). */
@@ -1110,6 +1110,8 @@ interface DaoProposal {
 interface DaoListResp {
   addresses: { governor: string; explorer: string };
   proposals: DaoProposal[];
+  total?: number;
+  hasMore?: boolean;
   error?: string;
 }
 
@@ -1143,13 +1145,17 @@ function DaoLive() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Pagination: bumped by 'See more'. Reset on chain switch.
+  const [limit, setLimit] = useState(6);
+  const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setData(null);
     setErr(null);
     setOpenId(null);
-    fetch(`/api/dao-proposals?chain=${chain}`, { cache: "no-store" })
+    setLimit(6);
+    fetch(`/api/dao-proposals?chain=${chain}&limit=6`, { cache: "no-store" })
       .then((r) => r.json())
       .then((j: DaoListResp) => {
         if (!alive) return;
@@ -1162,6 +1168,25 @@ function DaoLive() {
       alive = false;
     };
   }, [chain]);
+
+  async function loadMore() {
+    const next = Math.min(30, limit + 6);
+    setLoadingMore(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/dao-proposals?chain=${chain}&limit=${next}`, { cache: "no-store" });
+      const j: DaoListResp = await r.json();
+      if (j.error) setErr(j.error);
+      else {
+        setData(j);
+        setLimit(next);
+      }
+    } catch (e) {
+      setErr(humanizeError(e));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
   const chainToggle = (
     <div className="flex items-center gap-2">
       <span className="text-[10px] uppercase tracking-wide text-content-soft">Governor on</span>
@@ -1290,6 +1315,25 @@ function DaoLive() {
           </div>
         );
       })}
+
+      {/* See more button: when the API reported more proposals than the
+          current page shows, give the visitor a way to keep loading
+          (capped at 30 per chain to keep RPC pressure modest). */}
+      {data.hasMore || (data.total != null && data.total > data.proposals.length) ? (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={loadingMore || limit >= 30}
+          className="group inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-bdr-soft bg-surface-base-faint px-4 py-2.5 text-xs font-medium text-content-primary transition-all hover:border-primary/60 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loadingMore ? <Loader2 className="size-3.5 animate-spin" /> : <ChevronDown className="size-3.5" />}
+          {loadingMore
+            ? "Loading more..."
+            : limit >= 30
+              ? "Page limit reached (30)"
+              : `See more proposals${data.total ? ` (${data.proposals.length} of ${data.total})` : ""}`}
+        </button>
+      ) : null}
     </div>
   );
 }

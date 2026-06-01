@@ -651,7 +651,7 @@ export class WorkerOperator {
    * Clear one stuck (acknowledged-but-never-completed, past-deadline) job.
    * Permissionless on-chain - the worker itself may call it.
    *
-   * ⚠️ MAINNET SLASH: this finalizes the job as TimedOut, which realizes the
+   * MAINNET SLASH: this finalizes the job as TimedOut, which realizes the
    * completion-timeout slash on the worker's stake (mainnet:
    * `config().slashBps.completionTimeout` = 5% of stake per job at the time of
    * writing; TESTNET has slashing disabled, so it's free there). This is the
@@ -752,8 +752,8 @@ export class WorkerOperator {
   }
 
   /**
-   * The flagship rescue: clear stuck jobs → release any settled completed jobs +
-   * withdraw earnings → deregister. The one flow no official tool provides.
+   * The flagship rescue: clear stuck jobs then release any settled completed jobs +
+   * withdraw earnings then deregister. The one flow no official tool provides.
    * Pass the worker's known job IDs (from the subgraph). Returns every tx done.
    */
   async unstickAndDeregister(candidateJobIds: Array<bigint | number>): Promise<{

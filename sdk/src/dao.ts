@@ -141,6 +141,8 @@ export const GOVERNOR_ABI = parseAbi([
   "function proposalEta(uint256 proposalId) external view returns (uint256)",
   "function getVotes(address account, uint256 timepoint) external view returns (uint256)",
   "function hasVoted(uint256 proposalId, address account) external view returns (bool)",
+  // Events - needed for recentProposals() event scan.
+  "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)",
 ]);
 
 /** Minimal IVotes ABI for delegate + balance reads (LCAIBallots). */
@@ -158,6 +160,16 @@ interface MinimalPublicClient {
     functionName: string;
     args?: readonly unknown[];
   }) => Promise<unknown>;
+  // Optional event-scan surface used by `recentProposals`. Made optional so
+  // older callers that only need reads keep type-checking.
+  getBlockNumber?: () => Promise<bigint>;
+  getLogs?: (args: {
+    address?: `0x${string}`;
+    event?: unknown;
+    args?: Record<string, unknown>;
+    fromBlock?: bigint | "earliest" | "latest";
+    toBlock?: bigint | "latest";
+  }) => Promise<ReadonlyArray<{ args?: Record<string, unknown>; blockNumber?: bigint; transactionHash?: `0x${string}` }>>;
 }
 
 interface MinimalWalletClient {
@@ -192,6 +204,21 @@ export interface DaoConfig {
   proposalThresholdWei: bigint;
   /** Approx voting period in seconds, assuming 12s/block on Ethereum. */
   votingPeriodSecs: number;
+}
+
+/**
+ * One row returned by `DAO.recentProposals`. Lightweight summary you can
+ * map straight into a list UI. Use `dao.proposal(id)` for the full vote
+ * counts and exact deadlines.
+ */
+export interface ProposalRow {
+  id: bigint;
+  proposer: `0x${string}`;
+  /** First non-empty line of the proposal `description`. */
+  title: string;
+  state: ProposalState;
+  stateLabel: string;
+  blockNumber: bigint;
 }
 
 /**
@@ -289,6 +316,82 @@ export class DAO {
       functionName: "quorum",
       args: [timepoint],
     }) as Promise<bigint>;
+  }
+
+  /**
+   * List recent proposals on the governor by scanning `ProposalCreated`
+   * events. Scans back `lookbackBlocks` from the current head and returns
+   * up to `limit` proposals (newest first) with their current state.
+   *
+   * Ethereum mainnet RPCs cap a single `getLogs` to 10k blocks; the SDK
+   * chunks the range automatically. Default lookback is 300k blocks
+   * (~40 days) and default limit is 10.
+   */
+  async recentProposals(opts: { lookbackBlocks?: number; limit?: number } = {}): Promise<ProposalRow[]> {
+    if (!this.publicClient.getLogs || !this.publicClient.getBlockNumber) {
+      throw new Error(
+        "DAO.recentProposals: publicClient does not expose getLogs / getBlockNumber. Use a viem PublicClient.",
+      );
+    }
+    const lookback = BigInt(opts.lookbackBlocks ?? 300_000);
+    const limit = Math.max(1, opts.limit ?? 10);
+    const head = await this.publicClient.getBlockNumber();
+    const start = head > lookback ? head - lookback : 0n;
+    const CHUNK = 10_000n;
+    // ProposalCreated is item index that matches the parsed ABI entry.
+    const event = (GOVERNOR_ABI as readonly { type?: string; name?: string }[]).find(
+      (x) => x.type === "event" && x.name === "ProposalCreated",
+    );
+    if (!event) throw new Error("DAO.recentProposals: ProposalCreated event missing from GOVERNOR_ABI");
+
+    // Fan out chunked log reads in parallel - same shape the public proxy
+    // endpoint uses, but driven entirely by the caller's RPC.
+    const ranges: Array<{ from: bigint; to: bigint }> = [];
+    for (let from = start; from <= head; from += CHUNK) {
+      const to = from + CHUNK - 1n > head ? head : from + CHUNK - 1n;
+      ranges.push({ from, to });
+    }
+    const rows: ProposalRow[] = [];
+    const settled = await Promise.allSettled(
+      ranges.map((r) =>
+        this.publicClient.getLogs!({
+          address: this.addresses.governor,
+          event,
+          fromBlock: r.from,
+          toBlock: r.to,
+        }),
+      ),
+    );
+    for (const res of settled) {
+      if (res.status !== "fulfilled") continue;
+      for (const log of res.value) {
+        const args = log.args ?? {};
+        const id = args.proposalId as bigint | undefined;
+        const proposer = args.proposer as `0x${string}` | undefined;
+        const description = (args.description as string | undefined) ?? "";
+        if (id == null || !proposer) continue;
+        const title = description.split(/\r?\n/).map((s) => s.trim()).find(Boolean) ?? `Proposal #${id.toString()}`;
+        rows.push({
+          id,
+          proposer,
+          title: title.length > 140 ? title.slice(0, 137) + "..." : title,
+          // state filled in below in one batched call
+          state: 0 as ProposalState,
+          stateLabel: "",
+          blockNumber: log.blockNumber ?? 0n,
+        });
+      }
+    }
+    // Sort newest-first by id (uint256 monotonic in OZ Governor) and trim.
+    rows.sort((a, b) => (b.id > a.id ? 1 : b.id < a.id ? -1 : 0));
+    const trimmed = rows.slice(0, limit);
+    // Fetch the live state for each in parallel so the row is immediately usable.
+    const states = await Promise.all(trimmed.map((r) => this.state(r.id).catch(() => 0 as ProposalState)));
+    return trimmed.map((r, i) => ({
+      ...r,
+      state: states[i],
+      stateLabel: PROPOSAL_STATE_LABEL[states[i]] ?? "unknown",
+    }));
   }
 
   // -------- Writes --------

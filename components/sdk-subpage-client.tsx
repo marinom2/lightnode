@@ -12,9 +12,9 @@
 
 import type React from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Boxes } from "lucide-react";
-import { MODULES, type ModuleId } from "@/lib/sdk-modules-data";
-import { Widget, DocLinks } from "@/components/sdk-modules";
+import { ArrowLeft, ArrowRight, Boxes, PlayCircle, Terminal } from "lucide-react";
+import { MODULES, type ModuleId, type ModuleDef } from "@/lib/sdk-modules-data";
+import { Widget, DocLinks, CodeBox, openSnippetInStackBlitz } from "@/components/sdk-modules";
 
 export function SdkSubpageClient({ id }: { id: ModuleId }) {
   const m = MODULES.find((x) => x.id === id);
@@ -92,6 +92,12 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         </div>
       </section>
 
+      {/* 'Use this in your project' — every sub-page except Bridge gets
+          this block. Bridge already has it inside its 3-step stepper. */}
+      {m.id !== "bridge" && m.sandboxBody ? (
+        <UseInYourProject m={m} />
+      ) : null}
+
       {/* Cross-link grid - one row, simple, no decoration. */}
       <section className="mb-4">
         <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">More from lightnode-sdk</p>
@@ -124,6 +130,85 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         </Link>
       </div>
     </div>
+  );
+}
+
+/**
+ * 'Use this in your project' block. Mirrors step 3 of the bridge stepper
+ * for every other SDK module so each sub-page ends with: try the live
+ * widget, then take the code home. One Open-in-StackBlitz button, one
+ * code block, one collapsed terminal-setup pane.
+ */
+function UseInYourProject({ m }: { m: ModuleDef }) {
+  const body = m.sandboxBody ?? m.snippet;
+  const needsKey = m.sandboxNeedsKey ?? false;
+  // Synthesise the same shell setup the bridge stepper shows. Node script
+  // wrapper - the snippet is index.ts, npm install + tsx --env-file
+  // optional based on whether the snippet reads PRIVATE_KEY.
+  const setup = needsKey
+    ? `# 1. Create a folder + install deps
+mkdir my-${m.id} && cd my-${m.id}
+npm init -y
+npm install lightnode-sdk viem tsx
+
+# 2. Save the snippet above as index.ts in this folder.
+
+# 3. Put a funded private key in .env:
+echo 'PRIVATE_KEY=0xYOUR_KEY_HERE' > .env
+
+# 4. Run it:
+npx tsx --env-file=.env index.ts`
+    : `# 1. Create a folder + install deps
+mkdir my-${m.id} && cd my-${m.id}
+npm init -y
+npm install lightnode-sdk viem tsx
+
+# 2. Save the snippet above as index.ts in this folder.
+
+# 3. Run it (read-only - no PRIVATE_KEY needed):
+npx tsx index.ts`;
+  return (
+    <section className="mb-14">
+      <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">Use this in your project</p>
+      <h2 className="mb-5 text-2xl font-semibold tracking-tight text-content-primary">Get the code</h2>
+
+      <div className="rounded-xl border border-bdr-soft bg-surface-base-faint p-5 sm:p-6">
+        {/* File hint + Open in StackBlitz */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs text-content-soft">
+            Save in your project at <code className="font-mono text-content-default">index.ts</code>
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              openSnippetInStackBlitz({
+                title: m.title,
+                snippet: body,
+                needsPrivateKey: needsKey,
+              })
+            }
+            className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+            style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
+          >
+            <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
+            Open in StackBlitz
+          </button>
+        </div>
+
+        {/* The runnable code */}
+        <CodeBox code={body} />
+
+        {/* Setup commands behind a collapsed details */}
+        <details className="mt-4 rounded-lg border border-bdr-soft bg-card">
+          <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-content-soft hover:text-content-primary">
+            <Terminal className="size-3" /> Terminal setup commands
+          </summary>
+          <div className="border-t border-bdr-soft p-3">
+            <CodeBox code={setup} />
+          </div>
+        </details>
+      </div>
+    </section>
   );
 }
 

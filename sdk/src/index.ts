@@ -345,7 +345,7 @@ export type { BatchPrompt, BatchResult, RunInferenceBatchArgs } from "./batch.js
 export type { AgentTool, AgentStep, AgentOptions, AgentRunResult } from "./agent.js";
 export type { WorkerPreflightArgs, WorkerPreflightResult, WorkerWatchOptions, WorkerEventKind, WorkerEvent, WorkerWatchHandle } from "./worker.js";
 export type { BridgeChain, BridgeEndpoints, BridgeTransferArgs } from "./bridge.js";
-export type { DaoChain, DaoAddresses, ProposalSummary, DaoConfig } from "./dao.js";
+export type { DaoChain, DaoAddresses, ProposalSummary, ProposalRow, DaoConfig } from "./dao.js";
 export type { BaseModel, ModelVariant, AccessTier, AccessPolicy, Benchmark, OnchainModelRegistryOptions } from "./onchain-models.js";
 export type {
   MinimalWalletClient,

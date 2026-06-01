@@ -426,6 +426,8 @@ npx lightnode dao config                 # live voting delay / period / threshol
 
 ```bash
 PRIVATE_KEY=0x... npx lightnode chat "Write me a haiku about LightChain"
+PRIVATE_KEY=0x... npx lightnode batch prompts.json --concurrency 4   # N prompts in parallel
+PRIVATE_KEY=0x... npx lightnode agent "research X and summarize"     # ReAct agent, built-in tools
 PRIVATE_KEY=0x... npx lightnode wallet address
 PRIVATE_KEY=0x... npx lightnode wallet balance --net testnet
                   npx lightnode wallet new           # generates a fresh key

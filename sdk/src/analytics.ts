@@ -75,7 +75,7 @@ export function aggregateModelStats(
 ): ModelStat[] {
   const nameById = new Map(models.map((m) => [m.id.toLowerCase(), m.name]));
   return [...groupBy(jobs, (j) => j.model_id?.toLowerCase()).entries()]
-    .map(([id, js]) => ({ modelId: id, name: nameById.get(id) ?? `${id.slice(0, 10)}…`, ...classifyJobs(js, nowSec) }))
+    .map(([id, js]) => ({ modelId: id, name: nameById.get(id) ?? `${id.slice(0, 10)}...`, ...classifyJobs(js, nowSec) }))
     .sort((a, b) => b.total - a.total);
 }
 

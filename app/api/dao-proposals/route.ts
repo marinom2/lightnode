@@ -98,10 +98,14 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const chainParam = (url.searchParams.get("chain") ?? "ethereum") as "ethereum" | "lightchain";
     const chain = chainParam === "lightchain" ? "lightchain" : "ethereum";
+    // `limit` paginates the per-call slice. Default 6 keeps initial page
+    // load cheap; max 30 protects free RPCs from getting hammered when a
+    // visitor clicks 'See more' a few times.
+    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit") ?? "6")));
     const addresses = DAO_ADDRESSES[chain];
     const { pub, events } = await findEventsAcrossRpcs(addresses, chain);
-    // Newest first; cap at 6 to keep the per-card RPC pressure modest.
-    const recent = events.slice().reverse().slice(0, 6);
+    const total = events.length;
+    const recent = events.slice().reverse().slice(0, limit);
     const abi = GOVERNOR_ABI;
     const proposals = await Promise.all(
       recent.map(async (log) => {
@@ -133,6 +137,8 @@ export async function GET(req: Request) {
       chain,
       addresses,
       proposals,
+      total,
+      hasMore: total > proposals.length,
       fetchedAt: Date.now(),
     });
   } catch (e) {

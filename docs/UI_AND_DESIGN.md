@@ -99,7 +99,8 @@ log; on the web it hands you the exact command to copy.
 | **Tail jobs** | Live-follows the job log. |
 | **Speed test** | Benchmarks this machine's inference speed vs. the on-chain deadline. |
 | **Settle earnings** | Releases your completed jobs and claims the rewards into the worker wallet. |
-| **Deregister** | Settles + claims, exits the network, returns your stake, stops the container. |
+| **Clear stuck jobs** | Times out jobs the worker acknowledged but never completed (past their deadline) so they stop blocking deregister. On mainnet this realizes a per-job slash, so it confirms first; testnet is free. |
+| **Deregister** | Settles + claims, clears any stuck jobs, exits the network, returns your stake, stops the container. |
 | **Free up memory** | Stops the worker, unloads the model, and quits Docker to give the machine its RAM back. |
 | **Models this worker serves** | Add a model to the served set live (add-only): updates the set on-chain (no re-stake), then restarts with it. Same memory gate as setup. Removing a model isn't safe while registered, so it needs deregister + reinstall. |
 | **Recover a replaced key** | Lists keys you replaced (archived on-device), flags any still staked on-chain, and restores one as the active worker. |
