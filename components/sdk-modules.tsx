@@ -3068,9 +3068,9 @@ function OperatorRecipe() {
                   stake. Without saying so, the panel reads as 'empty worker'. */}
               {!result.status.registered ? (
                 <p className="mt-3 rounded-md border border-bdr-soft bg-card px-3 py-2 text-[11px] leading-relaxed text-content-soft">
-                  This worker is <span className="text-content-primary">not currently registered</span>. If it was deregistered, the original stake has been returned to the worker wallet - that's the
+                  This worker is <span className="text-content-primary">not currently registered</span>. If it was deregistered, the original stake has been returned to the worker wallet - that is the
                   <span className="text-content-primary"> Wallet balance</span> above. Withdraw it with{" "}
-                  <code className="font-mono text-content-default">op.withdraw()</code> or the dashboard&apos;s Withdraw button.
+                  <code className="font-mono text-content-default">op.withdraw()</code> or the dashboard Withdraw button.
                 </p>
               ) : result.status.belowFloor ? (
                 <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
