@@ -142,18 +142,20 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
   // The gateway returns 409 selection_mismatch when a NEWER selectSession()
   // for the same wallet supersedes ours between the select and the prepare.
   // The error message is literally "re-run POST /api/sessions/select", so we
-  // do exactly that: rebuild from a fresh selection. The cap stops a busy
-  // pool of callers from looping forever - 4 attempts at 250ms / 750ms /
-  // 1500ms covers every churn pattern we have seen.
-  const MAX_ATTEMPTS = 4;
-  const BACKOFFS_MS = [0, 250, 750, 1500];
+  // do exactly that: rebuild from a fresh selection. Backoff spans several
+  // seconds because the gateway's selection TTL can be in that range - quick
+  // retries inside that window just hit the same stuck state. Random jitter
+  // keeps two concurrent callers from synchronising on identical schedules.
+  const MAX_ATTEMPTS = 6;
+  const BACKOFFS_MS = [0, 500, 1500, 4000, 9000, 18000];
+  const jitter = (ms: number) => ms + Math.floor(Math.random() * 250);
   let lastErr: unknown = null;
   const isSelectionMismatch = (e: unknown): boolean => {
     const msg = e instanceof Error ? e.message : String(e);
     return /selection_mismatch|selection was superseded|409/.test(msg);
   };
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, BACKOFFS_MS[attempt]));
+    if (attempt > 0) await new Promise((r) => setTimeout(r, jitter(BACKOFFS_MS[attempt])));
     try {
       // Wrap BOTH gateway calls. selectSession itself can 409 if a newer
       // call has already superseded ours by the time the gateway processes

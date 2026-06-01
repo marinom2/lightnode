@@ -18,7 +18,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Conversation, type ChatMessage } from "lightnode-sdk";
 import { chatMutex } from "@/lib/demo-wallet-mutex";
 
-const MUTEX_TIMEOUT_MS = 45_000;
+const MUTEX_TIMEOUT_MS = 10_000;
 
 export const dynamic = "force-dynamic";
 // Node.js runtime: the SDK's WebSocket auto-resolution uses the Node `ws`

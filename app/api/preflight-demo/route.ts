@@ -17,10 +17,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { workerPreflight, isStalledWorker } from "lightnode-sdk";
 import { preflightMutex } from "@/lib/demo-wallet-mutex";
 
-// Serialise the demo wallet so two visitors do not race the gateway's
-// per-wallet session selection. Anything queued longer than this gives
-// up cleanly instead of hitting Vercel's 60s function timeout.
-const MUTEX_TIMEOUT_MS = 45_000;
+// Budget: maxDuration is 60s. Reserve up to ~45s for the actual SDK
+// retry, leave ~10s for the mutex acquire. Fail fast on queueing so a
+// queued caller is not eaten by the function timeout.
+const MUTEX_TIMEOUT_MS = 10_000;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
