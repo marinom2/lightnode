@@ -148,20 +148,28 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
   const MAX_ATTEMPTS = 4;
   const BACKOFFS_MS = [0, 250, 750, 1500];
   let lastErr: unknown = null;
+  const isSelectionMismatch = (e: unknown): boolean => {
+    const msg = e instanceof Error ? e.message : String(e);
+    return /selection_mismatch|selection was superseded|409/.test(msg);
+  };
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, BACKOFFS_MS[attempt]));
-    const selected = await gateway.selectSession(id);
-    const sessionKey = await generateSessionKey();
-
-    // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
-    // accepts either.
-    const workerPub = await importPublicKey(decodePublicKey(selected.workerEncryptionKey));
-    const encWorker = await encryptSessionKey(sessionKey, workerPub);
-    const encDisputer: Uint8Array = selected.disputerEncryptionKey
-      ? await encryptSessionKey(sessionKey, await importPublicKey(decodePublicKey(selected.disputerEncryptionKey)))
-      : new Uint8Array(0);
-
     try {
+      // Wrap BOTH gateway calls. selectSession itself can 409 if a newer
+      // call has already superseded ours by the time the gateway processes
+      // it. prepareSession 409s when the same happens between select and
+      // prepare. The whole select -> prepare flow is one atomic unit.
+      const selected = await gateway.selectSession(id);
+      const sessionKey = await generateSessionKey();
+
+      // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
+      // accepts either.
+      const workerPub = await importPublicKey(decodePublicKey(selected.workerEncryptionKey));
+      const encWorker = await encryptSessionKey(sessionKey, workerPub);
+      const encDisputer: Uint8Array = selected.disputerEncryptionKey
+        ? await encryptSessionKey(sessionKey, await importPublicKey(decodePublicKey(selected.disputerEncryptionKey)))
+        : new Uint8Array(0);
+
       const prepared = await gateway.prepareSession({
         modelId: id,
         encWorkerKey: bytesToBase64(encWorker),
@@ -181,8 +189,7 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
       };
     } catch (e) {
       lastErr = e;
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!/selection_mismatch|selection was superseded|409/.test(msg)) throw e;
+      if (!isSelectionMismatch(e)) throw e;
       // else loop: a newer select stole this session, try again from select.
     }
   }
