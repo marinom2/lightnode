@@ -52,6 +52,7 @@ Worker operator (needs PRIVATE_KEY in env; signs as the worker key):
   worker preflight         run one real test inference, print verdict + timings
                            ([--key 0x...] [--model llama3-8b] [--deadline 60])
   worker status [addr]     registration, stake, claimable, live protocol config
+  worker models <addr>     models served, reconciled vs chain (servingNow truth)
   worker can-deregister    check what blocks the exit (in-flight jobs), no spend
   worker settle            release completed jobs past their window + withdraw
   worker clearstuck        claimTimeout acked, past-deadline jobs (unblocks exit)
@@ -320,10 +321,50 @@ async function main() {
         }
         break;
       }
-      // Default: one-shot worker summary by address.
-      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight|status|can-deregister|settle|clearstuck|withdraw|deregister> [...]");
-      const [w, registered, jobs] = await Promise.all([ln.getWorker(addr), ln.isRegistered(addr), ln.getWorkerJobs(addr, 5)]);
-      console.log(JSON.stringify({ onchainRegistered: registered, worker: w, recentJobs: jobs.map((j) => ({ id: j.id, state: j.state })) }, null, 2));
+      if (sub === "models") {
+        // The models a worker serves, reconciled against the chain (read-only,
+        // no key). onchainEligible is the truth; indexedActive is the subgraph's
+        // (which goes stale after a deregister/re-register).
+        const addr = positionals[2] ?? die("usage: lightnode worker models <address> [--net testnet]");
+        const served = await ln.getServedModels(addr);
+        console.log(
+          JSON.stringify(
+            served.map((m) => ({
+              model: m.name ?? m.modelId,
+              servingNow: m.onchainEligible, // true | false | null (chain unavailable)
+              indexedActive: m.indexedActive,
+              feeLcai: m.feeWei ? Number(BigInt(m.feeWei)) / 1e18 : null,
+              maxOutputTokens: m.maxOutputTokens ?? null,
+            })),
+            null,
+            2,
+          ),
+        );
+        break;
+      }
+      // Default: one-shot worker summary by address. Registration is read straight
+      // from the chain (isRegistered); served models are reconciled against the
+      // chain via getServedModels (onchainEligible), so a stale index row can't
+      // misreport what the worker actually serves.
+      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight|status|models|can-deregister|settle|clearstuck|withdraw|deregister> [...]");
+      const [w, registered, jobs, served] = await Promise.all([
+        ln.getWorker(addr),
+        ln.isRegistered(addr),
+        ln.getWorkerJobs(addr, 5),
+        ln.getServedModels(addr).catch(() => []),
+      ]);
+      console.log(
+        JSON.stringify(
+          {
+            onchainRegistered: registered,
+            servingModels: served.filter((m) => m.onchainEligible === true).map((m) => m.name ?? m.modelId),
+            worker: w,
+            recentJobs: jobs.map((j) => ({ id: j.id, state: j.state })),
+          },
+          null,
+          2,
+        ),
+      );
       break;
     }
     case "job": {

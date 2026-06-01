@@ -5,13 +5,60 @@ function addressTopic(address: string): string {
   return "0x" + address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
 }
 
+// WorkerRegistry.isWorkerRegistered(address) selector. Unlike most of the
+// predeploy's getters this view does NOT revert, and it reflects current state
+// instantly - so it never lags a register/deregister the way the event log can
+// when several happen in quick succession.
+const IS_WORKER_REGISTERED_SELECTOR = "0xe798a7da";
+
 /**
- * Authoritative worker registration, read straight from the chain's WorkerRegistry
- * events (works for ANY worker, independent of the public indexer, which can lag a
- * deregister -> re-register cycle). Returns true/false from the latest join/exit
- * event, or null when the chain can't answer (RPC error, or no events for it).
+ * Authoritative worker registration from the chain. Prefers a direct
+ * WorkerRegistry.isWorkerRegistered() eth_call (instant, current state); falls
+ * back to scanning the join/exit event log if that read is unavailable. Both are
+ * independent of the public indexer, which can lag a deregister -> re-register
+ * cycle. Returns true/false, or null when the chain can't answer.
  */
 export async function isRegistered(cfg: NetworkConfig, address: string): Promise<boolean | null> {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return null;
+  const direct = await isRegisteredDirect(cfg, address);
+  if (direct !== null) return direct;
+  return isRegisteredFromEvents(cfg, address);
+}
+
+/** Direct contract read - the preferred, lag-free path. null on any failure. */
+async function isRegisteredDirect(cfg: NetworkConfig, address: string): Promise<boolean | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const data = `${IS_WORKER_REGISTERED_SELECTOR}${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+    const res = await fetch(cfg.rpc, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [{ to: cfg.workerRegistry, data }, "latest"],
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { result?: string; error?: unknown };
+    if (json.error || typeof json.result !== "string") return null;
+    return /0*1$/.test(json.result.replace(/^0x/, ""));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Registration from the WorkerRegistry join/exit event log - the fallback when
+ * the direct read is unavailable. Takes the latest of the worker's join/exit
+ * events; null when the chain can't answer or there are no events for it.
+ */
+export async function isRegisteredFromEvents(cfg: NetworkConfig, address: string): Promise<boolean | null> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
