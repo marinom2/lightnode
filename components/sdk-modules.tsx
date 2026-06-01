@@ -1933,6 +1933,28 @@ interface DaoActionResult {
   };
 }
 
+/**
+ * Convert a block count to a human-readable duration string. Assumes ~12s
+ * per block on Ethereum mainnet (LCAIGovernor) and approximately the same
+ * order of magnitude on LightChain. Returns short forms like '1 day',
+ * '7 days', '12 hours', '45 minutes'.
+ */
+function blocksToDays(blocks: string): string {
+  const n = Number(blocks);
+  if (!Number.isFinite(n) || n <= 0) return "moments";
+  const seconds = n * 12;
+  if (seconds < 3600) {
+    const m = Math.round(seconds / 60);
+    return `${m} minute${m === 1 ? "" : "s"}`;
+  }
+  if (seconds < 86400) {
+    const h = Math.round(seconds / 3600);
+    return `${h} hour${h === 1 ? "" : "s"}`;
+  }
+  const days = Math.round(seconds / 86400);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 function DaoRecipe() {
   const [step, setStep] = useState<DaoStep>(1);
   const [chain, setChain] = useState<DaoChainKey>("ethereum");
@@ -1941,6 +1963,8 @@ function DaoRecipe() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DaoActionResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // One row expanded at a time inside the proposal list, like the old DaoLive.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function runPreview() {
     setBusy(true);
@@ -2065,42 +2089,111 @@ function DaoRecipe() {
                 <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
                 {result.action === "list-proposals" && result.proposals ? (
                   <>
+                    {/* Friendly count line. 'X of Y' is confusing when X === Y,
+                        which is what happens when the governor only has X
+                        total proposals - clarify rather than letting the user
+                        wonder why their limit=30 returned 5. */}
                     <p className="mb-2 text-xs text-content-soft">
-                      <span className="text-content-primary">{result.proposals.length}</span> of{" "}
-                      <span className="text-content-primary">{result.total ?? "?"}</span> recent{" "}
-                      proposals on {DAO_CHAINS[result.chain].label}.
+                      {result.total != null && result.proposals.length >= result.total ? (
+                        <>
+                          The governor has <span className="text-content-primary">{result.total}</span> recent proposal
+                          {result.total === 1 ? "" : "s"} on {DAO_CHAINS[result.chain].label} - showing them all.
+                        </>
+                      ) : (
+                        <>
+                          Showing <span className="text-content-primary">{result.proposals.length}</span> of{" "}
+                          <span className="text-content-primary">{result.total ?? "?"}</span> recent proposals on{" "}
+                          {DAO_CHAINS[result.chain].label}.
+                        </>
+                      )}
                     </p>
                     <ul className="space-y-2 text-xs">
-                      {result.proposals.slice(0, 5).map((p) => (
-                        <li key={p.id} className="flex items-start gap-3 rounded-md border border-bdr-soft bg-card p-2.5">
-                          <Badge tone={STATE_TONE[p.stateLabel] ?? "muted"}>{p.stateLabel}</Badge>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate font-medium text-content-primary">{p.title}</div>
-                            <div className="font-mono text-[10px] text-content-soft">id {p.id.slice(0, 14)}…</div>
-                          </div>
-                        </li>
-                      ))}
+                      {result.proposals.map((p) => {
+                        const isOpen = expandedId === p.id;
+                        return (
+                          <li key={p.id} className="overflow-hidden rounded-md border border-bdr-soft bg-card">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedId(isOpen ? null : p.id)}
+                              className="flex w-full items-start gap-3 p-2.5 text-left transition-colors hover:bg-surface-base-faint"
+                            >
+                              <Badge tone={STATE_TONE[p.stateLabel] ?? "muted"}>{p.stateLabel}</Badge>
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate font-medium text-content-primary">{p.title}</div>
+                                <div className="font-mono text-[10px] text-content-soft">id {p.id.slice(0, 14)}…</div>
+                              </div>
+                              <ChevronDown
+                                className={cn(
+                                  "size-4 shrink-0 text-content-soft transition-transform",
+                                  isOpen && "rotate-180",
+                                )}
+                              />
+                            </button>
+                            {isOpen ? (
+                              <div className="space-y-2 border-t border-bdr-soft px-3 py-3 text-[11px]">
+                                <p className="leading-relaxed text-content-default">{p.descriptionPreview}</p>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-content-soft">
+                                  <span>
+                                    proposer{" "}
+                                    <code className="font-mono text-content-default">
+                                      {p.proposer.slice(0, 8)}…{p.proposer.slice(-4)}
+                                    </code>
+                                  </span>
+                                  <span>
+                                    For <code className="font-mono text-content-default">{lcai(p.votesFor)}</code>
+                                  </span>
+                                  <span>
+                                    Against <code className="font-mono text-content-default">{lcai(p.votesAgainst)}</code>
+                                  </span>
+                                  <span>
+                                    Abstain <code className="font-mono text-content-default">{lcai(p.votesAbstain)}</code>
+                                  </span>
+                                </div>
+                                <a
+                                  href={`https://dao.lightchain.ai/proposal/${p.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  Open in DAO UI <ExternalLink className="size-3" />
+                                </a>
+                              </div>
+                            ) : null}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </>
                 ) : null}
                 {result.action === "voting-config" && result.config ? (
                   <dl className="grid gap-1.5 text-xs">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                       <dt className="text-content-soft">Voting delay</dt>
-                      <dd className="font-mono text-content-primary">{result.config.votingDelayBlocks} blocks</dd>
+                      <dd className="text-right">
+                        <span className="font-mono text-content-primary">{result.config.votingDelayBlocks} blocks</span>
+                        <span className="ml-1.5 text-content-soft">({blocksToDays(result.config.votingDelayBlocks)})</span>
+                      </dd>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                       <dt className="text-content-soft">Voting period</dt>
-                      <dd className="font-mono text-content-primary">
-                        {result.config.votingPeriodBlocks} blocks ({Math.round(result.config.votingPeriodSecs / 86400)} d)
+                      <dd className="text-right">
+                        <span className="font-mono text-content-primary">{result.config.votingPeriodBlocks} blocks</span>
+                        <span className="ml-1.5 text-content-soft">({blocksToDays(result.config.votingPeriodBlocks)})</span>
                       </dd>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                       <dt className="text-content-soft">Proposal threshold</dt>
-                      <dd className="font-mono text-content-primary">
-                        {(Number(BigInt(result.config.proposalThresholdWei)) / 1e18).toLocaleString()} LCAI wrapped
+                      <dd className="text-right">
+                        <span className="font-mono text-content-primary">
+                          {(Number(BigInt(result.config.proposalThresholdWei)) / 1e18).toLocaleString()} LCAI
+                        </span>
+                        <span className="ml-1.5 text-content-soft">(wrapped)</span>
                       </dd>
                     </div>
+                    <p className="mt-2 text-[11px] text-content-soft">
+                      A block on {DAO_CHAINS[result.chain].label} is ~12 seconds, so the delay/period above convert to
+                      the day counts shown. The threshold is how much wrapped LCAI a wallet needs to submit a proposal.
+                    </p>
                   </dl>
                 ) : null}
 
