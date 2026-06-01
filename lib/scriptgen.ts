@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.07";
+export const INSTALLER_REV = "2026-05-31.08";
 
 export interface ScriptBundle {
   os: OS;
@@ -329,9 +329,10 @@ echo "✓ Foundry (cast) ready"`;
  *  wallet, so there's no separate funder and no phase 00/06. */
 function unixInstall(network: NetworkId, models: string[]): string {
   const chainId = NETWORKS[network].chainId;
-  const minStake = NETWORKS[network].minStakeLcai;
+  const minStake = NETWORKS[network].minStakeLcai; // build-time fallback only; real value read live from AIConfig
   const rpc = NETWORKS[network].rpc;
   const explorer = NETWORKS[network].explorer;
+  const workerRegistry = NETWORKS[network].workerRegistry;
   // Threshold for the funding gate: min stake + 0.5 LCAI gas cushion, in wei.
   // BigInt because the value overflows JS Number for mainnet (50_000.5 * 1e18).
   const thrWei = (BigInt(minStake) * 10n ** 18n + 5n * 10n ** 17n).toString();
@@ -404,11 +405,33 @@ function unixInstall(network: NetworkId, models: string[]): string {
     // keys (a mainnet operator can set up testnet without risking their mainnet
     // key). The legacy ~/lightchain-worker/keys is still read by key derivation.
     `export KEYS_DIR="$HOME/lightchain-worker/keys-${network}"`,
-    // The toolkit prints a hardcoded "STAKE 50,000 LCAI" line, but the real stake
-    // is read live from AIConfig at register time (the binary logs the actual
-    // amount). Don't assert a number ourselves - just say "the network minimum" so
-    // it's honest on every network without baking in a value that could drift.
+    // ── Derive the REAL minimum stake LIVE from chain. Never hardcode it. ──────
+    // The WorkerRegistry predeploy points at AIConfig, which holds the canonical
+    // getMinWorkerStake(). cast prints "<wei> [sci-notation]" so take field 1.
+    // Falls back to the build-time NETWORKS value only if the read fails (network
+    // hiccup) so a transient RPC blip can't brick the install.
+    `MIN_FALLBACK_WEI="$(python3 -c 'print(${minStake} * 10**18)')"`,
+    `AICFG_ADDR="$(cast call "${workerRegistry}" 'aiConfig()(address)' --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"`,
+    `MIN_STAKE_WEI="$(cast call "$AICFG_ADDR" 'getMinWorkerStake()(uint256)' --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"`,
+    'case "${MIN_STAKE_WEI:-}" in ""|*[!0-9]*) MIN_STAKE_WEI="$MIN_FALLBACK_WEI"; echo "⚠ could not read min stake from AIConfig; using fallback";; esac',
+    // Whole-LCAI stake, the +1 guard threshold, and the funding threshold (stake +
+    // 0.5 LCAI gas cushion), all computed from the LIVE wei value.
+    `MIN_STAKE_LCAI="$(python3 -c 'print(int($MIN_STAKE_WEI)//10**18)')"`,
+    `GUARD_LCAI="$(python3 -c 'print(int($MIN_STAKE_WEI)//10**18 + 1)')"`,
+    `THR_WEI="$(python3 -c 'print(int($MIN_STAKE_WEI) + 5*10**17)')"`,
+    `echo "✓ min stake (live from AIConfig): $MIN_STAKE_LCAI LCAI"`,
+    // The toolkit prints a hardcoded "STAKE 50,000 LCAI" line; say "the network
+    // minimum" so it's honest on every network.
     `sed -i.bak "s/STAKE 50,000 LCAI/STAKE the network minimum/g" 07-register.sh && rm -f 07-register.sh.bak`,
+    // The toolkit's 07-register pre-flight balance guard is hardcoded to the
+    // MAINNET stake ("Worker has less than 50,001 LCAI", and a `b < 50001` /
+    // `-lt 50001` test), so a correctly funded testnet worker wrongly fails it and
+    // never reaches the real register tx. Rewrite the threshold to the LIVE
+    // minimum + 1. Patch both literal forms (the "50,001" display string and the
+    // bare 50001 used in the test); 50001 only ever appears as this threshold, so a
+    // global replace is safe. No \\b word boundary (BSD sed lacks it).
+    'sed -i.bak "s/50,001/$GUARD_LCAI/g; s/50001/$GUARD_LCAI/g" 07-register.sh && rm -f 07-register.sh.bak',
+    'echo "✓ register pre-flight threshold set to the live minimum ($MIN_STAKE_LCAI LCAI + gas)"',
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
     // This machine runs ONE worker container at a time. If a container for THIS
     // network is already running, nothing to do. If it's for a DIFFERENT network,
@@ -475,11 +498,11 @@ function unixInstall(network: NetworkId, models: string[]): string {
       `    BAL_HEX="$(curl -s -m 5 -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WORKER_ADDR"'","latest"],"id":1}' '${rpc}' | sed -nE 's/.*"result":"(0x[0-9a-fA-F]+)".*/\\1/p')"`,
       `    BAL_WEI="$(python3 -c 'import sys; print(int(sys.argv[1] or "0x0", 16))' "\${BAL_HEX:-0x0}" 2>/dev/null || echo 0)"`,
       `    GATE_LCAI="$(python3 -c 'import sys; print(round(int(sys.argv[1])/10**18,3))' "$BAL_WEI" 2>/dev/null || echo 0)"`,
-      `    if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1])>=int(sys.argv[2]) else 1)' "$BAL_WEI" '${thrWei}'; then echo "✓ worker wallet funded ($GATE_LCAI LCAI)"; return 0; fi`,
-      `    if [ "$w" = "1" ] || [ "$(($w % 6))" = "0" ]; then echo "▶ waiting for funding: worker wallet at $WORKER_ADDR has $GATE_LCAI LCAI, needs at least ${minStake}.5 LCAI (stake + a small gas cushion)"; fi`,
+      `    if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1])>=int(sys.argv[2]) else 1)' "$BAL_WEI" "$THR_WEI"; then echo "✓ worker wallet funded ($GATE_LCAI LCAI)"; return 0; fi`,
+      `    if [ "$w" = "1" ] || [ "$(($w % 6))" = "0" ]; then echo "▶ waiting for funding: worker wallet at $WORKER_ADDR has $GATE_LCAI LCAI, needs at least $MIN_STAKE_LCAI.5 LCAI (stake + a small gas cushion)"; fi`,
       "    sleep 5",
       "  done",
-      `  echo "⛔ funding-gate timeout: worker wallet at $WORKER_ADDR still has only $GATE_LCAI LCAI. Send at least ${minStake}.5 LCAI to that address (see ${explorer}/address/$WORKER_ADDR) and run install again - your existing setup is reused."`,
+      `  echo "⛔ funding-gate timeout: worker wallet at $WORKER_ADDR still has only $GATE_LCAI LCAI. Send at least $MIN_STAKE_LCAI.5 LCAI to that address (see ${explorer}/address/$WORKER_ADDR) and run install again - your existing setup is reused."`,
       "  return 1",
       "}",
     ].join("\n"),
@@ -516,11 +539,10 @@ function unixInstall(network: NetworkId, models: string[]): string {
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
 function windowsInstall(network: NetworkId, models: string[]): string {
   const chainId = NETWORKS[network].chainId;
-  const minStake = NETWORKS[network].minStakeLcai;
+  const minStake = NETWORKS[network].minStakeLcai; // build-time fallback only; real value read live from AIConfig
   const rpc = NETWORKS[network].rpc;
   const explorer = NETWORKS[network].explorer;
-  // BigInt - 50_000.5 * 1e18 overflows JS Number on mainnet.
-  const thrWei = (BigInt(minStake) * 10n ** 18n + 5n * 10n ** 17n).toString();
+  const workerRegistry = NETWORKS[network].workerRegistry;
   const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   const list = models.length ? models : [DEFAULT_MODEL];
   const supported = list.join(",");
@@ -628,10 +650,31 @@ if ((Test-Path env.ps1) -and -not (Select-String -Path env.ps1 -SimpleMatch 'if 
   $c = $c.Replace('$env:SUPPORTED_MODELS = "llama3-8b"', 'if (-not $env:SUPPORTED_MODELS) { $env:SUPPORTED_MODELS = "llama3-8b" }')
   Set-Content -Path env.ps1 -Value $c
 }
-# The toolkit prints a hardcoded "STAKE 50,000 LCAI" line, but the real stake is
-# read live from AIConfig at register time. Don't assert a number - just say "the
-# network minimum" so it's honest on every network.
-if (Test-Path 07-register.ps1) { (Get-Content 07-register.ps1) -replace 'STAKE 50,000 LCAI', 'STAKE the network minimum' | Set-Content 07-register.ps1 }
+# Derive the REAL minimum stake LIVE from chain (never hardcode it): WorkerRegistry
+# -> aiConfig() -> getMinWorkerStake(). Fall back to the build-time value only if
+# the read fails so a transient RPC blip can't brick the install.
+$MinFallbackWei = [System.Numerics.BigInteger]::Parse('${minStake}') * [System.Numerics.BigInteger]::Pow(10, 18)
+try {
+  $aicfg = (cast call "${workerRegistry}" "aiConfig()(address)" --rpc-url "${rpc}" 2>$null).Trim().Split(" ")[0]
+  $minRaw = (cast call $aicfg "getMinWorkerStake()(uint256)" --rpc-url "${rpc}" 2>$null).Trim().Split(" ")[0]
+  $MinStakeWei = [System.Numerics.BigInteger]::Parse($minRaw)
+} catch { $MinStakeWei = $MinFallbackWei }
+if ($MinStakeWei -le 0) { $MinStakeWei = $MinFallbackWei; Write-Host "could not read min stake from AIConfig; using fallback" }
+$MinStakeLcai = [int]([System.Numerics.BigInteger]::Divide($MinStakeWei, [System.Numerics.BigInteger]::Pow(10, 18)))
+$GuardLcai    = $MinStakeLcai + 1
+$ThrWei       = $MinStakeWei + [System.Numerics.BigInteger]::Parse('500000000000000000')  # +0.5 LCAI gas cushion
+Write-Host "min stake (live from AIConfig): $MinStakeLcai LCAI"
+# The toolkit prints a hardcoded "STAKE 50,000 LCAI" line; say "the network
+# minimum". Its pre-flight balance guard is hardcoded to the MAINNET stake
+# (-lt 50001 / "less than 50,001 LCAI"), which wrongly fails a correctly funded
+# testnet worker. Rewrite the threshold to the LIVE minimum + 1.
+if (Test-Path 07-register.ps1) {
+  $rc = Get-Content 07-register.ps1 -Raw
+  $rc = $rc -replace 'STAKE 50,000 LCAI', 'STAKE the network minimum'
+  $rc = $rc -replace '50,001', "$GuardLcai" -replace '50001', "$GuardLcai"
+  Set-Content -Path 07-register.ps1 -Value $rc
+  Write-Host "register pre-flight threshold set to the live minimum ($MinStakeLcai LCAI + gas)"
+}
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
 
 if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") {
@@ -683,11 +726,12 @@ function Resolve-WorkerPassword {
   }
   return $false
 }
-# Funding gate: phase 07 transfers the stake (${minStake} LCAI) from the worker
-# wallet and pays gas in LCAI. Wait briefly so a just-funded retry proceeds; fail
-# clearly only when the wallet is genuinely empty after the wait.
+# Funding gate: phase 07 stakes the live minimum from the worker wallet and pays
+# gas in LCAI. Threshold is $ThrWei (live min stake + 0.5 gas), derived above from
+# AIConfig. Wait briefly so a just-funded retry proceeds; fail clearly only when
+# the wallet is genuinely empty after the wait.
 function Wait-Funding {
-  $thr = [System.Numerics.BigInteger]::Parse('${thrWei}')
+  $thr = $ThrWei
   $lcai = 0
   for ($w = 1; $w -le 18; $w++) {
     try {
@@ -699,10 +743,10 @@ function Wait-Funding {
     } catch { $balWei = [System.Numerics.BigInteger]::Zero }
     $lcai = [Math]::Round([double]([System.Numerics.BigInteger]::Divide($balWei, [System.Numerics.BigInteger]::Pow(10, 15))) / 1000, 3)
     if ($balWei -ge $thr) { Write-Host "✓ worker wallet funded ($lcai LCAI)"; return $true }
-    if ($w -eq 1 -or ($w % 6) -eq 0) { Write-Host "▶ waiting for funding: worker wallet at $($env:WORKER_ADDR) has $lcai LCAI, needs at least ${minStake}.5 LCAI (stake + a small gas cushion)" }
+    if ($w -eq 1 -or ($w % 6) -eq 0) { Write-Host "▶ waiting for funding: worker wallet at $($env:WORKER_ADDR) has $lcai LCAI, needs at least $MinStakeLcai.5 LCAI (stake + a small gas cushion)" }
     Start-Sleep -Seconds 5
   }
-  Write-Host "⛔ funding-gate timeout: worker wallet at $($env:WORKER_ADDR) still has only $lcai LCAI. Send at least ${minStake}.5 LCAI to that address (see ${explorer}/address/$($env:WORKER_ADDR)) and run install again - your existing setup is reused."
+  Write-Host "⛔ funding-gate timeout: worker wallet at $($env:WORKER_ADDR) still has only $lcai LCAI. Send at least $MinStakeLcai.5 LCAI to that address (see ${explorer}/address/$($env:WORKER_ADDR)) and run install again - your existing setup is reused."
   return $false
 }
 if ($skipImport) {

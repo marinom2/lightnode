@@ -125,6 +125,33 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
   });
 });
 
+describe("Min stake is derived LIVE from AIConfig, never hardcoded", () => {
+  it("unix install reads getMinWorkerStake from chain and patches the toolkit guard from it", () => {
+    const cmd = desktopInstallCommand("macos", "testnet");
+    // Reads aiConfig() off the WorkerRegistry, then getMinWorkerStake() live.
+    expect(cmd).toContain("'aiConfig()(address)'");
+    expect(cmd).toContain("'getMinWorkerStake()(uint256)'");
+    // The 07-register guard threshold is rewritten from the LIVE value ($GUARD_LCAI),
+    // not a baked number. Patches both literal forms of the toolkit's 50001 guard.
+    expect(cmd).toContain('s/50,001/$GUARD_LCAI/g; s/50001/$GUARD_LCAI/g');
+    // The funding gate compares against the live-derived $THR_WEI, not a constant.
+    expect(cmd).toContain('"$BAL_WEI" "$THR_WEI"');
+  });
+  it("windows install derives the min stake live and rewrites the guard from it", () => {
+    const cmd = desktopInstallCommand("windows", "testnet");
+    expect(cmd).toContain('"getMinWorkerStake()(uint256)"');
+    expect(cmd).toContain("-replace '50,001', \"$GuardLcai\" -replace '50001', \"$GuardLcai\"");
+    expect(cmd).toContain("$thr = $ThrWei");
+  });
+  it("falls back to the build-time NETWORKS value only if the live read fails", () => {
+    // testnet build-time min is 5000; that appears ONLY in the fallback, not as the
+    // operative threshold (which comes from chain).
+    const cmd = desktopInstallCommand("macos", "testnet");
+    expect(cmd).toContain("MIN_FALLBACK_WEI=");
+    expect(cmd).toContain("could not read min stake from AIConfig; using fallback");
+  });
+});
+
 describe("per-network keystore isolation (test one network without risking another's keys)", () => {
   it("unix install writes the keystore into a per-network dir (keys-<network>)", () => {
     expect(desktopInstallCommand("macos", "testnet")).toContain('export KEYS_DIR="$HOME/lightchain-worker/keys-testnet"');
