@@ -99,20 +99,47 @@ not yet past their deadline are skipped automatically.
 
 ### 5. Deregister
 
-Deregister exits the network and returns your **stake** to the worker wallet. The
-app does this safely:
+Deregister exits the network and returns your **stake** to the worker wallet. It
+is a single on-chain call, `deregisterWorker()`, signed by your worker key. The app
+sends it directly: no toolkit clone, no Docker, and no running container required.
+You can deregister and recover your stake even if the install never finished or the
+machine has no worker container left.
 
-- it settles and claims any outstanding earnings first (so nothing is stranded in
-  the JobRegistry),
-- it runs the toolkit deregister, which the protocol allows only when there are no
-  active jobs and all completed jobs have been released,
-- on success it stops the container and removes the keep-online watchdog.
+The sequence:
 
-If deregister is blocked, there are two causes. Most commonly, completed jobs are
-still in their release window: your stake is safe, settle again once the windows
-pass. Less commonly, an acknowledged-but-unfinished (stuck) job is still in-flight:
-clear it first with **Clear stuck jobs** (see stage 4), which the app's
-`unstickAndDeregister` flow does automatically before retrying the exit.
+- settle and claim any outstanding earnings first, so nothing is stranded in the
+  JobRegistry,
+- read-only preflight: simulate `deregisterWorker()` to confirm it would succeed
+  before spending any gas,
+- send `deregisterWorker()` with a gas limit derived from `cast estimate` times
+  1.5,
+- re-read `isWorkerRegistered` afterwards and report success only when the chain
+  confirms the worker is gone,
+- on success, the stake is back in the worker wallet; the app stops any container
+  and removes the keep-online watchdog.
+
+The explicit gas limit is the important part. The worker daemon's own deregister
+under-sets the gas on this write, so its transaction runs out of gas and reverts
+on-chain while some indexers still flip the worker to "deregistered". That is the
+"it said deregistered but my stake never came back" case: the stake was never at
+risk, the transaction simply never landed. Estimating the gas and adding a margin
+makes it land, and the post-send `isWorkerRegistered` check means the app never
+reports success on a transaction that actually reverted.
+
+If deregister is blocked, the preflight catches it before any gas is spent. Two
+causes: most commonly an acknowledged-but-unfinished (stuck) job is still in-flight,
+which you clear first with **Clear stuck jobs** (see stage 4); less commonly a
+completed job is still inside its release window, which settles once the window
+passes. Your stake stays safe in both cases. The SDK's `unstickAndDeregister` flow
+does the clear-then-exit in one call.
+
+On-chain reference (LightChain WorkerRegistry genesis predeploy
+`0x0000000000000000000000000000000000001002`):
+
+| Purpose | Selector | Notes |
+|---|---|---|
+| Exit and return stake | `deregisterWorker()` (`0x200cd650`) | Reverts (`ActiveJobsExist`) while any job is in-flight. Returns the stake to the worker wallet on success. |
+| Check registration | `isWorkerRegistered(address)` (`0xe798a7da`) | Read before and after to confirm the exit landed. |
 
 ### 6. Withdraw
 

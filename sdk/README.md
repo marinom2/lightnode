@@ -226,6 +226,15 @@ forever and **blocks deregistration** - and no official tool clears it. The
 JobRegistry's `claimTimeout` is permissionless, so the operator can self-clear
 it. `unstickAndDeregister()` is the one-call rescue.
 
+The second thing it gets right is **gas-correct writes**. The worker daemon
+under-sets the gas limit on its WorkerRegistry writes, so `addSupportedModel` and
+`deregisterWorker` run out of gas and revert on-chain - the daemon reports a
+failure (or, for deregister, some indexers still flip the worker to
+"deregistered" while the stake never moves). Every write here estimates the gas
+first and sends with a margin, so the transaction lands. `addModel()` is the
+gas-correct version of the model-add the daemon botches; `deregister()` is the
+gas-correct exit.
+
 ```ts
 import { WorkerOperator } from "lightnode-sdk";
 import { createPublicClient, createWalletClient, http } from "viem";
@@ -275,8 +284,9 @@ Full method reference (`jobIds` are the worker's IDs from
 | `withdraw()` | yes | pull the earned balance into the worker wallet |
 | `topUpStake(lcai)` | yes | add stake |
 | `withdrawStake(lcai)` | yes | remove stake above the floor |
+| `addModel(tagOrId)` | yes | add a supported model to a registered worker on-chain, gas-correct (no-op if already served) |
 | `reinstate()` | yes | reactivate a suspended worker |
-| `deregister()` | yes | exit and release stake (reverts if in-flight jobs remain) |
+| `deregister()` | yes | exit and release stake, gas-correct (reverts if in-flight jobs remain) |
 | `unstickAndDeregister(jobIds)` | yes | clear stuck + release + withdraw + deregister, in one call |
 
 > **Mainnet slashing.** `claimTimeout` / `clearStuck` / `unstickAndDeregister`
@@ -443,6 +453,8 @@ controls. Mainnet `clearstuck` and `deregister` realize a slash, so they require
 
 ```bash
                   npx lightnode worker status 0x...        # registration, stake, claimable, live config
+                  npx lightnode worker models 0x...        # models served, reconciled vs chain (servingNow truth)
+PRIVATE_KEY=0x... npx lightnode worker preflight           # one real test inference, print verdict + timings
 PRIVATE_KEY=0x... npx lightnode worker can-deregister      # what blocks the exit, before spending gas
 PRIVATE_KEY=0x... npx lightnode worker settle              # release completed jobs past their window + withdraw
 PRIVATE_KEY=0x... npx lightnode worker withdraw            # pull the earned balance into the worker wallet
