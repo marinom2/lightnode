@@ -2916,7 +2916,14 @@ interface OpStatus {
   recentPendingRelease?: number;
   recentStuck?: number;
   recentInFlight?: number;
-  registeredModels?: Array<{ id: string; name: string | null; isActive: boolean; updatedAt: number | null }>;
+  registeredModels?: Array<{
+    id: string;
+    name: string | null;
+    isLive: boolean;
+    isStale: boolean;
+    onchainUnknown: boolean;
+    indexedActive: boolean;
+  }>;
 }
 interface OpJob {
   id: string;
@@ -3117,27 +3124,32 @@ function OperatorRecipe() {
                 ) : null}
                 {result.status.registeredModels && result.status.registeredModels.length > 0 ? (() => {
                   const isRegistered = result.status.registered;
+                  const models = result.status.registeredModels;
+                  // When the worker is registered, only show models the chain
+                  // confirms it serves NOW. Subgraph rows the chain has
+                  // dropped (isStale) are hidden by default so a re-register
+                  // to a different model does not leave the old one
+                  // ghost-serving in the panel. When the worker is itself
+                  // deregistered, fall back to the indexed snapshot.
+                  const visible = isRegistered
+                    ? models.filter((m) => m.isLive || m.onchainUnknown)
+                    : models.filter((m) => m.indexedActive);
+                  if (visible.length === 0) return null;
                   return (
                     <div className="flex items-start justify-between gap-3">
-                      {/* The on-chain WorkerModel rows for this worker, fetched
-                          from the indexer. is_active=true means the operator
-                          has not removed the registration. When the worker is
-                          also Registered=yes, it is actively serving these
-                          models. When Registered=no, the rows persist as a
-                          historical record (last whitelist before deregister). */}
                       <dt className="text-content-soft pt-0.5">
                         {isRegistered ? "Serving models" : "Last whitelist"}
                       </dt>
                       <dd className="flex flex-col items-end gap-1">
-                        {result.status.registeredModels.map((rm) => (
+                        {visible.map((rm) => (
                           <div key={rm.id} className="inline-flex items-center gap-2">
                             <code className="font-mono text-content-primary">{rm.name ?? rm.id.slice(0, 12) + "…"}</code>
-                            {rm.isActive ? (
-                              <Badge tone={isRegistered ? "success" : "muted"}>
-                                {isRegistered ? "live" : "registered"}
-                              </Badge>
+                            {rm.isLive ? (
+                              <Badge tone="success">live</Badge>
+                            ) : rm.onchainUnknown ? (
+                              <Badge tone="muted">{isRegistered ? "indexed" : "registered"}</Badge>
                             ) : (
-                              <Badge tone="muted">removed</Badge>
+                              <Badge tone="muted">registered</Badge>
                             )}
                           </div>
                         ))}

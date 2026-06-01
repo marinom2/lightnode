@@ -73,13 +73,17 @@ export async function GET(req: Request) {
       // "what is this worker offering" signal), and the model registry
       // (to map model_id back to a human name). The whole panel resolves
       // in a single tab of round-trips.
-      const [st, walletWei, w, jobs, workerModels, models] = await Promise.all([
+      const [st, walletWei, w, jobs, served] = await Promise.all([
         op.status(),
         publicClient.getBalance({ address: worker as `0x${string}` }),
         ln.getWorker(worker),
         ln.getWorkerJobs(worker, 50),
-        ln.getWorkerModels(worker),
-        ln.getModels(),
+        // Reconciled list: subgraph WorkerModel rows joined to the model
+        // registry AND to on-chain WorkerRegistry.isEligible. The indexer
+        // keeps stale is_active=true rows after a deregister -> re-register
+        // cycle, so the subgraph alone says "still serving llama3-8b" even
+        // when the chain says otherwise. onchainEligible is the truth.
+        ln.getServedModels(worker),
       ]);
       // Pending release: completed but not yet released. Released: paid out.
       // Stuck: acknowledged past the completion deadline.
@@ -104,26 +108,31 @@ export async function GET(req: Request) {
         },
         { released: 0, pendingRelease: 0, stuck: 0, inFlight: 0 },
       );
-      // Models: the authoritative on-chain WorkerModel rows for this
-      // worker, joined to ModelInfo names. Active rows are what the
-      // worker is offering to serve right now (subject to Worker.status
-      // gating that signal: if the worker itself is deregistered, the
-      // rows still exist as a historical record). Sorted active-first
-      // then by update time so the most recent live row leads.
-      const registeredModels = workerModels
-        .map((wm) => {
-          const info = models.find((m) => m.id.toLowerCase() === wm.model_id.toLowerCase());
-          return {
-            id: wm.model_id,
-            name: info?.name ?? null,
-            isActive: wm.is_active,
-            updatedAt: wm.updated_at ?? null,
-          };
-        })
-        .sort((a, b) => {
-          if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-          return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-        });
+      // Models: reconciled list (subgraph WorkerModel rows joined to the
+      // on-chain WorkerRegistry.isEligible read). The widget cares about:
+      //   - rows where onchainEligible === true: the worker is ACTUALLY
+      //     serving this right now. Render as 'live'.
+      //   - rows where onchainEligible === false but indexedActive: stale
+      //     index row left over after a deregister -> re-register with a
+      //     different model. Render as 'stale' or omit.
+      //   - rows where onchainEligible === null: chain read failed; fall
+      //     back to indexedActive with a softer badge.
+      const registeredModels = served.map((sm) => ({
+        id: sm.modelId,
+        name: sm.name,
+        // The single source of truth the widget should default to.
+        isLive: sm.onchainEligible === true,
+        // Stale = indexer still says active but the chain has moved on.
+        isStale: sm.onchainEligible === false && sm.indexedActive,
+        // Chain read failed; let the UI know to soften the label.
+        onchainUnknown: sm.onchainEligible === null,
+        indexedActive: sm.indexedActive,
+      }))
+      // Live first, then stale, then removed.
+      .sort((a, b) => {
+        const score = (m: typeof a) => (m.isLive ? 0 : m.isStale ? 1 : 2);
+        return score(a) - score(b);
+      });
       const lifetimeEarnedLcai = w?.total_earned ? Number(BigInt(w.total_earned)) / 1e18 : 0;
       return NextResponse.json({
         action: "status",
