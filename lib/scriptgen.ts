@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.16";
+export const INSTALLER_REV = "2026-06-01.1";
 
 export interface ScriptBundle {
   os: OS;
@@ -1238,69 +1238,89 @@ export function clearStuckJobsCommand(os: OS, network: NetworkId, jobIds: number
 }
 
 /**
- * Deregister + withdraw stake. First auto-settles any releasable completed jobs
- * (they block deregistration until released), then runs the toolkit deregister,
- * and only on real success tears down the watchdog + reports. Per-network.
+ * Deregister: return the worker's stake to its wallet. `deregisterWorker()` is a
+ * single on-chain call signed by the worker key - it needs NO toolkit clone, NO
+ * Docker, and NO running container (the old path shelled into the daemon
+ * toolkit's deregister.sh, so it died with "toolkit not found" whenever the
+ * clone was missing, and even when present the daemon under-set the gas so the
+ * tx OutOfGas-reverted while the subgraph still flipped to "deregistered" -
+ * exactly the "showed deregistered but stake never came back" failure). We send
+ * it directly with gas = estimate x1.5 and verify the chain afterwards, so we
+ * only claim success when the worker is truly deregistered. Settles + claims
+ * releasable completed jobs first; if an in-flight (acknowledged) job blocks the
+ * exit, it points at Clear stuck jobs rather than burning gas. Per-network.
  */
 export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] = []): string {
+  const net = NETWORKS[network];
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
-      // Bring the Docker engine up before deregister (it runs a docker container),
-      // so one click completes instead of just starting Docker on the first pass.
-      'docker info *> $null; if (-not $?) { Write-Host "> starting Docker Desktop..."; Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0; $i -lt 45; $i++) { docker info *> $null; if ($?) { break }; Start-Sleep 2 } }',
-      'docker info *> $null; if (-not $?) { Write-Host "Cannot reach Docker. Open Docker Desktop once, then try again."; exit 1 }',
-      'Set-Location "$env:USERPROFILE\\.lightnode\\lightchain-worker-toolkit\\scripts\\powershell" 2>$null',
       ...keystoreDeriveWin(),
+      'if (-not $env:WORKER_PRIVKEY) { Write-Host "could not unlock this worker key on this machine - deregister signs with the on-disk worker keystore. If you set a custom keystore password at install, it is required here."; exit 1 }',
+      `$WREG = "${net.workerRegistry}"; $RPC = "${net.rpc}"`,
+      // Already deregistered? Then the stake is already back in the wallet - say so.
+      '$reg = (cast call $WREG "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url $RPC 2>$null)',
+      'if ($reg -notmatch "true") { Write-Host "worker $env:WORKER_ADDR is already deregistered on-chain - your stake is back in the worker wallet. Use Withdraw Funds to send it out."; exit 0 }',
       'Write-Host "settling completed jobs + claiming rewards before deregister..."',
       ...releaseJobsWin(network, jobIds),
       ...claimEarningsWin(network),
-      '$env:FORCE = "1"',
-      'if (-not (Test-Path .\\deregister.ps1)) { Write-Host "toolkit not found - install the worker first"; exit 1 }',
-      '.\\deregister.ps1',
-      'if ($LASTEXITCODE -eq 0) {',
-      '  New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
-      '  schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
-      '  docker stop lightchain-worker *> $null',
-      '  Write-Host "deregistered - stake returned to the worker wallet; worker stopped + watchdog removed. Use Withdraw Funds to send the stake out; you can now install on another network directly."',
-      '} else {',
-      '  Write-Host "deregister did not complete - see the error just above. Your stake is safe and still registered. The usual cause is completed jobs still inside their release window; retry once they settle."',
-      '  exit 1',
-      '}',
+      // Preflight: simulate the exact call. A revert here is almost always
+      // in-flight (acknowledged-but-unfinished) jobs - point at Clear stuck jobs.
+      'cast call $WREG "deregisterWorker()" --from $env:WORKER_ADDR --rpc-url $RPC *> $null',
+      'if (-not $?) { Write-Host "deregister is blocked - the worker still has in-flight (acknowledged) job(s) on-chain. Click `"Clear stuck jobs`" first (it times them out), then deregister. Your stake stays safe meanwhile."; exit 1 }',
+      // Gas-correct send: estimate x1.5 (the daemon under-sets it and OutOfGas-reverts).
+      '$est = (cast estimate --from $env:WORKER_ADDR $WREG "deregisterWorker()" --rpc-url $RPC 2>$null)',
+      '$gas = if ($est -match "^[0-9]+$") { [int]([long]$est * 3 / 2) } else { 300000 }',
+      'Write-Host "sending deregister (gas limit $gas)..."',
+      'cast send $WREG "deregisterWorker()" --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas *> $null',
+      'if (-not $?) { Write-Host "deregister tx failed to send. Your stake is SAFE and the worker is still registered. Try again in a minute."; exit 1 }',
+      // Verify on-chain truth - never claim success off a tx that landed but reverted.
+      'Start-Sleep -Seconds 2',
+      '$reg2 = (cast call $WREG "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url $RPC 2>$null)',
+      'if ($reg2 -match "true") { Write-Host "the deregister tx landed but the chain still shows the worker registered (it likely reverted). Your stake is SAFE. Clear stuck jobs, then retry."; exit 1 }',
+      'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
+      'schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
+      'docker stop lightchain-worker *> $null',
+      'Write-Host "deregistered on-chain - your staked LCAI is back in the worker wallet ($env:WORKER_ADDR). Use Withdraw Funds to send it out; you can now install on another network directly."',
     ].join("\n");
   }
   return [
-    // Ensure the Docker engine is fully up FIRST (with the half-state recovery +
-    // wait). deregister.sh runs `invoke_worker deregister` as a `docker run`, so
-    // without this a single click would only start Docker and the deregister step
-    // would fail on that pass, forcing a second click.
-    dockerEnvPreambleUnix(),
-    'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"',
-    'TK="$HOME/.lightnode/lightchain-worker-toolkit/scripts/bash"; [ -d "$TK" ] || TK="$HOME/lightchain-worker-toolkit/scripts/bash"',
-    'cd "$TK" 2>/dev/null || { echo "⛔ toolkit not found - install the worker first."; exit 1; }',
-    'if bash -c "declare -A _t" 2>/dev/null; then RB=bash; else RB="$(brew --prefix 2>/dev/null)/bin/bash"; fi',
+    "exec 2>&1",
+    'export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
+    // Derive the worker key from the on-disk keystore (no toolkit clone needed).
     ...keystoreDeriveUnix(),
-    // Settle releasable completed jobs first - they gate deregistration - and
-    // claim the earnings into the wallet so nothing is stranded in the registry.
+    '[ -n "${WORKER_PRIVKEY:-}" ] || { echo "⛔ could not unlock this worker key on this machine - deregister signs with the on-disk worker keystore. If you set a custom keystore password at install, it is required here."; exit 1; }',
+    `RPC_URL="${net.rpc}"; WREG="${net.workerRegistry}"`,
+    // Already deregistered? Then the stake is already back in the wallet - say so
+    // rather than sending a doomed tx (this is the state a stale "deregistered"
+    // subgraph badge can leave the user confused about).
+    'REG="$(cast call "$WREG" "isWorkerRegistered(address)(bool)" "$WORKER_ADDR" --rpc-url "$RPC_URL" 2>/dev/null | awk "{print \\$1}")"',
+    'if [ "$REG" != "true" ]; then echo "✓ worker $WORKER_ADDR is already deregistered on-chain - your stake is back in the worker wallet. Use Withdraw Funds to send it out."; exit 0; fi',
+    // Settle + claim releasable completed jobs first (strand nothing in-contract).
     'echo "▶ settling completed jobs + claiming rewards before deregister..."',
     ...releaseJobsUnix(network, jobIds),
     ...claimEarningsUnix(network),
-    'if echo deregister | FORCE=1 "$RB" deregister.sh; then',
-    '  touch "$HOME/.lightnode/keep-online.paused"',
-    '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
-    '  rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
-    `  ( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
-    // Done with this worker - stop holding the machine awake and remove the agent.
-    '  launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true',
-    // Stop the now-pointless container so this network's worker slot is free -
-    // a deregistered worker can't earn, and the next install (e.g. mainnet)
-    // refuses to run while a DIFFERENT-network container is still up.
-    '  docker stop lightchain-worker >/dev/null 2>&1 || true',
-    '  echo "✓ deregistered - stake returned to the worker wallet; worker stopped + watchdog removed. Use Withdraw Funds to send the stake out; you can now install on another network directly."',
-    'else',
-    '  echo "⛔ deregister did not complete - see the error just above. Your stake is SAFE and the worker is still registered. The usual cause is completed jobs still inside their release window; retry once they settle (a few hours)."',
-    '  exit 1',
-    'fi',
+    // Preflight: simulate the exact call (eth_call, no gas). A revert is almost
+    // always in-flight (acknowledged-but-unfinished) jobs blocking the exit.
+    'echo "▶ checking deregister is unblocked..."',
+    'if ! cast call "$WREG" "deregisterWorker()" --from "$WORKER_ADDR" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "⛔ deregister is blocked - the worker still has in-flight (acknowledged) job(s) on-chain. Click \\"Clear stuck jobs\\" first (it times them out), then deregister. Your stake stays safe meanwhile."; exit 1; fi',
+    // Gas-correct send: estimate x1.5, generous fallback. The daemon under-sets
+    // this write's gas and OutOfGas-reverts - the bug behind the silent failures.
+    'GAS_EST="$(cast estimate --from "$WORKER_ADDR" "$WREG" "deregisterWorker()" --rpc-url "$RPC_URL" 2>/dev/null)"; case "${GAS_EST:-}" in ""|*[!0-9]*) GAS_LIMIT=300000;; *) GAS_LIMIT="$(python3 -c "import sys; print(int(int(sys.argv[1])*3//2))" "$GAS_EST" 2>/dev/null || echo 300000)";; esac',
+    'echo "▶ sending deregister (gas limit $GAS_LIMIT)..."',
+    'if ! cast send "$WREG" "deregisterWorker()" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" --gas-limit "$GAS_LIMIT" >/dev/null 2>&1; then echo "⛔ deregister tx failed to send. Your stake is SAFE and the worker is still registered. Try again in a minute."; exit 1; fi',
+    // Verify on-chain - never claim success off a tx that landed but reverted.
+    "sleep 2",
+    'REG2="$(cast call "$WREG" "isWorkerRegistered(address)(bool)" "$WORKER_ADDR" --rpc-url "$RPC_URL" 2>/dev/null | awk "{print \\$1}")"',
+    'if [ "$REG2" = "true" ]; then echo "⛔ the deregister tx landed but the chain still shows the worker registered (it likely reverted). Your stake is SAFE. Clear stuck jobs, then retry."; exit 1; fi',
+    // Success: stake is back in the worker wallet. Tear down the watchdog + stop
+    // any container best-effort (it may not even exist).
+    'touch "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
+    'launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
+    `( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
+    'launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true',
+    'docker stop lightchain-worker >/dev/null 2>&1 || true',
+    'echo "✅ deregistered on-chain - your staked LCAI is back in the worker wallet ($WORKER_ADDR). Use Withdraw Funds to send it out; you can now install on another network directly."',
   ].join("\n");
 }
 

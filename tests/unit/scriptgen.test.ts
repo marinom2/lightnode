@@ -47,11 +47,40 @@ describe("Settle earnings + auto-settling deregister", () => {
   it("uses the mainnet JobRegistry on mainnet", () => {
     expect(settleJobsCommand("macos", "mainnet", [1]).toLowerCase()).toContain("0xfb15f90298e4ccd7106e76ffb5e520315cc42b0b");
   });
-  it("deregister auto-settles the completed jobs first", () => {
+  it("deregister auto-settles the completed jobs first, then calls deregisterWorker directly", () => {
     const d = deregisterCommand("macos", "testnet", [55]);
     expect(d).toContain("settling completed jobs + claiming rewards before deregister");
     expect(d).toContain("releaseJob(uint256)");
-    expect(d).toContain("deregister.sh");
+    // Direct on-chain call - NOT the daemon toolkit's deregister.sh (which needs a
+    // clone + Docker and under-sets gas, so it OutOfGas-reverted silently).
+    expect(d).toContain('"deregisterWorker()"');
+    expect(d).not.toContain("deregister.sh");
+  });
+  it("deregister needs no toolkit clone or Docker (it is one signed on-chain call)", () => {
+    const d = deregisterCommand("macos", "testnet");
+    expect(d).not.toContain("toolkit not found");
+    expect(d).not.toContain("deregister.sh");
+  });
+  it("deregister sends gas-correct (estimate x1.5) so the daemon's OutOfGas bug can't bite", () => {
+    const unix = deregisterCommand("macos", "testnet");
+    expect(unix).toContain('cast estimate --from "$WORKER_ADDR" "$WREG" "deregisterWorker()"');
+    expect(unix).toContain("*3//2");
+    const win = deregisterCommand("windows", "testnet");
+    expect(win).toContain('cast estimate --from $env:WORKER_ADDR $WREG "deregisterWorker()"');
+    expect(win).toContain("* 3 / 2");
+  });
+  it("deregister preflights, then verifies the chain after - never claims success off a reverted tx", () => {
+    const d = deregisterCommand("macos", "testnet");
+    // simulate before spending gas...
+    expect(d).toContain('cast call "$WREG" "deregisterWorker()" --from "$WORKER_ADDR"');
+    expect(d).toContain("deregister is blocked");
+    // ...and re-read isWorkerRegistered after, to confirm it actually took.
+    expect(d).toContain('isWorkerRegistered(address)(bool)');
+    expect(d).toContain("still shows the worker registered");
+  });
+  it("deregister short-circuits when the worker is already deregistered (stake already back)", () => {
+    const d = deregisterCommand("macos", "testnet");
+    expect(d).toContain("already deregistered on-chain");
   });
   it("deregister stops the container so another network can be installed directly", () => {
     expect(deregisterCommand("macos", "testnet")).toContain("docker stop lightchain-worker");
@@ -95,20 +124,20 @@ describe("Sweep/Deregister source the key from the on-disk keystore", () => {
     expect(win).toContain("-GasBuffer 0.001");
     expect(win).toContain("decrypt-keystore");
   });
-  it("windows deregister derives the key and gates on success", () => {
+  it("windows deregister derives the key and verifies the chain after sending", () => {
     const win = deregisterCommand("windows", "testnet");
     expect(win).toContain("decrypt-keystore");
-    expect(win).toContain("$LASTEXITCODE -eq 0");
+    // Verifies on-chain truth (re-read isWorkerRegistered) instead of trusting an exit code.
+    expect(win).toContain('isWorkerRegistered(address)(bool)');
+    expect(win).toContain("still shows the worker registered");
   });
-  it("deregister waits for the Docker engine first so it completes in one click", () => {
-    // deregister.sh runs `invoke_worker deregister` as a docker container; without
-    // an upfront engine-up wait, the first click would only start Docker.
+  it("deregister does NOT block on the Docker engine (it is a pure on-chain call)", () => {
+    // The old path shelled into a docker-run deregister.sh and forced a Docker wait;
+    // the direct call needs neither, so a user with no container can still exit + recover stake.
     const unix = deregisterCommand("macos", "testnet");
-    expect(unix).toContain("Docker is not running - starting Docker Desktop");
-    expect(unix).toContain("Cannot reach Docker");
+    expect(unix).not.toContain("Cannot reach Docker. Open Docker Desktop");
     const win = deregisterCommand("windows", "testnet");
-    expect(win).toContain("starting Docker Desktop");
-    expect(win).toContain("Cannot reach Docker");
+    expect(win).not.toContain("Cannot reach Docker. Open Docker Desktop once");
   });
   it("prefers the container keystore password over any app-supplied one", () => {
     // The container's WORKER_KEYSTORE_PASSWORD always matches the on-disk
@@ -385,7 +414,7 @@ describe("pause marker (intentional stop must not be auto-restarted)", () => {
   });
   it("Deregister pauses and removes the watchdog schedule", () => {
     const d = deregisterCommand("macos", "testnet");
-    expect(d).toContain("deregister.sh");
+    expect(d).toContain('"deregisterWorker()"');
     expect(d).toContain("keep-online.paused");
     expect(d).toContain("launchctl unload");
     expect(d).toContain("crontab -");
