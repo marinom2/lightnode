@@ -3729,23 +3729,55 @@ function PreflightRecipe() {
 
   const snippet = `import { workerPreflight, LightNode } from "lightnode-sdk";
 
+const ln = new LightNode("testnet");
+
 // One real test inference. CI-friendly - run this in a workflow before
 // shipping anything that depends on the public pool.
-const verdict = await workerPreflight({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-  model: "${model}",
-  deadlineMs: 60_000,
-});
-console.log("verdict:", verdict.verdict);   // "ok" | "over-deadline" | "stalled" | "failed"
-console.log("worker :", verdict.worker);
-console.log("elapsed:", verdict.elapsedMs, "ms");
-if (verdict.verdict !== "ok") process.exit(1);
+//
+// Retry up to 3x on transient gateway 'selection_mismatch' (a previous
+// session for this wallet has not aged out). On a wallet you own this
+// is rare; on the shared demo wallet it is routine.
+async function tryPreflight() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    const r = await workerPreflight({
+      network: "testnet",
+      privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+      model: "${model}",
+      deadlineMs: 60_000,
+    });
+    const transient = r.verdict !== "ok" && /selection_mismatch|409/.test(r.summary ?? "");
+    if (!transient) return r;
+  }
+  throw new Error("gateway selection_mismatch did not clear after 3 attempts");
+}
 
-// Free read - top mainnet workers, no key required:
-const ln = new LightNode("mainnet");
+const r = await tryPreflight();
+console.log("verdict       :", r.verdict);    // "ok" | "over-deadline" | "stalled" | "failed"
+console.log("elapsed (ms)  :", r.elapsedMs ?? "(none)");
+console.log("worker        :", r.worker ?? "(none assigned)");
+if (r.worker) console.log("worker page   :", ln.explorerAddressUrl(r.worker));
+if (r.txs?.submitJob) console.log("submitJob tx  :", ln.explorerTxUrl(r.txs.submitJob));
+if (r.verdict !== "ok") {
+  console.log("why           :", r.summary);
+  process.exit(1);
+}
+
+// Free read - top testnet workers (no key needed), to compare your
+// verdict against the rest of the pool. WorkerStat fields:
+//   - success: completed jobs in the sample
+//   - p50: median processing seconds (null until enough data)
+//   - completionRate: success / (success + incomplete + disputed)
 const top = await ln.getWorkerStats(500, 5);
-for (const w of top) console.log(w.address, "jobs:", w.jobsCompleted, "p50:", w.p50ProcessingSecs, "s");`;
+console.log("\\nTop 5 testnet workers (last 500 jobs):");
+for (const w of top) {
+  console.log(
+    w.address,
+    "jobs:", w.success,
+    "p50:", w.p50 != null ? w.p50.toFixed(1) + "s" : "n/a",
+    "completion:", w.completionRate != null ? (w.completionRate * 100).toFixed(0) + "%" : "n/a",
+  );
+}`;
 
   return (
     <StepperShell step={step as BridgeStep} labels={["Model", "Live verdict", "Use it"]}>
