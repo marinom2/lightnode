@@ -160,6 +160,9 @@ export function OperationsPanel() {
   const [benchResult, setBenchResult] = useState<SpeedTestResult | null>(null);
   const [budgetSec, setBudgetSec] = useState(120);
   const [activeJobs, setActiveJobs] = useState(0);
+  // On-chain registration (null = unknown). Gates the "deregister first" footnote
+  // so it doesn't show once the worker is already deregistered (stake returned).
+  const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
   const [completedJobs, setCompletedJobs] = useState<number[]>([]);
   // Acknowledged (potentially stuck) jobs - what "Clear stuck jobs" claimTimeouts.
   const [ackedJobs, setAckedJobs] = useState<number[]>([]);
@@ -218,7 +221,11 @@ export function OperationsPanel() {
       fetch(`/api/worker?net=${network}&address=${addr}`)
         .then((r) => r.json())
         .then((j) => {
-          if (!on || !j.ok || !j.worker) return;
+          if (!on || !j.ok) return;
+          // onchainRegistered is chain truth and present even when the indexer has
+          // no worker row yet; capture it regardless of j.worker.
+          if (typeof j.onchainRegistered === "boolean") setOnchainRegistered(j.onchainRegistered);
+          if (!j.worker) return;
           setActiveJobs(j.worker.active_job_count ?? 0);
           // Completed (unreleased) jobs - what Settle/Deregister will release.
           const done = (j.jobs ?? [])
@@ -698,9 +705,13 @@ export function OperationsPanel() {
         </details>
       )}
 
-      <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
-        <ShieldAlert className="size-3.5 text-warning" /> Deregister first to unlock your stake, then Withdraw to move it out.
-      </p>
+      {onchainRegistered !== false && (
+        // Only relevant while still registered with a locked stake. Once
+        // deregistered (stake returned) this is stale and confusing.
+        <p className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-content-soft">
+          <ShieldAlert className="size-3.5 text-warning" /> Deregister first to unlock your stake, then Withdraw to move it out.
+        </p>
+      )}
 
       {/* In-app confirmation (window.confirm is a no-op in the desktop webview). */}
       {confirmOp && (

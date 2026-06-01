@@ -418,14 +418,21 @@ export function WorkerView({
         </div>
       </Card>
 
-      {(worker.jobs_timed_out ?? 0) > 0 && (
+      {(worker.jobs_timed_out ?? 0) > 0 && onchainRegistered !== false && (
+        // Only a forward-looking slash risk while the worker is still registered.
+        // Once deregistered there is no stake to slash and it takes no jobs, so the
+        // warning would be stale noise. Name the model(s) it actually serves
+        // on-chain, not a hardcoded default.
         <Card className="border-warning/30 bg-warning/10 p-4">
           <div className="flex items-start gap-2 text-sm text-content-default">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
             <span>
               <span className="font-medium text-content-primary">{worker.jobs_timed_out} timed-out job(s).</span> Each
               ack-then-incomplete job risks a slash. Make sure the liveness watchdog is running and Ollama serves{" "}
-              <code className="rounded bg-surface-base-light px-1 py-0.5">{DEFAULT_MODEL}</code> by that exact name.
+              <code className="rounded bg-surface-base-light px-1 py-0.5">
+                {models.filter((m) => m.onchainEligible === true).map((m) => m.name).join(", ") || DEFAULT_MODEL}
+              </code>{" "}
+              by that exact name.
             </span>
           </div>
         </Card>
@@ -492,13 +499,21 @@ export function WorkerView({
                 </div>
               ))}
             </div>
+          ) : onchainRegistered === false ? (
+            // Deregistered on-chain: it serves nothing because it's no longer a
+            // worker. Don't claim it's "registered but not serving".
+            <p className="text-xs leading-relaxed text-content-soft">
+              This worker is deregistered on-chain, so it is not serving any model. The public index still lists{" "}
+              {models.map((m) => m.name).join(", ")} from when it was last registered; that is stale and can be ignored.
+              Reinstall to register and serve again.
+            </p>
           ) : (
             <p className="text-xs leading-relaxed text-content-soft">
               This worker is registered on-chain but is not serving any model right now. (A model add can fail during
               setup, leaving the worker staked but with no active model.) Add one from Operations, then restart.
             </p>
           )}
-          {stale.length > 0 && (
+          {onchainRegistered !== false && stale.length > 0 && (
             <p className="mt-2 text-[11px] leading-relaxed text-content-soft">
               Note: the public index still lists {stale.map((m) => m.name).join(", ")} for this worker, but the chain
               shows it is not currently served (the index does not clear models after a deregister/re-register). Ignore
