@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.08";
+export const INSTALLER_REV = "2026-05-31.09";
 
 export interface ScriptBundle {
   os: OS;
@@ -1441,9 +1441,14 @@ export function uninstallCommand(os: OS, network: NetworkId): string {
  */
 export function preflightCommand(os: OS, network: NetworkId): string {
   const net = NETWORKS[network];
-  // Threshold for the (informational) worker-wallet balance check: same shape as
-  // the install gate so the two stay consistent. BigInt for mainnet overflow.
-  const thrWei = (BigInt(net.minStakeLcai) * 10n ** 18n + 5n * 10n ** 17n).toString();
+  // Build-time fallback ONLY (used if the live AIConfig read fails). The real
+  // threshold is derived live from chain below, same as the install gate.
+  const fallbackThrWei = (BigInt(net.minStakeLcai) * 10n ** 18n + 5n * 10n ** 17n).toString();
+  // eth_call selectors: aiConfig() = 0x85ff4862 (WorkerRegistry),
+  // getMinWorkerStake() = 0xca22dfd1 (AIConfig). Used to derive the threshold
+  // without baking a stake number in.
+  const AICONFIG_SELECTOR = "0x85ff4862";
+  const MINSTAKE_SELECTOR = "0xca22dfd1";
   // Preflight reports BLOCKS only for things install can't fix on its own (an
   // unreachable RPC). Docker + Ollama are downgraded to WARN: install auto-installs
   // and auto-starts them (winget on Windows, brew + open on macOS), so failing
@@ -1460,11 +1465,16 @@ export function preflightCommand(os: OS, network: NetworkId): string {
       '$free = [math]::Floor((Get-PSDrive C).Free / 1GB); if ($free -ge 15) { Write-Host "OK - disk: $free GB free" } else { Write-Host "WARN - only $free GB free (model + image need ~10 GB)" }',
       `try { $null = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -TimeoutSec 8 -Body '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' -ContentType "application/json"; Write-Host "OK - RPC reachable" } catch { Write-Host "BLOCK - RPC unreachable (${net.rpc})"; $ok = $false }`,
       `try { $null = Invoke-RestMethod -Uri "${net.subgraph}" -Method Post -TimeoutSec 8 -Body '{"query":"{__typename}"}' -ContentType "application/json"; Write-Host "OK - indexer reachable" } catch { Write-Host "WARN - indexer probe failed (status display may lag)" }`,
+      // Derive the funding threshold LIVE from chain (never hardcode the stake):
+      // eth_call aiConfig() on the WorkerRegistry, then getMinWorkerStake() on it,
+      // + 0.5 LCAI gas cushion. Falls back to the build-time value if the read fails.
+      `$ThrWei = [System.Numerics.BigInteger]::Parse('${fallbackThrWei}')`,
+      `try { $hexAddr = (Invoke-RestMethod -Uri "${net.rpc}" -Method Post -ContentType 'application/json' -TimeoutSec 6 -Body '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"${net.workerRegistry}","data":"${AICONFIG_SELECTOR}"},"latest"]}').result; $aicfg = "0x" + $hexAddr.Substring($hexAddr.Length - 40); $hexMin = (Invoke-RestMethod -Uri "${net.rpc}" -Method Post -ContentType 'application/json' -TimeoutSec 6 -Body ('{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"' + $aicfg + '","data":"${MINSTAKE_SELECTOR}"},"latest"]}')).result; $minWei = [System.Numerics.BigInteger]::Parse('0' + $hexMin.Substring(2), [System.Globalization.NumberStyles]::HexNumber); if ($minWei -gt 0) { $ThrWei = $minWei + [System.Numerics.BigInteger]::Parse('500000000000000000') } } catch {}`,
       // Informational: read the chosen worker wallet's balance (the env-passed
       // WORKER_ADDR). Never a BLOCK - install itself waits up to 90s for a
       // still-pending funding tx before failing. Skipped if no address has been
       // picked yet (the user can run preflight before generating a worker).
-      `if ($env:WORKER_ADDR) { try { $body = '{"jsonrpc":"2.0","method":"eth_getBalance","params":["' + $env:WORKER_ADDR + '","latest"],"id":1}'; $r = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5; $hex = ($r.result -replace '^0x',''); if ($hex.Length -gt 0 -and -not $hex.StartsWith('0')) { $hex = '0' + $hex }; $bal = if ($hex) { [System.Numerics.BigInteger]::Parse($hex, [System.Globalization.NumberStyles]::HexNumber) } else { [System.Numerics.BigInteger]::Zero }; $lcai = [Math]::Round([double]([System.Numerics.BigInteger]::Divide($bal, [System.Numerics.BigInteger]::Pow(10, 15))) / 1000, 3); if ($bal -ge [System.Numerics.BigInteger]::Parse('${thrWei}')) { Write-Host "OK - worker wallet funded ($lcai LCAI)" } else { Write-Host "WARN - worker wallet at $($env:WORKER_ADDR) has only $lcai LCAI; install will wait up to 90s for funding to confirm" } } catch { Write-Host "WARN - could not read worker wallet balance (RPC probe failed)" } }`,
+      `if ($env:WORKER_ADDR) { try { $body = '{"jsonrpc":"2.0","method":"eth_getBalance","params":["' + $env:WORKER_ADDR + '","latest"],"id":1}'; $r = Invoke-RestMethod -Uri "${net.rpc}" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5; $hex = ($r.result -replace '^0x',''); if ($hex.Length -gt 0 -and -not $hex.StartsWith('0')) { $hex = '0' + $hex }; $bal = if ($hex) { [System.Numerics.BigInteger]::Parse($hex, [System.Globalization.NumberStyles]::HexNumber) } else { [System.Numerics.BigInteger]::Zero }; $lcai = [Math]::Round([double]([System.Numerics.BigInteger]::Divide($bal, [System.Numerics.BigInteger]::Pow(10, 15))) / 1000, 3); if ($bal -ge $ThrWei) { Write-Host "OK - worker wallet funded ($lcai LCAI)" } else { Write-Host "WARN - worker wallet at $($env:WORKER_ADDR) has only $lcai LCAI; install will wait up to 90s for funding to confirm" } } catch { Write-Host "WARN - could not read worker wallet balance (RPC probe failed)" } }`,
       // Worker key / password sanity. If a keystore for THIS worker already exists
       // on disk (a retry, or a "use a previous worker" flow), confirm at least one
       // saved password slot decrypts it - so the install path's multi-password
@@ -1492,9 +1502,14 @@ export function preflightCommand(os: OS, network: NetworkId): string {
     `if curl -s -m 8 -X POST "${net.rpc}" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -qE '"result"'; then echo "✓ RPC reachable (${net.rpc})"; else echo "⛔ RPC unreachable (${net.rpc}) - check your connection"; OK=0; fi`,
     `if curl -s -m 8 -o /dev/null "${net.workerGateway}/" 2>/dev/null; then echo "✓ gateway reachable"; else echo "⚠ gateway probe inconclusive (${net.workerGateway}) - it may still admit the worker"; fi`,
     `if curl -s -m 8 -X POST "${net.subgraph}" -H 'content-type: application/json' -d '{"query":"{__typename}"}' | grep -q __typename; then echo "✓ indexer (subgraph) reachable"; else echo "⚠ indexer probe failed - status display may lag"; fi`,
+    // Derive the funding threshold LIVE from chain (never hardcode the stake):
+    // WorkerRegistry.aiConfig() -> AIConfig.getMinWorkerStake() + 0.5 LCAI cushion.
+    // cast is a preflight prerequisite; fall back to the build-time value if absent
+    // or the read fails so the (informational) line still renders.
+    `THR_WEI='${fallbackThrWei}'; if command -v cast >/dev/null 2>&1; then PF_AICFG="$(cast call "${net.workerRegistry}" 'aiConfig()(address)' --rpc-url '${net.rpc}' 2>/dev/null | awk '{print $1}')"; PF_MIN="$(cast call "$PF_AICFG" 'getMinWorkerStake()(uint256)' --rpc-url '${net.rpc}' 2>/dev/null | awk '{print $1}')"; case "\${PF_MIN:-}" in ''|*[!0-9]*) : ;; *) THR_WEI="$(python3 -c 'import sys; print(int(sys.argv[1]) + 5*10**17)' "$PF_MIN")";; esac; fi`,
     // Informational worker-wallet balance line (never a BLOCK - install waits up
     // to 90s for a still-pending funding tx). Skipped if no address is picked yet.
-    `if [ -n "\${WORKER_ADDR:-}" ]; then BH="$(curl -s -m 5 -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WORKER_ADDR"'","latest"],"id":1}' '${net.rpc}' | sed -nE 's/.*"result":"(0x[0-9a-fA-F]+)".*/\\1/p')"; PFL="$(python3 -c 'import sys; print(round(int(sys.argv[1] or "0x0", 16)/10**18, 3))' "\${BH:-0x0}" 2>/dev/null || echo 0)"; if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1] or "0x0", 16) >= int(sys.argv[2]) else 1)' "\${BH:-0x0}" '${thrWei}' 2>/dev/null; then echo "✓ worker wallet funded ($PFL LCAI)"; else echo "⚠ worker wallet at $WORKER_ADDR has only $PFL LCAI; install will wait up to 90s for funding to confirm"; fi; fi`,
+    `if [ -n "\${WORKER_ADDR:-}" ]; then BH="$(curl -s -m 5 -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WORKER_ADDR"'","latest"],"id":1}' '${net.rpc}' | sed -nE 's/.*"result":"(0x[0-9a-fA-F]+)".*/\\1/p')"; PFL="$(python3 -c 'import sys; print(round(int(sys.argv[1] or "0x0", 16)/10**18, 3))' "\${BH:-0x0}" 2>/dev/null || echo 0)"; if python3 -c 'import sys; sys.exit(0 if int(sys.argv[1] or "0x0", 16) >= int(sys.argv[2]) else 1)' "\${BH:-0x0}" "$THR_WEI" 2>/dev/null; then echo "✓ worker wallet funded ($PFL LCAI)"; else echo "⚠ worker wallet at $WORKER_ADDR has only $PFL LCAI; install will wait up to 90s for funding to confirm"; fi; fi`,
     // Worker key / password sanity. If a keystore for THIS network already exists
     // (a retry, or a "use a previous worker" flow), confirm at least one saved
     // password slot decrypts it - so the install path's multi-password resolve

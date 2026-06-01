@@ -150,6 +150,19 @@ describe("Min stake is derived LIVE from AIConfig, never hardcoded", () => {
     expect(cmd).toContain("MIN_FALLBACK_WEI=");
     expect(cmd).toContain("could not read min stake from AIConfig; using fallback");
   });
+  it("preflight derives the funding threshold live too (no build-time stake gate)", () => {
+    // unix preflight uses cast; the informational funded/not-funded line compares
+    // the balance against the live-derived $THR_WEI, not a constant.
+    const unix = preflightCommand("macos", "testnet");
+    expect(unix).toContain("'getMinWorkerStake()(uint256)'");
+    expect(unix).toContain('"$THR_WEI"');
+    // windows preflight uses eth_call selectors (aiConfig + getMinWorkerStake) and
+    // compares against $ThrWei.
+    const win = preflightCommand("windows", "testnet");
+    expect(win).toContain("0x85ff4862"); // aiConfig() selector
+    expect(win).toContain("0xca22dfd1"); // getMinWorkerStake() selector
+    expect(win).toContain("$bal -ge $ThrWei");
+  });
 });
 
 describe("per-network keystore isolation (test one network without risking another's keys)", () => {
