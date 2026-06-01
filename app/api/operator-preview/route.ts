@@ -12,7 +12,7 @@
  */
 import { NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";
-import { WorkerOperator, NETWORKS, type NetworkId } from "lightnode-sdk";
+import { WorkerOperator, NETWORKS, LightNode, type NetworkId } from "lightnode-sdk";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,12 +30,16 @@ export async function GET(req: Request) {
     const network = NETWORKS[net];
     if (!network) return bad("unknown network");
     const publicClient = createPublicClient({ transport: http(network.rpc) });
+    // The SDK's WorkerOperator constructor requires a workerAddress or
+    // walletClient even when the call doesn't need one (eg. config). Pass
+    // a sentinel address for config-only reads.
+    const SENTINEL: `0x${string}` = "0x0000000000000000000000000000000000000001";
     if (action === "config") {
       const op = new WorkerOperator(network, {
         publicClient: publicClient as unknown as ConstructorParameters<typeof WorkerOperator>[1]["publicClient"],
+        workerAddress: SENTINEL,
       });
       const cfg = await op.config();
-      // Coerce bigints to strings for safe JSON.
       return NextResponse.json({
         action: "config",
         net,
@@ -60,9 +64,33 @@ export async function GET(req: Request) {
         workerAddress: worker as `0x${string}`,
       });
       const st = await op.status();
-      return NextResponse.json({ action: "status", net, worker, status: st });
+      // NextResponse.json refuses to serialize bigints. Coerce + drop the
+      // raw wei fields the visitor doesn't need (we surface the LCAI floats).
+      return NextResponse.json({
+        action: "status",
+        net,
+        worker,
+        status: {
+          address: st.address,
+          registered: st.registered,
+          stakeLcai: st.stakeLcai,
+          headroomLcai: st.headroomLcai,
+          belowFloor: st.belowFloor,
+          claimableLcai: st.claimableLcai,
+        },
+      });
     }
-    return bad("unknown action - try 'config' or 'status'");
+    if (action === "job") {
+      // Classify any job by id - the same surface the old Refund SDK card
+      // exposed, now living under Worker Operator since both speak to the
+      // job lifecycle.
+      const jobIdRaw = url.searchParams.get("jobId") ?? "";
+      if (!/^\d+$/.test(jobIdRaw)) return bad("jobId: pass a positive integer id");
+      const ln = new LightNode(network);
+      const status = await ln.getJobStatus(jobIdRaw);
+      return NextResponse.json({ action: "job", net, jobId: jobIdRaw, status });
+    }
+    return bad("unknown action - try 'config', 'status', or 'job'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },

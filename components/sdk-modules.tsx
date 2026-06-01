@@ -1832,7 +1832,6 @@ export function Widget({ id }: { id: ModuleId }) {
   if (id === "dao") return <DaoRecipe />;
   if (id === "preflight") return <PreflightRecipe />;
   if (id === "chat") return <ChatRecipe />;
-  if (id === "dispute") return <DisputeRecipe />;
   if (id === "batch") return <BatchRecipe />;
   if (id === "agent") return <AgentRecipe />;
   if (id === "operator") return <OperatorRecipe />;
@@ -2826,7 +2825,7 @@ function GetTheCodeCTA({ onClick }: { onClick: () => void }) {
 // --- Worker Operator stepper ------------------------------------------------
 
 type OperatorStep = 1 | 2 | 3;
-type OperatorAction = "config" | "status";
+type OperatorAction = "config" | "status" | "job";
 
 interface OpConfig {
   minStakeLcai: number;
@@ -2845,15 +2844,26 @@ interface OpStatus {
   belowFloor: boolean;
   headroomLcai: number;
 }
+interface OpJob {
+  id: string;
+  category: string;
+  refundable: boolean;
+  worker: string | null;
+  model: string | null;
+  submittedAt: number | null;
+  completedAt: number | null;
+  workerShareLcai: number;
+}
 
 function OperatorRecipe() {
   const [step, setStep] = useState<OperatorStep>(1);
   const [net, setNet] = useState<ModelsNet>("mainnet");
   const [action, setAction] = useState<OperatorAction>("config");
   const [worker, setWorker] = useState<string>("");
+  const [jobId, setJobId] = useState<string>("1234");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [result, setResult] = useState<{ config?: OpConfig; status?: OpStatus } | null>(null);
+  const [result, setResult] = useState<{ config?: OpConfig; status?: OpStatus; job?: OpJob | null } | null>(null);
 
   async function run() {
     setBusy(true);
@@ -2863,22 +2873,29 @@ function OperatorRecipe() {
       const qs =
         action === "status"
           ? `action=status&net=${net}&worker=${encodeURIComponent(worker)}`
-          : `action=config&net=${net}`;
+          : action === "job"
+            ? `action=job&net=${net}&jobId=${encodeURIComponent(jobId)}`
+            : `action=config&net=${net}`;
       const res = await fetch(`/api/operator-preview?${qs}`, { cache: "no-store" });
-      const j = (await res.json()) as { error?: string; config?: OpConfig; status?: OpStatus };
+      const j = (await res.json()) as { error?: string; config?: OpConfig; status?: OpStatus; status_?: OpJob | null };
       if (!res.ok || j.error) {
         setErr(j.error ?? "Couldn't read the operator surface.");
         return;
       }
-      setResult({ config: j.config, status: j.status });
+      const out = j as unknown as { config?: OpConfig; status?: OpStatus | OpJob | null };
+      if (action === "job") {
+        setResult({ job: (out.status ?? null) as OpJob | null });
+      } else {
+        setResult({ config: out.config, status: out.status as OpStatus | undefined });
+      }
     } catch (e) {
-      setErr(humanizeError(e, { action: "the operator preview" }));
+      setErr(humanizeError(e, { action: "the worker SDK preview" }));
     } finally {
       setBusy(false);
     }
   }
 
-  const snippet = operatorSnippet(action, net, worker || "0xWORKER_ADDRESS");
+  const snippet = operatorSnippet(action, net, worker || "0xWORKER_ADDRESS", jobId || "1234");
 
   return (
     <StepperShell step={step as BridgeStep} labels={["Network", "Query", "Use it"]}>
@@ -2914,12 +2931,13 @@ function OperatorRecipe() {
           <StepBack onClick={() => setStep(1)} />
           <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a query</h3>
           <p className="mt-1 text-sm text-content-soft">
-            Both queries are read-only. Reading <span className="text-content-primary">{net === "mainnet" ? "Mainnet" : "Testnet"}</span>.
+            All three queries are read-only. Reading <span className="text-content-primary">{net === "mainnet" ? "Mainnet" : "Testnet"}</span>.
           </p>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <div className="mt-5 grid gap-2 sm:grid-cols-3">
             {([
-              { id: "config", label: "Read protocol config", sub: "op.config() - timeouts / fees / slash" },
-              { id: "status", label: "Read a worker's status", sub: "op.status() - stake + claimable + registered" },
+              { id: "config", label: "Protocol config", sub: "op.config() - timeouts / fees / slash" },
+              { id: "status", label: "Worker status", sub: "op.status() - stake / claimable" },
+              { id: "job", label: "Inspect a job", sub: "ln.getJobStatus(id) - refund flag" },
             ] as const).map((a) => (
               <button
                 key={a.id}
@@ -2946,10 +2964,31 @@ function OperatorRecipe() {
               />
             </label>
           ) : null}
+          {action === "job" ? (
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-xs text-content-soft">Job ID</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={jobId}
+                onChange={(e) => setJobId(e.target.value.trim())}
+                placeholder="e.g. 1234"
+                className="w-48 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
+              />
+            </label>
+          ) : null}
           <PreviewButton
             onClick={run}
-            busy={busy || (action === "status" && !/^0x[0-9a-fA-F]{40}$/.test(worker))}
-            idle={action === "config" ? "Read protocol config" : "Read worker status"}
+            busy={
+              busy ||
+              (action === "status" && !/^0x[0-9a-fA-F]{40}$/.test(worker)) ||
+              (action === "job" && !/^\d+$/.test(jobId))
+            }
+            idle={
+              action === "config" ? "Read protocol config" :
+              action === "status" ? "Read worker status" :
+              `Inspect job ${jobId || "..."}`
+            }
             working="Reading on-chain"
           />
           {err ? (
@@ -2989,14 +3028,42 @@ function OperatorRecipe() {
               <GetTheCodeCTA onClick={() => setStep(3)} />
             </div>
           ) : null}
+          {action === "job" && result?.job !== undefined ? (
+            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+              {!result.job ? (
+                <p className="text-xs text-content-soft">Job {jobId} is not yet indexed on {net}. The protocol may still be processing it.</p>
+              ) : (
+                <dl className="grid gap-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Category</dt><dd><Badge tone={
+                    result.job.category === "completed" || result.job.category === "resolved" ? "success"
+                      : result.job.category === "stalled" || result.job.category === "disputed" ? "warning"
+                      : "muted"
+                  }>{result.job.category}</Badge></dd></div>
+                  <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Refundable</dt><dd className="font-mono text-content-primary">{String(result.job.refundable)}</dd></div>
+                  {result.job.worker ? (
+                    <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker</dt><dd className="break-all font-mono text-content-default">{result.job.worker.slice(0, 10)}…{result.job.worker.slice(-6)}</dd></div>
+                  ) : null}
+                  {result.job.workerShareLcai ? (
+                    <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker share</dt><dd className="font-mono text-content-primary">{result.job.workerShareLcai} LCAI</dd></div>
+                  ) : null}
+                </dl>
+              )}
+              <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+                <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(result.job, null, 2)}</pre>
+              </details>
+              <GetTheCodeCTA onClick={() => setStep(3)} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {step === 3 ? (
         <UseItStep
           onBack={() => setStep(2)}
-          title="Worker Operator SDK"
-          hint={`Targets ${net}. Reads are key-less; writes are commented in. Open in StackBlitz to try.`}
+          title="Worker SDK"
+          hint={`Targets ${net}. Reads are key-less; the commented-out writes sign with your worker key.`}
           snippet={snippet}
           needsKey={false}
         />
@@ -3005,7 +3072,7 @@ function OperatorRecipe() {
   );
 }
 
-function operatorSnippet(action: OperatorAction, net: ModelsNet, workerAddr: string): string {
+function operatorSnippet(action: OperatorAction, net: ModelsNet, workerAddr: string, jobId: string): string {
   const head = `import { WorkerOperator } from "lightnode-sdk";
 import { createPublicClient, http } from "viem";
 
@@ -3024,6 +3091,24 @@ console.log("completion    :", cfg.completionTimeoutSec, "s");
 console.log("dispute window:", cfg.disputeWindowSec, "s");
 console.log("slash bps     :", JSON.stringify(cfg.slashBps));
 console.log("fee bps       :", JSON.stringify(cfg.feeBps));`;
+  }
+  if (action === "job") {
+    return `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("${net}");
+
+// Classify any job: 'submitted' / 'in-flight' / 'completed' / 'stalled' /
+// 'disputed' / 'resolved'. The 'refundable' flag is true when the protocol's
+// dispute window would refund the fee.
+const status = await ln.getJobStatus(${jobId}n);
+if (!status) {
+  console.log("not yet indexed");
+} else {
+  console.log("category   :", status.category);
+  console.log("refundable :", status.refundable);
+  console.log("worker     :", status.worker);
+  console.log("share LCAI :", status.workerShareLcai);
+}`;
   }
   return `${head}
 
@@ -3213,27 +3298,68 @@ console.log("worker:", r.worker, "job:", r.jobId.toString());`;
 // burn the demo wallet. Step 2 shows a canned representative output instead;
 // the visitor runs the real thing locally / in StackBlitz with their own key.
 
+interface PreflightDemoResp {
+  verdict?: "ok" | "over-deadline" | "stalled" | "failed";
+  elapsedMs?: number | null;
+  worker?: string | null;
+  submitJobTx?: string | null;
+  summary?: string;
+  remaining?: number;
+  error?: string;
+  runLocally?: boolean;
+}
+
 function PreflightRecipe() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [net, setNet] = useState<ModelsNet>("testnet");
-  const sampleVerdict = {
-    verdict: "ok" as const,
-    elapsedMs: 8420,
-    worker: "0xbe1cDe9b44A7f48de5e6076AE20f2356bbc28FC2",
-    jobId: "1842",
-    summary: "OK in 8.4s. Worker 0xbe1cDe… replied with 156 chars. Pool is responsive.",
-  };
+  const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
+  const [busy, setBusy] = useState(false);
+  const [verdict, setVerdict] = useState<PreflightDemoResp | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setErr(null);
+    setVerdict(null);
+    try {
+      const r = await fetch("/api/preflight-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model, deadlineMs: 45_000 }),
+      });
+      const text = await r.text();
+      let json: PreflightDemoResp = {};
+      try {
+        json = JSON.parse(text) as PreflightDemoResp;
+      } catch {
+        setErr(`Demo failed (${r.status}). Run the example locally to try.`);
+        return;
+      }
+      if (!r.ok || json.error) {
+        setErr(json.error ?? "Preflight failed.");
+        return;
+      }
+      setVerdict(json);
+    } catch (e) {
+      setErr(humanizeError(e, { action: "the preflight" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const snippet = `import { workerPreflight, LightNode } from "lightnode-sdk";
 
+// One real test inference. CI-friendly - run this in a workflow before
+// shipping anything that depends on the public pool.
 const verdict = await workerPreflight({
-  network: "${net}",
+  network: "testnet",
   privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-  model: "llama3-8b",
+  model: "${model}",
   deadlineMs: 60_000,
 });
 console.log("verdict:", verdict.verdict);   // "ok" | "over-deadline" | "stalled" | "failed"
 console.log("worker :", verdict.worker);
 console.log("elapsed:", verdict.elapsedMs, "ms");
+if (verdict.verdict !== "ok") process.exit(1);
 
 // Free read - top mainnet workers, no key required:
 const ln = new LightNode("mainnet");
@@ -3241,27 +3367,32 @@ const top = await ln.getWorkerStats(500, 5);
 for (const w of top) console.log(w.address, "jobs:", w.jobsCompleted, "p50:", w.p50ProcessingSecs, "s");`;
 
   return (
-    <StepperShell step={step as BridgeStep} labels={["Network", "Sample", "Use it"]}>
+    <StepperShell step={step as BridgeStep} labels={["Model", "Live verdict", "Use it"]}>
       {step === 1 ? (
         <div>
-          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a network</h3>
-          <p className="mt-1 text-sm text-content-soft">Preflight signs one real inference. Use testnet to keep it free.</p>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a model</h3>
+          <p className="mt-1 text-sm text-content-soft">
+            Preflight signs one encrypted inference against the testnet pool. The demo wallet pays.
+          </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {MODELS_NETS.map((n) => (
+            {([
+              { id: "llama3-8b" as const, label: "llama3-8b", sub: "8B params - fastest path" },
+              { id: "llama3-70b" as const, label: "llama3-70b", sub: "70B params - slower, hits more workers" },
+            ]).map((m) => (
               <button
-                key={n.id}
+                key={m.id}
                 type="button"
-                onClick={() => { setNet(n.id); setStep(2); }}
+                onClick={() => { setModel(m.id); setStep(2); }}
                 className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
-                  net === n.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                  model === m.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
                 }`}
               >
                 <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
                   <PlayCircle className="size-5 text-primary" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-content-primary">{n.label}</div>
-                  <div className="truncate text-xs text-content-soft">{n.sub}</div>
+                  <div className="font-mono text-sm font-semibold text-content-primary">{m.label}</div>
+                  <div className="truncate text-xs text-content-soft">{m.sub}</div>
                 </div>
               </button>
             ))}
@@ -3271,33 +3402,60 @@ for (const w of top) console.log(w.address, "jobs:", w.jobsCompleted, "p50:", w.
       {step === 2 ? (
         <div>
           <StepBack onClick={() => setStep(1)} />
-          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Sample verdict</h3>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Run a live preflight</h3>
           <p className="mt-1 text-sm text-content-soft">
-            A real run signs one inference - too expensive for a click-anywhere preview. Here is what a successful
-            verdict on <span className="text-content-primary">{net}</span> looks like in the wild.
+            Signs one real <code className="font-mono text-content-default">{model}</code> inference against the
+            testnet pool. Verdict + timing + worker, all live. Rate-limited to 2 per IP per hour to keep the demo
+            wallet alive.
           </p>
-          <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
-            <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK sample</p>
-            <dl className="grid gap-1.5 text-xs">
-              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Verdict</dt><dd><Badge tone="success">{sampleVerdict.verdict}</Badge></dd></div>
-              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Elapsed</dt><dd className="font-mono text-content-primary">{sampleVerdict.elapsedMs} ms</dd></div>
-              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker</dt><dd className="break-all font-mono text-content-default">{sampleVerdict.worker.slice(0, 12)}…{sampleVerdict.worker.slice(-6)}</dd></div>
-              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Job ID</dt><dd className="font-mono text-content-default">{sampleVerdict.jobId}</dd></div>
-            </dl>
-            <p className="mt-3 rounded-md border border-bdr-soft bg-card px-3 py-2 text-xs leading-relaxed text-content-default">{sampleVerdict.summary}</p>
-            <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
-              <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
-              <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(sampleVerdict, null, 2)}</pre>
-            </details>
-            <GetTheCodeCTA onClick={() => setStep(3)} />
-          </div>
+          <PreviewButton onClick={run} busy={busy} idle="Run preflight" working="Signing and dispatching" />
+          {err ? (
+            <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
+          ) : null}
+          {verdict ? (
+            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview - live</p>
+              <dl className="grid gap-1.5 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-content-soft">Verdict</dt>
+                  <dd><Badge tone={verdict.verdict === "ok" ? "success" : "warning"}>{verdict.verdict}</Badge></dd>
+                </div>
+                {verdict.elapsedMs != null ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Elapsed</dt>
+                    <dd className="font-mono text-content-primary">{verdict.elapsedMs} ms ({(verdict.elapsedMs / 1000).toFixed(1)} s)</dd>
+                  </div>
+                ) : null}
+                {verdict.worker ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Worker</dt>
+                    <dd className="break-all font-mono text-content-default">{verdict.worker.slice(0, 12)}…{verdict.worker.slice(-6)}</dd>
+                  </div>
+                ) : null}
+                {verdict.submitJobTx ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">submitJob tx</dt>
+                    <dd className="break-all font-mono text-content-default">{verdict.submitJobTx.slice(0, 10)}…{verdict.submitJobTx.slice(-6)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {verdict.summary ? (
+                <p className="mt-3 rounded-md border border-bdr-soft bg-card px-3 py-2 text-xs leading-relaxed text-content-default">{verdict.summary}</p>
+              ) : null}
+              <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+                <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(verdict, null, 2)}</pre>
+              </details>
+              <GetTheCodeCTA onClick={() => setStep(3)} />
+            </div>
+          ) : null}
         </div>
       ) : null}
       {step === 3 ? (
         <UseItStep
           onBack={() => setStep(2)}
           title="Preflight SDK"
-          hint={`Targets ${net}. PRIVATE_KEY must be funded; ${net} is free from the faucet.`}
+          hint={`Targets testnet (free). PRIVATE_KEY must be funded from the faucet (~0.022 LCAI per call).`}
           snippet={snippet}
           needsKey={true}
         />

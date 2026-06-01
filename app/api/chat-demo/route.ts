@@ -18,12 +18,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Conversation, type ChatMessage } from "lightnode-sdk";
 
 export const dynamic = "force-dynamic";
-// Edge runtime gives 30s wall clock on Hobby vs 10s for serverless functions,
-// which is the cap that matters for an end-to-end encrypted inference (worker
-// pickup + decode + answer typically lands in 5-25s). The SDK's WebSocket
-// auto-resolution falls through to `globalThis.WebSocket` which Edge provides.
-export const runtime = "edge";
-export const maxDuration = 30;
+// Node.js runtime: the SDK's WebSocket auto-resolution uses the Node `ws`
+// package, which works reliably. Edge's WebSocket binding throws
+// 'Illegal invocation' when the SDK's pipeline detaches a method from its
+// constructor. Trade off: Hobby tier caps Node functions at 10s vs Edge's
+// 30s - but a working 10s call beats a broken 30s one.
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 // `echo 0x... | vercel env add ...` puts a trailing newline into the stored
 // value, which silently breaks a strict length check downstream. Trim

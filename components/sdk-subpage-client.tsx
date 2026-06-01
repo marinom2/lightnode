@@ -95,7 +95,7 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
       {/* Every steppered module ships its own 'Use it in your project' as
           step 3. Only modules without a Recipe widget still need the
           external block. */}
-      {(["bridge", "dao", "models", "dispute", "operator", "chat", "preflight", "batch", "agent"] as ModuleId[]).includes(m.id)
+      {(["bridge", "dao", "models", "operator", "chat", "preflight", "batch", "agent"] as ModuleId[]).includes(m.id)
         ? null
         : m.sandboxBody
           ? <UseInYourProject m={m} />

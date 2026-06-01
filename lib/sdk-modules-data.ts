@@ -16,7 +16,6 @@ export type ModuleId =
   | "preflight"
   | "operator"
   | "models"
-  | "dispute"
   | "batch"
   | "agent";
 
@@ -289,15 +288,15 @@ for (const w of top) console.log(w.address, "  jobs:", w.jobsCompleted, "  p50:"
   {
     id: "operator",
     icon: Wrench,
-    title: "Worker Operator SDK",
+    title: "Worker SDK",
     blurb:
-      "WorkerOperator runs a worker's on-chain lifecycle from code: register, stake, settle, and the stuck-job recovery (claimTimeout / clearStuck / unstickAndDeregister) that clears acknowledged-but-unfinished jobs blocking deregister. No Docker, no worker image. decodeWorkerError turns the unverified custom reverts into plain English.",
-    titleAccent: "Operator",
-    kicker: "Worker write surface",
-    tagline: "Run, settle, and exit a worker from code.",
+      "Everything a worker needs from code: register and stake, settle and withdraw earnings, classify any job for refunds, and the stuck-job recovery (claimTimeout / clearStuck / unstickAndDeregister) that clears acknowledged-but-unfinished jobs blocking deregister. Plain RPC, no Docker, no worker image. decodeWorkerError turns unverified custom reverts into plain English.",
+    titleAccent: "SDK",
+    kicker: "Worker lifecycle",
+    tagline: "Run a worker from code.",
     subtitle:
-      "The write side the worker toolkit does not expose: clear stuck jobs, settle and withdraw earnings, and deregister over plain RPC. status / config / canDeregister are read-only; the rest sign with the worker key.",
-    cta: { label: "See the methods", href: "#try-it" },
+      "Register, stake, settle, withdraw, classify any job for refunds, and exit cleanly - even when stuck jobs block the door. Reads are key-less; writes sign with your worker key.",
+    cta: { label: "See it work", href: "#try-it" },
     npm: "#worker-operator-new-in-070",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/worker-operator.ts",
     snippet: `import { WorkerOperator } from "lightnode-sdk";
@@ -341,49 +340,6 @@ console.log("completion :", cfg.completionTimeoutSec, "s");
 console.log("slash bps  :", JSON.stringify(cfg.slashBps));`,
     sandboxNeedsKey: false,
     triable: false,
-  },
-  {
-    id: "dispute",
-    icon: Database,
-    title: "Refund SDK",
-    blurb:
-      "ln.getJobStatus(jobId) classifies a job (submitted / in-flight / completed / stalled / disputed / resolved) and exposes a refundable flag.",
-    titleAccent: "SDK",
-    kicker: "Dispute + refund",
-    tagline: "Know when a job is owed a refund.",
-    subtitle:
-      "ln.getJobStatus(id) classifies any job and tells you whether a refund is on the table - no chain-state guessing, no manual state machines.",
-    cta: { label: "Inspect a job", href: "#try-it" },
-    npm: "#read-only-lightnode-client-free-no-key",
-    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/index.ts",
-    snippet: `import { LightNode } from "lightnode-sdk";
-
-const ln = new LightNode("mainnet");
-const status = await ln.getJobStatus(1234n);
-console.log(status.category, status.refundable);
-// "stalled" | "disputed" -> refundable=true`,
-    sandboxBody: `import { LightNode } from "lightnode-sdk";
-
-const ln = new LightNode("mainnet");
-
-// Walk a small range and classify each job. No PRIVATE_KEY needed; this
-// is a pure read against the subgraph + chain.
-const FIRST = 1n, LAST = 10n;
-for (let id = FIRST; id <= LAST; id++) {
-  const s = await ln.getJobStatus(id);
-  if (!s) {
-    console.log(id.toString().padStart(4), "  not found (yet)");
-    continue;
-  }
-  console.log(
-    id.toString().padStart(4),
-    s.category.padEnd(10),
-    "refundable=" + s.refundable,
-    "  worker=" + (s.worker?.slice(0, 8) ?? "(none)") + "...",
-  );
-}`,
-    sandboxNeedsKey: false,
-    triable: true,
   },
   {
     id: "models",
