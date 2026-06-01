@@ -648,9 +648,17 @@ export class WorkerOperator {
   }
 
   /**
-   * Clear one stuck job. Permissionless on-chain — the worker itself may call it.
-   * NOTE: this realizes the completion-timeout slash for that job; it is the
-   * price of unblocking deregister.
+   * Clear one stuck (acknowledged-but-never-completed, past-deadline) job.
+   * Permissionless on-chain — the worker itself may call it.
+   *
+   * ⚠️ MAINNET SLASH: this finalizes the job as TimedOut, which realizes the
+   * completion-timeout slash on the worker's stake (mainnet:
+   * `config().slashBps.completionTimeout` = 5% of stake per job at the time of
+   * writing; TESTNET has slashing disabled, so it's free there). This is the
+   * deliberate price of unblocking deregister — a stuck acked job otherwise
+   * blocks the exit forever. Call `config()` first to see the live slash bps, and
+   * only clear jobs you've accepted are lost. Verify eligibility with
+   * `stuckJobs([id])` (pastDeadlineSec > 0) before calling.
    */
   async claimTimeout(jobId: bigint | number): Promise<`0x${string}`> {
     return this.send("claimTimeout", this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "claimTimeout", [BigInt(jobId)]);

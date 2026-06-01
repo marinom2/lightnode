@@ -6,11 +6,12 @@ import { NETWORKS, type NetworkId } from "@/lib/network";
 export const dynamic = "force-dynamic";
 
 // A completed job is held in a release/dispute window before it settles. On-chain
-// `releaseJob` reverts with ReleaseNotReady(jobId, releaseAt, now) = 0x98f5b6c5
-// until the window passes. We simulate it per job to read each job's claimable
-// time, so the UI can show "X jobs settling, claimable in ~Yh" instead of a
-// silent hold.
-const RELEASE_NOT_READY = "0x98f5b6c5";
+// `releaseJob` reverts with DisputeWindowNotElapsed(jobId, releaseAt, now) =
+// 0x98f5b6c5 until the window passes (verified live; the args are jobId, the unix
+// time it becomes releasable, and now). We simulate it per job to read each job's
+// claimable time, so the UI can show "X jobs settling, claimable in ~Yh" instead
+// of a silent hold.
+const DISPUTE_WINDOW_NOT_ELAPSED = "0x98f5b6c5";
 const releaseAbi = [
   { type: "function", name: "releaseJob", inputs: [{ type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
 ] as const;
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
         const data = encodeFunctionData({ abi: releaseAbi, functionName: "releaseJob", args: [BigInt(job.id)] });
         const { ok, errData } = await ethCall(cfg.rpc, cfg.jobRegistry, data);
         if (ok) return { jobId: Number(job.id), ready: true, claimableAt: now };
-        if (errData && errData.toLowerCase().startsWith(RELEASE_NOT_READY)) {
+        if (errData && errData.toLowerCase().startsWith(DISPUTE_WINDOW_NOT_ELAPSED)) {
           const releaseAt = Number(BigInt("0x" + errData.slice(74, 138))); // 2nd 32-byte word
           return { jobId: Number(job.id), ready: releaseAt <= now, claimableAt: releaseAt };
         }

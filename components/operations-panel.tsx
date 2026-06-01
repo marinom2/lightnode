@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
-import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, benchmarkCommand, freeMemoryCommand, uninstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
+import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, clearStuckJobsCommand, benchmarkCommand, freeMemoryCommand, uninstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
 import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
@@ -106,6 +106,15 @@ const OPS: Op[] = [
     cmd: () => "",
   },
   {
+    key: "clearstuck",
+    label: "Clear stuck jobs",
+    desc: "Time out acked jobs blocking exit",
+    icon: ShieldAlert,
+    danger: true,
+    confirmWord: "clear",
+    cmd: () => "",
+  },
+  {
     key: "dereg",
     label: "Deregister",
     desc: "Exit and unlock your stake",
@@ -152,6 +161,8 @@ export function OperationsPanel() {
   const [budgetSec, setBudgetSec] = useState(120);
   const [activeJobs, setActiveJobs] = useState(0);
   const [completedJobs, setCompletedJobs] = useState<number[]>([]);
+  // Acknowledged (potentially stuck) jobs - what "Clear stuck jobs" claimTimeouts.
+  const [ackedJobs, setAckedJobs] = useState<number[]>([]);
   const [workerAddr, setWorkerAddr] = useState("");
   const [confirmOp, setConfirmOp] = useState<Op | null>(null);
   const [settlement, setSettlement] = useState<{
@@ -215,6 +226,13 @@ export function OperationsPanel() {
             .map((x: { id: string }) => Number(x.id))
             .filter((n: number) => Number.isFinite(n));
           setCompletedJobs(done);
+          // Acknowledged jobs - candidates for "Clear stuck jobs" (the script
+          // probes each with claimTimeout eth_call and only clears past-deadline ones).
+          const acked = (j.jobs ?? [])
+            .filter((x: { state: string }) => /^ack/i.test(x.state))
+            .map((x: { id: string }) => Number(x.id))
+            .filter((n: number) => Number.isFinite(n));
+          setAckedJobs(acked);
         })
         .catch(() => {});
     // Settlement status: which completed jobs are in LightChain's release hold
@@ -267,6 +285,7 @@ export function OperationsPanel() {
     if (op.key === "stop") return stopWorkerCommand(os);
     if (op.key === "dereg") return deregisterCommand(os, network, completedJobs);
     if (op.key === "settle") return settleJobsCommand(os, network, completedJobs);
+    if (op.key === "clearstuck") return clearStuckJobsCommand(os, network, ackedJobs);
     if (op.key === "bench") return benchmarkCommand(os, budgetSec);
     if (op.key === "freeup") return freeMemoryCommand(os);
     if (op.key === "preflight") return preflightCommand(os, network);
@@ -311,6 +330,11 @@ export function OperationsPanel() {
     if (op.key === "uninstall") {
       return `Removes the worker container, its Docker image, and the served Ollama models (the big disk/RAM users), plus the toolkit and the keep-online watchdog. Your tiny worker keystore is KEPT so any returned stake stays reachable. If the worker is still registered, deregister and withdraw first or your stake stays locked. Reinstall any time.`;
     }
+    if (op.key === "clearstuck") {
+      const count = ackedJobs.length;
+      const slash = network === "mainnet" ? "On mainnet this REALIZES a completion-timeout slash (~5% of stake) on each job cleared. " : "On testnet slashing is disabled, so this is free. ";
+      return `Times out ${count || "any"} acknowledged-but-unfinished job(s) that are past their deadline - these block deregistration and nothing else can clear them. ${slash}Only clear jobs you accept are lost. Jobs not yet past their deadline are skipped automatically.`;
+    }
     const lead = op.key === "dereg" ? "Stops your worker and withdraws your stake (re-run setup to rejoin). " : "";
     return `${lead}${jobs}`.trim();
   };
@@ -337,6 +361,23 @@ export function OperationsPanel() {
         .filter((n: number) => Number.isFinite(n));
     } catch {
       return completedJobs;
+    }
+  };
+
+  // Fetch the worker's acknowledged (potentially stuck) job IDs FRESH, so "Clear
+  // stuck jobs" never acts on a stale list.
+  const fetchAckedJobIds = async (): Promise<number[]> => {
+    try {
+      const addr = resolveWorkerAddr();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return ackedJobs;
+      const j = await fetch(`/api/worker?net=${network}&address=${addr}`).then((r) => r.json());
+      if (!j.ok) return ackedJobs;
+      return (j.jobs ?? [])
+        .filter((x: { state: string }) => /^ack/i.test(x.state))
+        .map((x: { id: string }) => Number(x.id))
+        .filter((n: number) => Number.isFinite(n));
+    } catch {
+      return ackedJobs;
     }
   };
 
@@ -430,6 +471,10 @@ export function OperationsPanel() {
       // (withdraw()) into the wallet - so there may be earnings to pull even when
       // every job is already released.
       command = op.key === "dereg" ? deregisterCommand(os, network, ids) : settleJobsCommand(os, network, ids);
+    } else if (op.key === "clearstuck") {
+      const ids = await fetchAckedJobIds();
+      if (ids.length) setAckedJobs(ids);
+      command = clearStuckJobsCommand(os, network, ids);
     }
     stopRef.current = await runSetupStreamed(
       command,

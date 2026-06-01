@@ -9,12 +9,33 @@ import {
   sweepCommand,
   toolkitOpCommand,
   settleJobsCommand,
+  clearStuckJobsCommand,
   benchmarkCommand,
   freeMemoryCommand,
   addModelsCommand,
   uninstallCommand,
   preflightCommand,
 } from "@/lib/scriptgen";
+
+describe("Clear stuck jobs (claimTimeout)", () => {
+  it("claimTimeouts each acked job on the right network's JobRegistry", () => {
+    const cmd = clearStuckJobsCommand("macos", "testnet", [974, 976]);
+    expect(cmd).toContain("claimTimeout(uint256)");
+    expect(cmd.toLowerCase()).toContain("0x531b3a87c5d785441b9cf55b98169f20fd9056a7"); // testnet JobRegistry
+    expect(cmd).toContain("for j in 974 976");
+  });
+  it("probes eligibility with eth_call before sending (no wasted tx on a not-yet-stuck job)", () => {
+    const cmd = clearStuckJobsCommand("macos", "testnet", [1]);
+    expect(cmd).toContain('cast call "$JOBREG" "claimTimeout(uint256)"'); // readiness probe
+    expect(cmd).toContain('cast send "$JOBREG" "claimTimeout(uint256)"'); // real send
+  });
+  it("windows variant uses claimTimeout via PowerShell", () => {
+    expect(clearStuckJobsCommand("windows", "mainnet", [5]).toLowerCase()).toContain("claimtimeout");
+  });
+  it("empty list is a no-op message, not a malformed loop", () => {
+    expect(clearStuckJobsCommand("macos", "testnet", [])).toContain("no acknowledged jobs to clear");
+  });
+});
 
 describe("Settle earnings + auto-settling deregister", () => {
   it("settle releases each completed job on the right network's JobRegistry", () => {

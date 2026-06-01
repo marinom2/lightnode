@@ -1094,6 +1094,72 @@ export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]):
 }
 
 /**
+ * Clear STUCK jobs — ones the worker acknowledged but never completed and whose
+ * deadline has passed. They sit `Acknowledged` forever and block deregister, and
+ * the worker daemon/toolkit have no way to clear them. `claimTimeout` is
+ * permissionless, so the operator self-clears them here.
+ *
+ * WARNING: each cleared job is finalized as TimedOut, which realizes the
+ * completion-timeout slash on MAINNET (testnet has slashing disabled). It is the
+ * deliberate price of unblocking an exit a stuck job would otherwise block
+ * forever. The caller gates this behind an explicit confirm. `jobIds` are the
+ * worker's Acknowledged jobs, looked up from the subgraph by the app.
+ */
+function clearStuckJobsUnix(network: NetworkId, jobIds: number[]): string[] {
+  const net = NETWORKS[network];
+  if (!jobIds.length) return ['echo "no acknowledged jobs to clear"'];
+  return [
+    `RPC_URL="${net.rpc}"; JOBREG="${net.jobRegistry}"; CLEARED=0; SKIPPED=0; FAILED=0`,
+    `for j in ${jobIds.join(" ")}; do`,
+    // Readiness probe FIRST (eth_call, no state change): claimTimeout only
+    // succeeds once the job is genuinely past its deadline. If it reverts, the
+    // job isn't eligible yet - skip it rather than waste a tx.
+    '  if ! cast call "$JOBREG" "claimTimeout(uint256)" "$j" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "  • job $j not yet past its deadline (skipping)"; SKIPPED=$((SKIPPED+1)); continue; fi',
+    '  if [ -z "${WORKER_PRIVKEY:-}" ]; then echo "  ⛔ job $j is clearable but there is no worker key to sign with"; FAILED=$((FAILED+1)); continue; fi',
+    '  ERR="$(cast send "$JOBREG" "claimTimeout(uint256)" "$j" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"',
+    '  if [ $? -eq 0 ]; then echo "  ✓ cleared stuck job $j"; CLEARED=$((CLEARED+1)); else echo "  ⛔ job $j clear tx failed: $(printf %s "$ERR" | tr "\\n" " " | cut -c1-140)"; FAILED=$((FAILED+1)); fi',
+    "done",
+    'echo "✓ cleared $CLEARED stuck job(s)$( [ $SKIPPED -gt 0 ] && printf \', %s not yet eligible\' "$SKIPPED" )$( [ $FAILED -gt 0 ] && printf \', %s failed (see above)\' "$FAILED" )"',
+  ];
+}
+
+function clearStuckJobsWin(network: NetworkId, jobIds: number[]): string[] {
+  const net = NETWORKS[network];
+  if (!jobIds.length) return ['Write-Host "no acknowledged jobs to clear"'];
+  return [
+    `$RPC_URL = "${net.rpc}"; $JOBREG = "${net.jobRegistry}"`,
+    `foreach ($j in @(${jobIds.join(",")})) {`,
+    '  cast call $JOBREG "claimTimeout(uint256)" $j --rpc-url $RPC_URL *> $null',
+    '  if (-not $?) { Write-Host "job $j not yet past its deadline (skipping)"; continue }',
+    '  if (-not $env:WORKER_PRIVKEY) { Write-Host "job $j is clearable but there is no worker key to sign with"; continue }',
+    '  $e = (cast send $JOBREG "claimTimeout(uint256)" $j --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL 2>&1)',
+    '  if ($?) { Write-Host "cleared stuck job $j" } else { Write-Host "job $j clear tx failed: $e" }',
+    "}",
+  ];
+}
+
+/**
+ * Clear the worker's stuck (acknowledged, past-deadline) jobs via claimTimeout so
+ * deregister is unblocked. See clearStuckJobsUnix for the mainnet-slash warning.
+ */
+export function clearStuckJobsCommand(os: OS, network: NetworkId, jobIds: number[]): string {
+  if (os === "windows") {
+    return [
+      '$ErrorActionPreference = "Continue"',
+      ...keystoreDeriveWin(),
+      'Write-Host "clearing stuck (acknowledged, past-deadline) jobs"',
+      ...clearStuckJobsWin(network, jobIds),
+    ].join("\n");
+  }
+  return [
+    "exec 2>&1",
+    ...keystoreDeriveUnix(),
+    'echo "▶ clearing stuck (acknowledged, past-deadline) jobs"',
+    ...clearStuckJobsUnix(network, jobIds),
+  ].join("\n");
+}
+
+/**
  * Deregister + withdraw stake. First auto-settles any releasable completed jobs
  * (they block deregistration until released), then runs the toolkit deregister,
  * and only on real success tears down the watchdog + reports. Per-network.
