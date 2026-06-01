@@ -234,8 +234,8 @@ export default function LearnPage() {
           <Card className="flex flex-col p-5">
             <span className="text-sm font-semibold text-content-primary">Want to build with it</span>
             <p className="mb-3 mt-1 flex-1 text-xs leading-relaxed text-content-soft">
-              Five-line encrypted inference, Bridge + DAO SDKs, parallel batch + agent loops. One npm install,
-              eight modules. Works in Node, browsers, edge runtimes.
+              Five-line encrypted inference, Bridge + DAO SDKs, parallel batch + agent loops, the worker-operator
+              write surface. One npm install, nine modules. Works in Node, browsers, edge runtimes.
             </p>
             <Button asChild size="sm" variant="outline">
               <Link href="/build">

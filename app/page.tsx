@@ -179,7 +179,7 @@ export default function Home() {
         <div className="mb-8 text-center">
           <Badge tone="brand" className="mb-2">For builders</Badge>
           <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
-            One install, eight SDKs.
+            One install, nine SDKs.
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-content-soft">
             <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-content-default">npm install lightnode-sdk viem</code>
