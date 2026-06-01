@@ -3553,13 +3553,35 @@ for (const w of top) console.log(w.address, "jobs:", w.jobsCompleted, "p50:", w.
                 {verdict.worker ? (
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-content-soft">Worker</dt>
-                    <dd className="break-all font-mono text-content-default">{verdict.worker.slice(0, 12)}…{verdict.worker.slice(-6)}</dd>
+                    <dd className="inline-flex items-center gap-2">
+                      <code className="font-mono text-content-default">{verdict.worker.slice(0, 12)}…{verdict.worker.slice(-6)}</code>
+                      <a
+                        href={`https://testnet.lightscan.app/address/${verdict.worker}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open worker on Lightscan"
+                        className="text-content-soft transition-colors hover:text-primary"
+                      >
+                        <ExternalLink className="size-3.5" />
+                      </a>
+                    </dd>
                   </div>
                 ) : null}
                 {verdict.submitJobTx ? (
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-content-soft">submitJob tx</dt>
-                    <dd className="break-all font-mono text-content-default">{verdict.submitJobTx.slice(0, 10)}…{verdict.submitJobTx.slice(-6)}</dd>
+                    <dd className="inline-flex items-center gap-2">
+                      <code className="font-mono text-content-default">{verdict.submitJobTx.slice(0, 10)}…{verdict.submitJobTx.slice(-6)}</code>
+                      <a
+                        href={`https://testnet.lightscan.app/tx/${verdict.submitJobTx}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open submitJob tx on Lightscan"
+                        className="text-content-soft transition-colors hover:text-primary"
+                      >
+                        <ExternalLink className="size-3.5" />
+                      </a>
+                    </dd>
                   </div>
                 ) : null}
               </dl>
