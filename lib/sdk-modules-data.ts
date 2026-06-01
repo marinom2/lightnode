@@ -264,24 +264,53 @@ for await (const event of workerWatch(ln, "0xWorker...", { intervalMs: 30_000 })
 }`,
     sandboxBody: `import { workerPreflight, LightNode } from "lightnode-sdk";
 
+const ln = new LightNode("testnet");
+
 // One real testnet inference. PRIVATE_KEY in .env must be funded
 // (the testnet faucet at https://lightfaucet.ai gives free LCAI).
-const verdict = await workerPreflight({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-  model: "llama3-8b",
-  deadlineMs: 60_000,
-});
-console.log("verdict       :", verdict.verdict);
-console.log("worker        :", verdict.worker ?? "(none assigned)");
-console.log("job id        :", verdict.jobId?.toString() ?? "(no job)");
-console.log("submit -> done:", verdict.elapsedMs, "ms");
+//
+// Retry up to 3x on transient gateway 'selection_mismatch' (a previous
+// session for this wallet has not aged out). On a wallet you own this
+// is rare; on the shared demo wallet it is routine.
+async function tryPreflight() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    const r = await workerPreflight({
+      network: "testnet",
+      privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+      model: "llama3-8b",
+      deadlineMs: 60_000,
+    });
+    const transient = r.verdict !== "ok" && /selection_mismatch|409/.test(r.summary ?? "");
+    if (!transient) return r;
+  }
+  throw new Error("gateway selection_mismatch did not clear after 3 attempts");
+}
 
-// Read top mainnet workers (no key required for the read side):
-const ln = new LightNode("mainnet");
+const r = await tryPreflight();
+console.log("verdict       :", r.verdict);
+console.log("elapsed (ms)  :", r.elapsedMs ?? "(none)");
+console.log("worker        :", r.worker ?? "(none assigned)");
+if (r.worker) console.log("worker page   :", ln.explorerAddressUrl(r.worker));
+if (r.txs?.submitJob) console.log("submitJob tx  :", ln.explorerTxUrl(r.txs.submitJob));
+if (r.verdict !== "ok") {
+  console.log("why           :", r.summary);
+}
+
+// Free read - top testnet workers (no key needed). WorkerStat fields:
+//   - success: completed jobs in the sample
+//   - p50: median processing seconds (null until enough data)
+//   - completionRate: success / (success + incomplete + disputed)
 const top = await ln.getWorkerStats(500, 5);
-console.log("\\nTop 5 mainnet workers (last 500 jobs):");
-for (const w of top) console.log(w.address, "  jobs:", w.jobsCompleted, "  p50:", w.p50ProcessingSecs, "s");`,
+console.log("\\nTop 5 testnet workers (last 500 jobs):");
+for (const w of top) {
+  console.log(
+    w.address,
+    "jobs:", w.success,
+    "p50:", w.p50 != null ? w.p50.toFixed(1) + "s" : "n/a",
+    "completion:", w.completionRate != null ? (w.completionRate * 100).toFixed(0) + "%" : "n/a",
+  );
+}`,
     sandboxNeedsKey: true,
     triable: true,
   },
