@@ -2878,6 +2878,10 @@ interface OpJob {
   submittedAt: number | null;
   completedAt: number | null;
   workerShareLcai: number;
+  submitBlock: number | null;
+  completionBlock: number | null;
+  submitTx: `0x${string}` | null;
+  completionTx: `0x${string}` | null;
 }
 
 function OperatorRecipe() {
@@ -3122,6 +3126,40 @@ function OperatorRecipe() {
                   {result.job.workerShareLcai ? (
                     <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker share</dt><dd className="font-mono text-content-primary">{result.job.workerShareLcai} LCAI</dd></div>
                   ) : null}
+                  {result.job.submitTx ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-content-soft">Submit tx</dt>
+                      <dd className="inline-flex items-center gap-2">
+                        <code className="font-mono text-content-default">{result.job.submitTx.slice(0, 10)}…{result.job.submitTx.slice(-6)}</code>
+                        <a
+                          href={`https://${net === "mainnet" ? "mainnet" : "testnet"}.lightscan.app/tx/${result.job.submitTx}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open submitJob tx on Lightscan"
+                          className="text-content-soft transition-colors hover:text-primary"
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {result.job.completionTx ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-content-soft">Completion tx</dt>
+                      <dd className="inline-flex items-center gap-2">
+                        <code className="font-mono text-content-default">{result.job.completionTx.slice(0, 10)}…{result.job.completionTx.slice(-6)}</code>
+                        <a
+                          href={`https://${net === "mainnet" ? "mainnet" : "testnet"}.lightscan.app/tx/${result.job.completionTx}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open jobCompleted tx on Lightscan"
+                          className="text-content-soft transition-colors hover:text-primary"
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
               )}
               <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
@@ -3174,15 +3212,26 @@ const ln = new LightNode("${net}");
 
 // Classify any job: 'submitted' / 'in-flight' / 'completed' / 'stalled' /
 // 'disputed' / 'resolved'. The 'refundable' flag is true when the protocol's
-// dispute window would refund the fee.
-const status = await ln.getJobStatus(${jobId}n);
+// dispute window would refund the fee. Pass { withTransactions: true } to
+// also resolve the submitJob + jobCompleted tx hashes (one eth_getLogs call
+// per tx). Useful for deep-linking from your UI.
+const status = await ln.getJobStatus(${jobId}n, { withTransactions: true });
 if (!status) {
   console.log("not yet indexed");
 } else {
-  console.log("category   :", status.category);
-  console.log("refundable :", status.refundable);
-  console.log("worker     :", status.worker);
-  console.log("share LCAI :", status.workerShareLcai);
+  console.log("category     :", status.category);
+  console.log("refundable   :", status.refundable);
+  console.log("worker       :", status.worker);
+  console.log("share LCAI   :", status.workerShareLcai);
+  if (status.worker) {
+    console.log("worker page  :", ln.explorerAddressUrl(status.worker));
+  }
+  if (status.submitTx) {
+    console.log("submit tx    :", ln.explorerTxUrl(status.submitTx));
+  }
+  if (status.completionTx) {
+    console.log("completion tx:", ln.explorerTxUrl(status.completionTx));
+  }
 }`;
   }
   return `${head}

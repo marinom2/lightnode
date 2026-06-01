@@ -89,12 +89,19 @@ export async function GET(req: Request) {
     if (action === "job") {
       // Classify any job by id - the same surface the old Refund SDK card
       // exposed, now living under Worker Operator since both speak to the
-      // job lifecycle.
+      // job lifecycle. Ask for tx hashes so the widget can deep-link straight
+      // to submitJob + jobCompleted on Lightscan instead of just the block.
       const jobIdRaw = url.searchParams.get("jobId") ?? "";
       if (!/^\d+$/.test(jobIdRaw)) return bad("jobId: pass a positive integer id");
       const ln = new LightNode(network);
-      const status = await ln.getJobStatus(jobIdRaw);
-      return NextResponse.json({ action: "job", net, jobId: jobIdRaw, status });
+      const status = await ln.getJobStatus(jobIdRaw, { withTransactions: true });
+      return NextResponse.json({
+        action: "job",
+        net,
+        jobId: jobIdRaw,
+        status,
+        explorer: { base: network.explorer },
+      });
     }
     return bad("unknown action - try 'config', 'status', or 'job'");
   } catch (e) {

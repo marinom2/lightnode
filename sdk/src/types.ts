@@ -46,6 +46,22 @@ export interface Job {
   ack_at?: number;
   completed_at?: number;
   worker_share?: string; // wei
+  // Block numbers come from the indexer; tx hashes do NOT (the upstream
+  // subgraph entity has no transactionHash field). The SDK fills these in
+  // on demand by re-scanning the exact block via eth_getLogs - see
+  // resolveJobTransactions() in subgraph.ts.
+  submit_block_number?: number;
+  completion_block_number?: number;
+}
+
+/**
+ * Per-job transaction hashes. Populated lazily by the SDK via
+ * resolveJobTransactions(); not present on the raw subgraph Job entity.
+ * `completion` is null until the worker emits JobCompleted.
+ */
+export interface JobTransactions {
+  submit: `0x${string}` | null;
+  completion: `0x${string}` | null;
 }
 
 export interface ModelInfo {

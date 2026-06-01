@@ -8,6 +8,7 @@ import {
   fetchWorkers,
   summarize,
   fromWei,
+  resolveJobTransactions,
 } from "./subgraph.js";
 import { isRegistered } from "./onchain.js";
 import {
@@ -88,6 +89,7 @@ import type {
   NetworkConfig,
   Worker,
   Job,
+  JobTransactions,
   ModelInfo,
   NetworkStats,
   ModelStat,
@@ -179,7 +181,10 @@ export class LightNode {
    * builder-friendly label; `raw` is the indexer's literal state string.
    * Null when the indexer has never seen the job (still pending propagation).
    */
-  async getJobStatus(jobId: string | bigint): Promise<{
+  async getJobStatus(
+    jobId: string | bigint,
+    opts: { withTransactions?: boolean } = {},
+  ): Promise<{
     id: string;
     raw: string;
     category: "submitted" | "in-flight" | "completed" | "stalled" | "disputed" | "resolved" | "unknown";
@@ -189,6 +194,17 @@ export class LightNode {
     completedAt: number | null;
     workerShareLcai: number;
     refundable: boolean;
+    /** Block numbers as the indexer recorded them. Null until indexer sees the event. */
+    submitBlock: number | null;
+    completionBlock: number | null;
+    /**
+     * Tx hashes for submitJob + jobCompleted, only resolved when
+     * `withTransactions: true`. Each hash deep-links to Lightscan via
+     * {@link Network.explorerTxUrl}. Costs one eth_getLogs RPC call per
+     * transaction (max two per job); skip the flag if you don't need them.
+     */
+    submitTx: `0x${string}` | null;
+    completionTx: `0x${string}` | null;
   } | null> {
     const j = await fetchJob(this.network, jobId);
     if (!j) return null;
@@ -213,6 +229,11 @@ export class LightNode {
     // own timeout/dispute pipeline reclaims the fee; this flag is the SDK's
     // builder-facing hint that the on-chain refund call is the right path.
     const refundable = category === "stalled" || category === "disputed";
+    // Tx hashes need a second RPC roundtrip. Opt in only - the historical
+    // shape of getJobStatus stays pure-subgraph for callers who don't ask.
+    const txs = opts.withTransactions
+      ? await resolveJobTransactions(this.network, j.id, { job: j })
+      : { submit: null as `0x${string}` | null, completion: null as `0x${string}` | null };
     return {
       id: j.id,
       raw: state,
@@ -223,7 +244,29 @@ export class LightNode {
       completedAt: j.completed_at ?? null,
       workerShareLcai: fromWei(j.worker_share),
       refundable,
+      submitBlock: j.submit_block_number ?? null,
+      completionBlock: j.completion_block_number && j.completion_block_number > 0 ? j.completion_block_number : null,
+      submitTx: txs.submit,
+      completionTx: txs.completion,
     };
+  }
+
+  /**
+   * Build a Lightscan URL for an arbitrary address or tx hash on this
+   * network. Useful for surfacing deep-links in builder UIs without
+   * each consumer needing to know which explorer corresponds to which
+   * chain.
+   */
+  explorerAddressUrl(address: string): string {
+    return `${this.network.explorer}/address/${address}`;
+  }
+
+  explorerTxUrl(hash: string): string {
+    return `${this.network.explorer}/tx/${hash}`;
+  }
+
+  explorerBlockUrl(block: number | bigint): string {
+    return `${this.network.explorer}/block/${block.toString()}`;
   }
 
   /** keccak256 of a model tag (its on-chain + indexer id). */
@@ -253,7 +296,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.7.2";
+export const SDK_VERSION = "0.7.3";
 
 export {
   NETWORKS,
@@ -266,6 +309,9 @@ export {
   workerStatsCsv,
   workerJobsCsv,
   fromWei,
+  // v0.7.3 per-job transaction-hash resolver (lifts the upstream
+  // subgraph's "block-only" Job entity to a deep-linkable Job + tx pair).
+  resolveJobTransactions,
   computeModelId as modelId,
   estimateJobFee,
   JOB_REGISTRY_CONSUMER_ABI,
@@ -360,4 +406,4 @@ export type {
   JobState,
   DecodedWorkerError,
 } from "./worker-operator.js";
-export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
+export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
