@@ -3358,6 +3358,8 @@ const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.
   if (action === "config") {
     return `${head}
 
+// config() reads global AIConfig values - no worker address needed.
+// (lightnode-sdk >= 0.7.7 relaxed the constructor for read-only paths.)
 const op = new WorkerOperator("${net}", { publicClient });
 
 const cfg = await op.config();
@@ -3396,18 +3398,61 @@ if (!status) {
   }
 }`;
   }
-  return `${head}
+  return `import { WorkerOperator, LightNode } from "lightnode-sdk";
+import { createPublicClient, http, formatEther } from "viem";
 
+const chain = ${net === "mainnet"
+    ? `{ id: 9200, name: "LightChain mainnet", nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 }, rpcUrls: { default: { http: ["https://rpc.mainnet.lightchain.ai"] } } }`
+    : `{ id: 8200, name: "LightChain testnet", nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 }, rpcUrls: { default: { http: ["https://rpc.testnet.lightchain.ai"] } } }`};
+const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.http[0]), chain });
 const worker = "${workerAddr}" as \`0x\${string}\`;
+
 const op = new WorkerOperator("${net}", { publicClient, workerAddress: worker });
+const ln = new LightNode("${net}");
 
-const st = await op.status();
-console.log("registered    :", st.registered);
-console.log("stake         :", st.stakeLcai, "LCAI");
-console.log("claimable     :", st.claimableLcai, "LCAI");
-console.log("headroom      :", st.headroomLcai, "LCAI");
+// Fan out all the reads in parallel so the panel is one round-trip.
+const [st, walletWei, w, jobs, served] = await Promise.all([
+  op.status(),
+  publicClient.getBalance({ address: worker }),
+  ln.getWorker(worker),
+  ln.getWorkerJobs(worker, 50),
+  // Reconciled list: subgraph rows + on-chain WorkerRegistry.isEligible.
+  // onchainEligible === true means the chain confirms the worker serves
+  // this model right now (the indexer rows can go stale after a
+  // deregister -> re-register cycle).
+  ln.getServedModels(worker),
+]);
 
-// To write (needs a PRIVATE_KEY for the worker key):
+console.log("Worker           :", st.address);
+console.log("Registered       :", st.registered ? "yes" : "no");
+console.log("Stake locked     :", st.stakeLcai, "LCAI");
+console.log("Claimable        :", st.claimableLcai, "LCAI");
+console.log("Wallet balance   :", Number(formatEther(walletWei)), "LCAI");
+console.log("Lifetime earned  :", w?.total_earned ? Number(formatEther(BigInt(w.total_earned))) : 0, "LCAI");
+console.log("Last seen        :", w?.last_seen_at ? new Date(w.last_seen_at * 1000).toISOString() : "unknown");
+
+// Served models (chain-confirmed first, then any indexer-only rows).
+const live = served.filter(m => m.onchainEligible === true);
+const stale = served.filter(m => m.onchainEligible === false && m.indexedActive);
+console.log("Serving models   :", live.length ? live.map(m => m.name ?? m.modelId).join(", ") : "(none)");
+if (stale.length) console.log("Stale index rows :", stale.map(m => m.name ?? m.modelId).join(", "));
+
+// Bucket the last 50 jobs to surface what needs attention.
+const now = Math.floor(Date.now() / 1000);
+const buckets = { released: 0, pendingRelease: 0, stuck: 0, inFlight: 0 };
+for (const j of jobs) {
+  const s = (j.state ?? "").toLowerCase();
+  if (s.includes("released") || s.includes("resolved")) buckets.released++;
+  else if (s.includes("complet")) buckets.pendingRelease++;
+  else if (s.includes("ack")) ((now - (j.ack_at ?? now)) > 3600 ? buckets.stuck++ : buckets.inFlight++);
+  else if (s.includes("submitted")) buckets.inFlight++;
+}
+console.log("Released         :", buckets.released, "jobs (paid out)");
+console.log("Pending release  :", buckets.pendingRelease, "jobs (awaiting settle)");
+console.log("Stuck            :", buckets.stuck, "jobs (acked past deadline)");
+console.log("Timed out        :", w?.jobs_timed_out ?? 0, "jobs (lifetime)");
+
+// To WRITE (needs a PRIVATE_KEY for the worker key):
 //   import { createWalletClient } from "viem";
 //   import { privateKeyToAccount } from "viem/accounts";
 //   const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
@@ -3415,7 +3460,9 @@ console.log("headroom      :", st.headroomLcai, "LCAI");
 //   const opRW = new WorkerOperator("${net}", { publicClient, walletClient });
 //   await opRW.releaseAll();    // settle all completed jobs past their window
 //   await opRW.withdraw();      // pull earned balance out
-//   await opRW.deregister();    // exit (clears stuck first if blocked)`;
+//   await opRW.deregister();    // exit (clears stuck first if blocked)
+//   // For stuck jobs: const stuck = await opRW.stuckJobs([jobId1, jobId2]);
+//   //                 for (const s of stuck) await opRW.claimTimeout(s.lookupId);`;
 }
 
 // --- Chat (Conversation) stepper -------------------------------------------

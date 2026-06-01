@@ -461,7 +461,9 @@ export class WorkerOperator {
   readonly network: NetworkConfig;
   private readonly pub: MinimalPublicClient;
   private readonly wallet?: MinimalWalletClient;
-  private readonly addr: `0x${string}`;
+  // Optional: config() and protocol-level reads do not need a worker
+  // address. The guard moves to the call sites that actually touch it.
+  private readonly maybeAddr: `0x${string}` | undefined;
   private cfgCache?: WorkerProtocolConfig;
 
   constructor(network: NetworkId | NetworkConfig, opts: WorkerOperatorOpts) {
@@ -473,8 +475,16 @@ export class WorkerOperator {
     const fromWallet =
       typeof acct === "string" ? acct : (acct as { address?: `0x${string}` } | undefined)?.address;
     const a = (opts.workerAddress ?? fromWallet) as `0x${string}` | undefined;
-    if (!a) throw new Error("WorkerOperator: provide workerAddress or a walletClient with an account");
-    this.addr = a.toLowerCase() as `0x${string}`;
+    this.maybeAddr = a ? (a.toLowerCase() as `0x${string}`) : undefined;
+  }
+
+  private get addr(): `0x${string}` {
+    if (!this.maybeAddr) {
+      throw new Error(
+        "WorkerOperator: this method needs the worker address. Pass `workerAddress` (or a `walletClient` with an account) when constructing WorkerOperator.",
+      );
+    }
+    return this.maybeAddr;
   }
 
   private requireWallet(op: string): MinimalWalletClient {
