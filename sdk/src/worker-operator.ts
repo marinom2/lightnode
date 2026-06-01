@@ -392,6 +392,14 @@ export interface DeregisterReadiness {
 }
 
 export interface StuckJob {
+  /**
+   * The ID to pass to claimTimeout/getJob — i.e. the SAME id you looked the job
+   * up by (the subgraph/display id). IMPORTANT: this is NOT the struct's internal
+   * `jobId` field, which is a different counter; calling claimTimeout with the
+   * struct field hits the wrong job. Always use this lookupId for writes.
+   */
+  lookupId: bigint;
+  /** The struct's internal jobId field (informational; do NOT use for writes). */
   jobId: bigint;
   state: JobState;
   ackAt: number;
@@ -627,6 +635,8 @@ export class WorkerOperator {
       const deadline = j.deadlineAt || (j.ackAt ? j.ackAt + cfg.completionTimeoutSec : 0);
       const past = deadline ? now - deadline : 0;
       out.push({
+        // The id the caller passed IS the claimTimeout/getJob key — not j.jobId.
+        lookupId: BigInt(id),
         jobId: j.jobId,
         state: j.state,
         ackAt: j.ackAt,
@@ -657,11 +667,12 @@ export class WorkerOperator {
     const skipped: bigint[] = [];
     for (const s of stuck) {
       if (s.pastDeadlineSec <= 0) {
-        skipped.push(s.jobId);
+        skipped.push(s.lookupId);
         continue;
       }
-      const tx = await this.claimTimeout(s.jobId);
-      cleared.push({ jobId: s.jobId, tx });
+      // Use lookupId (the getJob/claimTimeout key), NOT the struct's jobId field.
+      const tx = await this.claimTimeout(s.lookupId);
+      cleared.push({ jobId: s.lookupId, tx });
     }
     return { cleared, skipped };
   }
@@ -677,7 +688,7 @@ export class WorkerOperator {
     const st = await this.status();
     if (!st.registered) return { ok: false, blockedBy: [], reason: "Worker is not registered." };
     const stuck = await this.stuckJobs(candidateJobIds);
-    const inflight = stuck.map((s) => s.jobId);
+    const inflight = stuck.map((s) => s.lookupId);
     if (inflight.length === 0) {
       return { ok: true, blockedBy: [], reason: "No in-flight jobs detected; deregister should succeed." };
     }
@@ -706,12 +717,14 @@ export class WorkerOperator {
     for (const id of candidateJobIds) {
       const j = await this.getJob(id);
       if (j.state !== "Completed") continue;
+      // releaseJob takes the SAME lookup id passed to getJob, not j.jobId.
+      const lookupId = BigInt(id);
       try {
-        const tx = await this.releaseJob(j.jobId);
-        released.push({ jobId: j.jobId, tx });
+        const tx = await this.releaseJob(lookupId);
+        released.push({ jobId: lookupId, tx });
       } catch (e) {
         if (isWorkerOpError(e) && e.decoded?.name === "DisputeWindowNotElapsed") {
-          notReady.push(j.jobId);
+          notReady.push(lookupId);
           continue;
         }
         throw e;
