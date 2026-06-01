@@ -453,15 +453,22 @@ describe("multi-model worker (serve more than one model on one machine)", () => 
     expect(win).toContain(`$env:SUPPORTED_MODELS = "llama3-8b,llama3-70b"`);
     expect(win).toContain(`$newSet = @('llama3-8b','llama3-70b')`);
   });
-  it("addModelsCommand adds models via the worker binary's add-models (not a raw cast), with the models to add in SUPPORTED_MODELS", () => {
+  it("addModelsCommand calls addSupportedModel directly with gas=estimate x1.5, NOT the daemon's add-models (which OutOfGas-reverts)", () => {
     const unix = addModelsCommand("macos", "mainnet", ["llama3-70b"]);
-    expect(unix).toContain("invoke_worker add-models");
-    expect(unix).toContain("SUPPORTED_MODELS=llama3-70b");
-    expect(unix).toContain("cast wallet decrypt-keystore"); // unlocks the keystore password
-    expect(unix).not.toContain("updateWorkerModels"); // the raw cast call was wrong (predeploy ABI differs)
+    // direct contract call, not the buggy daemon subcommand
+    expect(unix).toContain('"addSupportedModel(bytes32)"');
+    expect(unix).not.toContain("invoke_worker add-models");
+    // gas derived from estimate (the daemon under-set it -> OutOfGas)
+    expect(unix).toContain("cast estimate");
+    expect(unix).toContain("--gas-limit");
+    // modelId is keccak of the tag; skips a model already eligible on-chain
+    expect(unix).toContain('cast keccak "$M"');
+    expect(unix).toContain('"isEligible(address,bytes32)(bool)"');
+    expect(unix).toContain("cast wallet decrypt-keystore"); // still unlocks the keystore
     const win = addModelsCommand("windows", "testnet", ["gemma4:e2b"]);
-    expect(win).toContain('Invoke-Worker -Subcommand "add-models"');
-    expect(win).toContain('$env:SUPPORTED_MODELS = "gemma4:e2b"');
+    expect(win).toContain('"addSupportedModel(bytes32)"');
+    expect(win).not.toContain('Invoke-Worker -Subcommand "add-models"');
+    expect(win).toContain("--gas-limit");
   });
 });
 

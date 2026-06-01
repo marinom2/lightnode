@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.11";
+export const INSTALLER_REV = "2026-05-31.12";
 
 export interface ScriptBundle {
   os: OS;
@@ -1289,6 +1289,8 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
  */
 export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string[]): string {
   const supported = modelsToAdd.join(",");
+  const workerRegistry = NETWORKS[network].workerRegistry;
+  const rpc = NETWORKS[network].rpc;
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
@@ -1298,7 +1300,20 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
       // KEYS_DIR was set by the keystore derivation to the matched per-network dir.
       `$env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${supported}"`,
       `Write-Host "adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
-      '. .\\common.ps1; Invoke-Worker -Subcommand "add-models"; if ($LASTEXITCODE -ne 0) { Write-Host "add-models failed - see above"; exit 1 }',
+      // Direct WorkerRegistry.addSupportedModel(bytes32) with gas = estimate x1.5,
+      // NOT the worker binary's add-models (which under-sets gas and OutOfGas-
+      // reverts - the same daemon bug that breaks a one-shot install).
+      `$WREG = "${workerRegistry}"; $RPC = "${rpc}"; $addFail = 0`,
+      `foreach ($M in @(${modelsToAdd.map((m) => `'${m}'`).join(",")})) {`,
+      `  $MID = (cast keccak "$M")`,
+      `  $elig = (cast call $WREG "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $MID --rpc-url $RPC 2>$null)`,
+      `  if ($elig -match 'true') { Write-Host "  - $M already served on-chain - skipping"; continue }`,
+      `  $est = (cast estimate --from $env:WORKER_ADDR $WREG "addSupportedModel(bytes32)" $MID --rpc-url $RPC 2>$null)`,
+      `  $gas = if ($est -match '^[0-9]+$') { [int]([long]$est * 3 / 2) } else { 300000 }`,
+      `  cast send $WREG "addSupportedModel(bytes32)" $MID --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas *> $null`,
+      `  if ($?) { Write-Host "  added $M (gas limit $gas)" } else { Write-Host "  failed to add $M"; $addFail = 1 }`,
+      `}`,
+      `if ($addFail -ne 0) { Write-Host "one or more models failed to add - see above"; exit 1 }`,
       // Stop the container so the follow-up reinstall recreates it with the new
       // model set (the install short-circuits on a same-network worker that's Up).
       'docker stop lightchain-worker *> $null; Write-Host "added on-chain - restarting the worker with the new set"',
@@ -1313,12 +1328,27 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
     ...keystoreDeriveUnix(),
     '[ -n "${WORKER_PASSWORD:-}" ] || { echo "⛔ couldn\'t unlock the worker keystore (need its password) - reinstall and retry."; exit 1; }',
     // KEYS_DIR was set by keystoreDeriveUnix to the matched per-network dir.
-    `export NETWORK=${network} SUPPORTED_MODELS=${supported}`,
+    `export NETWORK=${network} SUPPORTED_MODELS=${supported} RPC_URL="${rpc}"`,
     `echo "▶ adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
+    // Call WorkerRegistry.addSupportedModel(bytes32) DIRECTLY with a gas limit
+    // derived from cast estimate x1.5 - NOT the worker binary's `add-models`
+    // subcommand, which sends with an under-set fixed gas limit and OutOfGas-
+    // reverts (the same daemon bug that breaks a one-shot gemma install). modelId
+    // = keccak256(exact tag). Skip a model that's already eligible on-chain.
+    `WREG="${workerRegistry}"`,
+    `ADD_OK=0; ADD_FAIL=0`,
+    `for M in ${modelsToAdd.map((m) => `"${m}"`).join(" ")}; do`,
+    `  MID="$(cast keccak "$M")"`,
+    `  if cast call "$WREG" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MID" --rpc-url "$RPC_URL" 2>/dev/null | grep -qi true; then echo "  • $M already served on-chain - skipping"; continue; fi`,
+    // estimate, then add a 50% buffer; fall back to a generous 300000 if estimate fails.
+    `  GAS_EST="$(cast estimate --from "$WORKER_ADDR" "$WREG" "addSupportedModel(bytes32)" "$MID" --rpc-url "$RPC_URL" 2>/dev/null)"; case "\${GAS_EST:-}" in ''|*[!0-9]*) GAS_LIMIT=300000;; *) GAS_LIMIT="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$GAS_EST")";; esac`,
+    `  if cast send "$WREG" "addSupportedModel(bytes32)" "$MID" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" --gas-limit "$GAS_LIMIT" >/dev/null 2>&1; then echo "  ✓ added $M (gas limit $GAS_LIMIT)"; ADD_OK=$((ADD_OK+1)); else echo "  ⛔ failed to add $M"; ADD_FAIL=$((ADD_FAIL+1)); fi`,
+    `done`,
+    `[ "$ADD_FAIL" = "0" ] || { echo "⛔ one or more models failed to add - see above"; exit 1; }`,
     // Stop the container after a successful add so the follow-up reinstall actually
     // recreates it with the new model set (the install short-circuits on a
     // same-network worker that's still Up).
-    `if "$RB" -c 'source ./common.sh && invoke_worker add-models'; then echo "✓ added on-chain - restarting the worker with the new set"; docker stop lightchain-worker >/dev/null 2>&1 || true; else echo "⛔ add-models failed - see the error above"; exit 1; fi`,
+    `echo "✓ added on-chain - restarting the worker with the new set"; docker stop lightchain-worker >/dev/null 2>&1 || true`,
   ].join("\n");
 }
 

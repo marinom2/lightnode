@@ -752,6 +752,25 @@ export class WorkerOperator {
   }
 
   /**
+   * Add a supported model to THIS (already-registered) worker on-chain. Accepts a
+   * model tag (e.g. "gemma4:e2b") or a raw bytes32 modelId.
+   *
+   * This is the gas-correct version of the step the worker daemon's one-shot
+   * register botches: the daemon sends addSupportedModel with an under-set gas
+   * limit, so it OutOfGas-reverts (and its rollback deregister can too). viem
+   * estimates the gas here, so it lands. Use it to finish a worker that staked but
+   * failed to add its model. No-op (returns null) if already serving the model.
+   */
+  async addModel(modelTagOrId: string): Promise<`0x${string}` | null> {
+    const id = modelTagOrId.startsWith("0x") && modelTagOrId.length === 66
+      ? (modelTagOrId.toLowerCase() as `0x${string}`)
+      : (await import("./inference.js")).modelId(modelTagOrId);
+    const already = (await this.read(this.workerReg, WORKER_REGISTRY_ABI_PARSED, "isEligible", [this.addr, id])) as boolean;
+    if (already) return null;
+    return this.send("addModel", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "addSupportedModel", [id]);
+  }
+
+  /**
    * The flagship rescue: clear stuck jobs then release any settled completed jobs +
    * withdraw earnings then deregister. The one flow no official tool provides.
    * Pass the worker's known job IDs (from the subgraph). Returns every tx done.
