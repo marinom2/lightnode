@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { AlertOctagon, ArrowRight, Bot, Layers, Layers3, Server, Sparkles, User2, Wallet2 } from "lucide-react";
 import { SectionHeader } from "@/components/build/section-header";
@@ -98,13 +97,12 @@ export default function BuildSdksPage() {
         <div className="relative mx-auto w-full max-w-md lg:max-w-none">
           {/* Soft radial halo behind the illustration so it floats. */}
           <div className="pointer-events-none absolute inset-0 -z-10 scale-110 rounded-full bg-[radial-gradient(closest-side,rgba(112,100,233,0.18),transparent)] blur-2xl" />
-          <Image
-            src="/images/sdk/sdk-hero.webp"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/sdk/sdk-hero.svg"
             alt="LightNode SDK illustration"
-            width={1200}
-            height={1049}
-            priority
             className="h-auto w-full"
+            loading="eager"
           />
         </div>
       </div>

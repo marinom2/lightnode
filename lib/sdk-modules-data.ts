@@ -31,10 +31,39 @@ export interface ModuleDef {
   sandboxNeedsKey?: boolean;
   /**
    * Optional hero illustration shown on this module's /build/sdks/<id> sub-
-   * page. Loaded with next/image at large size on desktop, stacked below
-   * the copy on mobile. Path is relative to /public.
+   * page. Large on desktop, stacked below copy on mobile. Path is relative
+   * to /public.
    */
   heroImage?: string;
+  /**
+   * Short, punchy hero line for the sub-page. One sentence that captures
+   * what the module does at the highest level. Falls back to the first
+   * sentence of `blurb` when omitted.
+   */
+  tagline?: string;
+  /**
+   * Supporting paragraph under the tagline on the sub-page. One or two
+   * short sentences that give the next layer of context without diving
+   * into protocol jargon. Falls back to the rest of `blurb` when omitted.
+   */
+  subtitle?: string;
+  /**
+   * Substring of `title` that should render in the brand magenta-to-purple
+   * gradient on the sub-page hero. The rest of the title stays in body
+   * color. Mirrors the 'Lightchain DAO' treatment where one word carries
+   * the brand mark.
+   */
+  titleAccent?: string;
+  /**
+   * Small caps eyebrow shown just under the big hero title (kicker style).
+   * One short phrase, ideally two words. Falls back to 'lightnode-sdk'.
+   */
+  kicker?: string;
+  /**
+   * Optional primary CTA for the hero. Anchor links inside the page
+   * (eg #try-it) jump to the widget; external links open in a new tab.
+   */
+  cta?: { label: string; href: string };
 }
 
 export const MODULES: ModuleDef[] = [
@@ -62,15 +91,28 @@ await bridge.transfer({
   recipient: account.address,
   fee,
 });`,
-    heroImage: "/images/sdk/bridge-hero.webp",
+    heroImage: "/images/sdk/bridge-hero.svg",
+    tagline: "Move LCAI between chains. From your code.",
+    subtitle:
+      "Bridge from Ethereum to LightChain - and back - in three lines. No separate UI, no detour through a hosted page.",
+    titleAccent: "SDK",
+    kicker: "Developer SDK",
+    cta: { label: "Try the Bridge", href: "#try-it" },
     triable: true,
   },
   {
     id: "dao",
     icon: ShieldCheck,
-    title: "DAO SDK (LCAIGovernor)",
+    title: "DAO SDK",
     blurb:
       "Read + vote on LCAI Governor proposals on Ethereum. Real OZ Governor v5 wrapper. Cast votes, propose, queue, execute.",
+    heroImage: "/images/sdk/dao-hero.svg",
+    tagline: "Govern LCAI from your app.",
+    subtitle:
+      "Read proposals, cast votes, queue and execute - directly from your Next.js or Node code. A typed wrapper around OZ Governor v5.",
+    titleAccent: "SDK",
+    kicker: "LCAI Governor",
+    cta: { label: "View proposals", href: "#try-it" },
     npm: "#dao-sdk-new-in-050",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/dao.ts",
     example: "https://github.com/marinom2/lightnode-examples/tree/main/dao-vote",

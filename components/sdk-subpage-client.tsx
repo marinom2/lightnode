@@ -9,7 +9,7 @@
  * page so the focus is on what the SDK does, not on the chrome around it.
  */
 
-import Image from "next/image";
+import type React from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Boxes } from "lucide-react";
 import { MODULES, type ModuleId } from "@/lib/sdk-modules-data";
@@ -18,10 +18,11 @@ import { Widget, DocLinks } from "@/components/sdk-modules";
 export function SdkSubpageClient({ id }: { id: ModuleId }) {
   const m = MODULES.find((x) => x.id === id);
   if (!m) return null;
-  // Hero tagline = first sentence only. The full blurb is verbose and
-  // duplicates what the widget makes clear; one sentence sets context
-  // and the widget IS the explanation.
-  const tagline = m.blurb.split(". ")[0].replace(/\.$/, "") + ".";
+  // Tagline + subtitle. Prefer the curated fields on the module data;
+  // fall back to splitting the blurb so older modules keep working.
+  const sentences = m.blurb.split(/(?<=\.)\s+/);
+  const tagline = m.tagline ?? sentences[0] ?? m.blurb;
+  const subtitle = m.subtitle ?? (sentences.slice(1).join(" ").trim() || null);
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-12 sm:py-16">
@@ -34,39 +35,53 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         Modules
       </Link>
 
-      {/* Hero. Optional illustration on the right when the module provides
-          one, stacked under the copy on mobile so it still gets a moment. */}
-      <header className={`mb-12 ${m.heroImage ? "grid items-center gap-8 lg:grid-cols-[1.2fr_minmax(0,360px)]" : ""}`}>
+      {/* Hero. Massive title with brand-gradient accent on a key word,
+          kicker eyebrow beneath, soft description, one gradient CTA.
+          Mirrors the Lightchain DAO hero treatment. */}
+      <header className={`mb-20 ${m.heroImage ? "grid items-center gap-10 lg:grid-cols-[1.1fr_minmax(0,480px)]" : ""}`}>
         <div>
-          <div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-[#14152C]">
-            <m.icon className="size-6 text-[#7064E9]" />
-          </div>
-          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
-          <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl">
-            {m.title}
+          <h1 className="text-balance text-5xl font-bold tracking-tight text-[#CCCEEF] sm:text-6xl lg:text-7xl">
+            {renderAccentedTitle(m.title, m.titleAccent)}
           </h1>
-          <p className="mt-5 max-w-2xl text-balance text-base leading-relaxed text-[#7376AA] sm:text-lg">
-            {tagline}
+          <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7376AA]">
+            {m.kicker ?? "lightnode-sdk"}
           </p>
-          <DocLinks m={m} />
+          <p className="mt-8 max-w-xl text-lg leading-relaxed text-[#CCCEEF]">
+            {subtitle ?? tagline}
+          </p>
+          {m.cta ? (
+            <a
+              href={m.cta.href}
+              {...(m.cta.href.startsWith("#") ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+              className="group mt-10 inline-flex items-center gap-3 rounded-xl px-6 py-3.5 text-sm font-bold uppercase tracking-wider text-[#CCCEEF] shadow-[0_8px_24px_-6px_rgba(112,100,233,0.55)] transition-all duration-500 active:scale-95"
+              style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+            >
+              {m.cta.label}
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+            </a>
+          ) : null}
         </div>
         {m.heroImage ? (
           <div className="relative mx-auto w-full max-w-md lg:max-w-none">
             <div className="pointer-events-none absolute inset-0 -z-10 scale-110 rounded-full bg-[radial-gradient(closest-side,rgba(112,100,233,0.18),transparent)] blur-2xl" />
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src={m.heroImage}
               alt={`${m.title} illustration`}
-              width={1200}
-              height={1000}
-              priority
               className="h-auto w-full"
+              loading="eager"
             />
           </div>
         ) : null}
       </header>
 
-      {/* The widget in a calm, deep panel - the main event. */}
-      <section className="mb-14">
+      {/* DocLinks moved out of the hero - a quieter row below it. */}
+      <div className="mb-14">
+        <DocLinks m={m} />
+      </div>
+
+      {/* The widget - the main event. Anchored so hero CTAs can jump here. */}
+      <section id="try-it" className="mb-14 scroll-mt-20">
         <div className="rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-5 sm:p-8">
           <Widget id={m.id} />
         </div>
@@ -104,5 +119,30 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         </Link>
       </div>
     </div>
+  );
+}
+
+/**
+ * Render the hero title with one substring rendered in the brand magenta-
+ * to-purple gradient. If `accent` is missing or not found in `title`, the
+ * full title renders in body color (no gradient).
+ */
+function renderAccentedTitle(title: string, accent?: string): React.ReactNode {
+  if (!accent) return title;
+  const idx = title.indexOf(accent);
+  if (idx === -1) return title;
+  const before = title.slice(0, idx);
+  const after = title.slice(idx + accent.length);
+  return (
+    <>
+      {before}
+      <span
+        className="bg-clip-text text-transparent"
+        style={{ backgroundImage: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+      >
+        {accent}
+      </span>
+      {after}
+    </>
   );
 }
