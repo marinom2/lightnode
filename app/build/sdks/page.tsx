@@ -67,11 +67,11 @@ export default function BuildSdksPage() {
           eye lands on - bordered card on the right side. */}
       <div className="mb-16 grid items-center gap-10 lg:grid-cols-[1fr_minmax(0,420px)]">
         <div>
-          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">lightnode-sdk 0.6.x</p>
-          <h1 className="text-balance text-4xl font-semibold tracking-tight text-[#CCCEEF] sm:text-5xl lg:text-6xl">
+          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">lightnode-sdk 0.6.x</p>
+          <h1 className="text-balance text-4xl font-semibold tracking-tight text-content-primary sm:text-5xl lg:text-6xl">
             Eight modules. One install.
           </h1>
-          <p className="mt-5 max-w-xl text-base leading-relaxed text-[#7376AA] sm:text-lg">
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-content-soft sm:text-lg">
             Open any module for a focused page with live data, runnable snippets, and one-click sandboxes.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-4 text-sm">
@@ -79,7 +79,7 @@ export default function BuildSdksPage() {
               href="https://www.npmjs.com/package/lightnode-sdk"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 font-semibold text-[#CCCEEF] shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 font-semibold text-content-primary shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
               style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
             >
               npm install lightnode-sdk
@@ -88,7 +88,7 @@ export default function BuildSdksPage() {
               href="https://github.com/marinom2/lightnode/blob/main/sdk/README.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#7376AA] underline-offset-4 transition-colors hover:text-[#CCCEEF] hover:underline"
+              className="text-content-soft underline-offset-4 transition-colors hover:text-content-primary hover:underline"
             >
               Read the SDK README
             </a>
@@ -115,14 +115,14 @@ export default function BuildSdksPage() {
               key={m.id}
               href={`/build/sdks/${m.id}`}
               aria-label={`Open ${m.title}`}
-              className="group relative flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6 transition-all hover:-translate-y-0.5 hover:border-[rgba(112,100,233,0.40)] hover:bg-[#0a0a18]"
+              className="group relative flex flex-col rounded-xl border border-bdr-soft bg-card p-6 transition-all hover:-translate-y-0.5 hover:border-bdr-light hover:bg-surface-base-subtle"
             >
-              <div className="mb-4 grid size-10 place-items-center rounded-lg bg-[#14152C]">
-                <m.icon className="size-5 text-[#7064E9]" />
+              <div className="mb-4 grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                <m.icon className="size-5 text-primary" />
               </div>
-              <h3 className="mb-1.5 text-base font-semibold tracking-tight text-[#CCCEEF]">{m.title}</h3>
-              <p className="mb-6 line-clamp-3 flex-1 text-sm leading-relaxed text-[#7376AA]">{m.blurb}</p>
-              <span className="inline-flex items-center gap-1 text-sm font-medium text-[#7064E9]">
+              <h3 className="mb-1.5 text-base font-semibold tracking-tight text-content-primary">{m.title}</h3>
+              <p className="mb-6 line-clamp-3 flex-1 text-sm leading-relaxed text-content-soft">{m.blurb}</p>
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
                 Open
                 <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
               </span>
@@ -139,11 +139,11 @@ export default function BuildSdksPage() {
           blurb="Two higher-level abstractions on top of runInferenceWithKey. Same proof chain, same encrypted session - just less boilerplate for common patterns."
         />
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
+          <div className="flex flex-col rounded-xl border border-bdr-soft bg-card p-6">
             <div className="mb-2 flex items-center gap-2">
               <Layers3 className="size-5 text-primary" />
               <span className="text-sm font-semibold text-content-primary">runInferenceBatch</span>
-              <span className="ml-auto inline-flex items-center rounded-full bg-[#7064E9]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#7064E9]">0.6.0</span>
+              <span className="ml-auto inline-flex items-center rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">0.6.0</span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-content-soft">
               Fan out many prompts as parallel encrypted inferences with a capped concurrency. Stable result order, per-slot
@@ -174,11 +174,11 @@ const results = await runInferenceBatch({
               parallel rewrites.
             </p>
           </div>
-          <div className="flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
+          <div className="flex flex-col rounded-xl border border-bdr-soft bg-card p-6">
             <div className="mb-2 flex items-center gap-2">
               <Bot className="size-5 text-primary" />
               <span className="text-sm font-semibold text-content-primary">Agent (tool calling)</span>
-              <span className="ml-auto inline-flex items-center rounded-full bg-[#7064E9]/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#7064E9]">0.6.0</span>
+              <span className="ml-auto inline-flex items-center rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">0.6.0</span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-content-soft">
               ReAct-style loop: model thinks, picks a tool, runs it, observes the result, iterates. Uses simple string markers
@@ -225,7 +225,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
         />
         <div className="grid gap-3 md:grid-cols-3">
           {INFERENCE_TIERS.map((tier) => (
-            <div key={tier.name} className="flex flex-col rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
+            <div key={tier.name} className="flex flex-col rounded-xl border border-bdr-soft bg-card p-6">
               <code className="mb-1 break-all font-mono text-sm font-semibold text-content-primary">{tier.name}</code>
               <span className="mb-3 text-xs font-medium text-primary">{tier.line}</span>
               <p className="mb-3 flex-1 text-xs leading-relaxed text-content-soft">{tier.body}</p>
@@ -247,7 +247,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
         />
         <div className="grid gap-3 md:grid-cols-2">
           {PAY_PATTERNS.map((p) => (
-            <div key={p.name} className="rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6">
+            <div key={p.name} className="rounded-xl border border-bdr-soft bg-card p-6">
               <div className="mb-2 flex items-center gap-2">
                 <p.icon className="size-5 text-primary" />
                 <span className="text-sm font-semibold text-content-primary">{p.name}</span>
@@ -274,7 +274,7 @@ const { answer, steps } = await agent.run("17 + 25?");`}
       </div>
 
       {/* ── TYPED ERRORS ─────────────────────────────────────────────── */}
-      <div className="mb-6 rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6 sm:p-8">
+      <div className="mb-6 rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
         <SectionHeader
           icon={AlertOctagon}
           title="Typed errors and recovery"

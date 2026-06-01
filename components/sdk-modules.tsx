@@ -94,7 +94,7 @@ export function DocLinks({ m }: { m: ModuleDef }) {
   const sandboxBody = m.sandboxBody ?? m.snippet;
   const showStackBlitz = m.id !== "bridge";
   const linkCls =
-    "inline-flex items-center gap-1.5 rounded-full border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-1.5 text-xs text-[#7376AA] transition-colors hover:border-[rgba(112,100,233,0.40)] hover:text-[#CCCEEF]";
+    "inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-surface-base-faint px-3 py-1.5 text-xs text-content-soft transition-colors hover:border-bdr-light hover:text-content-primary";
   return (
     <div className="mt-6 flex flex-wrap items-center gap-2">
       <a href={`https://www.npmjs.com/package/lightnode-sdk${m.npm}`} target="_blank" rel="noopener noreferrer" className={linkCls}>
@@ -118,7 +118,7 @@ export function DocLinks({ m }: { m: ModuleDef }) {
               needsPrivateKey: m.sandboxNeedsKey ?? false,
             })
           }
-          className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-[#CCCEEF] shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+          className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-content-primary shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
           style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
           aria-label={`Open ${m.title} in StackBlitz`}
         >
@@ -754,19 +754,19 @@ function DirectionTile({
     <button
       type="button"
       onClick={onClick}
-      className={`group flex items-center gap-3 rounded-xl border bg-[#070710] p-5 text-left transition-all hover:-translate-y-0.5 ${
+      className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
         selected
-          ? "border-[#7064E9] shadow-[0_0_0_1px_#7064E9_inset]"
-          : "border-[rgba(112,100,233,0.20)] hover:border-[rgba(112,100,233,0.40)]"
+          ? "border-primary shadow-[0_0_0_1px_#7064E9_inset]"
+          : "border-bdr-soft hover:border-bdr-light"
       }`}
       aria-pressed={selected}
     >
       <ChainAvatar logo={from.logo} label={from.label} size={36} />
-      <ArrowRight className="size-4 shrink-0 text-[#7376AA] transition-colors group-hover:text-[#7064E9]" />
+      <ArrowRight className="size-4 shrink-0 text-content-soft transition-colors group-hover:text-primary" />
       <ChainAvatar logo={to.logo} label={to.label} size={36} />
       <div className="ml-auto min-w-0 text-right">
-        <div className="truncate text-sm font-semibold text-[#CCCEEF]">{from.label} to {to.label}</div>
-        <div className="truncate text-xs text-[#7376AA]">{from.sub} to {to.sub}</div>
+        <div className="truncate text-sm font-semibold text-content-primary">{from.label} to {to.label}</div>
+        <div className="truncate text-xs text-content-soft">{from.sub} to {to.sub}</div>
       </div>
     </button>
   );
@@ -782,17 +782,17 @@ function StepDot({ n, current, label }: { n: number; current: BridgeStep; label:
         {isCurrent ? (
           <span
             aria-hidden
-            className="absolute inset-0 -m-1 animate-ping rounded-full bg-[#7064E9]/40"
+            className="absolute inset-0 -m-1 animate-ping rounded-full bg-primary/40"
             style={{ animationDuration: "2s" }}
           />
         ) : null}
         <div
           className={`relative grid size-8 place-items-center rounded-full text-xs font-semibold transition-all duration-300 ${
             isCurrent
-              ? "bg-gradient-to-br from-[#7064E9] to-[#5a4fd6] text-[#CCCEEF] shadow-[0_0_16px_-2px_rgba(112,100,233,0.7)]"
+              ? "bg-gradient-to-br from-[#7064E9] to-[#5a4fd6] text-content-primary shadow-[0_0_16px_-2px_rgba(112,100,233,0.5)]"
               : isDone
-                ? "bg-[#7064E9]/25 text-[#CCCEEF]"
-                : "bg-[#14152C] text-[#7376AA]"
+                ? "bg-primary/25 text-content-primary"
+                : "bg-surface-base-faint text-content-soft"
           }`}
         >
           {isDone ? <Check className="size-3.5" /> : n}
@@ -800,7 +800,7 @@ function StepDot({ n, current, label }: { n: number; current: BridgeStep; label:
       </div>
       <span
         className={`hidden text-sm font-medium transition-colors sm:inline ${
-          isCurrent ? "text-[#CCCEEF]" : isDone ? "text-[#CCCEEF]/70" : "text-[#7376AA]"
+          isCurrent ? "text-content-primary" : isDone ? "text-content-primary/70" : "text-content-soft"
         }`}
       >
         {label}
@@ -814,7 +814,7 @@ function StepDot({ n, current, label }: { n: number; current: BridgeStep; label:
 function StepConnector({ filled }: { filled: boolean }) {
   return (
     <div className="relative h-px flex-1 overflow-hidden">
-      <div className="absolute inset-0 bg-[rgba(112,100,233,0.15)]" />
+      <div className="absolute inset-0 bg-primary/15" />
       <div
         className={`absolute inset-y-0 left-0 bg-gradient-to-r from-[#7064E9] to-[#7064E9]/40 transition-all duration-500 ${
           filled ? "w-full" : "w-0"
@@ -831,7 +831,7 @@ function StepBack({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-1.5 text-xs font-medium text-[#CCCEEF] transition-all hover:-translate-x-0.5 hover:border-[#7064E9]/60 hover:bg-[#7064E9]/10 hover:shadow-[0_0_12px_-4px_rgba(112,100,233,0.8)]"
+      className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-surface-base-faint px-3 py-1.5 text-xs font-medium text-content-primary transition-all hover:-translate-x-0.5 hover:border-primary/60 hover:bg-primary/10 hover:shadow-[0_0_12px_-4px_rgba(112,100,233,0.8)]"
     >
       <ArrowLeft className="size-3.5" /> Back
     </button>
@@ -897,11 +897,11 @@ function BridgeRecipe() {
       </div>
 
       {/* Step card */}
-      <div className="rounded-xl border border-[rgba(112,100,233,0.20)] bg-[#070710] p-6 sm:p-8">
+      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
         {step === 1 ? (
           <div>
-            <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">Choose direction</h3>
-            <p className="mt-1 text-sm text-[#7376AA]">Where is your LCAI now, and where do you want it to go.</p>
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Choose direction</h3>
+            <p className="mt-1 text-sm text-content-soft">Where is your LCAI now, and where do you want it to go.</p>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <DirectionTile
                 from={CHAIN_BRAND.ethereum}
@@ -922,13 +922,13 @@ function BridgeRecipe() {
         {step === 2 ? (
           <div>
             <StepBack onClick={() => setStep(1)} />
-            <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">How much</h3>
-            <p className="mt-1 text-sm text-[#7376AA]">
-              Bridging <span className="text-[#CCCEEF]">{fromChain.label}</span> to{" "}
-              <span className="text-[#CCCEEF]">{toChain.label}</span>.
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">How much</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              Bridging <span className="text-content-primary">{fromChain.label}</span> to{" "}
+              <span className="text-content-primary">{toChain.label}</span>.
             </p>
 
-            <div className="mt-6 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-4">
+            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
               <div className="flex items-center justify-between gap-2">
                 <input
                   type="number"
@@ -938,43 +938,43 @@ function BridgeRecipe() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-0 flex-1 border-none bg-transparent text-2xl font-normal text-[#CCCEEF] outline-none placeholder:text-[#7376AA] sm:text-3xl"
+                  className="w-0 flex-1 border-none bg-transparent text-2xl font-normal text-content-primary outline-none placeholder:text-content-soft sm:text-3xl"
                   aria-label="Amount of LCAI to bridge"
                   autoFocus
                 />
                 <button
                   type="button"
                   onClick={() => setAmount("100")}
-                  className="flex h-7 min-w-[52px] items-center justify-center rounded-full bg-[#7064E9] px-3 text-xs font-semibold text-[#CCCEEF] transition-colors hover:opacity-90"
+                  className="flex h-7 min-w-[52px] items-center justify-center rounded-full bg-primary px-3 text-xs font-semibold text-content-primary transition-colors hover:opacity-90"
                 >
                   Reset
                 </button>
               </div>
-              <div className="mt-3 flex items-center justify-between text-xs text-[#7376AA]">
+              <div className="mt-3 flex items-center justify-between text-xs text-content-soft">
                 <span>LCAI</span>
-                <span>Source-chain gas: <span className="text-[#CCCEEF]">{sourceGas}</span></span>
+                <span>Source-chain gas: <span className="text-content-primary">{sourceGas}</span></span>
               </div>
             </div>
 
             <label className="mt-4 block">
-              <span className="mb-1.5 block text-xs text-[#7376AA]">Recipient (optional)</span>
+              <span className="mb-1.5 block text-xs text-content-soft">Recipient (optional)</span>
               <input
                 type="text"
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value)}
                 placeholder="0x... destination address"
-                className="w-full rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2.5 font-mono text-xs text-[#CCCEEF] outline-none placeholder:text-[#7376AA] focus:border-[rgba(112,100,233,0.40)]"
+                className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 font-mono text-xs text-content-primary outline-none placeholder:text-content-soft focus:border-bdr-light"
               />
             </label>
 
-            <div className="mt-4 grid gap-1 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-3 text-xs">
+            <div className="mt-4 grid gap-1 rounded-lg border border-bdr-soft bg-surface-base-faint p-3 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[#7376AA]">Hyperlane IGP fee</span>
-                <span className="text-[#CCCEEF]">0 {sourceUnit} <span className="text-[#7376AA]">(pre-paid)</span></span>
+                <span className="text-content-soft">Hyperlane IGP fee</span>
+                <span className="text-content-primary">0 {sourceUnit} <span className="text-content-soft">(pre-paid)</span></span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-[#7376AA]">Estimated arrival</span>
-                <span className="text-[#CCCEEF]">~30 to 60 min</span>
+                <span className="text-content-soft">Estimated arrival</span>
+                <span className="text-content-primary">~30 to 60 min</span>
               </div>
             </div>
 
@@ -982,7 +982,7 @@ function BridgeRecipe() {
               type="button"
               onClick={runPreview}
               disabled={busy || numericAmt <= 0}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-[#CCCEEF] shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-content-primary shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
             >
               {busy ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -994,38 +994,38 @@ function BridgeRecipe() {
             ) : null}
 
             {preview ? (
-              <div className="mt-6 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] p-4">
-                <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[#7376AA]">SDK preview</p>
+              <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+                <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
                 <div className="space-y-1.5 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-[#7376AA]">Route</span>
-                    <span className="text-[#CCCEEF]">{fromChain.label} -&gt; {toChain.label}</span>
+                    <span className="text-content-soft">Route</span>
+                    <span className="text-content-primary">{fromChain.label} -&gt; {toChain.label}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[#7376AA]">Amount</span>
-                    <span className="text-[#CCCEEF]">{preview.amountLcai} LCAI</span>
+                    <span className="text-content-soft">Amount</span>
+                    <span className="text-content-primary">{preview.amountLcai} LCAI</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[#7376AA]">Fee</span>
-                    <span className="text-[#CCCEEF]">0 {sourceUnit} <span className="text-[#7376AA]">(pre-paid IGP)</span></span>
+                    <span className="text-content-soft">Fee</span>
+                    <span className="text-content-primary">0 {sourceUnit} <span className="text-content-soft">(pre-paid IGP)</span></span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[#7376AA]">Arrives in</span>
-                    <span className="text-[#CCCEEF]">{preview.estimatedRelayMinutes} min</span>
+                    <span className="text-content-soft">Arrives in</span>
+                    <span className="text-content-primary">{preview.estimatedRelayMinutes} min</span>
                   </div>
                 </div>
-                <details className="mt-3 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#070710]">
-                  <summary className="cursor-pointer px-3 py-2 text-[11px] text-[#7376AA] hover:text-[#CCCEEF]">
+                <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                  <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">
                     Show raw JSON
                   </summary>
-                  <pre className="overflow-x-auto border-t border-[rgba(112,100,233,0.20)] px-3 py-2 font-mono text-[11px] text-[#CCCEEF]">
+                  <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-primary">
 {JSON.stringify(preview, null, 2)}
                   </pre>
                 </details>
                 <button
                   type="button"
                   onClick={() => setStep(3)}
-                  className="group mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-[#CCCEEF] shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+                  className="group mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-content-primary shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
                   style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
                 >
                   Get the code for your project
@@ -1039,8 +1039,8 @@ function BridgeRecipe() {
         {step === 3 ? (
           <div>
             <StepBack onClick={() => setStep(2)} />
-            <h3 className="text-2xl font-semibold tracking-tight text-[#CCCEEF]">Use it in your project</h3>
-            <p className="mt-1 text-sm text-[#7376AA]">Pick your stack. We give you a runnable example you can paste in.</p>
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Use it in your project</h3>
+            <p className="mt-1 text-sm text-content-soft">Pick your stack. We give you a runnable example you can paste in.</p>
 
             <div className="mt-5 flex flex-wrap gap-2">
               {BRIDGE_TEMPLATES.map((t) => (
@@ -1050,8 +1050,8 @@ function BridgeRecipe() {
                   onClick={() => setTmpl(t.id)}
                   className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                     tmpl === t.id
-                      ? "border-[#7064E9] bg-[#7064E9]/15 text-[#CCCEEF]"
-                      : "border-[rgba(112,100,233,0.20)] bg-[#14152C] text-[#7376AA] hover:text-[#CCCEEF]"
+                      ? "border-primary bg-primary/15 text-content-primary"
+                      : "border-bdr-soft bg-surface-base-faint text-content-soft hover:text-content-primary"
                   }`}
                   aria-pressed={tmpl === t.id}
                 >
@@ -1059,14 +1059,14 @@ function BridgeRecipe() {
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-xs text-[#7376AA]">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
+            <p className="mt-2 text-xs text-content-soft">{BRIDGE_TEMPLATES.find((t) => t.id === tmpl)?.line}</p>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C] px-3 py-2.5 text-xs text-[#CCCEEF]">
-              <span className="truncate text-[#7376AA]">{snippet.fileHint}</span>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 text-xs text-content-primary">
+              <span className="truncate text-content-soft">{snippet.fileHint}</span>
               <button
                 type="button"
                 onClick={() => openInStackBlitz(snippet, tmpl)}
-                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-[#CCCEEF] shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-content-primary shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
                 style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
               >
                 <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
@@ -1078,11 +1078,11 @@ function BridgeRecipe() {
               <CodeBox code={snippet.body} />
             </div>
 
-            <details className="mt-4 rounded-lg border border-[rgba(112,100,233,0.20)] bg-[#14152C]">
-              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-[#7376AA] hover:text-[#CCCEEF]">
+            <details className="mt-4 rounded-lg border border-bdr-soft bg-surface-base-faint">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-content-soft hover:text-content-primary">
                 <Terminal className="size-3" /> Terminal setup commands
               </summary>
-              <div className="border-t border-[rgba(112,100,233,0.20)] p-3">
+              <div className="border-t border-bdr-soft p-3">
                 <CodeBox code={snippet.setup} />
               </div>
             </details>
