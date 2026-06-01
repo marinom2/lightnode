@@ -37,6 +37,16 @@ import { runInferenceBatch } from "./batch.js";
 import { Agent, parseAgentOutput } from "./agent.js";
 import { preflight as workerPreflight, watch as workerWatch } from "./worker.js";
 import {
+  WorkerOperator,
+  WORKER_REGISTRY_ABI,
+  JOB_REGISTRY_OPERATOR_ABI,
+  AI_CONFIG_ABI,
+  JOB_STATE,
+  decodeWorkerError,
+  WorkerOpError,
+  isWorkerOpError,
+} from "./worker-operator.js";
+import {
   Bridge,
   BRIDGE_ROUTE,
   HYPERLANE_ROUTER_ABI,
@@ -243,7 +253,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.6.1";
+export const SDK_VERSION = "0.7.0";
 
 export {
   NETWORKS,
@@ -316,6 +326,17 @@ export {
   RelayTokenTimeoutError,
   GatewayAuthError,
   isStalledWorker,
+  // v0.7.0 worker-OPERATOR surface: the write/ops side (stuck-job recovery,
+  // Docker-free settle/exit, revert decoding, live config). Complements the
+  // read-only worker preflight/watch above; does not duplicate it.
+  WorkerOperator,
+  WORKER_REGISTRY_ABI,
+  JOB_REGISTRY_OPERATOR_ABI,
+  AI_CONFIG_ABI,
+  JOB_STATE,
+  decodeWorkerError,
+  WorkerOpError,
+  isWorkerOpError,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
 export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult } from "./inference.js";
@@ -326,4 +347,17 @@ export type { WorkerPreflightArgs, WorkerPreflightResult, WorkerWatchOptions, Wo
 export type { BridgeChain, BridgeEndpoints, BridgeTransferArgs } from "./bridge.js";
 export type { DaoChain, DaoAddresses, ProposalSummary, DaoConfig } from "./dao.js";
 export type { BaseModel, ModelVariant, AccessTier, AccessPolicy, Benchmark, OnchainModelRegistryOptions } from "./onchain-models.js";
+export type {
+  MinimalWalletClient,
+  MinimalPublicClient,
+  WorkerOperatorOpts,
+  WorkerProtocolConfig,
+  WorkerStatus,
+  DeregisterReadiness,
+  StuckJob,
+  EarningsBreakdown,
+  OnchainJob,
+  JobState,
+  DecodedWorkerError,
+} from "./worker-operator.js";
 export type { NetworkId, NetworkConfig, Worker, Job, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
