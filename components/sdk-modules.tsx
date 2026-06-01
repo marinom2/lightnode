@@ -3782,7 +3782,9 @@ function PreflightRecipe() {
         : /insufficient funds|insufficient balance/i.test(msg)
           ? `Wallet has no ${walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"}. Top it up before trying again.`
           : /selection_mismatch|selection was superseded|409/.test(msg)
-            ? "Another session for this wallet is in flight on the gateway. This usually means chat.lightchain.ai (or another LightChain dApp) is open in a different tab signed into the same wallet. Close those tabs and try again."
+            ? walletNetwork === "testnet"
+              ? "LightChain testnet dispatcher returned 409 selection_mismatch. Reproduced upstream — this is a testnet dispatcher issue, not your wallet. Switch to mainnet for an immediate working preflight, or wait for the LightChain team to fix the testnet pod."
+              : "Another session for this wallet is in flight on the gateway. This usually means chat.lightchain.ai (or another LightChain dApp) is open in a different tab signed into the same wallet. Close those tabs and try again."
             : msg.split("\n")[0];
       setErr(friendly);
     } finally {
@@ -3898,12 +3900,12 @@ for (const w of top) {
           <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
             {!connectedAddress ? (
               <div className="flex items-center justify-between gap-3">
-                <div className="text-xs text-content-soft">Connect a wallet on testnet (chain 8200) or mainnet (chain 9200). Get free testnet LCAI from <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.</div>
+                <div className="text-xs text-content-soft">Connect a wallet on mainnet (chain 9200) or testnet (chain 8200).</div>
                 <ConnectButton size="sm" />
               </div>
             ) : !walletNetwork ? (
               <div className="flex items-center justify-between gap-3">
-                <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain testnet or mainnet.</div>
+                <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain mainnet or testnet.</div>
                 <ConnectButton size="sm" />
               </div>
             ) : (
@@ -3929,6 +3931,11 @@ for (const w of top) {
               </div>
             )}
           </div>
+          {walletNetwork === "testnet" ? (
+            <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
+              <strong>Heads up:</strong> the LightChain testnet dispatcher is currently returning 409 selection_mismatch on every prepareSession call (reproduced against the live <code className="font-mono">chat-api.testnet.lightchain.ai</code> with a brand-new wallet and no concurrent traffic; mainnet works fine on the same code). If you hit it, switch to mainnet to try the flow — the SDK code is identical and the fee is the same 0.02 LCAI.
+            </p>
+          ) : null}
           <div className="mt-5">
             <PreviewButton
               onClick={run}

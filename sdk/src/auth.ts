@@ -221,10 +221,18 @@ export async function siweSignIn(
     throw new Error("siweSignIn: walletClient has no account; pass `address` explicitly");
   }
   const { message } = await siweChallenge(cfg, address, { signal: opts.signal, baseUrl: opts.baseUrl });
-  // viem's signMessage requires `account` even when one is set on the
-  // client; passing it explicitly works with both wagmi and bare viem.
+  // Pass the FULL account object when the walletClient has one (viem's
+  // privateKeyToAccount returns a "local" account whose signMessage signs
+  // off-RPC with the secret material). Passing only the address would make
+  // viem fall back to chain.personal_sign, which LightChain RPC does not
+  // expose -> -32601 MethodNotFoundRpcError.
+  //
+  // For wagmi-injected wallets the account is just `{ address }`; viem then
+  // dispatches to the provider (MetaMask / WalletConnect / etc.) which
+  // does its own personal_sign over the EIP-1193 channel.
+  const accountForSign = walletClient.account ?? (address as `0x${string}`);
   const signature = await walletClient.signMessage({
-    account: walletClient.account?.address ?? address,
+    account: accountForSign as Parameters<typeof walletClient.signMessage>[0]["account"],
     message,
   });
   const verified = await siweVerify(cfg, { message, signature }, { signal: opts.signal, baseUrl: opts.baseUrl });
