@@ -439,38 +439,64 @@ export function WorkerView({
         </Card>
       )}
 
-      {models.length > 0 && (
+      {models.length > 0 && (() => {
+        // Reconcile against on-chain isEligible. The subgraph lists a worker's
+        // models from its LAST registration and never indexes removals, so it
+        // goes stale after a deregister/re-register (it can show a model the
+        // worker no longer serves on-chain). When the chain was readable
+        // (onchainEligible !== null on any row), trust it: only models the chain
+        // confirms are "served"; the rest are stale subgraph entries we flag, not
+        // present as active.
+        const checked = models.some((m) => m.onchainEligible != null);
+        const served = checked ? models.filter((m) => m.onchainEligible === true) : models;
+        const stale = checked ? models.filter((m) => m.onchainEligible !== true) : [];
+        return (
         <Card className="p-5">
           <div className="mb-3 flex items-center gap-2">
             <Boxes className="size-4 text-content-soft" />
             <h3 className="text-sm font-semibold text-content-primary">Supported models</h3>
-            <span className="text-xs text-content-soft">what this worker serves</span>
+            <span className="text-xs text-content-soft">what this worker serves (on-chain)</span>
           </div>
-          <div className="overflow-hidden rounded-lg border border-bdr-soft">
-            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-bdr-soft bg-surface-base-subtle/60 px-3 py-2 text-[11px] font-medium text-content-soft">
-              <span>Model</span>
-              <span className="text-right">Fee</span>
-              <span className="text-right">Max output</span>
-              <span className="text-right">Status</span>
-            </div>
-            {models.map((m) => (
-              <div
-                key={m.name}
-                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 px-3 py-2.5 text-xs text-content-default [&:not(:last-child)]:border-b [&:not(:last-child)]:border-bdr-soft"
-              >
-                <span className="truncate font-medium text-content-primary">{m.name}</span>
-                <span className="text-right tabular-nums">{m.fee ? `${fmt(fromWei(m.fee), 3)} LCAI` : "-"}</span>
-                <span className="text-right tabular-nums text-content-soft">
-                  {m.maxOutput ? `${m.maxOutput.toLocaleString()} tok` : "-"}
-                </span>
-                <span className="text-right">
-                  <Badge tone={m.active ? "success" : "muted"}>{m.active ? "active" : "paused"}</Badge>
-                </span>
+          {served.length > 0 ? (
+            <div className="overflow-hidden rounded-lg border border-bdr-soft">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-bdr-soft bg-surface-base-subtle/60 px-3 py-2 text-[11px] font-medium text-content-soft">
+                <span>Model</span>
+                <span className="text-right">Fee</span>
+                <span className="text-right">Max output</span>
+                <span className="text-right">Status</span>
               </div>
-            ))}
-          </div>
+              {served.map((m) => (
+                <div
+                  key={m.name}
+                  className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 px-3 py-2.5 text-xs text-content-default [&:not(:last-child)]:border-b [&:not(:last-child)]:border-bdr-soft"
+                >
+                  <span className="truncate font-medium text-content-primary">{m.name}</span>
+                  <span className="text-right tabular-nums">{m.fee ? `${fmt(fromWei(m.fee), 3)} LCAI` : "-"}</span>
+                  <span className="text-right tabular-nums text-content-soft">
+                    {m.maxOutput ? `${m.maxOutput.toLocaleString()} tok` : "-"}
+                  </span>
+                  <span className="text-right">
+                    <Badge tone={m.active ? "success" : "muted"}>{m.active ? "active" : "paused"}</Badge>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs leading-relaxed text-content-soft">
+              This worker is registered on-chain but is not serving any model right now. (A model add can fail during
+              setup, leaving the worker staked but with no active model.) Add one from Operations, then restart.
+            </p>
+          )}
+          {stale.length > 0 && (
+            <p className="mt-2 text-[11px] leading-relaxed text-content-soft">
+              Note: the public index still lists {stale.map((m) => m.name).join(", ")} for this worker, but the chain
+              shows it is not currently served (the index does not clear models after a deregister/re-register). Ignore
+              that stale entry.
+            </p>
+          )}
         </Card>
-      )}
+        );
+      })()}
 
       {jobs.length > 0 && (
         <Card className="p-5">

@@ -70,3 +70,58 @@ export async function fetchOnchainRegistered(network: NetworkId, address: string
     clearTimeout(timer);
   }
 }
+
+// WorkerRegistry.isEligible(address,bytes32) selector = 0xdb3ebef1 (verified on the
+// deployed predeploy; this view does NOT revert, unlike most of its getters).
+const IS_ELIGIBLE_SELECTOR = "0xdb3ebef1";
+
+/**
+ * On-chain truth for which of `modelIds` the worker actually serves, via
+ * WorkerRegistry.isEligible(worker, modelId). The subgraph lists a worker's
+ * models from its LAST registration and never indexes removals, so it goes stale
+ * after a deregister/re-register (it can show a model the worker no longer serves
+ * on-chain, or miss the current one). This reconciles the display against the
+ * chain. Returns a Map keyed by lowercased modelId; null on any RPC failure so
+ * the caller falls back to the index. One eth_call per model, in parallel.
+ */
+export async function fetchOnchainEligibleModels(
+  network: NetworkId,
+  address: string,
+  modelIds: string[],
+): Promise<Map<string, boolean> | null> {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address) || modelIds.length === 0) return null;
+  const cfg = NETWORKS[network];
+  const addrArg = address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 7000);
+  try {
+    const entries = await Promise.all(
+      modelIds.map(async (id) => {
+        const idArg = id.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+        const data = `${IS_ELIGIBLE_SELECTOR}${addrArg}${idArg}`;
+        const res = await fetch(cfg.rpc, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "eth_call",
+            params: [{ to: cfg.workerRegistry, data }, "latest"],
+          }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) throw new Error(`rpc ${res.status}`);
+        const json = (await res.json()) as { result?: string; error?: unknown };
+        if (json.error || typeof json.result !== "string") throw new Error("eth_call failed");
+        // bool: last hex nibble is 1 (true) / 0 (false).
+        const eligible = /0*1$/.test(json.result.replace(/^0x/, ""));
+        return [id.toLowerCase(), eligible] as const;
+      }),
+    );
+    return new Map(entries);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}

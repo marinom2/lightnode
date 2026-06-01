@@ -137,9 +137,17 @@ export async function fetchModels(network: NetworkId): Promise<ModelInfo[]> {
 /** A model a specific worker serves, joined to its registry info (name/fee/limit). */
 export interface ServedModel {
   name: string;
+  modelId: string; // keccak id, for on-chain isEligible reconciliation
   fee?: string; // wei
   maxOutput?: number;
   active: boolean;
+  /**
+   * On-chain truth: does WorkerRegistry.isEligible(worker, modelId) confirm the
+   * worker actually serves this model? The subgraph lists models from the LAST
+   * registration and never indexes removals, so it goes stale after a
+   * deregister/re-register. null = not checked (chain read unavailable).
+   */
+  onchainEligible?: boolean | null;
 }
 
 export async function fetchWorkerModels(network: NetworkId, address: string): Promise<ServedModel[]> {
@@ -156,6 +164,7 @@ export async function fetchWorkerModels(network: NetworkId, address: string): Pr
       const info = byId.get(w.model_id.toLowerCase());
       return {
         name: info?.name ?? `${w.model_id.slice(0, 10)}…`,
+        modelId: w.model_id,
         fee: info?.fee,
         maxOutput: info?.max_output_tokens,
         active: w.is_active,
