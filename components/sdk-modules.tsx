@@ -3363,11 +3363,32 @@ const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.
 const op = new WorkerOperator("${net}", { publicClient });
 
 const cfg = await op.config();
-console.log("min stake     :", cfg.minStakeLcai, "LCAI");
-console.log("completion    :", cfg.completionTimeoutSec, "s");
-console.log("dispute window:", cfg.disputeWindowSec, "s");
-console.log("slash bps     :", JSON.stringify(cfg.slashBps));
-console.log("fee bps       :", JSON.stringify(cfg.feeBps));`;
+
+// Friendlier formatters: seconds to human, bps to percent. Same logic
+// the lightnode.app /build/sdks/operator panel uses.
+const pct = (bps: number) => {
+  if (!Number.isFinite(bps)) return "-";
+  const v = bps / 100;
+  return (Number.isInteger(v) ? v.toFixed(0) : v.toFixed(2)) + "%";
+};
+const human = (sec: number) => {
+  if (!Number.isFinite(sec) || sec <= 0) return "moments";
+  if (sec < 60) return \`\${sec}s\`;
+  if (sec < 3600) return \`\${Math.round(sec / 60)} min\`;
+  if (sec < 86400) { const h = Math.round(sec / 3600); return \`\${h} hour\${h === 1 ? "" : "s"}\`; }
+  const d = Math.round(sec / 86400); return \`\${d} day\${d === 1 ? "" : "s"}\`;
+};
+
+console.log("Min stake              :", cfg.minStakeLcai, "LCAI");
+console.log("Completion timeout     :", cfg.completionTimeoutSec, "s (" + human(cfg.completionTimeoutSec) + ")");
+console.log("Ack timeout            :", cfg.ackTimeoutSec, "s (" + human(cfg.ackTimeoutSec) + ")");
+console.log("Resolution timeout     :", cfg.resolutionTimeoutSec, "s (" + human(cfg.resolutionTimeoutSec) + ")");
+console.log("Dispute window         :", cfg.disputeWindowSec, "s (" + human(cfg.disputeWindowSec) + ")");
+console.log("Slash (ack/comp/disp)  :", pct(cfg.slashBps.ackTimeout) + " / " + pct(cfg.slashBps.completionTimeout) + " / " + pct(cfg.slashBps.dispute));
+console.log("Slash cap              :", pct(cfg.slashBps.max));
+console.log("Fee split (prot/wkr/p) :", pct(cfg.feeBps.protocol) + " / " + pct(cfg.feeBps.worker) + " / " + pct(cfg.feeBps.feePool));
+console.log("Suspension threshold   :", cfg.suspensionThreshold, "consecutive timeouts");
+console.log("Suspension cooldown    :", cfg.suspensionCooldownSec, "s (" + human(cfg.suspensionCooldownSec) + ")");`;
   }
   if (action === "job") {
     return `import { LightNode } from "lightnode-sdk";
@@ -3423,13 +3444,27 @@ const [st, walletWei, w, jobs, served] = await Promise.all([
   ln.getServedModels(worker),
 ]);
 
+// Friendlier number formatter so the runnable output matches the UI:
+// rounds to 4 decimals, drops trailing zeros, adds thousands separators.
+const fmtLcai = (n: number) => {
+  if (!Number.isFinite(n) || n === 0) return "0";
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+};
+const relTime = (sec: number) => {
+  const diff = Math.floor(Date.now() / 1000) - sec;
+  if (diff < 60) return \`\${Math.max(0, diff)}s ago\`;
+  if (diff < 3600) return \`\${Math.round(diff / 60)} min ago\`;
+  if (diff < 86400) { const h = Math.round(diff / 3600); return \`\${h} hour\${h === 1 ? "" : "s"} ago\`; }
+  const d = Math.round(diff / 86400); return \`\${d} day\${d === 1 ? "" : "s"} ago\`;
+};
+
 console.log("Worker           :", st.address);
 console.log("Registered       :", st.registered ? "yes" : "no");
-console.log("Stake locked     :", st.stakeLcai, "LCAI");
-console.log("Claimable        :", st.claimableLcai, "LCAI");
-console.log("Wallet balance   :", Number(formatEther(walletWei)), "LCAI");
-console.log("Lifetime earned  :", w?.total_earned ? Number(formatEther(BigInt(w.total_earned))) : 0, "LCAI");
-console.log("Last seen        :", w?.last_seen_at ? new Date(w.last_seen_at * 1000).toISOString() : "unknown");
+console.log("Stake locked     :", fmtLcai(st.stakeLcai), "LCAI");
+console.log("Claimable        :", fmtLcai(st.claimableLcai), "LCAI");
+console.log("Wallet balance   :", fmtLcai(Number(formatEther(walletWei))), "LCAI");
+console.log("Lifetime earned  :", fmtLcai(w?.total_earned ? Number(formatEther(BigInt(w.total_earned))) : 0), "LCAI");
+console.log("Last seen        :", w?.last_seen_at ? relTime(w.last_seen_at) : "unknown");
 
 // Served models (chain-confirmed first, then any indexer-only rows).
 const live = served.filter(m => m.onchainEligible === true);
