@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { MODULES, type ModuleId } from "@/lib/sdk-modules-data";
 import { SdkSubpageClient } from "@/components/sdk-subpage-client";
 
-const VALID_IDS: ModuleId[] = ["bridge", "dao", "chat", "preflight", "dispute", "models"];
+// Derive the valid ids from MODULES so a new module can never 404 here by
+// being forgotten in a hand-maintained list.
+const VALID_IDS: ModuleId[] = MODULES.map((m) => m.id);
 
 export function generateStaticParams(): { id: ModuleId }[] {
   return VALID_IDS.map((id) => ({ id }));

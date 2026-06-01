@@ -1833,7 +1833,81 @@ export function Widget({ id }: { id: ModuleId }) {
   if (id === "preflight") return <PreflightSample />;
   if (id === "chat") return <ChatSample />;
   if (id === "dispute") return <DisputeSample />;
+  if (id === "batch") return <BatchExplainer />;
+  if (id === "agent") return <AgentExplainer />;
+  if (id === "operator") return <OperatorExplainer />;
   return <ModelsExplainer />;
+}
+
+function OperatorExplainer() {
+  return (
+    <div className="space-y-4 text-sm leading-relaxed text-content-soft">
+      <p>
+        <code className="font-mono text-content-default">WorkerOperator</code> runs a worker&apos;s on-chain lifecycle
+        from code, over plain RPC, with no Docker and no worker image. Reads (<code className="font-mono text-content-default">status</code>,{" "}
+        <code className="font-mono text-content-default">config</code>, <code className="font-mono text-content-default">getJob</code>,{" "}
+        <code className="font-mono text-content-default">canDeregister</code>) need no key; the rest sign with the worker key.
+      </p>
+      <ul className="space-y-2 pl-4">
+        <li className="list-disc"><span className="text-content-primary">Stuck-job recovery.</span> <code className="font-mono text-content-default">claimTimeout</code> / <code className="font-mono text-content-default">clearStuck</code> / <code className="font-mono text-content-default">unstickAndDeregister</code> time out acknowledged-but-unfinished jobs that block deregister. No other tool exposes this.</li>
+        <li className="list-disc"><span className="text-content-primary">Settle + exit.</span> <code className="font-mono text-content-default">releaseAll</code>, <code className="font-mono text-content-default">withdraw</code>, <code className="font-mono text-content-default">deregister</code> from a laptop, server, or CI.</li>
+        <li className="list-disc"><span className="text-content-primary">Stake ops.</span> <code className="font-mono text-content-default">topUpStake</code> / <code className="font-mono text-content-default">withdrawStake</code> / <code className="font-mono text-content-default">reinstate</code>.</li>
+        <li className="list-disc"><span className="text-content-primary">Readable reverts.</span> <code className="font-mono text-content-default">decodeWorkerError</code> turns the unverified custom errors into a sentence plus the fix.</li>
+      </ul>
+      <p className="text-xs text-content-soft">
+        On mainnet, clearing a stuck job realizes a per-job slash (it is the price of unblocking an exit a stuck job
+        would otherwise block forever); testnet has slashing disabled. The read-only snippet below opens in StackBlitz
+        with no key required.
+      </p>
+    </div>
+  );
+}
+
+function BatchExplainer() {
+  return (
+    <div className="space-y-4 text-sm leading-relaxed text-content-soft">
+      <p>
+        Running many inferences serially is a typical first attempt that drags total wall-clock to{" "}
+        <span className="font-semibold text-content-primary">N x p95-per-call</span>. <code className="font-mono text-content-default">runInferenceBatch</code> caps
+        concurrency at whatever you pick, hands each slot a fresh session, and surfaces per-slot errors so one stalled
+        worker does not kill the run.
+      </p>
+      <ul className="space-y-2 pl-4">
+        <li className="list-disc"><span className="text-content-primary">Stable order.</span> Result at index N corresponds to prompt at index N.</li>
+        <li className="list-disc"><span className="text-content-primary">Per-slot retry.</span> Stalls and reverts do not propagate.</li>
+        <li className="list-disc"><span className="text-content-primary">Live progress.</span> <code className="font-mono text-content-default">onSlotComplete</code> fires per slot.</li>
+        <li className="list-disc"><span className="text-content-primary">Cancellable.</span> Pass an <code className="font-mono text-content-default">AbortSignal</code> to stop queued slots.</li>
+      </ul>
+      <p className="text-xs text-content-soft">
+        Fits batch evals, content scoring, RAG re-ranking, parallel rewrites. The runnable example is below; one click
+        opens it in StackBlitz with a sample three-prompt batch.
+      </p>
+    </div>
+  );
+}
+
+function AgentExplainer() {
+  return (
+    <div className="space-y-4 text-sm leading-relaxed text-content-soft">
+      <p>
+        Most agent frameworks assume the model knows native function calling. The LightChain pool runs open models
+        (llama3-8b, llama3-70b) without that capability. The <code className="font-mono text-content-default">Agent</code> class drives the same loop with simple
+        string markers: <code className="font-mono text-content-default">&lt;tool&gt;name {`{...args}`}&lt;/tool&gt;</code> /{" "}
+        <code className="font-mono text-content-default">&lt;answer&gt;...&lt;/answer&gt;</code>.
+      </p>
+      <ul className="space-y-2 pl-4">
+        <li className="list-disc"><span className="text-content-primary">Bring your own tools.</span> Each handler is a plain async function returning JSON.</li>
+        <li className="list-disc"><span className="text-content-primary">Per-step trace.</span> <code className="font-mono text-content-default">{"{ steps }"}</code> includes every thought, tool call, and observation.</li>
+        <li className="list-disc"><span className="text-content-primary">Bounded.</span> <code className="font-mono text-content-default">maxIterations</code> caps the wall clock + cost.</li>
+        <li className="list-disc"><span className="text-content-primary">Works on small models.</span> No native function calling required.</li>
+      </ul>
+      <p className="text-xs text-content-soft">
+        Fits autonomous tasks, search + summarise, lookup chains, deterministic side effects. The runnable example is
+        below with two built-in tools (<code className="font-mono text-content-default">add</code>,{" "}
+        <code className="font-mono text-content-default">now</code>) so it starts producing tool calls right away.
+      </p>
+    </div>
+  );
 }
 
 // --- The module grid -------------------------------------------------------

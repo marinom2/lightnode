@@ -18,7 +18,7 @@
  * castVote, queue, execute. Plus convenience reads of the constants.
  */
 
-import { parseAbi } from "viem";
+import { keccak256, parseAbi, toBytes } from "viem";
 
 /**
  * Both deployed DAOs we know about:
@@ -141,6 +141,7 @@ export const GOVERNOR_ABI = parseAbi([
   "function proposalEta(uint256 proposalId) external view returns (uint256)",
   "function getVotes(address account, uint256 timepoint) external view returns (uint256)",
   "function hasVoted(uint256 proposalId, address account) external view returns (bool)",
+  "function cancel(address[] targets, uint256[] values, bytes[] calldatas, bytes32 descriptionHash) external returns (uint256)",
   // Events - needed for recentProposals() event scan.
   "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)",
 ]);
@@ -464,6 +465,114 @@ export class DAO {
       functionName: "execute",
       args: [args.targets, args.values, args.calldatas, args.descriptionHash],
       value: totalValue,
+    });
+  }
+
+  /**
+   * Cancel a proposal. OZ Governor permits the proposer (and sometimes the
+   * Guardian / Timelock role) to cancel a Pending or Active proposal. Same
+   * `descriptionHash` you'd pass to `queue` / `execute`.
+   */
+  cancel(args: {
+    targets: `0x${string}`[];
+    values: bigint[];
+    calldatas: `0x${string}`[];
+    descriptionHash: `0x${string}`;
+  }): Promise<`0x${string}`> {
+    if (!this.walletClient) throw new Error("DAO: no wallet client; pass one to the DAO constructor for writes");
+    return this.walletClient.writeContract({
+      address: this.addresses.governor,
+      abi: GOVERNOR_ABI,
+      functionName: "cancel",
+      args: [args.targets, args.values, args.calldatas, args.descriptionHash],
+    });
+  }
+
+  // -------- Helpers (pure, no chain reads) --------
+
+  /**
+   * keccak256 of the raw description string. The Governor stores proposals
+   * keyed by `(targets, values, calldatas, descriptionHash)` rather than
+   * the description itself - this is the same hash the OZ Governor computes
+   * internally. Pass it to `queue`, `execute`, `cancel`, `hashProposal`.
+   */
+  descriptionHash(description: string): `0x${string}` {
+    return keccak256(toBytes(description));
+  }
+
+  /**
+   * Predict a proposal id BEFORE submitting. Mirrors `Governor.hashProposal`
+   * on chain so you can compute the id deterministically (the proposer can
+   * persist it ahead of time, drop it into a UI, or sanity-check that a
+   * proposal hasn't already been submitted).
+   */
+  async hashProposal(args: {
+    targets: `0x${string}`[];
+    values: bigint[];
+    calldatas: `0x${string}`[];
+    /** Either the description string or the precomputed hash; both accepted. */
+    description: string | `0x${string}`;
+  }): Promise<bigint> {
+    const descHash: `0x${string}` =
+      typeof args.description === "string" && args.description.startsWith("0x") && args.description.length === 66
+        ? (args.description as `0x${string}`)
+        : keccak256(toBytes(args.description));
+    return this.publicClient.readContract({
+      address: this.addresses.governor,
+      abi: GOVERNOR_ABI,
+      functionName: "hashProposal",
+      args: [args.targets, args.values, args.calldatas, descHash],
+    }) as Promise<bigint>;
+  }
+
+  // -------- IVotes helpers (LCAIBallots wrapped token) --------
+
+  /**
+   * IVotes.balanceOf - wrapped voting-token balance (LCAIBallots on Ethereum
+   * mainnet, native LCAI via the NativeVotes precompile on LightChain
+   * mainnet). Returns wei.
+   */
+  getBallotsBalance(voter: `0x${string}`): Promise<bigint> {
+    const ballots = this.addresses.ballots;
+    if (!ballots) throw new Error("DAO.getBallotsBalance: this chain has no Ballots address");
+    return this.publicClient.readContract({
+      address: ballots,
+      abi: VOTES_ABI,
+      functionName: "balanceOf",
+      args: [voter],
+    }) as Promise<bigint>;
+  }
+
+  /**
+   * Address the voter has delegated to. Wraps `IVotes.delegates`. The zero
+   * address means the voter has not yet delegated, which is the OZ default
+   * (no voting power for self until you self-delegate).
+   */
+  getDelegate(voter: `0x${string}`): Promise<`0x${string}`> {
+    const ballots = this.addresses.ballots;
+    if (!ballots) throw new Error("DAO.getDelegate: this chain has no Ballots address");
+    return this.publicClient.readContract({
+      address: ballots,
+      abi: VOTES_ABI,
+      functionName: "delegates",
+      args: [voter],
+    }) as Promise<`0x${string}`>;
+  }
+
+  /**
+   * Delegate voting weight to `delegatee` (use the voter's own address to
+   * self-delegate, which is the common first step before voting). Wallet
+   * required.
+   */
+  delegate(delegatee: `0x${string}`): Promise<`0x${string}`> {
+    if (!this.walletClient) throw new Error("DAO: no wallet client; pass one to the DAO constructor for writes");
+    const ballots = this.addresses.ballots;
+    if (!ballots) throw new Error("DAO.delegate: this chain has no Ballots address");
+    return this.walletClient.writeContract({
+      address: ballots,
+      abi: VOTES_ABI,
+      functionName: "delegate",
+      args: [delegatee],
     });
   }
 }

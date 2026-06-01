@@ -1,5 +1,5 @@
 /**
- * Server-safe data for the six SDK modules surfaced on /build/sdks and on
+ * Server-safe data for the SDK modules surfaced on /build/sdks and on
  * the dedicated /build/sdks/<id> sub-pages. Lives in /lib (no "use client")
  * so server components can import MODULES at static-generation time.
  *
@@ -7,13 +7,14 @@
  * components/sdk-modules.tsx (which IS "use client"). That file re-exports
  * MODULES / ModuleDef / ModuleId from here so existing callers keep working.
  */
-import { Bot, Boxes, Coins, Database, Layers3, PlayCircle, ShieldCheck, Workflow } from "lucide-react";
+import { Bot, Boxes, Coins, Database, Layers3, PlayCircle, ShieldCheck, Wrench, Workflow } from "lucide-react";
 
 export type ModuleId =
   | "bridge"
   | "dao"
   | "chat"
   | "preflight"
+  | "operator"
   | "models"
   | "dispute"
   | "batch"
@@ -158,9 +159,30 @@ const cfg = await dao.config();
 console.log("\\nVoting delay :", cfg.votingDelayBlocks.toString(), "blocks");
 console.log("Voting period:", cfg.votingPeriodBlocks.toString(), "blocks (~", Math.round(cfg.votingPeriodSecs / 86400), "days)");
 
-// To vote (needs PRIVATE_KEY + LCAI Ballots delegated to your address):
-// import { VoteSupport } from "lightnode-sdk";
-// await dao.castVote(rows[0].id, VoteSupport.For, "support this");`,
+// Predict the proposal id for a *new* proposal BEFORE submitting it.
+// Useful for two-step UIs that want to surface the id ahead of time.
+const sample = await dao.hashProposal({
+  targets: ["0x0000000000000000000000000000000000000000"],
+  values: [0n],
+  calldatas: ["0x"],
+  description: "Sample proposal",
+});
+console.log("\\nPredicted proposal id for the sample:", sample.toString());
+
+// Looking up voting weight requires the IVotes wrapper (LCAIBallots).
+// Replace the address with your own to see your wrapped balance + delegate.
+const WHO = "0x0000000000000000000000000000000000000001" as const;
+const [balance, delegateTo] = await Promise.all([
+  dao.getBallotsBalance(WHO).catch(() => 0n),
+  dao.getDelegate(WHO).catch(() => "0x0000000000000000000000000000000000000000" as const),
+]);
+console.log("\\nBallots balance for", WHO, "=", balance.toString());
+console.log("delegated to            =", delegateTo);
+
+// To vote (needs PRIVATE_KEY + a delegated Ballots balance):
+//   import { VoteSupport } from "lightnode-sdk";
+//   await dao.delegate(yourAddress);            // self-delegate first
+//   await dao.castVote(rows[0].id, VoteSupport.For, "support this");`,
     sandboxNeedsKey: false,
     triable: true,
   },
@@ -264,6 +286,62 @@ for (const w of top) console.log(w.address, "  jobs:", w.jobsCompleted, "  p50:"
     triable: true,
   },
   {
+    id: "operator",
+    icon: Wrench,
+    title: "Worker Operator SDK",
+    blurb:
+      "WorkerOperator runs a worker's on-chain lifecycle from code: register, stake, settle, and the stuck-job recovery (claimTimeout / clearStuck / unstickAndDeregister) that clears acknowledged-but-unfinished jobs blocking deregister. No Docker, no worker image. decodeWorkerError turns the unverified custom reverts into plain English.",
+    titleAccent: "Operator",
+    kicker: "Worker write surface",
+    tagline: "Run, settle, and exit a worker from code.",
+    subtitle:
+      "The write side the worker toolkit does not expose: clear stuck jobs, settle and withdraw earnings, and deregister over plain RPC. status / config / canDeregister are read-only; the rest sign with the worker key.",
+    cta: { label: "See the methods", href: "#try-it" },
+    npm: "#worker-operator-new-in-070",
+    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/worker-operator.ts",
+    snippet: `import { WorkerOperator } from "lightnode-sdk";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+const chain = { id: 8200, name: "LC Testnet",
+  nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.testnet.lightchain.ai"] } } };
+const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.http[0]), chain });
+const walletClient = createWalletClient({ account: privateKeyToAccount("0x..."), transport: http(chain.rpcUrls.default.http[0]), chain });
+
+const op = new WorkerOperator("testnet", { publicClient, walletClient });
+
+await op.status();                            // registration, stake, claimable
+await op.canDeregister(jobIds);               // what blocks the exit, no tx
+await op.unstickAndDeregister(jobIds);        // clear stuck + settle + withdraw + deregister`,
+    // Read-only sandbox: status + config + canDeregister against a live worker.
+    // Deliberately does NOT call any write method - a public sandbox must never
+    // broadcast a state-changing (and on mainnet slash-realizing) tx.
+    sandboxBody: `import { WorkerOperator } from "lightnode-sdk";
+import { createPublicClient, http } from "viem";
+
+const chain = { id: 8200, name: "LC Testnet",
+  nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.testnet.lightchain.ai"] } } };
+const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.http[0]), chain });
+
+// Read-only: a worker address is all you need (no key) for status + config.
+const worker = "0xbe1cDe9b44A7f48de5e6076AE20f2356bbc28FC2"; // any registered testnet worker
+const op = new WorkerOperator("testnet", { publicClient, workerAddress: worker });
+
+const st = await op.status();
+console.log("registered :", st.registered);
+console.log("stake LCAI :", st.stakeLcai);
+console.log("claimable  :", st.claimableLcai, "LCAI");
+
+const cfg = await op.config();
+console.log("\\nmin stake  :", cfg.minStakeLcai, "LCAI");
+console.log("completion :", cfg.completionTimeoutSec, "s");
+console.log("slash bps  :", JSON.stringify(cfg.slashBps));`,
+    sandboxNeedsKey: false,
+    triable: false,
+  },
+  {
     id: "dispute",
     icon: Database,
     title: "Refund SDK",
@@ -355,6 +433,127 @@ const id = ln.modelId(tag);
 console.log("\\nestimateFee('" + tag + "') = " + feeLcai + " LCAI");
 console.log("modelId('" + tag + "')     = " + id);`,
     sandboxNeedsKey: false,
+    triable: true,
+  },
+  {
+    id: "batch",
+    icon: Layers3,
+    title: "Batch SDK",
+    blurb:
+      "Fan out many encrypted inferences in parallel with capped concurrency. Stable result order, per-slot errors so one stalled worker does not kill the batch. Optional onSlotComplete for live progress UI, optional AbortSignal to cancel queued work.",
+    titleAccent: "SDK",
+    kicker: "Parallel inference",
+    tagline: "Run N prompts. Get N answers.",
+    subtitle:
+      "Fan out prompts in parallel against the encrypted network, capped at the concurrency you pick. Stable result order, per-slot errors so one stalled worker does not kill the batch.",
+    cta: { label: "Run a batch", href: "#try-it" },
+    npm: "#batch-runner-new-in-060",
+    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/batch.ts",
+    snippet: `import { runInferenceBatch } from "lightnode-sdk";
+
+const results = await runInferenceBatch({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  model: "llama3-8b",
+  system: "Reply in one short sentence.",
+  concurrency: 4,
+  prompts: [
+    "fact about the ocean",
+    "fact about the moon",
+    "fact about coffee",
+  ],
+  onSlotComplete: ({ index, result, error }) => {
+    console.log(\`#\${index}\`, error?.message ?? result?.answer);
+  },
+});`,
+    sandboxBody: `import { runInferenceBatch } from "lightnode-sdk";
+
+const results = await runInferenceBatch({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  system: "Reply in one short sentence.",
+  concurrency: 3,
+  prompts: [
+    "Give me a fact about the ocean.",
+    "Give me a fact about the moon.",
+    "Give me a fact about coffee.",
+  ],
+  onSlotComplete: ({ index, result, error }) => {
+    console.log(\`#\${index}\`, error?.message ?? result?.answer);
+  },
+});
+
+console.log("\\nFinal results:");
+for (const r of results) {
+  if (r.error) console.warn(\`#\${r.index} failed:\`, r.error.message);
+  else console.log(\`#\${r.index}\`, r.result.answer);
+}`,
+    sandboxNeedsKey: true,
+    triable: true,
+  },
+  {
+    id: "agent",
+    icon: Bot,
+    title: "Agent SDK",
+    blurb:
+      "ReAct-style loop on top of runInferenceWithKey. The model picks tools, runs them, observes the result, iterates. Uses simple <tool> / <answer> string markers so it works on small open models without native function-calling.",
+    titleAccent: "SDK",
+    kicker: "Tool-calling loop",
+    tagline: "Agents on the encrypted network.",
+    subtitle:
+      "ReAct loop on top of one inference per step. Model decides which tool to call, the SDK runs the handler, threads the result back. Works on llama3-8b without native function calling.",
+    cta: { label: "Run the agent", href: "#try-it" },
+    npm: "#agent-class-new-in-060",
+    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/agent.ts",
+    snippet: `import { Agent } from "lightnode-sdk";
+
+const agent = new Agent({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY!,
+  model: "llama3-8b",
+  system: "You are a careful research assistant.",
+  tools: [{
+    name: "add",
+    description: "Add two integers, return the sum.",
+    args: { a: "int", b: "int" },
+    handler: ({ a, b }) => Number(a) + Number(b),
+  }],
+  maxIterations: 4,
+});
+
+const { answer, steps } = await agent.run("17 + 25?");`,
+    sandboxBody: `import { Agent } from "lightnode-sdk";
+
+const agent = new Agent({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  system: "You are a careful assistant. Use tools when they help.",
+  tools: [
+    {
+      name: "add",
+      description: "Add two integers, return the sum.",
+      args: { a: "first integer", b: "second integer" },
+      handler: ({ a, b }) => Number(a) + Number(b),
+    },
+    {
+      name: "now",
+      description: "Return the current ISO timestamp.",
+      args: {},
+      handler: () => new Date().toISOString(),
+    },
+  ],
+  maxIterations: 3,
+  onStep: (step) => {
+    if (step.kind === "tool_call") console.log(\`[tool] \${step.name}(\${JSON.stringify(step.args)}) -> \${JSON.stringify(step.result)}\`);
+  },
+});
+
+const { answer, steps, iterations, hitLimit } = await agent.run("What is 17 + 25?");
+console.log("\\nfinal answer:", answer);
+console.log("iterations  :", iterations, "hit limit:", hitLimit);`,
+    sandboxNeedsKey: true,
     triable: true,
   },
 ];
