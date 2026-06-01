@@ -2095,7 +2095,13 @@ function DaoRecipe() {
                 <button
                   key={a.id}
                   type="button"
-                  onClick={() => setAction(a.id)}
+                  onClick={() => {
+                    if (action !== a.id) {
+                      setResult(null);
+                      setErr(null);
+                    }
+                    setAction(a.id);
+                  }}
                   className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
                     action === a.id
                       ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]"
@@ -3027,7 +3033,16 @@ function OperatorRecipe() {
               <button
                 key={a.id}
                 type="button"
-                onClick={() => setAction(a.id)}
+                onClick={() => {
+                  if (action !== a.id) {
+                    // Drop the stale preview on switch; otherwise the prior
+                    // query's panel hangs around until the user manually
+                    // re-runs and reads as the result of the NEW selection.
+                    setResult(null);
+                    setErr(null);
+                  }
+                  setAction(a.id);
+                }}
                 className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
                   action === a.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft"
                 }`}
