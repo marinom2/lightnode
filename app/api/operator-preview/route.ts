@@ -69,13 +69,16 @@ export async function GET(req: Request) {
       // Fan out: on-chain operator status, native LCAI balance, subgraph
       // worker record (lifetime counts + last-seen), recent jobs (for
       // bucketing into pending-release / stuck / released / timed-out),
-      // and the model registry (to map model_id back to a human name).
-      // The whole panel resolves in a single tab of round-trips.
-      const [st, walletWei, w, jobs, models] = await Promise.all([
+      // on-chain model registrations for this worker (the authoritative
+      // "what is this worker offering" signal), and the model registry
+      // (to map model_id back to a human name). The whole panel resolves
+      // in a single tab of round-trips.
+      const [st, walletWei, w, jobs, workerModels, models] = await Promise.all([
         op.status(),
         publicClient.getBalance({ address: worker as `0x${string}` }),
         ln.getWorker(worker),
         ln.getWorkerJobs(worker, 50),
+        ln.getWorkerModels(worker),
         ln.getModels(),
       ]);
       // Pending release: completed but not yet released. Released: paid out.
@@ -101,19 +104,26 @@ export async function GET(req: Request) {
         },
         { released: 0, pendingRelease: 0, stuck: 0, inFlight: 0 },
       );
-      // Active model: top model_id by job count in recent jobs. Falls
-      // back to null if the worker has never served anything indexed.
-      const modelCounts = new Map<string, number>();
-      for (const j of jobs) {
-        const mid = j.model_id;
-        if (!mid) continue;
-        modelCounts.set(mid, (modelCounts.get(mid) ?? 0) + 1);
-      }
-      const ranked = [...modelCounts.entries()].sort((a, b) => b[1] - a[1]);
-      const topModelId = ranked[0]?.[0] ?? null;
-      const modelName = topModelId
-        ? models.find((m) => m.id.toLowerCase() === topModelId.toLowerCase())?.name ?? null
-        : null;
+      // Models: the authoritative on-chain WorkerModel rows for this
+      // worker, joined to ModelInfo names. Active rows are what the
+      // worker is offering to serve right now (subject to Worker.status
+      // gating that signal: if the worker itself is deregistered, the
+      // rows still exist as a historical record). Sorted active-first
+      // then by update time so the most recent live row leads.
+      const registeredModels = workerModels
+        .map((wm) => {
+          const info = models.find((m) => m.id.toLowerCase() === wm.model_id.toLowerCase());
+          return {
+            id: wm.model_id,
+            name: info?.name ?? null,
+            isActive: wm.is_active,
+            updatedAt: wm.updated_at ?? null,
+          };
+        })
+        .sort((a, b) => {
+          if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+          return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+        });
       const lifetimeEarnedLcai = w?.total_earned ? Number(BigInt(w.total_earned)) / 1e18 : 0;
       return NextResponse.json({
         action: "status",
@@ -140,9 +150,8 @@ export async function GET(req: Request) {
           recentPendingRelease: buckets.pendingRelease,
           recentStuck: buckets.stuck,
           recentInFlight: buckets.inFlight,
-          // Active model
-          activeModel: modelName,
-          activeModelId: topModelId,
+          // On-chain model registrations (authoritative)
+          registeredModels,
         },
       });
     }

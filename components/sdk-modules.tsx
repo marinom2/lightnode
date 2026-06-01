@@ -2916,8 +2916,7 @@ interface OpStatus {
   recentPendingRelease?: number;
   recentStuck?: number;
   recentInFlight?: number;
-  activeModel?: string | null;
-  activeModelId?: string | null;
+  registeredModels?: Array<{ id: string; name: string | null; isActive: boolean; updatedAt: number | null }>;
 }
 interface OpJob {
   id: string;
@@ -3116,12 +3115,36 @@ function OperatorRecipe() {
                 {result.status.walletBalanceLcai != null ? (
                   <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Wallet balance</dt><dd className="font-mono text-content-primary">{result.status.walletBalanceLcai.toLocaleString()} LCAI</dd></div>
                 ) : null}
-                {result.status.activeModel ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-content-soft">Active model</dt>
-                    <dd className="font-mono text-content-primary">{result.status.activeModel}</dd>
-                  </div>
-                ) : null}
+                {result.status.registeredModels && result.status.registeredModels.length > 0 ? (() => {
+                  const isRegistered = result.status.registered;
+                  return (
+                    <div className="flex items-start justify-between gap-3">
+                      {/* The on-chain WorkerModel rows for this worker, fetched
+                          from the indexer. is_active=true means the operator
+                          has not removed the registration. When the worker is
+                          also Registered=yes, it is actively serving these
+                          models. When Registered=no, the rows persist as a
+                          historical record (last whitelist before deregister). */}
+                      <dt className="text-content-soft pt-0.5">
+                        {isRegistered ? "Serving models" : "Last whitelist"}
+                      </dt>
+                      <dd className="flex flex-col items-end gap-1">
+                        {result.status.registeredModels.map((rm) => (
+                          <div key={rm.id} className="inline-flex items-center gap-2">
+                            <code className="font-mono text-content-primary">{rm.name ?? rm.id.slice(0, 12) + "…"}</code>
+                            {rm.isActive ? (
+                              <Badge tone={isRegistered ? "success" : "muted"}>
+                                {isRegistered ? "live" : "registered"}
+                              </Badge>
+                            ) : (
+                              <Badge tone="muted">removed</Badge>
+                            )}
+                          </div>
+                        ))}
+                      </dd>
+                    </div>
+                  );
+                })() : null}
                 {result.status.lifetimeEarnedLcai != null && result.status.lifetimeEarnedLcai > 0 ? (
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-content-soft">Lifetime earned</dt>

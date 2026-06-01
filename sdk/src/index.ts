@@ -2,6 +2,7 @@ import { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS } from "./networks.js";
 import {
   fetchWorker,
   fetchWorkerJobs,
+  fetchWorkerModels,
   fetchRecentJobs,
   fetchJob,
   fetchModels,
@@ -91,6 +92,7 @@ import type {
   Job,
   JobTransactions,
   ModelInfo,
+  WorkerModel,
   NetworkStats,
   ModelStat,
   WorkerStat,
@@ -125,6 +127,18 @@ export class LightNode {
   /** Recent jobs for one worker, newest first. */
   getWorkerJobs(address: string, first = 20): Promise<Job[]> {
     return fetchWorkerJobs(this.network, address, first);
+  }
+
+  /**
+   * The on-chain model whitelist for one worker (rows from WorkerRegistry
+   * events). Use this when you need to answer "what models is this worker
+   * offering" - it is the authoritative signal, not derived from past jobs.
+   * Rows can be `is_active: false` (operator removed the registration) or
+   * outlive deregister: combine with {@link getWorker}.status to decide
+   * whether the worker is currently serving them.
+   */
+  getWorkerModels(address: string): Promise<WorkerModel[]> {
+    return fetchWorkerModels(this.network, address);
   }
 
   /** The network's registered models (name, fee, output limit, whitelist flags). */
@@ -296,7 +310,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.7.3";
+export const SDK_VERSION = "0.7.4";
 
 export {
   NETWORKS,
@@ -312,6 +326,9 @@ export {
   // v0.7.3 per-job transaction-hash resolver (lifts the upstream
   // subgraph's "block-only" Job entity to a deep-linkable Job + tx pair).
   resolveJobTransactions,
+  // v0.7.4 per-worker model-registration list (the authoritative "what is
+  // this worker offering to serve" signal, not derived from past jobs).
+  fetchWorkerModels,
   computeModelId as modelId,
   estimateJobFee,
   JOB_REGISTRY_CONSUMER_ABI,
@@ -406,4 +423,4 @@ export type {
   JobState,
   DecodedWorkerError,
 } from "./worker-operator.js";
-export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
+export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };

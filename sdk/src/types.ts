@@ -73,6 +73,22 @@ export interface ModelInfo {
   is_enabled: boolean;
 }
 
+/**
+ * Per-worker model registration row. The on-chain truth for "which models has
+ * this worker offered to serve" - indexed from WorkerRegistry events.
+ * `is_active` flips to false when the operator removes the registration; it
+ * is independent of whether the worker itself is currently registered in the
+ * protocol.
+ */
+export interface WorkerModel {
+  id: string; // <worker>/<model_id>
+  worker: string;
+  model_id: string; // keccak256(model tag); joins to ModelInfo.id
+  is_active: boolean;
+  created_at?: number;
+  updated_at?: number;
+}
+
 export interface NetworkStats {
   total: number;
   active: number;

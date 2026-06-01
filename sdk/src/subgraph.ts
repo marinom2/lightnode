@@ -1,6 +1,6 @@
 import { createPublicClient, getAddress, http, toHex, pad } from "viem";
 import type { PublicClient } from "viem";
-import type { NetworkConfig, Worker, Job, JobTransactions, ModelInfo, NetworkStats } from "./types.js";
+import type { NetworkConfig, Worker, Job, JobTransactions, ModelInfo, NetworkStats, WorkerModel } from "./types.js";
 
 // keccak256("JobSubmitted(uint256,uint256,address)")
 const JOB_SUBMITTED_TOPIC: `0x${string}` = "0xfb47370368875d7490803c5653d9496d0a3c5e1b49a17f013ec37abd9d86d356";
@@ -168,6 +168,20 @@ async function fetchTxHashForJobEvent(
   } catch {
     return null;
   }
+}
+
+/**
+ * The on-chain model registrations for one worker. The Graph entity name is
+ * `workermodels` (lowercase), and `is_active` flips when the operator
+ * removes a registration. Independent of `Worker.status`: a deregistered
+ * worker can still have rows here from when it was live.
+ */
+export async function fetchWorkerModels(cfg: NetworkConfig, address: string): Promise<WorkerModel[]> {
+  const data = await gql<{ workermodels: WorkerModel[] }>(
+    cfg.subgraph,
+    `{ workermodels(where:{worker:"${checksum(address)}"}) { id worker model_id is_active created_at updated_at } }`,
+  );
+  return data.workermodels ?? [];
 }
 
 export async function fetchModels(cfg: NetworkConfig): Promise<ModelInfo[]> {
