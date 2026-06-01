@@ -116,6 +116,10 @@ lightnode wallet new`}
               <span className="text-content-soft">Polls a worker, emits JSON line on state change (no key required).</span>
             </li>
             <li>
+              <code className="block break-all font-mono text-content-default">lightnode worker status|can-deregister|settle|clearstuck|withdraw|deregister</code>
+              <span className="text-content-soft">The worker-operator lifecycle from the terminal. <code className="font-mono">status</code> and <code className="font-mono">can-deregister</code> are read-only; the rest sign with your key. <code className="font-mono">clearstuck</code> times out acked, past-deadline jobs that block the exit (mainnet realizes a slash, so it needs <code className="font-mono">--yes</code>). <span className="text-primary">(0.7.x)</span></span>
+            </li>
+            <li>
               <code className="block break-all font-mono text-content-default">lightnode bridge addresses</code>
               <span className="text-content-soft">Print the LCAI bridge route (Ethereum &lt;-&gt; LightChain).</span>
             </li>

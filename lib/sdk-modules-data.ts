@@ -7,9 +7,17 @@
  * components/sdk-modules.tsx (which IS "use client"). That file re-exports
  * MODULES / ModuleDef / ModuleId from here so existing callers keep working.
  */
-import { Boxes, Coins, Database, PlayCircle, ShieldCheck, Workflow } from "lucide-react";
+import { Bot, Boxes, Coins, Database, Layers3, PlayCircle, ShieldCheck, Workflow } from "lucide-react";
 
-export type ModuleId = "bridge" | "dao" | "chat" | "preflight" | "models" | "dispute";
+export type ModuleId =
+  | "bridge"
+  | "dao"
+  | "chat"
+  | "preflight"
+  | "models"
+  | "dispute"
+  | "batch"
+  | "agent";
 
 export interface ModuleDef {
   id: ModuleId;

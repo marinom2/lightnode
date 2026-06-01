@@ -59,7 +59,8 @@ export default function GuidePage() {
           </p>
           <p>
             <span className="font-medium text-content-primary">Exit:</span> Deregister returns your stake to the worker
-            wallet and stops the worker. Then withdraw to take everything out.
+            wallet and stops the worker. Then withdraw to take everything out. If a job your worker accepted but never
+            finished is blocking the exit, Clear stuck jobs times it out first (on mainnet that realizes a small slash).
           </p>
         </Section>
 

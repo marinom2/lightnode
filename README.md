@@ -300,8 +300,8 @@ project as the build track, completely separate user flow.
 - **Multi-model serving** with a memory-fit gate, and live add-a-model from
   the dashboard.
 - **Full lifecycle, no terminal.** Live earnings (settled vs pending-release),
-  settle/claim, deregister, gas-aware withdraw, free-up-memory, replaced-key
-  recovery, removed-worker uninstall.
+  settle/claim, clear stuck jobs, deregister, gas-aware withdraw, free-up-memory,
+  replaced-key recovery, removed-worker uninstall.
 - **Honest dashboard.** On-chain registration reader (works even when the
   public indexer lags a deregister + re-register cycle), one honest status pill,
   per-job processing time vs deadline, CSV export of any worker's job history.
