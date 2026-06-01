@@ -74,38 +74,68 @@ export async function POST(req: NextRequest) {
       ? body.deadlineMs
       : 45_000;
 
-  try {
-    const r = await workerPreflight({
-      network: "testnet",
-      privateKey: DEMO_KEY,
-      model,
-      deadlineMs,
-    });
+  // Retry on gateway-state churn. The gateway returns 409
+  // selection_mismatch when a prior session for this wallet has not
+  // aged out - common on a shared demo wallet. workerPreflight folds the
+  // error into a `failed` verdict with the message in summary instead of
+  // throwing, so we inspect the verdict + summary for the retry signal.
+  type PreflightResult = Awaited<ReturnType<typeof workerPreflight>>;
+  let result: PreflightResult | null = null;
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      // 1.5s, then 3s - same backoff as the chat-demo retry path.
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+    try {
+      result = await workerPreflight({
+        network: "testnet",
+        privateKey: DEMO_KEY,
+        model,
+        deadlineMs,
+      });
+      const summary = result.summary ?? "";
+      const failedOnSelection =
+        result.verdict !== "ok" && /selection_mismatch|selection was superseded|409/.test(summary);
+      if (!failedOnSelection) break;
+      result = null; // try again
+    } catch (e) {
+      lastErr = e as Error;
+      if (isStalledWorker(e)) {
+        return NextResponse.json(
+          {
+            verdict: "stalled",
+            elapsedMs: null,
+            worker: null,
+            submitJobTx: null,
+            summary: "Workers stalled in a row. The protocol refunds the fees; try again later.",
+            remaining: rl.remaining,
+          },
+          { status: 200 },
+        );
+      }
+      if (!/selection_mismatch|selection was superseded|409/.test(lastErr.message ?? "")) break;
+    }
+  }
+  if (result) {
     return NextResponse.json({
-      verdict: r.verdict,
-      elapsedMs: r.elapsedMs ?? null,
-      worker: r.worker ?? null,
-      submitJobTx: r.txs?.submitJob ?? null,
-      summary: r.summary ?? "",
+      verdict: result.verdict,
+      elapsedMs: result.elapsedMs ?? null,
+      worker: result.worker ?? null,
+      submitJobTx: result.txs?.submitJob ?? null,
+      summary: result.summary ?? "",
       remaining: rl.remaining,
     });
-  } catch (e) {
-    if (isStalledWorker(e)) {
-      return NextResponse.json(
-        {
-          verdict: "stalled",
-          elapsedMs: null,
-          worker: null,
-          submitJobTx: null,
-          summary: "Workers stalled in a row. The protocol refunds the fees; try again later.",
-          remaining: rl.remaining,
-        },
-        { status: 200 },
-      );
-    }
-    return NextResponse.json(
-      { error: (e as Error).message?.split("\n")[0] ?? "preflight failed", runLocally: true },
-      { status: 500 },
-    );
   }
+  // Friendly translation of the gateway state error.
+  return NextResponse.json(
+    {
+      error:
+        lastErr && !/selection_mismatch|selection was superseded|409/.test(lastErr.message ?? "")
+          ? lastErr.message.split("\n")[0]
+          : "The demo wallet has a session in flight from another visitor. Try again in 30 s, or open the example in StackBlitz with your own key.",
+      runLocally: true,
+    },
+    { status: 500 },
+  );
 }
