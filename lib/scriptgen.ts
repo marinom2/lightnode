@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.13";
+export const INSTALLER_REV = "2026-05-31.14";
 
 export interface ScriptBundle {
   os: OS;
@@ -1647,7 +1647,7 @@ export function repairWorkerCommand(os: OS): string {
   if (os === "windows") {
     return `$ErrorActionPreference = "Stop"
 Write-Host "▶ repairing lightchain-worker"
-if (-not ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$")) { Write-Host "⛔ No lightchain-worker container found - install one first."; exit 1 }
+if (-not ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$")) { Write-Host "⛔ No worker container exists on this machine yet - Restart only recovers an existing one. Click Install to create and start it. If your worker is already registered + staked on-chain, Install detects that and skips re-staking; it just builds the container and brings it online."; exit 1 }
 docker stop lightchain-worker *> $null
 $sess = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\session-keys.enc"
 if (Test-Path $sess) { Move-Item $sess "$sess.bak-$((Get-Date).Ticks)"; Write-Host "✓ cleared stale session store" }
@@ -1665,7 +1665,7 @@ docker logs --tail 20 lightchain-worker`;
     // re-arm sleep prevention (the machine must stay awake while it serves jobs).
     'rm -f "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
     AWAKE_ON_UNIX,
-    `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No lightchain-worker container found - install one first."; exit 1; fi`,
+    `if ! docker ps -a --format '{{.Names}}' | grep -q '^lightchain-worker$'; then echo "⛔ No worker container exists on this machine yet - Restart only recovers an existing one. Click Install to create and start it. If your worker is already registered + staked on-chain, Install detects that and skips re-staking; it just builds the container and brings it online."; exit 1; fi`,
     "docker stop lightchain-worker >/dev/null 2>&1 || true",
     'SESS="$HOME/lightchain-worker/keys/session-keys.enc"',
     '[ -f "$SESS" ] && mv "$SESS" "${SESS}.bak-$(date +%s)" && echo "✓ cleared stale session store"',

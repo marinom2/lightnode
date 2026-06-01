@@ -373,6 +373,17 @@ export function WorkerView({
             <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
             Already deregistered on-chain - the stake has been returned to the worker wallet. No further action is needed here.
           </p>
+        ) : offlineHere && localStatus === "missing" ? (
+          // Registered on-chain but NO container exists locally (e.g. setup
+          // reached register but not the run step). Restart can't help - it only
+          // recovers an existing container. Point at Install, which detects the
+          // existing registration and just builds + starts the container.
+          <p className="mt-3 flex items-start gap-2 text-sm text-warning">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            Registered on-chain, but there&apos;s no worker container on this machine yet, so it can&apos;t earn. Click
+            Install to build and start it - it sees you&apos;re already staked and skips re-staking, just bringing the
+            worker online.
+          </p>
         ) : offlineHere ? (
           <p className="mt-3 flex items-start gap-2 text-sm text-warning">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
