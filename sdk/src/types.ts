@@ -89,6 +89,26 @@ export interface WorkerModel {
   updated_at?: number;
 }
 
+/**
+ * A worker's served model, reconciled against the chain. Combines the subgraph
+ * WorkerModel row (name, is_active) with the authoritative on-chain
+ * WorkerRegistry.isEligible read, so you can tell a model the worker ACTUALLY
+ * serves now from a stale index row left over after a deregister/re-register.
+ */
+export interface ServedModel {
+  modelId: string; // keccak256(tag)
+  name: string | null; // from the model registry, when known
+  feeWei?: string;
+  maxOutputTokens?: number;
+  /** Subgraph WorkerModel.is_active (can be stale after deregister/re-register). */
+  indexedActive: boolean;
+  /**
+   * On-chain WorkerRegistry.isEligible(worker, modelId) - the authoritative
+   * "is it serving this right now". null when the chain read was unavailable.
+   */
+  onchainEligible: boolean | null;
+}
+
 export interface NetworkStats {
   total: number;
   active: number;

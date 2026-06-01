@@ -11,7 +11,7 @@ import {
   fromWei,
   resolveJobTransactions,
 } from "./subgraph.js";
-import { isRegistered } from "./onchain.js";
+import { isRegistered, fetchOnchainEligibleModels } from "./onchain.js";
 import {
   aggregateModelStats,
   aggregateWorkerStats,
@@ -93,6 +93,7 @@ import type {
   JobTransactions,
   ModelInfo,
   WorkerModel,
+  ServedModel,
   NetworkStats,
   ModelStat,
   WorkerStat,
@@ -139,6 +140,41 @@ export class LightNode {
    */
   getWorkerModels(address: string): Promise<WorkerModel[]> {
     return fetchWorkerModels(this.network, address);
+  }
+
+  /**
+   * The models a worker is serving, RECONCILED against the chain. getWorkerModels
+   * returns the raw subgraph rows, which go stale after a deregister/re-register
+   * (the indexer never clears removals). This joins those rows to model names AND
+   * to the authoritative on-chain WorkerRegistry.isEligible(worker, modelId), so
+   * each `ServedModel` carries both `indexedActive` (subgraph) and
+   * `onchainEligible` (chain truth). Use `onchainEligible === true` to decide what
+   * the worker ACTUALLY serves right now; it falls back to null (rely on
+   * `indexedActive`) if the chain read is unavailable.
+   */
+  async getServedModels(address: string): Promise<ServedModel[]> {
+    const [rows, registry] = await Promise.all([
+      fetchWorkerModels(this.network, address),
+      fetchModels(this.network),
+    ]);
+    if (rows.length === 0) return [];
+    const byId = new Map(registry.map((m) => [m.id.toLowerCase(), m]));
+    const eligible = await fetchOnchainEligibleModels(
+      this.network,
+      address,
+      rows.map((r) => r.model_id),
+    ).catch(() => null);
+    return rows.map((r) => {
+      const info = byId.get(r.model_id.toLowerCase());
+      return {
+        modelId: r.model_id,
+        name: info?.name ?? null,
+        feeWei: info?.fee,
+        maxOutputTokens: info?.max_output_tokens,
+        indexedActive: r.is_active,
+        onchainEligible: eligible ? (eligible.get(r.model_id.toLowerCase()) ?? null) : null,
+      };
+    });
   }
 
   /** The network's registered models (name, fee, output limit, whitelist flags). */
@@ -310,7 +346,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.7.4";
+export const SDK_VERSION = "0.7.5";
 
 export {
   NETWORKS,
@@ -423,4 +459,4 @@ export type {
   JobState,
   DecodedWorkerError,
 } from "./worker-operator.js";
-export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
+export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
