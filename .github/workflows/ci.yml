@@ -1,10 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Manual-only. Running on every push/PR fired a "CI failed" email on each
+  # commit even though the commit already deployed fine on Vercel. Trigger from
+  # the Actions tab or `gh workflow run ci.yml` when you actually want to gate a
+  # change. (The verify job is kept correct: it builds the local SDK first, so a
+  # manual run passes.)
+  workflow_dispatch:
 
 jobs:
   verify:
