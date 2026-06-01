@@ -86,12 +86,16 @@ export async function POST(req: NextRequest) {
   if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
   if (message.length > 500) return NextResponse.json({ error: "message too long (max 500 chars)" }, { status: 400 });
 
-  // The gateway occasionally returns 409 selection_mismatch when a prior
-  // session selection from this wallet hasn't fully cleaned up. The SDK
-  // doesn't auto-retry that case (it's not a stalled worker), so we wrap
-  // one extra attempt here.
+  // The gateway returns 409 selection_mismatch when a prior session for
+  // this wallet hasn't aged out. The SDK doesn't auto-retry that (it's not
+  // a stalled worker). We retry up to 3 times with backoff so a single
+  // visitor whose own previous call left a stuck session can recover.
   let lastErr: Error | null = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      // 1.5s, then 3s
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
     try {
       const chat = new Conversation({
         network: "testnet",
@@ -115,13 +119,14 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       lastErr = e as Error;
       const msg = lastErr.message ?? "";
-      // Retry once on transient gateway-state errors. Anything else fails fast.
-      if (/selection_mismatch|selection was superseded|409/.test(msg) && attempt === 0) continue;
-      break;
+      // Retry on gateway-state churn. Anything else fails fast.
+      if (!/selection_mismatch|selection was superseded|409/.test(msg)) break;
     }
   }
-  return NextResponse.json(
-    { error: lastErr?.message?.split("\n")[0] ?? "chat failed", runLocally: true },
-    { status: 500 },
-  );
+  // Translate the raw gateway error into something the visitor can act on.
+  const raw = lastErr?.message ?? "chat failed";
+  const friendly = /selection_mismatch|selection was superseded|409/.test(raw)
+    ? "The demo wallet has a session in flight from another visitor. Try again in 30 s, or open the example in StackBlitz with your own key."
+    : raw.split("\n")[0];
+  return NextResponse.json({ error: friendly, runLocally: true }, { status: 500 });
 }
