@@ -302,11 +302,20 @@ export function WorkerView({
     onchainRegistered === true ||
     (onchainRegistered == null && (liveConfirmed || (subgraphDown && localStatus === "running")));
   const meta = resolveRegistrationMeta({ health: h, registeredHere, onchainRegistered, liveConfirmed });
-  // Collapse registration + local run-state into ONE pill. For my worker the live/
-  // stopped state is what matters and implies registration; the registration text
-  // sits in the one-line summary below. Otherwise show the registration state.
+  // Collapse registration + local run-state into ONE pill. "Stopped" (a local
+  // container that's down) is only meaningful while the worker is still
+  // REGISTERED - a stopped container on a DEREGISTERED worker isn't "stopped",
+  // it's deregistered, so chain state wins. Registration (meta) is the source of
+  // truth; only override to Live/Stopped when registered (or registration unknown).
+  const deregistered = onchainRegistered === false;
   const statusPill: { tone: "success" | "warning" | "danger"; label: string } =
-    localRunning === true ? { tone: "success", label: "Live" } : offlineHere ? { tone: "danger", label: "Stopped" } : meta;
+    deregistered
+      ? meta
+      : localRunning === true
+        ? { tone: "success", label: "Live" }
+        : offlineHere
+          ? { tone: "danger", label: "Stopped" }
+          : meta;
 
   const completed = worker.jobs_completed ?? 0;
   const attempted = completed + (worker.jobs_timed_out ?? 0) + (worker.disputes_lost ?? 0);

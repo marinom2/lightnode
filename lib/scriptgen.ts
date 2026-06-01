@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.15";
+export const INSTALLER_REV = "2026-05-31.16";
 
 export interface ScriptBundle {
   os: OS;
