@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.09";
+export const INSTALLER_REV = "2026-05-31.10";
 
 export interface ScriptBundle {
   os: OS;
@@ -416,9 +416,9 @@ function unixInstall(network: NetworkId, models: string[]): string {
     'case "${MIN_STAKE_WEI:-}" in ""|*[!0-9]*) MIN_STAKE_WEI="$MIN_FALLBACK_WEI"; echo "⚠ could not read min stake from AIConfig; using fallback";; esac',
     // Whole-LCAI stake, the +1 guard threshold, and the funding threshold (stake +
     // 0.5 LCAI gas cushion), all computed from the LIVE wei value.
-    `MIN_STAKE_LCAI="$(python3 -c 'print(int($MIN_STAKE_WEI)//10**18)')"`,
-    `GUARD_LCAI="$(python3 -c 'print(int($MIN_STAKE_WEI)//10**18 + 1)')"`,
-    `THR_WEI="$(python3 -c 'print(int($MIN_STAKE_WEI) + 5*10**17)')"`,
+    `MIN_STAKE_LCAI="$(python3 -c 'import sys; print(int(sys.argv[1])//10**18)' "$MIN_STAKE_WEI")"`,
+    `GUARD_LCAI="$(python3 -c 'import sys; print(int(sys.argv[1])//10**18 + 1)' "$MIN_STAKE_WEI")"`,
+    `THR_WEI="$(python3 -c 'import sys; print(int(sys.argv[1]) + 5*10**17)' "$MIN_STAKE_WEI")"`,
     `echo "✓ min stake (live from AIConfig): $MIN_STAKE_LCAI LCAI"`,
     // The toolkit prints a hardcoded "STAKE 50,000 LCAI" line; say "the network
     // minimum" so it's honest on every network.
