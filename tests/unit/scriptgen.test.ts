@@ -204,13 +204,20 @@ describe("per-network keystore isolation (test one network without risking anoth
 });
 
 describe("registration-aware install (switch back to an already-registered worker without re-funding/re-staking)", () => {
-  it("unix install probes on-chain status and skips 07-register when already registered", () => {
+  it("unix install skips 07-register only when registered AND serving the selected model on-chain", () => {
     const unix = desktopInstallCommand("macos", "mainnet");
-    expect(unix).toContain("status.sh");
-    // skip only on a positive REGISTERED, never on NOT REGISTERED
-    expect(unix).toContain('grep -qi "registered"');
-    expect(unix).toContain('grep -qiE "not[ _-]*registered"');
-    expect(unix).toContain("07-register (skipped - already registered");
+    // Decision is on-chain isEligible, not the toolkit status string: a worker
+    // can be registered but serving NO model (a prior add-model failed), in which
+    // case we must NOT skip (and must NOT re-stake).
+    expect(unix).toContain("isWorkerRegistered(address)(bool)");
+    expect(unix).toContain("isEligible(address,bytes32)(bool)");
+    expect(unix).toContain("07-register (skipped - already registered AND serving the selected model");
+  });
+  it("unix install refuses to re-stake a registered-but-not-serving worker (no second stake)", () => {
+    const unix = desktopInstallCommand("macos", "mainnet");
+    // registered + not eligible => stop with a clear message instead of staking again
+    expect(unix).toContain("Re-running register would stake AGAIN");
+    expect(unix).toContain('[ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]');
   });
   it("unix still runs 07-register for a fresh (unregistered) worker - the guard only fires on a positive match", () => {
     const unix = desktopInstallCommand("macos", "testnet");
@@ -218,12 +225,13 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(unix).toContain("07-register");
     expect(unix).toContain('FORCE=1 "$RUNBASH" "$p.sh"');
   });
-  it("windows install probes status.ps1 and skips 07-register when already registered", () => {
+  it("windows install skips 07-register only when registered AND serving the selected model on-chain", () => {
     const win = desktopInstallCommand("windows", "mainnet");
-    expect(win).toContain("status.ps1");
-    expect(win).toContain("$st -match 'REGISTERED'");
-    expect(win).toContain("$st -notmatch 'NOT[ _-]*REGISTERED'");
-    expect(win).toContain("07-register (skipped - already registered");
+    expect(win).toContain('isWorkerRegistered(address)(bool)');
+    expect(win).toContain('isEligible(address,bytes32)(bool)');
+    expect(win).toContain("07-register (skipped - already registered AND serving the selected model");
+    // and refuses to re-stake a registered-but-not-serving worker
+    expect(win).toContain("Re-running register would stake AGAIN");
   });
 
   it("strips AppImage bundle libs from the shell env so system curl/git don't crash", () => {
@@ -278,17 +286,18 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(desktopInstallCommand("macos", "mainnet")).toContain('FORCE=1 "$RUNBASH" "$p.sh"');
   });
 
-  it("windows status pre-check tolerates the worker binary's stderr (mirrors bash '|| true')", () => {
-    // The worker 'status' subcommand logs to stderr. Under the install's
-    // ErrorActionPreference=Stop, '2>&1 | Out-String' would promote that stderr to
-    // a terminating error and abort BEFORE register (the macOS bash path uses
-    // '|| true' and is fine). The pre-check must run under Continue + try/catch so
-    // a noisy/failed status never kills the install - register still gets to run.
+  it("register skip-decision reads the chain, not the worker binary's status subcommand", () => {
+    // The old skip used the worker binary's `status` (status.sh / status.ps1),
+    // whose stderr could abort the install AND which only reported "registered"
+    // (not whether it serves the selected model) - the false-online bug. The
+    // decision is now pure on-chain reads (isWorkerRegistered + isEligible), so
+    // neither path shells the binary's status for the skip anymore.
+    const unix = desktopInstallCommand("macos", "mainnet");
     const win = desktopInstallCommand("windows", "mainnet");
-    // The status probe and the register run must both be insulated from native stderr.
-    expect(win).toMatch(/\$ErrorActionPreference = 'Continue';[\s\S]*status\.ps1[\s\S]*catch \{ \$st =/);
-    // Bash side keeps its '|| true' tolerance.
-    expect(desktopInstallCommand("macos", "mainnet")).toContain("status.sh 2>&1 || true");
+    expect(unix).not.toContain("status.sh 2>&1 || true");
+    expect(win).not.toContain("status.ps1 2>&1 | Out-String");
+    expect(unix).toContain("isEligible(address,bytes32)(bool)");
+    expect(win).toContain('isEligible(address,bytes32)(bool)');
   });
 });
 
@@ -532,8 +541,11 @@ describe("desktopInstallCommand (smart install)", () => {
     expect(unix).toContain("open -a Docker"); // macOS
     expect(unix).toContain("systemctl"); // linux
   });
-  it("short-circuits only for the SAME network; stops the other network's worker to switch", () => {
-    expect(unix).toContain("worker already running on testnet - nothing to reinstall");
+  it("short-circuits only when the running container is ALSO live on-chain; stops the other network's worker to switch", () => {
+    // "running container" alone is not enough - it must be registered + serving on
+    // chain, else a prior failed setup would be reported as a false "online".
+    expect(unix).toContain("running on testnet and live on-chain - nothing to reinstall");
+    expect(unix).toContain("it is not live on-chain");
     // a different-network container is stopped (not an error), so the user isn't stuck
     expect(unix).toContain("a worker for the other network");
     expect(unix).toContain("docker stop lightchain-worker");

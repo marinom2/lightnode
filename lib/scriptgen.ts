@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.10";
+export const INSTALLER_REV = "2026-05-31.11";
 
 export interface ScriptBundle {
   os: OS;
@@ -434,11 +434,16 @@ function unixInstall(network: NetworkId, models: string[]): string {
     'echo "✓ register pre-flight threshold set to the live minimum ($MIN_STAKE_LCAI LCAI + gas)"',
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
     // This machine runs ONE worker container at a time. If a container for THIS
-    // network is already running, nothing to do. If it's for a DIFFERENT network,
-    // the user explicitly chose to install this one, so stop the other and carry
-    // on (phase 08 removes + recreates it). Its stake + per-network keystore are
-    // intact, so a later reinstall of that network brings it right back.
-    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "▶ a worker for the other network (chain $RUNCHAIN) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."; docker stop lightchain-worker >/dev/null 2>&1 || true; else echo "✓ worker already running on ${network} - nothing to reinstall"; echo "✅ worker online"; exit 0; fi; fi`,
+    // network is already running AND the worker is genuinely live on-chain
+    // (registered + eligible for the selected model), there's nothing to do. If
+    // it's for a DIFFERENT network, stop it and carry on (phase 08 recreates it).
+    // CRITICAL: a running container does NOT mean a working worker - a prior
+    // install can leave the container Up while the on-chain register/add-model
+    // failed (e.g. the daemon's add-model OutOfGas bug), so the worker is staked
+    // but serving nothing. We must verify on-chain before declaring "online",
+    // otherwise we'd falsely report success and skip the re-register that fixes it.
+    `MODEL_ID="$(cast keccak "$(printf '%s' "${supported}" | cut -d, -f1)" 2>/dev/null)"`,
+    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "▶ a worker for the other network (chain $RUNCHAIN) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."; docker stop lightchain-worker >/dev/null 2>&1 || true; else REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "✓ worker already running on ${network} and live on-chain - nothing to reinstall"; echo "✅ worker online"; exit 0; else echo "▶ a worker container is running but it is not live on-chain (registered=$REG_OK, serving-selected-model=$ELIG_OK) - a prior setup left it staked-but-not-serving. Recreating it."; docker stop lightchain-worker >/dev/null 2>&1 || true; fi; fi; fi`,
     // A keystore may already exist (our key on a re-run, or a stale key from a
     // prior worker). Skip the import if it's already ours; otherwise back up the
     // old one (never delete) so our key can be imported.
@@ -526,7 +531,7 @@ function unixInstall(network: NetworkId, models: string[]): string {
     "    fi",
     "  fi",
     "fi",
-    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then ST="$(WORKER_PASSWORD="$WORKER_PASSWORD" "$RUNBASH" status.sh 2>&1 || true)"; if printf '%s\\n' "$ST" | grep -qi "registered" && ! printf '%s\\n' "$ST" | grep -qiE "not[ _-]*registered"; then echo "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue; fi; gate_funding || exit 1; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain; stake stays locked, no re-funding needed)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "⛔ this worker is already registered on-chain (5000 LCAI staked) but is NOT serving the selected model - a prior setup staked it then failed to add the model (the worker daemon's add-model step reverts; a known LightChain-side bug). Re-running register would stake AGAIN. Instead: add the model from the dashboard (Operations) or deregister to recover the stake. Stopping so no second stake is taken."; exit 1; fi; gate_funding || exit 1; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; done`,
     // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
     // real job doesn't pay a cold-load that could exceed the inference timeout.
     `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
@@ -768,7 +773,9 @@ if ($skipImport) {
     }
   }
 }
-foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $st = ''; $eapS = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { $st = (& .\\status.ps1 2>&1 | Out-String) } catch { $st = "$_" } finally { $ErrorActionPreference = $eapS }; if (($st -match 'REGISTERED') -and ($st -notmatch 'NOT[ _-]*REGISTERED')) { Write-Host "▶ phase 07-register (skipped - already registered on-chain; stake stays locked, no re-funding needed)"; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ } }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
+# Selected model's on-chain id, for the registered-AND-serving check below.
+$ModelId = (cast keccak "$(("${supported}" -split ',')[0])" 2>$null)
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain; stake stays locked, no re-funding needed)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "⛔ this worker is already registered on-chain (stake locked) but is NOT serving the selected model - a prior setup staked it then failed to add the model (the worker daemon add-model step reverts; a known LightChain-side bug). Re-running register would stake AGAIN. Add the model from Operations, or deregister to recover the stake. Stopping so no second stake is taken."; exit 1 }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ } }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
 Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
 foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
