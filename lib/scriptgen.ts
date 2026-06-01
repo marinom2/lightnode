@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-05-31.12";
+export const INSTALLER_REV = "2026-05-31.13";
 
 export interface ScriptBundle {
   os: OS;
@@ -531,7 +531,21 @@ function unixInstall(network: NetworkId, models: string[]): string {
     "    fi",
     "  fi",
     "fi",
-    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain; stake stays locked, no re-funding needed)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "⛔ this worker is already registered on-chain (5000 LCAI staked) but is NOT serving the selected model - a prior setup staked it then failed to add the model (the worker daemon's add-model step reverts; a known LightChain-side bug). Re-running register would stake AGAIN. Instead: add the model from the dashboard (Operations) or deregister to recover the stake. Stopping so no second stake is taken."; exit 1; fi; gate_funding || exit 1; fi; echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; done`,
+    // Gas-correct on-chain add of the selected model, to FINISH a worker that
+    // staked but whose model-add failed inside the daemon's one-shot register (the
+    // daemon under-sets the gas limit -> OutOfGas). We send addSupportedModel
+    // ourselves with gas = estimate x1.5, which lands. No-op if already eligible.
+    [
+      "add_selected_model_onchain() {",
+      '  [ -z "$MODEL_ID" ] && return 0',
+      `  if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then return 0; fi`,
+      `  AM_EST="$(cast estimate --from "$WORKER_ADDR" "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null)"`,
+      `  case "\${AM_EST:-}" in ""|*[!0-9]*) AM_GAS=300000;; *) AM_GAS="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$AM_EST")";; esac`,
+      '  echo "▶ adding the selected model on-chain with proper gas (gas-limit $AM_GAS) - the daemon under-gasses this step"',
+      `  if cast send "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --private-key "$WORKER_PRIVKEY" --rpc-url "${rpc}" --gas-limit "$AM_GAS" >/dev/null 2>&1; then echo "✓ model added on-chain (worker now serving it)"; return 0; else echo "⛔ model add failed even with estimated gas"; return 1; fi`,
+      "}",
+    ].join("\n"),
+    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; add_selected_model_onchain || exit 1; continue; fi; gate_funding || exit 1; fi; if [ "$p" = "07-register" ]; then echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || true; NOW_REG="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$NOW_REG" != "true" ]; then echo "⛔ stopped at 07-register (worker not registered on-chain after the attempt)"; exit 1; fi; add_selected_model_onchain || exit 1; else echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; fi; done`,
     // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
     // real job doesn't pay a cold-load that could exceed the inference timeout.
     `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
@@ -775,7 +789,20 @@ if ($skipImport) {
 }
 # Selected model's on-chain id, for the registered-AND-serving check below.
 $ModelId = (cast keccak "$(("${supported}" -split ',')[0])" 2>$null)
-foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain; stake stays locked, no re-funding needed)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "⛔ this worker is already registered on-chain (stake locked) but is NOT serving the selected model - a prior setup staked it then failed to add the model (the worker daemon add-model step reverts; a known LightChain-side bug). Re-running register would stake AGAIN. Add the model from Operations, or deregister to recover the stake. Stopping so no second stake is taken."; exit 1 }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ } }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
+# Gas-correct on-chain add of the selected model, to FINISH a worker that staked
+# but whose model-add failed inside the daemon's one-shot register (the daemon
+# under-sets the gas limit -> OutOfGas). gas = estimate x1.5. No-op if eligible.
+function Add-SelectedModelOnchain {
+  if (-not $ModelId) { return $true }
+  $elig = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null)
+  if ($elig -match 'true') { return $true }
+  $est = (cast estimate --from $env:WORKER_ADDR "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --rpc-url "${rpc}" 2>$null)
+  $gas = if ($est -match '^[0-9]+$') { [int]([long]$est * 3 / 2) } else { 300000 }
+  Write-Host "▶ adding the selected model on-chain with proper gas (gas-limit $gas) - the daemon under-gasses this step"
+  cast send "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --private-key $env:WORKER_PRIVKEY --rpc-url "${rpc}" --gas-limit $gas *> $null
+  if ($?) { Write-Host "model added on-chain (worker now serving it)"; return $true } else { Write-Host "model add failed even with estimated gas"; return $false }
+}
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; if (-not (Add-SelectedModelOnchain)) { exit 1 }; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ }; $nowReg = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); if ($nowReg -notmatch 'true') { throw "worker not registered on-chain after the attempt" }; if (-not (Add-SelectedModelOnchain)) { throw "model add failed" } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
 Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
 foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }

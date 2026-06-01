@@ -213,11 +213,17 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(unix).toContain("isEligible(address,bytes32)(bool)");
     expect(unix).toContain("07-register (skipped - already registered AND serving the selected model");
   });
-  it("unix install refuses to re-stake a registered-but-not-serving worker (no second stake)", () => {
+  it("unix install FINISHES the model-add (no re-stake) when registered-but-not-serving, with gas-correct addSupportedModel", () => {
     const unix = desktopInstallCommand("macos", "mainnet");
-    // registered + not eligible => stop with a clear message instead of staking again
-    expect(unix).toContain("Re-running register would stake AGAIN");
+    // registered + not eligible => finish the add the daemon failed, do NOT re-stake
+    expect(unix).toContain("finishing the model-add the daemon failed - no re-stake");
     expect(unix).toContain('[ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]');
+    expect(unix).toContain("add_selected_model_onchain");
+    // the add uses an estimated gas limit (the daemon under-set it)
+    expect(unix).toContain('"addSupportedModel(bytes32)"');
+    expect(unix).toContain("--gas-limit");
+    // and after the daemon register, it ALSO runs the gas-correct add (the daemon's own add OutOfGas-fails)
+    expect(unix).toContain("worker not registered on-chain after the attempt");
   });
   it("unix still runs 07-register for a fresh (unregistered) worker - the guard only fires on a positive match", () => {
     const unix = desktopInstallCommand("macos", "testnet");
@@ -230,8 +236,10 @@ describe("registration-aware install (switch back to an already-registered worke
     expect(win).toContain('isWorkerRegistered(address)(bool)');
     expect(win).toContain('isEligible(address,bytes32)(bool)');
     expect(win).toContain("07-register (skipped - already registered AND serving the selected model");
-    // and refuses to re-stake a registered-but-not-serving worker
-    expect(win).toContain("Re-running register would stake AGAIN");
+    // registered-but-not-serving: finish the add via gas-correct addSupportedModel, no re-stake
+    expect(win).toContain("finishing the model-add the daemon failed - no re-stake");
+    expect(win).toContain('"addSupportedModel(bytes32)"');
+    expect(win).toContain("--gas-limit");
   });
 
   it("strips AppImage bundle libs from the shell env so system curl/git don't crash", () => {
