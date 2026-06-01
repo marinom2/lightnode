@@ -19,10 +19,10 @@ codebase. The web UI detects the desktop shell via `window.__TAURI__` (see
 │        │  window.__TAURI__.core.invoke         │
 │        ▼                                        │
 │  Rust commands (src-tauri/src/main.rs):         │
-│   • detect_hardware()      → real specs         │
-│   • run_command_streamed() → install + logs     │
-│   • secret_set/get/delete  → OS keychain        │
-│   • generate_worker_key()  → key, returns addr  │
+│   • detect_hardware()      -> real specs        │
+│   • run_command_streamed() -> install + logs    │
+│   • secret_set/get/delete  -> OS keychain       │
+│   • generate_worker_key()  -> key, returns addr │
 └─────────────────────────────────────────────────┘
 ```
 - **dev**: the webview loads `http://localhost:3000` (run the web app: `cd .. && npm run dev`).

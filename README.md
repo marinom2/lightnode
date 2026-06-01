@@ -59,7 +59,10 @@ one of them.
   `unstickAndDeregister`) that clears acknowledged-but-unfinished jobs which
   otherwise block deregistration, plus `decodeWorkerError` for plain-English
   reverts. New CLI: `lightnode worker status | can-deregister | settle |
-  clearstuck | withdraw | deregister`.
+  clearstuck | withdraw | deregister`. The latest 0.7.x sends
+  `deregisterWorker()` directly with a gas-correct limit, so a worker can exit
+  and recover its stake with no toolkit clone, no Docker, and no running
+  container, even after a half-finished install.
 - `lightnode-sdk@0.6.x`. Higher-level abstractions on top of the encrypted
   inference layer: **`runInferenceBatch`** (parallel inference with capped
   concurrency, stable result order, per-slot errors), the **`Agent`** class
@@ -413,9 +416,46 @@ npm run test:e2e
 cd sdk && npm run typecheck && npm run build
 ```
 
-State on `main`: lint clean, typecheck clean, 220 unit tests, 16 test files,
-production build clean, SDK build clean, both CLIs smoke-tested live against
-real testnet and mainnet inferences.
+State on `main`: lint clean, typecheck clean, 229 unit tests across 16 test
+files, 13 Playwright end-to-end smoke tests, production build clean, SDK build
+clean, both CLIs smoke-tested live against real testnet and mainnet inferences.
+
+---
+
+## Documentation
+
+Every guide in one place. Start with the one that matches what you are doing.
+
+**New here**
+- [GETTING-STARTED.md](GETTING-STARTED.md) - a zero-experience walkthrough:
+  make a wallet, get free testnet LCAI, and run your first AI call in about five
+  minutes.
+
+**Building on LightChain AI**
+- [sdk/README.md](sdk/README.md) - the full `lightnode-sdk` reference: every
+  function, the bundled CLI, and the typed errors.
+- [create-lightnode-app/README.md](create-lightnode-app/README.md) - the project
+  scaffolder and its three templates.
+- [lightnode.app/build](https://lightnode.app/build) - the live builder hub:
+  runnable snippets, real network data, and the in-browser playground.
+
+**Running a worker**
+- [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md) - the operator's manual:
+  install, earn, settle, clear stuck jobs, deregister, and withdraw, with the
+  on-chain mechanics behind each step.
+- [docs/UI_AND_DESIGN.md](docs/UI_AND_DESIGN.md) - a screen-by-screen tour of the
+  app and every operation it runs.
+
+**How it is built**
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - one codebase, two shells (web +
+  Tauri desktop), and how worker actions are signed safely.
+- [SECURITY.md](SECURITY.md) - the non-custodial key model: what leaves your
+  machine and what never does.
+- [CONTRIBUTING.md](CONTRIBUTING.md) - setup, conventions, and the local quality
+  gate.
+- [DEPLOY.md](DEPLOY.md) - deploying the web app to Vercel.
+- [docs/RELEASING.md](docs/RELEASING.md) - cutting and signing the desktop
+  installers.
 
 ---
 

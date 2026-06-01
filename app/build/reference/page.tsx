@@ -89,8 +89,10 @@ const FRAMEWORK_EXAMPLES = [
 const EXAMPLES_REPO = "marinom2/lightnode-examples";
 
 const CHANGELOG = [
+  { v: "0.7.7", date: "June 2026", line: "Docker-free, gas-correct deregister: deregisterWorker() is sent directly with an estimated gas limit, so a stuck or half-finished worker can exit and recover its stake with no toolkit clone and no worker image. WorkerOperator.workerAddress is now optional on read-only paths." },
   { v: "0.7.1", date: "May 2026", line: "Worker-operator README + CLI docs: full 17-method reference and the worker status / can-deregister / settle / clearstuck / withdraw / deregister commands." },
   { v: "0.7.0", date: "May 2026", line: "WorkerOperator: the on-chain worker write surface. Register, stake (topUp / withdraw / reinstate), settle (releaseJob / releaseAll / withdraw), live AIConfig, and stuck-job recovery (claimTimeout / clearStuck / unstickAndDeregister) that clears acknowledged-but-unfinished jobs blocking deregister. decodeWorkerError turns the unverified custom reverts into plain English." },
+  { v: "0.6.0", date: "May 2026", line: "Higher-level inference: runInferenceBatch (parallel inference, capped concurrency, stable result order, per-slot errors), the Agent class (ReAct-style tool calling that works on llama3-8b without native function calling), and AbortSignal cancellation across runInference / runInferenceWithKey." },
   { v: "0.5.1", date: "May 2026", line: "DAO covers both governors (Ethereum LCAIGovernor + LightChain LightChainGovernor with NativeVotes). All contract addresses now derived from NETWORKS. dao config CLI gets a friendlier RPC fallback." },
   { v: "0.5.0", date: "May 2026", line: "Full SDK ecosystem release: Bridge SDK, DAO SDK, on-chain Model Registry reader, multi-turn Conversation, worker preflight + watch, job status reader." },
   { v: "0.4.9", date: "May 2026", line: "lightnode chat + lightnode wallet CLI commands. runInferenceStream (AsyncIterable<string>). Auto-resolve `ws` in Node so no WebSocket import needed." },
@@ -216,7 +218,7 @@ export default function BuildReferencePage() {
                         {c.testnet}
                       </a>
                     ) : (
-                      <span className="text-content-soft">—</span>
+                      <span className="text-content-soft">not deployed</span>
                     )}
                   </td>
                   <td className="py-2 pr-3">
@@ -230,7 +232,7 @@ export default function BuildReferencePage() {
                         {c.mainnet}
                       </a>
                     ) : (
-                      <span className="text-content-soft">—</span>
+                      <span className="text-content-soft">not deployed</span>
                     )}
                   </td>
                   <td className="py-2 leading-relaxed text-content-soft">{c.note}</td>

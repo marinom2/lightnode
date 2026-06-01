@@ -69,7 +69,7 @@ npm install
 npm start            # or `npm run dev` for the nextjs-api template
 ```
 
-Testnet inference is **free** — get LCAI at <https://lightfaucet.ai>. Mainnet
+Testnet inference is **free** - get LCAI at <https://lightfaucet.ai>. Mainnet
 inference costs ~0.022 LCAI per call.
 
 ## Want to add inference to an existing project?

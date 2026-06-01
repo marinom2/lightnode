@@ -86,7 +86,7 @@ function headlineFor(active: InstallMilestone | undefined, phase: RunPhase, down
   if (phase === "done") return "Your worker is online";
   if (phase === "failed") return "Something needs your attention";
   if (!active) return "Starting up…";
-  if (active.id === "model" && download != null) return `Downloading the AI model — ${download}%`;
+  if (active.id === "model" && download != null) return `Downloading the AI model - ${download}%`;
   return `${active.label}…`;
 }
 

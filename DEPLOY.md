@@ -4,7 +4,7 @@ LightNode is a standard Next.js 15 app - Vercel auto-detects everything. No
 `vercel.json` needed.
 
 ## 1. Environment variables
-Set these in the Vercel project (Settings → Environment Variables), for
+Set these in the Vercel project (Settings -> Environment Variables), for
 Production + Preview:
 
 | Variable | Value |
@@ -36,7 +36,7 @@ Set the two env vars when prompted (or add them in the dashboard, then redeploy)
 
 ### Option B - Git
 Push this repo to GitHub and "Import Project" in Vercel. It builds on every push;
-`main` → Production, branches → Preview.
+`main` deploys to Production, branches to Preview.
 
 ## 4. Post-deploy checklist
 - [ ] Home, `/onboard`, `/dashboard` all load.

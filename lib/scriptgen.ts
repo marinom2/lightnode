@@ -1172,7 +1172,7 @@ export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]):
 }
 
 /**
- * Clear STUCK jobs — ones the worker acknowledged but never completed and whose
+ * Clear STUCK jobs - ones the worker acknowledged but never completed and whose
  * deadline has passed. They sit `Acknowledged` forever and block deregister, and
  * the worker daemon/toolkit have no way to clear them. `claimTimeout` is
  * permissionless, so the operator self-clears them here.
