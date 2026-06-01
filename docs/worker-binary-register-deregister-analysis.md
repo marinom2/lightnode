@@ -1,14 +1,15 @@
 # Worker binary: register and deregister gas issues
 
 Analysis of two defects in the LightChain worker binary's on-chain transaction
-handling, with the on-chain evidence and the workarounds we implemented in our
-operator SDK. All observations are from testnet (chain 8200). Every transaction
-referenced below is a real, mined transaction from actual worker installs, not a
-staged or simulated reproduction. In particular, we registered gemma4:e2b on-chain
-through the app (tx `0x55a8e3...`) and later deregistered the worker (tx
-`0xc3b1b2...`), both real and both successful once the transactions were sent with
-estimated gas. That end-to-end cycle is the proof that the contract and the model
-are fine, and that the binary's fixed-gas path is the only thing that fails.
+handling, with the on-chain evidence and the workarounds I implemented in the
+operator SDK I built. All observations are from testnet (chain 8200). Every
+transaction referenced below is a real, mined transaction from actual worker
+installs, not a staged or simulated reproduction. In particular, I registered
+gemma4:e2b on-chain through the app (tx `0x55a8e3...`) and later deregistered the
+worker (tx `0xc3b1b2...`), both real and both successful once the transactions were
+sent with estimated gas. That end-to-end cycle is the proof that the contract and
+the model are fine, and that the binary's fixed-gas path is the only thing that
+fails.
 
 ## Summary
 
@@ -70,7 +71,7 @@ transactions:
 | `getModelFee` | 0.02 LCAI (2e16) | 0.02 LCAI (2e16) |
 | addSupportedModel gas used (mined tx) | 171,903 | 171,903 |
 
-The gemma figure is from our real successful add at nonce 73 (below); the llama
+The gemma figure is from my real successful add at nonce 73 (below); the llama
 figure is from the binary's own successful add at nonce 69. Same operation, same
 cost. addSupportedModel requires only that the caller is already a registered
 worker (the contract returns `WorkerNotRegistered`, selector `0xcb9a70eb`, otherwise),
@@ -89,7 +90,7 @@ In the failing register flow the worker's on-chain nonces are contiguous:
 There is no AddSupportedModel transaction between nonce 71 and 72. The binary's
 gemma AddSupportedModel never produced a mined transaction, so its "execution
 reverted, no reason string" is a gas-estimation or call-simulation revert, not a
-mined out-of-gas. The transaction at nonce 73 is our own gas-correct add, after the
+mined out-of-gas. The transaction at nonce 73 is my own gas-correct add, after the
 register flow had already failed (see workarounds). The binary's llama3-8b
 AddSupportedModel, by contrast, mines normally, for example nonce 69:
 `0x8eee1d15d918588fdd624818a092e94625bd92334741da44335364d6eca6eab5` (limit 174,435,
@@ -136,7 +137,7 @@ nine identical failures, all limit 87,534, gasUsed 86,608, status 0:
 | `0x3f851af9a25db8c880f7e1426cfec9dc43b3e76852640cc28edd3169cb302d96` | 87,534 | 86,608 | failed |
 
 (9 occurrences total on this worker.) The same call sent with an adequate limit
-succeeds at about 129,000 gas. This is the real deregister we performed through the
+succeeds at about 129,000 gas. This is the real deregister I performed through the
 app after the SDK fix, tx
 `0xc3b1b217212b7a4836501860a08c1b3c43a7184446d19de65c97829094d81541`
 (limit 249,583, used 129,192).
@@ -154,11 +155,11 @@ applies to a normal operator deregister, which the binary also under-gasses.
 
 ---
 
-## Workarounds implemented in our operator SDK
+## Workarounds implemented in the operator SDK I built
 
-These are the changes we made on our side to operate workers reliably while the
-binary defects stand. The SDK is pure RPC over viem, with no worker image
-dependency, and is published as `lightnode-sdk`.
+These are the changes I made to operate workers reliably while the binary defects
+stand. The SDK is pure RPC over viem, with no worker image dependency, and is
+published as `lightnode-sdk`.
 
 ### 1. Gas-correct writes
 
@@ -278,7 +279,7 @@ errors central to this analysis:
 | addSupportedModel, gemma4:e2b (in binary register) | n/a | n/a | fails pre-broadcast | no tx mined |
 | addSupportedModel, gemma4:e2b (standalone, correct gas) | 261,652 | 171,903 | ok | `0x55a8e34518fae9852e4d3599b4f78ef2cfbaa044c252912d72f6d0dc5ff1142f` |
 | deregisterWorker (binary rollback) | 87,534 | 86,608 | failed, out of gas | `0x9f82e6b0ae5be6d3be8d8a2f947c3b842f69592ce8fa571cfec721d7b20a88fe` |
-| deregisterWorker (correct gas, our app after SDK fix) | 249,583 | 129,192 | ok | `0xc3b1b217212b7a4836501860a08c1b3c43a7184446d19de65c97829094d81541` |
+| deregisterWorker (correct gas, my app after SDK fix) | 249,583 | 129,192 | ok | `0xc3b1b217212b7a4836501860a08c1b3c43a7184446d19de65c97829094d81541` |
 
 addSupportedModel uses the same 171,903 gas for both models, which is why the binary's
 limit of 174,435 is enough for llama3-8b. deregisterWorker needs about 129,000, which
