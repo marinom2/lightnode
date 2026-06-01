@@ -92,12 +92,14 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         </div>
       </section>
 
-      {/* 'Use this in your project' — every sub-page that doesn't already
-          have its own 3-step stepper. Bridge, DAO, Models and Dispute
-          ship the integration block as step 3 of their stepper. */}
-      {m.id !== "bridge" && m.id !== "dao" && m.id !== "models" && m.id !== "dispute" && m.sandboxBody ? (
-        <UseInYourProject m={m} />
-      ) : null}
+      {/* Every steppered module ships its own 'Use it in your project' as
+          step 3. Only modules without a Recipe widget still need the
+          external block. */}
+      {(["bridge", "dao", "models", "dispute", "operator", "chat", "preflight", "batch", "agent"] as ModuleId[]).includes(m.id)
+        ? null
+        : m.sandboxBody
+          ? <UseInYourProject m={m} />
+          : null}
 
       {/* Cross-link grid - one row, simple, no decoration. */}
       <section className="mb-4">

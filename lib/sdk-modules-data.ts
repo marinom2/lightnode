@@ -197,6 +197,7 @@ console.log("delegated to            =", delegateTo);
     tagline: "Stateful AI chat. No server.",
     subtitle:
       "Conversation keeps history client-side and signs one encrypted inference per turn. Drop it into a Node script, a Next.js API route, or a React component.",
+    heroImage: "/images/sdk/chat-hero.svg",
     cta: { label: "Try the chat", href: "#try-it" },
     npm: "#five-line-hello-world",
     github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/chat.ts",

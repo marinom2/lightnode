@@ -1830,12 +1830,12 @@ function ModelsExplainer() {
 export function Widget({ id }: { id: ModuleId }) {
   if (id === "bridge") return <BridgeLive />;
   if (id === "dao") return <DaoRecipe />;
-  if (id === "preflight") return <PreflightSample />;
-  if (id === "chat") return <ChatSample />;
+  if (id === "preflight") return <PreflightRecipe />;
+  if (id === "chat") return <ChatRecipe />;
   if (id === "dispute") return <DisputeRecipe />;
-  if (id === "batch") return <BatchExplainer />;
-  if (id === "agent") return <AgentExplainer />;
-  if (id === "operator") return <OperatorExplainer />;
+  if (id === "batch") return <BatchRecipe />;
+  if (id === "agent") return <AgentRecipe />;
+  if (id === "operator") return <OperatorRecipe />;
   return <ModelsRecipe />;
 }
 
@@ -2720,6 +2720,804 @@ if (!status) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+// --- Shared stepper shell ----------------------------------------------------
+// Pulls the step indicator + step-container styling into one place so every
+// new Recipe gets a consistent shell. The Bridge / DAO / Models / Dispute
+// recipes built earlier in this file inline the same JSX - we don't retrofit
+// them to avoid regression risk.
+
+function StepperShell({
+  step,
+  labels,
+  children,
+}: {
+  step: BridgeStep;
+  labels: [string, string, string];
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4">
+        <StepDot n={1} current={step} label={labels[0]} />
+        <StepConnector filled={step > 1} />
+        <StepDot n={2} current={step} label={labels[1]} />
+        <StepConnector filled={step > 2} />
+        <StepDot n={3} current={step} label={labels[2]} />
+      </div>
+      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">{children}</div>
+    </div>
+  );
+}
+
+/** Step 3 'Use it in your project' block. Snippet + file hint + StackBlitz. */
+function UseItStep({
+  onBack,
+  title,
+  hint,
+  snippet,
+  needsKey,
+}: {
+  onBack: () => void;
+  title: string;
+  hint: string;
+  snippet: string;
+  needsKey: boolean;
+}) {
+  return (
+    <div>
+      <StepBack onClick={onBack} />
+      <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Use it in your project</h3>
+      <p className="mt-1 text-sm text-content-soft">{hint}</p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 text-xs text-content-default">
+        <span className="truncate text-content-soft">
+          Save in your project at <code className="font-mono text-content-default">index.ts</code>
+        </span>
+        <button
+          type="button"
+          onClick={() => openSnippetInStackBlitz({ title, snippet, needsPrivateKey: needsKey })}
+          className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+          style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
+        >
+          <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
+          Open in StackBlitz
+        </button>
+      </div>
+      <div className="mt-3">
+        <CodeBox code={snippet} />
+      </div>
+    </div>
+  );
+}
+
+/** Gradient brand 'Run preview' button used by every Recipe in step 2. */
+function PreviewButton({ onClick, busy, idle, working }: { onClick: () => void; busy: boolean; idle: string; working: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+      style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+    >
+      {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+      {busy ? working : idle}
+    </button>
+  );
+}
+
+/** 'Get the code for your project' CTA that advances to step 3. */
+function GetTheCodeCTA({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+      style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
+    >
+      Get the code for your project
+      <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+    </button>
+  );
+}
+
+// --- Worker Operator stepper ------------------------------------------------
+
+type OperatorStep = 1 | 2 | 3;
+type OperatorAction = "config" | "status";
+
+interface OpConfig {
+  minStakeLcai: number;
+  completionTimeoutSec: number;
+  ackTimeoutSec: number;
+  resolutionTimeoutSec: number;
+  disputeWindowSec: number;
+  slashBps: { ackTimeout: number; completionTimeout: number; dispute: number; max: number };
+  feeBps: { protocol: number; worker: number; feePool: number };
+}
+interface OpStatus {
+  address: string;
+  registered: boolean;
+  stakeLcai: number;
+  claimableLcai: number;
+  belowFloor: boolean;
+  headroomLcai: number;
+}
+
+function OperatorRecipe() {
+  const [step, setStep] = useState<OperatorStep>(1);
+  const [net, setNet] = useState<ModelsNet>("mainnet");
+  const [action, setAction] = useState<OperatorAction>("config");
+  const [worker, setWorker] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ config?: OpConfig; status?: OpStatus } | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const qs =
+        action === "status"
+          ? `action=status&net=${net}&worker=${encodeURIComponent(worker)}`
+          : `action=config&net=${net}`;
+      const res = await fetch(`/api/operator-preview?${qs}`, { cache: "no-store" });
+      const j = (await res.json()) as { error?: string; config?: OpConfig; status?: OpStatus };
+      if (!res.ok || j.error) {
+        setErr(j.error ?? "Couldn't read the operator surface.");
+        return;
+      }
+      setResult({ config: j.config, status: j.status });
+    } catch (e) {
+      setErr(humanizeError(e, { action: "the operator preview" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const snippet = operatorSnippet(action, net, worker || "0xWORKER_ADDRESS");
+
+  return (
+    <StepperShell step={step as BridgeStep} labels={["Network", "Query", "Use it"]}>
+      {step === 1 ? (
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a network</h3>
+          <p className="mt-1 text-sm text-content-soft">Worker reads + writes are scoped per network.</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {MODELS_NETS.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => { setNet(n.id); setStep(2); }}
+                className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                  net === n.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                }`}
+              >
+                <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                  <ShieldCheck className="size-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-content-primary">{n.label}</div>
+                  <div className="truncate text-xs text-content-soft">{n.sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {step === 2 ? (
+        <div>
+          <StepBack onClick={() => setStep(1)} />
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a query</h3>
+          <p className="mt-1 text-sm text-content-soft">
+            Both queries are read-only. Reading <span className="text-content-primary">{net === "mainnet" ? "Mainnet" : "Testnet"}</span>.
+          </p>
+          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            {([
+              { id: "config", label: "Read protocol config", sub: "op.config() - timeouts / fees / slash" },
+              { id: "status", label: "Read a worker's status", sub: "op.status() - stake + claimable + registered" },
+            ] as const).map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => setAction(a.id)}
+                className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
+                  action === a.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft"
+                }`}
+              >
+                <div className="text-sm font-semibold text-content-primary">{a.label}</div>
+                <div className="mt-0.5 truncate font-mono text-[11px] text-content-soft">{a.sub}</div>
+              </button>
+            ))}
+          </div>
+          {action === "status" ? (
+            <label className="mt-4 block">
+              <span className="mb-1.5 block text-xs text-content-soft">Worker address</span>
+              <input
+                type="text"
+                value={worker}
+                onChange={(e) => setWorker(e.target.value.trim())}
+                placeholder="0x..."
+                className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
+              />
+            </label>
+          ) : null}
+          <PreviewButton
+            onClick={run}
+            busy={busy || (action === "status" && !/^0x[0-9a-fA-F]{40}$/.test(worker))}
+            idle={action === "config" ? "Read protocol config" : "Read worker status"}
+            working="Reading on-chain"
+          />
+          {err ? (
+            <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
+          ) : null}
+          {result?.config ? (
+            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+              <dl className="grid gap-1.5 text-xs">
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Min stake</dt><dd className="font-mono text-content-primary">{result.config.minStakeLcai.toLocaleString()} LCAI</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Completion timeout</dt><dd className="font-mono text-content-primary">{result.config.completionTimeoutSec}s ({Math.round(result.config.completionTimeoutSec / 60)} min)</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Ack timeout</dt><dd className="font-mono text-content-primary">{result.config.ackTimeoutSec}s</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Dispute window</dt><dd className="font-mono text-content-primary">{result.config.disputeWindowSec}s ({Math.round(result.config.disputeWindowSec / 60)} min)</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Slash bps (ack / comp / dispute)</dt><dd className="font-mono text-content-primary">{result.config.slashBps.ackTimeout} / {result.config.slashBps.completionTimeout} / {result.config.slashBps.dispute}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Fee split (proto / worker / pool)</dt><dd className="font-mono text-content-primary">{result.config.feeBps.protocol} / {result.config.feeBps.worker} / {result.config.feeBps.feePool}</dd></div>
+              </dl>
+              <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+                <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(result.config, null, 2)}</pre>
+              </details>
+              <GetTheCodeCTA onClick={() => setStep(3)} />
+            </div>
+          ) : null}
+          {result?.status ? (
+            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+              <dl className="grid gap-1.5 text-xs">
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Registered</dt><dd className="font-mono text-content-primary">{String(result.status.registered)}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Stake</dt><dd className="font-mono text-content-primary">{result.status.stakeLcai.toLocaleString()} LCAI</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Claimable</dt><dd className="font-mono text-content-primary">{result.status.claimableLcai.toLocaleString()} LCAI</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Headroom over min</dt><dd className="font-mono text-content-primary">{result.status.headroomLcai.toLocaleString()} LCAI {result.status.belowFloor ? "(below floor)" : ""}</dd></div>
+              </dl>
+              <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+                <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(result.status, null, 2)}</pre>
+              </details>
+              <GetTheCodeCTA onClick={() => setStep(3)} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {step === 3 ? (
+        <UseItStep
+          onBack={() => setStep(2)}
+          title="Worker Operator SDK"
+          hint={`Targets ${net}. Reads are key-less; writes are commented in. Open in StackBlitz to try.`}
+          snippet={snippet}
+          needsKey={false}
+        />
+      ) : null}
+    </StepperShell>
+  );
+}
+
+function operatorSnippet(action: OperatorAction, net: ModelsNet, workerAddr: string): string {
+  const head = `import { WorkerOperator } from "lightnode-sdk";
+import { createPublicClient, http } from "viem";
+
+const chain = ${net === "mainnet"
+    ? `{ id: 9200, name: "LightChain mainnet", nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 }, rpcUrls: { default: { http: ["https://rpc.mainnet.lightchain.ai"] } } }`
+    : `{ id: 8200, name: "LightChain testnet", nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 }, rpcUrls: { default: { http: ["https://rpc.testnet.lightchain.ai"] } } }`};
+const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.http[0]), chain });`;
+  if (action === "config") {
+    return `${head}
+
+const op = new WorkerOperator("${net}", { publicClient });
+
+const cfg = await op.config();
+console.log("min stake     :", cfg.minStakeLcai, "LCAI");
+console.log("completion    :", cfg.completionTimeoutSec, "s");
+console.log("dispute window:", cfg.disputeWindowSec, "s");
+console.log("slash bps     :", JSON.stringify(cfg.slashBps));
+console.log("fee bps       :", JSON.stringify(cfg.feeBps));`;
+  }
+  return `${head}
+
+const worker = "${workerAddr}" as \`0x\${string}\`;
+const op = new WorkerOperator("${net}", { publicClient, workerAddress: worker });
+
+const st = await op.status();
+console.log("registered    :", st.registered);
+console.log("stake         :", st.stakeLcai, "LCAI");
+console.log("claimable     :", st.claimableLcai, "LCAI");
+console.log("headroom      :", st.headroomLcai, "LCAI");
+
+// To write (needs a PRIVATE_KEY for the worker key):
+//   import { createWalletClient } from "viem";
+//   import { privateKeyToAccount } from "viem/accounts";
+//   const account = privateKeyToAccount(process.env.PRIVATE_KEY as \`0x\${string}\`);
+//   const walletClient = createWalletClient({ account, transport: http(chain.rpcUrls.default.http[0]), chain });
+//   const opRW = new WorkerOperator("${net}", { publicClient, walletClient });
+//   await opRW.releaseAll();    // settle all completed jobs past their window
+//   await opRW.withdraw();      // pull earned balance out
+//   await opRW.deregister();    // exit (clears stuck first if blocked)`;
+}
+
+// --- Chat (Conversation) stepper -------------------------------------------
+
+type ChatStep = 1 | 2 | 3;
+
+interface ChatDemoResp {
+  answer?: string;
+  jobId?: string;
+  worker?: string;
+  remaining?: number;
+  error?: string;
+  runLocally?: boolean;
+  howTo?: string;
+}
+
+function ChatRecipe() {
+  const [step, setStep] = useState<ChatStep>(1);
+  const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
+  const [prompt, setPrompt] = useState("Reply with a one-sentence fun fact about the moon.");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [resp, setResp] = useState<ChatDemoResp | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setErr(null);
+    setResp(null);
+    try {
+      const r = await fetch("/api/chat-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: prompt }),
+      });
+      const text = await r.text();
+      let json: ChatDemoResp = {};
+      try {
+        json = JSON.parse(text) as ChatDemoResp;
+      } catch {
+        const timeoutish = /FUNCTION_INVOCATION_TIMEOUT/i.test(text);
+        setErr(
+          timeoutish
+            ? "The worker took longer than the demo budget allows (~30 s). Try again or run the example locally."
+            : `Demo failed (${r.status}). Try again or run the example locally.`,
+        );
+        return;
+      }
+      if (!r.ok || json.error) {
+        setErr(json.error ?? "Demo failed.");
+        return;
+      }
+      setResp(json);
+    } catch (e) {
+      setErr(humanizeError(e, { action: "the chat demo" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const snippet = `import { Conversation } from "lightnode-sdk";
+
+const chat = new Conversation({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "${model}",
+  system: "You are a concise assistant. Reply in one short sentence.",
+  maxHistoryTurns: 20,
+});
+
+const r = await chat.send(${JSON.stringify(prompt)});
+console.log("answer:", r.answer);
+console.log("worker:", r.worker, "job:", r.jobId.toString());`;
+
+  return (
+    <StepperShell step={step as BridgeStep} labels={["Model", "Prompt", "Use it"]}>
+      {step === 1 ? (
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a model</h3>
+          <p className="mt-1 text-sm text-content-soft">Both run on the LightChain testnet worker pool.</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {([
+              { id: "llama3-8b" as const, label: "llama3-8b", sub: "8B params - fast, free testnet" },
+              { id: "llama3-70b" as const, label: "llama3-70b", sub: "70B params - more capable, slightly slower" },
+            ]).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => { setModel(m.id); setStep(2); }}
+                className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                  model === m.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                }`}
+              >
+                <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                  <Workflow className="size-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-sm font-semibold text-content-primary">{m.label}</div>
+                  <div className="truncate text-xs text-content-soft">{m.sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {step === 2 ? (
+        <div>
+          <StepBack onClick={() => setStep(1)} />
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Send a prompt</h3>
+          <p className="mt-1 text-sm text-content-soft">
+            Runs one encrypted inference against <span className="text-content-primary">{model}</span> on the public
+            testnet (free, paid by the demo wallet).
+          </p>
+          <label className="mt-5 block">
+            <span className="mb-1.5 block text-xs text-content-soft">Prompt</span>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              maxLength={500}
+              className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
+            />
+          </label>
+          <PreviewButton
+            onClick={run}
+            busy={busy || !prompt.trim()}
+            idle="Send prompt"
+            working="Running encrypted inference"
+          />
+          {err ? (
+            <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
+          ) : null}
+          {resp?.answer ? (
+            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+              <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+              <p className="rounded-md border border-bdr-soft bg-card p-3 text-sm leading-relaxed text-content-default">{resp.answer}</p>
+              <dl className="mt-3 grid gap-1 text-xs">
+                <div className="flex items-center justify-between"><dt className="text-content-soft">Worker</dt><dd className="break-all font-mono text-content-default">{resp.worker ? `${resp.worker.slice(0, 10)}…${resp.worker.slice(-6)}` : "?"}</dd></div>
+                <div className="flex items-center justify-between"><dt className="text-content-soft">Job ID</dt><dd className="break-all font-mono text-content-default">{resp.jobId ?? "?"}</dd></div>
+              </dl>
+              <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+                <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(resp, null, 2)}</pre>
+              </details>
+              <GetTheCodeCTA onClick={() => setStep(3)} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {step === 3 ? (
+        <UseItStep
+          onBack={() => setStep(2)}
+          title="Conversation SDK"
+          hint={`Targets ${model} on testnet. PRIVATE_KEY must be funded with ≥0.02 LCAI per call (use the testnet faucet).`}
+          snippet={snippet}
+          needsKey={true}
+        />
+      ) : null}
+    </StepperShell>
+  );
+}
+
+// --- Preflight stepper ------------------------------------------------------
+// Live demo requires a funded key + a real inference per click, which would
+// burn the demo wallet. Step 2 shows a canned representative output instead;
+// the visitor runs the real thing locally / in StackBlitz with their own key.
+
+function PreflightRecipe() {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [net, setNet] = useState<ModelsNet>("testnet");
+  const sampleVerdict = {
+    verdict: "ok" as const,
+    elapsedMs: 8420,
+    worker: "0xbe1cDe9b44A7f48de5e6076AE20f2356bbc28FC2",
+    jobId: "1842",
+    summary: "OK in 8.4s. Worker 0xbe1cDe… replied with 156 chars. Pool is responsive.",
+  };
+  const snippet = `import { workerPreflight, LightNode } from "lightnode-sdk";
+
+const verdict = await workerPreflight({
+  network: "${net}",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  deadlineMs: 60_000,
+});
+console.log("verdict:", verdict.verdict);   // "ok" | "over-deadline" | "stalled" | "failed"
+console.log("worker :", verdict.worker);
+console.log("elapsed:", verdict.elapsedMs, "ms");
+
+// Free read - top mainnet workers, no key required:
+const ln = new LightNode("mainnet");
+const top = await ln.getWorkerStats(500, 5);
+for (const w of top) console.log(w.address, "jobs:", w.jobsCompleted, "p50:", w.p50ProcessingSecs, "s");`;
+
+  return (
+    <StepperShell step={step as BridgeStep} labels={["Network", "Sample", "Use it"]}>
+      {step === 1 ? (
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a network</h3>
+          <p className="mt-1 text-sm text-content-soft">Preflight signs one real inference. Use testnet to keep it free.</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {MODELS_NETS.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => { setNet(n.id); setStep(2); }}
+                className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                  net === n.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                }`}
+              >
+                <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                  <PlayCircle className="size-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-content-primary">{n.label}</div>
+                  <div className="truncate text-xs text-content-soft">{n.sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {step === 2 ? (
+        <div>
+          <StepBack onClick={() => setStep(1)} />
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Sample verdict</h3>
+          <p className="mt-1 text-sm text-content-soft">
+            A real run signs one inference - too expensive for a click-anywhere preview. Here is what a successful
+            verdict on <span className="text-content-primary">{net}</span> looks like in the wild.
+          </p>
+          <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+            <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK sample</p>
+            <dl className="grid gap-1.5 text-xs">
+              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Verdict</dt><dd><Badge tone="success">{sampleVerdict.verdict}</Badge></dd></div>
+              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Elapsed</dt><dd className="font-mono text-content-primary">{sampleVerdict.elapsedMs} ms</dd></div>
+              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker</dt><dd className="break-all font-mono text-content-default">{sampleVerdict.worker.slice(0, 12)}…{sampleVerdict.worker.slice(-6)}</dd></div>
+              <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Job ID</dt><dd className="font-mono text-content-default">{sampleVerdict.jobId}</dd></div>
+            </dl>
+            <p className="mt-3 rounded-md border border-bdr-soft bg-card px-3 py-2 text-xs leading-relaxed text-content-default">{sampleVerdict.summary}</p>
+            <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+              <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+              <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(sampleVerdict, null, 2)}</pre>
+            </details>
+            <GetTheCodeCTA onClick={() => setStep(3)} />
+          </div>
+        </div>
+      ) : null}
+      {step === 3 ? (
+        <UseItStep
+          onBack={() => setStep(2)}
+          title="Preflight SDK"
+          hint={`Targets ${net}. PRIVATE_KEY must be funded; ${net} is free from the faucet.`}
+          snippet={snippet}
+          needsKey={true}
+        />
+      ) : null}
+    </StepperShell>
+  );
+}
+
+// --- Batch stepper ----------------------------------------------------------
+
+function BatchRecipe() {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [count, setCount] = useState<3 | 5>(3);
+  const sample = [
+    { index: 0, answer: "The ocean is about 95% unexplored.", error: null },
+    { index: 1, answer: "The moon is moving ~3.8 cm farther from Earth each year.", error: null },
+    { index: 2, answer: "Coffee was first brewed in 15th-century Yemen.", error: null },
+    { index: 3, answer: "There are more stars in the universe than grains of sand on Earth.", error: null },
+    { index: 4, answer: null, error: { name: "StalledWorkerError", message: "Worker stalled mid-job; retry was successful on a different worker." } },
+  ].slice(0, count);
+  const snippet = `import { runInferenceBatch } from "lightnode-sdk";
+
+const prompts = ${JSON.stringify(
+    [
+      "One-line fact about the ocean",
+      "One-line fact about the moon",
+      "One-line fact about coffee",
+      "One-line fact about stars",
+      "One-line fact about ants",
+    ].slice(0, count),
+    null,
+    2,
+  )};
+
+const results = await runInferenceBatch({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  system: "Reply in one short sentence.",
+  concurrency: ${Math.min(count, 4)},
+  prompts,
+  onSlotComplete: ({ index, result, error }) => {
+    console.log(\`#\${index}\`, error?.message ?? result?.answer);
+  },
+});
+
+for (const r of results) {
+  if (r.error) console.warn(\`#\${r.index} failed:\`, r.error.message);
+  else console.log(\`#\${r.index}\`, r.result.answer);
+}`;
+  return (
+    <StepperShell step={step as BridgeStep} labels={["Size", "Sample", "Use it"]}>
+      {step === 1 ? (
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a batch size</h3>
+          <p className="mt-1 text-sm text-content-soft">Concurrency is capped automatically; each slot runs one encrypted inference.</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {[3, 5].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => { setCount(c as 3 | 5); setStep(2); }}
+                className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                  count === c ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                }`}
+              >
+                <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                  <Boxes className="size-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-content-primary">{c} prompts</div>
+                  <div className="truncate text-xs text-content-soft">concurrency {Math.min(c, 4)}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {step === 2 ? (
+        <div>
+          <StepBack onClick={() => setStep(1)} />
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Sample batch</h3>
+          <p className="mt-1 text-sm text-content-soft">A live run signs {count} inferences; cheaper to show a representative output here.</p>
+          <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+            <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK sample</p>
+            <ul className="space-y-2 text-xs">
+              {sample.map((r) => (
+                <li key={r.index} className="rounded-md border border-bdr-soft bg-card p-2.5">
+                  <div className="mb-1 flex items-center justify-between"><span className="font-mono text-[10px] text-content-soft">#{r.index}</span>{r.error ? <Badge tone="warning">{r.error.name}</Badge> : <Badge tone="success">ok</Badge>}</div>
+                  <p className="leading-relaxed text-content-default">{r.error ? r.error.message : r.answer}</p>
+                </li>
+              ))}
+            </ul>
+            <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+              <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
+              <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(sample, null, 2)}</pre>
+            </details>
+            <GetTheCodeCTA onClick={() => setStep(3)} />
+          </div>
+        </div>
+      ) : null}
+      {step === 3 ? (
+        <UseItStep
+          onBack={() => setStep(2)}
+          title="Batch SDK"
+          hint={`Runs ${count} prompts in parallel against testnet. PRIVATE_KEY must hold ≥${(count * 0.02).toFixed(2)} LCAI to pay the slots.`}
+          snippet={snippet}
+          needsKey={true}
+        />
+      ) : null}
+    </StepperShell>
+  );
+}
+
+// --- Agent stepper ----------------------------------------------------------
+
+function AgentRecipe() {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [task, setTask] = useState<"math" | "time">("math");
+  const sample = task === "math"
+    ? {
+        userMessage: "What is 17 + 25?",
+        steps: [
+          { kind: "tool_call", name: "add", args: { a: 17, b: 25 }, result: 42 },
+          { kind: "answer", text: "42" },
+        ],
+        answer: "42",
+        iterations: 2,
+      }
+    : {
+        userMessage: "What is the current time?",
+        steps: [
+          { kind: "tool_call", name: "now", args: {}, result: "2026-06-01T10:42:31.012Z" },
+          { kind: "answer", text: "The current ISO timestamp is 2026-06-01T10:42:31.012Z." },
+        ],
+        answer: "The current ISO timestamp is 2026-06-01T10:42:31.012Z.",
+        iterations: 2,
+      };
+  const snippet = `import { Agent } from "lightnode-sdk";
+
+const agent = new Agent({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  system: "You are a careful assistant. Use tools when they help.",
+  tools: [
+    { name: "add", description: "Add two integers.", args: { a: "first integer", b: "second integer" },
+      handler: ({ a, b }) => Number(a) + Number(b) },
+    { name: "now", description: "Return the current ISO timestamp.", args: {},
+      handler: () => new Date().toISOString() },
+  ],
+  maxIterations: 3,
+  onStep: (s) => {
+    if (s.kind === "tool_call") console.log(\`[\${s.name}]\`, s.args, "->", s.result);
+  },
+});
+
+const { answer } = await agent.run(${JSON.stringify(sample.userMessage)});
+console.log("\\nfinal:", answer);`;
+  return (
+    <StepperShell step={step as BridgeStep} labels={["Task", "Sample", "Use it"]}>
+      {step === 1 ? (
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a sample task</h3>
+          <p className="mt-1 text-sm text-content-soft">Both tasks use two built-in tools: <code className="font-mono text-content-default">add</code> and <code className="font-mono text-content-default">now</code>.</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {([
+              { id: "math" as const, label: "Math: 17 + 25", sub: "tool call -> add" },
+              { id: "time" as const, label: "Time: what's the time?", sub: "tool call -> now" },
+            ]).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => { setTask(t.id); setStep(2); }}
+                className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                  task === t.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                }`}
+              >
+                <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                  <Boxes className="size-5 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-content-primary">{t.label}</div>
+                  <div className="truncate text-xs text-content-soft">{t.sub}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {step === 2 ? (
+        <div>
+          <StepBack onClick={() => setStep(1)} />
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Sample agent trace</h3>
+          <p className="mt-1 text-sm text-content-soft">A live run signs one inference per step. Here is what the ReAct loop produces.</p>
+          <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+            <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK sample - {sample.iterations} iterations</p>
+            <ul className="space-y-2 text-xs">
+              {sample.steps.map((s, i) => (
+                <li key={i} className="rounded-md border border-bdr-soft bg-card p-2.5">
+                  <div className="mb-1 flex items-center justify-between"><span className="font-mono text-[10px] text-content-soft">step {i + 1}</span><Badge tone={s.kind === "answer" ? "success" : "brand"}>{s.kind}</Badge></div>
+                  <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-content-default">{JSON.stringify(s, null, 2)}</pre>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 rounded-md border border-bdr-soft bg-card px-3 py-2 text-xs leading-relaxed text-content-default"><span className="text-content-soft">final answer:</span> {sample.answer}</p>
+            <GetTheCodeCTA onClick={() => setStep(3)} />
+          </div>
+        </div>
+      ) : null}
+      {step === 3 ? (
+        <UseItStep
+          onBack={() => setStep(2)}
+          title="Agent SDK"
+          hint="Runs an Agent against testnet. PRIVATE_KEY must be funded (≥0.06 LCAI for a 3-iteration loop)."
+          snippet={snippet}
+          needsKey={true}
+        />
+      ) : null}
+    </StepperShell>
   );
 }
 
