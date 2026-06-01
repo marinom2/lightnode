@@ -173,7 +173,11 @@
   }
 }
 
-/* ── ambient app background (subtle gradient mesh behind everything) ── */
+/* ── ambient app background (gradient mesh behind everything) ──
+   Tuned to mirror the lightchain.ai / lcai-chat-v2 hero treatment:
+   a soft pink-to-lavender aurora at the top, a quieter purple wash
+   on the lower edges. Light-mode is now visible (was 0.05), dark
+   stays the same. */
 body::before {
   content: "";
   position: fixed;
@@ -181,15 +185,40 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.06), transparent 60%),
-    radial-gradient(50% 40% at 92% 0%, rgba(221, 0, 172, 0.05), transparent 55%),
-    radial-gradient(45% 45% at 50% 115%, rgba(112, 100, 233, 0.05), transparent 60%);
+    radial-gradient(60% 50% at 50% -6%, rgba(221, 0, 172, 0.10), transparent 60%),
+    radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.14), transparent 60%),
+    radial-gradient(50% 40% at 88% -2%, rgba(112, 100, 233, 0.12), transparent 60%),
+    radial-gradient(45% 45% at 50% 115%, rgba(112, 100, 233, 0.07), transparent 60%);
 }
 .dark body::before {
   background:
+    radial-gradient(60% 50% at 50% -6%, rgba(221, 0, 172, 0.12), transparent 60%),
     radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.18), transparent 60%),
-    radial-gradient(50% 40% at 92% 0%, rgba(221, 0, 172, 0.12), transparent 55%),
-    radial-gradient(45% 45% at 50% 118%, rgba(112, 100, 233, 0.1), transparent 60%);
+    radial-gradient(50% 40% at 88% -2%, rgba(112, 100, 233, 0.14), transparent 60%),
+    radial-gradient(45% 45% at 50% 118%, rgba(112, 100, 233, 0.10), transparent 60%);
+}
+
+/* Stronger hero aurora used on /build/sdks and its sub-pages. Sits
+   absolutely positioned inside the page container so it can wash the
+   space behind the hero specifically without affecting downstream
+   sections. Both themes carry it. */
+.aurora-hero {
+  position: absolute;
+  inset: -10% -10% auto -10%;
+  height: 70vh;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 60% at 50% 0%, rgba(221, 0, 172, 0.18), transparent 65%),
+    radial-gradient(45% 70% at 20% 10%, rgba(112, 100, 233, 0.22), transparent 70%),
+    radial-gradient(45% 70% at 80% 10%, rgba(147, 51, 234, 0.18), transparent 70%);
+  filter: blur(20px);
+}
+.dark .aurora-hero {
+  background:
+    radial-gradient(40% 60% at 50% 0%, rgba(221, 0, 172, 0.16), transparent 65%),
+    radial-gradient(45% 70% at 20% 10%, rgba(112, 100, 233, 0.20), transparent 70%),
+    radial-gradient(45% 70% at 80% 10%, rgba(147, 51, 234, 0.18), transparent 70%);
 }
 
 /* the signature lcai gradient */

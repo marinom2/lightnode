@@ -19,6 +19,14 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # Build the local file:./sdk package BEFORE lint/typecheck. The app imports
+      # `lightnode-sdk`, whose types live in sdk/dist (gitignored, so absent on a
+      # clean checkout). `prebuild` builds it for `npm run build`, but typecheck
+      # runs earlier and would otherwise fail with "Cannot find module
+      # 'lightnode-sdk'" plus cascading implicit-any errors. Vercel never hit this
+      # because it only runs the build step.
+      - name: Build local SDK
+        run: npm --prefix sdk install --no-audit --no-fund && npm --prefix sdk run build
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

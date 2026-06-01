@@ -118,7 +118,7 @@ export function DocLinks({ m }: { m: ModuleDef }) {
               needsPrivateKey: m.sandboxNeedsKey ?? false,
             })
           }
-          className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-content-primary shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+          className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
           style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
           aria-label={`Open ${m.title} in StackBlitz`}
         >
@@ -789,7 +789,7 @@ function StepDot({ n, current, label }: { n: number; current: BridgeStep; label:
         <div
           className={`relative grid size-8 place-items-center rounded-full text-xs font-semibold transition-all duration-300 ${
             isCurrent
-              ? "bg-gradient-to-br from-[#7064E9] to-[#5a4fd6] text-content-primary shadow-[0_0_16px_-2px_rgba(112,100,233,0.5)]"
+              ? "bg-gradient-to-br from-[#7064E9] to-[#5a4fd6] text-white shadow-[0_0_16px_-2px_rgba(112,100,233,0.5)]"
               : isDone
                 ? "bg-primary/25 text-content-primary"
                 : "bg-surface-base-faint text-content-soft"
@@ -982,7 +982,7 @@ function BridgeRecipe() {
               type="button"
               onClick={runPreview}
               disabled={busy || numericAmt <= 0}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-content-primary shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
             >
               {busy ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -1025,7 +1025,7 @@ function BridgeRecipe() {
                 <button
                   type="button"
                   onClick={() => setStep(3)}
-                  className="group mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-content-primary shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+                  className="group mt-5 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
                   style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
                 >
                   Get the code for your project
@@ -1066,7 +1066,7 @@ function BridgeRecipe() {
               <button
                 type="button"
                 onClick={() => openInStackBlitz(snippet, tmpl)}
-                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-content-primary shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
                 style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
               >
                 <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />

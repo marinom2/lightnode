@@ -26,7 +26,11 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
   const subtitle = m.subtitle ?? (sentences.slice(1).join(" ").trim() || null);
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-12 sm:py-16">
+    <div className="relative mx-auto max-w-5xl px-5 py-12 sm:py-16">
+      {/* Pink-to-lavender aurora behind the hero (same treatment as the
+          lightchain.ai marketing pages). Sits absolutely so it only
+          washes the top of the page, not the widget below. */}
+      <div className="aurora-hero" aria-hidden />
       {/* Back link, quiet. */}
       <Link
         href="/build/sdks"
@@ -54,7 +58,7 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
             <a
               href={m.cta.href}
               {...(m.cta.href.startsWith("#") ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-              className="group mt-10 inline-flex items-center gap-3 rounded-xl px-6 py-3.5 text-sm font-bold uppercase tracking-wider text-content-primary shadow-[0_8px_24px_-6px_rgba(112,100,233,0.55)] transition-all duration-500 active:scale-95"
+              className="group mt-10 inline-flex items-center gap-3 rounded-xl px-6 py-3.5 text-sm font-bold uppercase tracking-wider text-white shadow-[0_8px_24px_-6px_rgba(112,100,233,0.55)] transition-all duration-500 active:scale-95"
               style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
             >
               {m.cta.label}

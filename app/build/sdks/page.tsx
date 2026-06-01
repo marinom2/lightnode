@@ -61,11 +61,13 @@ const TYPED_ERRORS = [
 
 export default function BuildSdksPage() {
   return (
-    <div className="mx-auto max-w-5xl px-5 py-10">
-      {/* Hero with isometric SDK illustration as the visual CTA. Two-column
-          on desktop, stacked on mobile. The image is the main thing the
-          eye lands on - bordered card on the right side. */}
-      <div className="mb-16 grid items-center gap-10 lg:grid-cols-[1fr_minmax(0,420px)]">
+    <div className="relative mx-auto max-w-5xl px-5 py-10">
+      {/* Pink-to-lavender aurora behind the hero - same treatment as
+          the lightchain.ai marketing page. Lives inside the page so it
+          only washes the top viewport, not the rest of the content. */}
+      <div className="aurora-hero" aria-hidden />
+      {/* Hero with isometric SDK illustration as the visual CTA. */}
+      <div className="relative mb-16 grid items-center gap-10 lg:grid-cols-[1fr_minmax(0,420px)]">
         <div>
           <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">lightnode-sdk 0.6.x</p>
           <h1 className="text-balance text-4xl font-semibold tracking-tight text-content-primary sm:text-5xl lg:text-6xl">
@@ -79,7 +81,7 @@ export default function BuildSdksPage() {
               href="https://www.npmjs.com/package/lightnode-sdk"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 font-semibold text-content-primary shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
               style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
             >
               npm install lightnode-sdk
