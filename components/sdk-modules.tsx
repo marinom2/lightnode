@@ -3140,41 +3140,54 @@ function OperatorRecipe() {
                 {result.status.registeredModels && result.status.registeredModels.length > 0 ? (() => {
                   const isRegistered = result.status.registered;
                   const models = result.status.registeredModels;
-                  // When the worker is registered, only show models the chain
-                  // confirms it serves NOW. Subgraph rows the chain has
-                  // dropped (isStale) are hidden by default so a re-register
-                  // to a different model does not leave the old one
-                  // ghost-serving in the panel. When the worker is itself
+                  // When the worker is registered, the chain truth (isLive)
+                  // drives the primary 'Serving models' row. Stale subgraph
+                  // rows (indexed says active, chain disagrees) are still
+                  // surfaced under a secondary row so the operator can SEE
+                  // what the indexer is lagging on instead of the data
+                  // silently disappearing. When the worker is itself
                   // deregistered, fall back to the indexed snapshot.
-                  const visible = isRegistered
+                  const live = isRegistered
                     ? models.filter((m) => m.isLive || m.onchainUnknown)
                     : models.filter((m) => m.indexedActive);
-                  if (visible.length === 0) return null;
+                  const stale = isRegistered ? models.filter((m) => m.isStale) : [];
                   return (
-                    <div className="flex items-start justify-between gap-3">
-                      <dt className="text-content-soft pt-0.5">
-                        {isRegistered ? "Serving models" : "Last whitelist"}
-                      </dt>
-                      <dd className="flex flex-col items-end gap-1">
-                        {visible.map((rm) => (
-                          <div key={rm.id} className="inline-flex items-center gap-2">
-                            <code className="font-mono text-content-primary">{rm.name ?? rm.id.slice(0, 12) + "…"}</code>
-                            {/* Badge states:
-                                - Worker registered + chain eligible: live (green)
-                                - Worker registered + chain read failed: indexed (gray, fallback)
-                                - Worker deregistered: each row is historical.
-                                  The chain says nothing is registered, so the
-                                  badge has to match that, not echo the
-                                  indexer's stale is_active=true. */}
-                            {isRegistered ? (
-                              rm.isLive ? <Badge tone="success">live</Badge> : <Badge tone="muted">indexed</Badge>
-                            ) : (
-                              <Badge tone="muted">not registered</Badge>
-                            )}
-                          </div>
-                        ))}
-                      </dd>
-                    </div>
+                    <>
+                      {live.length > 0 ? (
+                        <div className="flex items-start justify-between gap-3">
+                          <dt className="text-content-soft pt-0.5">
+                            {isRegistered ? "Serving models" : "Last whitelist"}
+                          </dt>
+                          <dd className="flex flex-col items-end gap-1">
+                            {live.map((rm) => (
+                              <div key={rm.id} className="inline-flex items-center gap-2">
+                                <code className="font-mono text-content-primary">{rm.name ?? rm.id.slice(0, 12) + "…"}</code>
+                                {isRegistered ? (
+                                  rm.isLive ? <Badge tone="success">live</Badge> : <Badge tone="muted">indexed</Badge>
+                                ) : (
+                                  <Badge tone="muted">not registered</Badge>
+                                )}
+                              </div>
+                            ))}
+                          </dd>
+                        </div>
+                      ) : null}
+                      {stale.length > 0 ? (
+                        <div className="flex items-start justify-between gap-3">
+                          <dt className="text-content-soft pt-0.5" title="Indexer still shows these as active; on-chain WorkerRegistry says otherwise. They will fall off the next time the subgraph reconciles.">
+                            Stale index rows
+                          </dt>
+                          <dd className="flex flex-col items-end gap-1">
+                            {stale.map((rm) => (
+                              <div key={rm.id} className="inline-flex items-center gap-2">
+                                <code className="font-mono text-content-soft line-through">{rm.name ?? rm.id.slice(0, 12) + "…"}</code>
+                                <Badge tone="muted">stale</Badge>
+                              </div>
+                            ))}
+                          </dd>
+                        </div>
+                      ) : null}
+                    </>
                   );
                 })() : null}
                 {result.status.lifetimeEarnedLcai != null && result.status.lifetimeEarnedLcai > 0 ? (
