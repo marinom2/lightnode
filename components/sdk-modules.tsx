@@ -1932,6 +1932,30 @@ interface DaoActionResult {
   };
 }
 
+/** Basis points to a percent string. 500 -> '5%', 1500 -> '15%'. */
+function bpsToPct(bps: number): string {
+  if (!Number.isFinite(bps)) return "-";
+  const pct = bps / 100;
+  // No trailing .0 for whole percents, but keep one decimal for fractional.
+  return (Number.isInteger(pct) ? pct.toFixed(0) : pct.toFixed(2)) + "%";
+}
+
+/** Seconds to a friendly duration string. 120 -> '2 min', 86400 -> '1 day'. */
+function secondsToHuman(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "moments";
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) {
+    const m = Math.round(sec / 60);
+    return `${m} min`;
+  }
+  if (sec < 86400) {
+    const h = Math.round(sec / 3600);
+    return `${h} hour${h === 1 ? "" : "s"}`;
+  }
+  const d = Math.round(sec / 86400);
+  return `${d} day${d === 1 ? "" : "s"}`;
+}
+
 /**
  * Convert a block count to a human-readable duration string. Assumes ~12s
  * per block on Ethereum mainnet (LCAIGovernor) and approximately the same
@@ -2843,6 +2867,7 @@ interface OpStatus {
   claimableLcai: number;
   belowFloor: boolean;
   headroomLcai: number;
+  walletBalanceLcai?: number;
 }
 interface OpJob {
   id: string;
@@ -2999,11 +3024,11 @@ function OperatorRecipe() {
               <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
               <dl className="grid gap-1.5 text-xs">
                 <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Min stake</dt><dd className="font-mono text-content-primary">{result.config.minStakeLcai.toLocaleString()} LCAI</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Completion timeout</dt><dd className="font-mono text-content-primary">{result.config.completionTimeoutSec}s ({Math.round(result.config.completionTimeoutSec / 60)} min)</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Ack timeout</dt><dd className="font-mono text-content-primary">{result.config.ackTimeoutSec}s</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Dispute window</dt><dd className="font-mono text-content-primary">{result.config.disputeWindowSec}s ({Math.round(result.config.disputeWindowSec / 60)} min)</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Slash bps (ack / comp / dispute)</dt><dd className="font-mono text-content-primary">{result.config.slashBps.ackTimeout} / {result.config.slashBps.completionTimeout} / {result.config.slashBps.dispute}</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Fee split (proto / worker / pool)</dt><dd className="font-mono text-content-primary">{result.config.feeBps.protocol} / {result.config.feeBps.worker} / {result.config.feeBps.feePool}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Completion timeout</dt><dd className="font-mono text-content-primary">{result.config.completionTimeoutSec}s <span className="text-content-soft">({secondsToHuman(result.config.completionTimeoutSec)})</span></dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Ack timeout</dt><dd className="font-mono text-content-primary">{result.config.ackTimeoutSec}s <span className="text-content-soft">({secondsToHuman(result.config.ackTimeoutSec)})</span></dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Dispute window</dt><dd className="font-mono text-content-primary">{result.config.disputeWindowSec}s <span className="text-content-soft">({secondsToHuman(result.config.disputeWindowSec)})</span></dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Slash (ack / completion / dispute)</dt><dd className="font-mono text-content-primary">{bpsToPct(result.config.slashBps.ackTimeout)} / {bpsToPct(result.config.slashBps.completionTimeout)} / {bpsToPct(result.config.slashBps.dispute)}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Fee split (protocol / worker / pool)</dt><dd className="font-mono text-content-primary">{bpsToPct(result.config.feeBps.protocol)} / {bpsToPct(result.config.feeBps.worker)} / {bpsToPct(result.config.feeBps.feePool)}</dd></div>
               </dl>
               <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
                 <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
@@ -3016,11 +3041,43 @@ function OperatorRecipe() {
             <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
               <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
               <dl className="grid gap-1.5 text-xs">
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Registered</dt><dd className="font-mono text-content-primary">{String(result.status.registered)}</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Stake</dt><dd className="font-mono text-content-primary">{result.status.stakeLcai.toLocaleString()} LCAI</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Claimable</dt><dd className="font-mono text-content-primary">{result.status.claimableLcai.toLocaleString()} LCAI</dd></div>
-                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Headroom over min</dt><dd className="font-mono text-content-primary">{result.status.headroomLcai.toLocaleString()} LCAI {result.status.belowFloor ? "(below floor)" : ""}</dd></div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-content-soft">Worker</dt>
+                  <dd className="inline-flex items-center gap-2">
+                    <code className="break-all font-mono text-content-default">{result.status.address.slice(0, 10)}…{result.status.address.slice(-6)}</code>
+                    <a
+                      href={`https://${net === "mainnet" ? "mainnet" : "testnet"}.lightscan.app/address/${result.status.address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open on Lightscan"
+                      className="text-content-soft transition-colors hover:text-primary"
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Registered</dt><dd>{result.status.registered ? <Badge tone="success">yes</Badge> : <Badge tone="muted">no</Badge>}</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Stake locked</dt><dd className="font-mono text-content-primary">{result.status.stakeLcai.toLocaleString()} LCAI</dd></div>
+                <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Claimable earnings</dt><dd className="font-mono text-content-primary">{result.status.claimableLcai.toLocaleString()} LCAI</dd></div>
+                {result.status.walletBalanceLcai != null ? (
+                  <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Wallet balance</dt><dd className="font-mono text-content-primary">{result.status.walletBalanceLcai.toLocaleString()} LCAI</dd></div>
+                ) : null}
               </dl>
+              {/* Explanatory copy: deregistered workers will show stake 0,
+                  claimable 0, but their wallet balance carries the returned
+                  stake. Without saying so, the panel reads as 'empty worker'. */}
+              {!result.status.registered ? (
+                <p className="mt-3 rounded-md border border-bdr-soft bg-card px-3 py-2 text-[11px] leading-relaxed text-content-soft">
+                  This worker is <span className="text-content-primary">not currently registered</span>. If it was deregistered, the original stake has been returned to the worker wallet - that's the
+                  <span className="text-content-primary"> Wallet balance</span> above. Withdraw it with{" "}
+                  <code className="font-mono text-content-default">op.withdraw()</code> or the dashboard&apos;s Withdraw button.
+                </p>
+              ) : result.status.belowFloor ? (
+                <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
+                  Stake is below the minimum, so the worker is deactivated. Top up with{" "}
+                  <code className="font-mono">op.topUpStake({Math.max(1, -Math.floor(result.status.headroomLcai))}n * 10n ** 18n)</code> to bring it live again.
+                </p>
+              ) : null}
               <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
                 <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
                 <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(result.status, null, 2)}</pre>
@@ -3042,8 +3099,26 @@ function OperatorRecipe() {
                   }>{result.job.category}</Badge></dd></div>
                   <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Refundable</dt><dd className="font-mono text-content-primary">{String(result.job.refundable)}</dd></div>
                   {result.job.worker ? (
-                    <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker</dt><dd className="break-all font-mono text-content-default">{result.job.worker.slice(0, 10)}…{result.job.worker.slice(-6)}</dd></div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-content-soft">Worker</dt>
+                      <dd className="inline-flex items-center gap-2">
+                        <code className="break-all font-mono text-content-default">{result.job.worker.slice(0, 10)}…{result.job.worker.slice(-6)}</code>
+                        <a
+                          href={`https://${net === "mainnet" ? "mainnet" : "testnet"}.lightscan.app/address/${result.job.worker}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open on Lightscan"
+                          className="text-content-soft transition-colors hover:text-primary"
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      </dd>
+                    </div>
                   ) : null}
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Job</dt>
+                    <dd className="font-mono text-content-default">#{result.job.id}</dd>
+                  </div>
                   {result.job.workerShareLcai ? (
                     <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Worker share</dt><dd className="font-mono text-content-primary">{result.job.workerShareLcai} LCAI</dd></div>
                   ) : null}

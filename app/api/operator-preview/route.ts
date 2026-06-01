@@ -63,9 +63,14 @@ export async function GET(req: Request) {
         publicClient: publicClient as unknown as ConstructorParameters<typeof WorkerOperator>[1]["publicClient"],
         workerAddress: worker as `0x${string}`,
       });
-      const st = await op.status();
-      // NextResponse.json refuses to serialize bigints. Coerce + drop the
-      // raw wei fields the visitor doesn't need (we surface the LCAI floats).
+      // Pull spendable native balance in parallel - this is the LCAI the
+      // visitor sees in their wallet after deregister returns the stake.
+      // Without this, a deregistered worker looks empty even when it holds
+      // its returned stake.
+      const [st, walletWei] = await Promise.all([
+        op.status(),
+        publicClient.getBalance({ address: worker as `0x${string}` }),
+      ]);
       return NextResponse.json({
         action: "status",
         net,
@@ -77,6 +82,7 @@ export async function GET(req: Request) {
           headroomLcai: st.headroomLcai,
           belowFloor: st.belowFloor,
           claimableLcai: st.claimableLcai,
+          walletBalanceLcai: Number(walletWei) / 1e18,
         },
       });
     }
