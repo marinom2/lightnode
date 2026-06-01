@@ -5,11 +5,13 @@ handling, with the on-chain evidence and the workarounds I implemented in the
 operator SDK I built. All observations are from testnet (chain 8200). Every
 transaction referenced below is a real, mined transaction from actual worker
 installs, not a staged or simulated reproduction. In particular, I registered
-gemma4:e2b on-chain through the app (tx `0x55a8e3...`) and later deregistered the
-worker (tx `0xc3b1b2...`), both real and both successful once the transactions were
-sent with estimated gas. That end-to-end cycle is the proof that the contract and
-the model are fine, and that the binary's fixed-gas path is the only thing that
-fails.
+gemma4:e2b on-chain through the app (tx
+`0x55a8e34518fae9852e4d3599b4f78ef2cfbaa044c252912d72f6d0dc5ff1142f`) and later
+deregistered the worker (tx
+`0xc3b1b217212b7a4836501860a08c1b3c43a7184446d19de65c97829094d81541`), both real and
+both successful once the transactions were sent with estimated gas. That end-to-end
+cycle is the proof that the contract and the model are fine, and that the binary's
+fixed-gas path is the only thing that fails.
 
 ## Summary
 
@@ -160,6 +162,16 @@ applies to a normal operator deregister, which the binary also under-gasses.
 These are the changes I made to operate workers reliably while the binary defects
 stand. The SDK is pure RPC over viem, with no worker image dependency, and is
 published as `lightnode-sdk`.
+
+Package: https://www.npmjs.com/package/lightnode-sdk
+Source: https://github.com/marinom2/lightnode/blob/main/sdk/src/worker-operator.ts
+
+Direct links to the exact fixes (pinned):
+
+- gas-correct write core (`send`, per-call estimation): https://github.com/marinom2/lightnode/blob/4e2aa08cf62f9a95e1fe60a020f0afae35456cf3/sdk/src/worker-operator.ts#L512
+- Bug A workaround (`addModel`, model add as its own confirmed tx): https://github.com/marinom2/lightnode/blob/4e2aa08cf62f9a95e1fe60a020f0afae35456cf3/sdk/src/worker-operator.ts#L774
+- Bug B workaround (`deregister`, gas-correct exit): https://github.com/marinom2/lightnode/blob/4e2aa08cf62f9a95e1fe60a020f0afae35456cf3/sdk/src/worker-operator.ts#L760
+- stuck-job recovery (`stuckJobs` / `claimTimeout` / `clearStuck` / `unstickAndDeregister`): https://github.com/marinom2/lightnode/blob/4e2aa08cf62f9a95e1fe60a020f0afae35456cf3/sdk/src/worker-operator.ts#L636
 
 ### 1. Gas-correct writes
 
