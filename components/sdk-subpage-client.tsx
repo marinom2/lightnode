@@ -92,9 +92,10 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         </div>
       </section>
 
-      {/* 'Use this in your project' — every sub-page except Bridge gets
-          this block. Bridge already has it inside its 3-step stepper. */}
-      {m.id !== "bridge" && m.sandboxBody ? (
+      {/* 'Use this in your project' — every sub-page that doesn't already
+          have its own 3-step stepper. Bridge and DAO both ship the
+          integration block as step 3 of their stepper, so they skip this. */}
+      {m.id !== "bridge" && m.id !== "dao" && m.sandboxBody ? (
         <UseInYourProject m={m} />
       ) : null}
 

@@ -515,7 +515,7 @@ function bridgeStackBlitzFiles(snippet: BridgeSnippet, tmpl: BridgeTemplate): Re
           private: true,
           type: "module",
           scripts: { start: "tsx --env-file=.env bridge.ts" },
-          dependencies: { "lightnode-sdk": "^0.6.1", viem: "^2.21.0" },
+          dependencies: { "lightnode-sdk": "^0.7.2", viem: "^2.21.0" },
           devDependencies: { tsx: "^4.19.0" },
         },
         null,
@@ -556,7 +556,7 @@ function bridgeStackBlitzFiles(snippet: BridgeSnippet, tmpl: BridgeTemplate): Re
             next: "^14.2.0",
             react: "^18.3.0",
             "react-dom": "^18.3.0",
-            "lightnode-sdk": "^0.6.1",
+            "lightnode-sdk": "^0.7.2",
             viem: "^2.21.0",
           },
           devDependencies: { typescript: "^5.4.0", "@types/react": "^18.3.0", "@types/node": "^20.0.0" },
@@ -626,7 +626,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
           "react-dom": "^18.3.0",
           wagmi: "^2.0.0",
           viem: "^2.21.0",
-          "lightnode-sdk": "^0.6.1",
+          "lightnode-sdk": "^0.7.2",
         },
         devDependencies: { vite: "^5.0.0", "@vitejs/plugin-react": "^4.0.0", typescript: "^5.4.0" },
       },
@@ -679,7 +679,7 @@ export function openSnippetInStackBlitz(opts: {
     private: true,
     type: "module" as const,
     scripts: { start: opts.needsPrivateKey ? "tsx --env-file=.env index.ts" : "tsx index.ts" },
-    dependencies: { "lightnode-sdk": "^0.6.2", viem: "^2.21.0" },
+    dependencies: { "lightnode-sdk": "^0.7.2", viem: "^2.21.0" },
     devDependencies: { tsx: "^4.19.0" },
   };
   const files: Record<string, string> = {
@@ -1829,7 +1829,7 @@ function ModelsExplainer() {
 
 export function Widget({ id }: { id: ModuleId }) {
   if (id === "bridge") return <BridgeLive />;
-  if (id === "dao") return <DaoLive />;
+  if (id === "dao") return <DaoRecipe />;
   if (id === "preflight") return <PreflightSample />;
   if (id === "chat") return <ChatSample />;
   if (id === "dispute") return <DisputeSample />;
@@ -1861,6 +1861,343 @@ function OperatorExplainer() {
       </p>
     </div>
   );
+}
+
+// --- DAO stepper: chain -> query + run preview -> use it in your project ---
+// Mirrors the Bridge stepper shape (Step 1 = direction, Step 2 = inputs +
+// preview, Step 3 = integration code). DAO has chain choice in step 1 since
+// the two governors are materially different (LCAIGovernor on Ethereum vs
+// LightChainGovernor on chain 9200 via NativeVotes).
+
+type DaoStep = 1 | 2 | 3;
+type DaoAction = "list-proposals" | "voting-config";
+
+interface DaoChainBrand {
+  key: DaoChainKey;
+  label: string;
+  sub: string;
+  logo: string;
+}
+
+const DAO_CHAINS: Record<DaoChainKey, DaoChainBrand> = {
+  ethereum: { key: "ethereum", label: "Ethereum", sub: "LCAIGovernor + Ballots wrapper", logo: "/logos/eth.svg" },
+  lightchain: { key: "lightchain", label: "LightChain", sub: "LightChainGovernor + NativeVotes precompile", logo: "/logos/lcai.png" },
+};
+
+const DAO_ACTIONS: { id: DaoAction; label: string; sub: string }[] = [
+  { id: "list-proposals", label: "List recent proposals", sub: "dao.recentProposals({ lookbackBlocks, limit })" },
+  { id: "voting-config", label: "Read voting config", sub: "dao.config() - delay / period / threshold" },
+];
+
+function DaoChainTile({
+  chain,
+  selected,
+  onClick,
+}: {
+  chain: DaoChainBrand;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+        selected
+          ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]"
+          : "border-bdr-soft hover:border-bdr-light"
+      }`}
+      aria-pressed={selected}
+    >
+      <Image src={chain.logo} alt={chain.label} width={40} height={40} className="shrink-0" style={{ width: 40, height: 40 }} />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-content-primary">{chain.label}</div>
+        <div className="truncate text-xs text-content-soft">{chain.sub}</div>
+      </div>
+    </button>
+  );
+}
+
+interface DaoActionResult {
+  action: DaoAction;
+  chain: DaoChainKey;
+  // List-proposals payload (subset of DaoListResp).
+  proposals?: DaoProposal[];
+  total?: number;
+  // Voting-config payload.
+  config?: {
+    votingDelayBlocks: string;
+    votingPeriodBlocks: string;
+    proposalThresholdWei: string;
+    votingPeriodSecs: number;
+  };
+}
+
+function DaoRecipe() {
+  const [step, setStep] = useState<DaoStep>(1);
+  const [chain, setChain] = useState<DaoChainKey>("ethereum");
+  const [action, setAction] = useState<DaoAction>("list-proposals");
+  const [limit, setLimit] = useState<number>(5);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DaoActionResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function runPreview() {
+    setBusy(true);
+    setErr(null);
+    setResult(null);
+    try {
+      if (action === "list-proposals") {
+        const res = await fetch(`/api/dao-proposals?chain=${chain}&limit=${limit}`, { cache: "no-store" });
+        const j = (await res.json()) as DaoListResp;
+        if (!res.ok || j.error) {
+          setErr(j.error ?? "Couldn't reach the Governor right now.");
+          return;
+        }
+        setResult({ action, chain, proposals: j.proposals, total: j.total });
+      } else {
+        const res = await fetch(`/api/dao-config?chain=${chain}`, { cache: "no-store" });
+        const j = (await res.json()) as { error?: string; config?: DaoActionResult["config"] };
+        if (!res.ok || j.error || !j.config) {
+          setErr(j.error ?? "Couldn't read the Governor's voting config.");
+          return;
+        }
+        setResult({ action, chain, config: j.config });
+      }
+    } catch (e) {
+      setErr(humanizeError(e, { action: "the DAO preview" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const snippet = daoSnippet(action, chain, limit);
+
+  return (
+    <div className="space-y-6">
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4">
+        <StepDot n={1} current={step as BridgeStep} label="Chain" />
+        <StepConnector filled={step > 1} />
+        <StepDot n={2} current={step as BridgeStep} label="Query" />
+        <StepConnector filled={step > 2} />
+        <StepDot n={3} current={step as BridgeStep} label="Use it" />
+      </div>
+
+      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
+        {step === 1 ? (
+          <div>
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a governor</h3>
+            <p className="mt-1 text-sm text-content-soft">Both chains run an OZ Governor v5; the wrapping differs.</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <DaoChainTile chain={DAO_CHAINS.ethereum} selected={chain === "ethereum"} onClick={() => { setChain("ethereum"); setStep(2); }} />
+              <DaoChainTile chain={DAO_CHAINS.lightchain} selected={chain === "lightchain"} onClick={() => { setChain("lightchain"); setStep(2); }} />
+            </div>
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div>
+            <StepBack onClick={() => setStep(1)} />
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a query</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              Reading <span className="text-content-primary">{DAO_CHAINS[chain].label}</span>{" "}
+              <span className="text-content-soft">({DAO_CHAINS[chain].sub})</span>.
+            </p>
+
+            {/* Action chips */}
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              {DAO_ACTIONS.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setAction(a.id)}
+                  className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
+                    action === a.id
+                      ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]"
+                      : "border-bdr-soft"
+                  }`}
+                  aria-pressed={action === a.id}
+                >
+                  <div className="text-sm font-semibold text-content-primary">{a.label}</div>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-content-soft">{a.sub}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* Action-specific input(s) */}
+            {action === "list-proposals" ? (
+              <label className="mt-4 block">
+                <span className="mb-1.5 block text-xs text-content-soft">Limit (1-30)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  step={1}
+                  value={limit}
+                  onChange={(e) => setLimit(Math.min(30, Math.max(1, Number(e.target.value) || 5)))}
+                  className="w-32 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-sm text-content-primary outline-none focus:border-primary/60"
+                />
+              </label>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={runPreview}
+              disabled={busy}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+              {busy
+                ? "Running preview"
+                : action === "list-proposals"
+                  ? `Preview ${limit} recent proposals`
+                  : "Read the voting config"}
+            </button>
+
+            {err ? (
+              <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
+            ) : null}
+
+            {result ? (
+              <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+                <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+                {result.action === "list-proposals" && result.proposals ? (
+                  <>
+                    <p className="mb-2 text-xs text-content-soft">
+                      <span className="text-content-primary">{result.proposals.length}</span> of{" "}
+                      <span className="text-content-primary">{result.total ?? "?"}</span> recent{" "}
+                      proposals on {DAO_CHAINS[result.chain].label}.
+                    </p>
+                    <ul className="space-y-2 text-xs">
+                      {result.proposals.slice(0, 5).map((p) => (
+                        <li key={p.id} className="flex items-start gap-3 rounded-md border border-bdr-soft bg-card p-2.5">
+                          <Badge tone={STATE_TONE[p.stateLabel] ?? "muted"}>{p.stateLabel}</Badge>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium text-content-primary">{p.title}</div>
+                            <div className="font-mono text-[10px] text-content-soft">id {p.id.slice(0, 14)}…</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+                {result.action === "voting-config" && result.config ? (
+                  <dl className="grid gap-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <dt className="text-content-soft">Voting delay</dt>
+                      <dd className="font-mono text-content-primary">{result.config.votingDelayBlocks} blocks</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-content-soft">Voting period</dt>
+                      <dd className="font-mono text-content-primary">
+                        {result.config.votingPeriodBlocks} blocks ({Math.round(result.config.votingPeriodSecs / 86400)} d)
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-content-soft">Proposal threshold</dt>
+                      <dd className="font-mono text-content-primary">
+                        {(Number(BigInt(result.config.proposalThresholdWei)) / 1e18).toLocaleString()} LCAI wrapped
+                      </dd>
+                    </div>
+                  </dl>
+                ) : null}
+
+                <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                  <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">
+                    Show raw JSON
+                  </summary>
+                  <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">
+{JSON.stringify(result, null, 2)}
+                  </pre>
+                </details>
+
+                <button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="group mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+                  style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
+                >
+                  Get the code for your project
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {step === 3 ? (
+          <div>
+            <StepBack onClick={() => setStep(2)} />
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Use it in your project</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              The snippet below mirrors the query you just previewed. Paste it into a Node script or open the
+              StackBlitz to run it.
+            </p>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 text-xs text-content-default">
+              <span className="truncate text-content-soft">
+                Save in your project at <code className="font-mono text-content-default">index.ts</code>
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  openSnippetInStackBlitz({ title: "DAO SDK", snippet, needsPrivateKey: false })
+                }
+                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+                style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
+              >
+                <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
+                Open in StackBlitz
+              </button>
+            </div>
+
+            <div className="mt-3">
+              <CodeBox code={snippet} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Build the runnable DAO snippet that matches the chosen action + chain.
+ *  Returns a single Node-script body that runs end to end. Read-only;
+ *  no PRIVATE_KEY required for either action. */
+function daoSnippet(action: DaoAction, chain: DaoChainKey, limit: number): string {
+  const chainArg = chain === "lightchain" ? "lightchain-mainnet" : "ethereum";
+  const transport = chain === "lightchain"
+    ? `http("https://rpc.mainnet.lightchain.ai")`
+    : `http("https://ethereum-rpc.publicnode.com")`;
+  const viemChain = chain === "lightchain" ? "" : "import { mainnet } from \"viem/chains\";\n";
+  const chainOpt = chain === "lightchain" ? "" : ", chain: mainnet";
+
+  if (action === "list-proposals") {
+    return `import { DAO } from "lightnode-sdk";
+import { createPublicClient, http } from "viem";
+${viemChain}
+const publicClient = createPublicClient({ transport: ${transport}${chainOpt} });
+const dao = new DAO(publicClient, "${chainArg === "lightchain-mainnet" ? "lightchain" : "ethereum"}");
+
+// List the most recent proposals on the governor:
+const rows = await dao.recentProposals({ lookbackBlocks: 300_000, limit: ${limit} });
+for (const p of rows) {
+  console.log(p.id.toString(), p.stateLabel.padEnd(10), p.title);
+}`;
+  }
+  return `import { DAO } from "lightnode-sdk";
+import { createPublicClient, http } from "viem";
+${viemChain}
+const publicClient = createPublicClient({ transport: ${transport}${chainOpt} });
+const dao = new DAO(publicClient, "${chainArg === "lightchain-mainnet" ? "lightchain" : "ethereum"}");
+
+// Read the live voting config: delay, period, threshold.
+const cfg = await dao.config();
+console.log("voting delay  :", cfg.votingDelayBlocks.toString(), "blocks");
+console.log("voting period :", cfg.votingPeriodBlocks.toString(), "blocks (~", Math.round(cfg.votingPeriodSecs / 86400), "days)");
+console.log("threshold     :", (Number(cfg.proposalThresholdWei) / 1e18).toLocaleString(), "LCAI");`;
 }
 
 function BatchExplainer() {
