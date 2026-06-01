@@ -1832,11 +1832,11 @@ export function Widget({ id }: { id: ModuleId }) {
   if (id === "dao") return <DaoRecipe />;
   if (id === "preflight") return <PreflightSample />;
   if (id === "chat") return <ChatSample />;
-  if (id === "dispute") return <DisputeSample />;
+  if (id === "dispute") return <DisputeRecipe />;
   if (id === "batch") return <BatchExplainer />;
   if (id === "agent") return <AgentExplainer />;
   if (id === "operator") return <OperatorExplainer />;
-  return <ModelsExplainer />;
+  return <ModelsRecipe />;
 }
 
 function OperatorExplainer() {
@@ -2291,6 +2291,436 @@ const cfg = await dao.config();
 console.log("voting delay  :", cfg.votingDelayBlocks.toString(), "blocks");
 console.log("voting period :", cfg.votingPeriodBlocks.toString(), "blocks (~", Math.round(cfg.votingPeriodSecs / 86400), "days)");
 console.log("threshold     :", (Number(cfg.proposalThresholdWei) / 1e18).toLocaleString(), "LCAI");`;
+}
+
+// --- Models stepper: network -> run getModels -> use it in your project --
+
+type ModelsStep = 1 | 2 | 3;
+type ModelsNet = "mainnet" | "testnet";
+
+interface ModelsRow {
+  name: string;
+  fee?: string;
+  max_output_tokens?: number;
+  is_whitelisted?: boolean;
+  is_enabled?: boolean;
+}
+
+const MODELS_NETS: { id: ModelsNet; label: string; sub: string }[] = [
+  { id: "mainnet", label: "Mainnet", sub: "9200 - production model whitelist" },
+  { id: "testnet", label: "Testnet", sub: "8200 - free LCAI from the faucet" },
+];
+
+function ModelsRecipe() {
+  const [step, setStep] = useState<ModelsStep>(1);
+  const [net, setNet] = useState<ModelsNet>("mainnet");
+  const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState<ModelsRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setErr(null);
+    setRows(null);
+    try {
+      const res = await fetch("/api/sdk-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command: "models", net }),
+      });
+      const j = (await res.json()) as ModelsRow[] | { error?: string };
+      if (Array.isArray(j)) setRows(j);
+      else setErr(("error" in j && j.error) || "Couldn't read the model registry.");
+    } catch (e) {
+      setErr(humanizeError(e, { action: "the model registry read" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const snippet = `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("${net}");
+
+const models = await ln.getModels();
+for (const m of models) {
+  console.log(
+    m.name.padEnd(20),
+    "fee=" + (m.fee ?? "?"),
+    "max_out=" + (m.max_output_tokens ?? "?"),
+    "whitelisted=" + m.is_whitelisted,
+  );
+}`;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4">
+        <StepDot n={1} current={step as BridgeStep} label="Network" />
+        <StepConnector filled={step > 1} />
+        <StepDot n={2} current={step as BridgeStep} label="Query" />
+        <StepConnector filled={step > 2} />
+        <StepDot n={3} current={step as BridgeStep} label="Use it" />
+      </div>
+
+      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
+        {step === 1 ? (
+          <div>
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a network</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              <code className="font-mono text-content-default">AIConfig</code> ships separate model whitelists per
+              network. Pick one to see what is live.
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {MODELS_NETS.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => { setNet(n.id); setStep(2); }}
+                  className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                    net === n.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                  }`}
+                >
+                  <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                    <Boxes className="size-5 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-content-primary">{n.label}</div>
+                    <div className="truncate text-xs text-content-soft">{n.sub}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div>
+            <StepBack onClick={() => setStep(1)} />
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Read the model registry</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              Calling <code className="font-mono text-content-default">ln.getModels()</code> on the{" "}
+              <span className="text-content-primary">{net === "mainnet" ? "Mainnet" : "Testnet"}</span> AIConfig.
+            </p>
+
+            <button
+              type="button"
+              onClick={run}
+              disabled={busy}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+              {busy ? "Reading models" : "Preview live models"}
+            </button>
+
+            {err ? (
+              <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
+            ) : null}
+
+            {rows ? (
+              <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+                <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+                {rows.length === 0 ? (
+                  <p className="text-xs text-content-soft">No models whitelisted on this network right now.</p>
+                ) : (
+                  <ul className="space-y-2 text-xs">
+                    {rows.map((m) => (
+                      <li key={m.name} className="flex items-center justify-between gap-3 rounded-md border border-bdr-soft bg-card p-2.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-mono text-sm text-content-primary">{m.name}</div>
+                          <div className="text-[10px] text-content-soft">
+                            max output {m.max_output_tokens ?? "?"} tokens
+                            {m.is_whitelisted ? " · whitelisted" : " · candidate"}
+                          </div>
+                        </div>
+                        <div className="text-right font-mono text-[11px] text-content-default">
+                          {m.fee ? `${(Number(BigInt(m.fee)) / 1e18).toFixed(3)} LCAI` : "-"}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                  <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">
+                    Show raw JSON
+                  </summary>
+                  <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">
+{JSON.stringify(rows, null, 2)}
+                  </pre>
+                </details>
+
+                <button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="group mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+                  style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
+                >
+                  Get the code for your project
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {step === 3 ? (
+          <div>
+            <StepBack onClick={() => setStep(2)} />
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Use it in your project</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              The snippet below targets the <span className="text-content-primary">{net}</span> AIConfig. No key
+              required - this is a read-only call.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 text-xs text-content-default">
+              <span className="truncate text-content-soft">
+                Save in your project at <code className="font-mono text-content-default">index.ts</code>
+              </span>
+              <button
+                type="button"
+                onClick={() => openSnippetInStackBlitz({ title: "Models SDK", snippet, needsPrivateKey: false })}
+                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+                style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
+              >
+                <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
+                Open in StackBlitz
+              </button>
+            </div>
+            <div className="mt-3">
+              <CodeBox code={snippet} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// --- Dispute / refund stepper -----------------------------------------------
+
+type DisputeStep = 1 | 2 | 3;
+
+interface DisputeResultRow {
+  jobId?: string;
+  category?: string;
+  refundable?: boolean;
+  worker?: string | null;
+  model?: string | null;
+  submittedAt?: number | null;
+  completedAt?: number | null;
+  workerShareLcai?: number;
+  raw?: string;
+  error?: string;
+}
+
+function DisputeRecipe() {
+  const [step, setStep] = useState<DisputeStep>(1);
+  const [net, setNet] = useState<ModelsNet>("mainnet");
+  const [jobId, setJobId] = useState<string>("1234");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DisputeResultRow | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    if (!jobId.trim()) {
+      setErr("Enter a job ID first.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/sdk-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command: "job", arg: jobId, net }),
+      });
+      const j = (await res.json()) as DisputeResultRow;
+      if (j.error) setErr(j.error);
+      else setResult(j);
+    } catch (e) {
+      setErr(humanizeError(e, { action: "the job lookup" }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const snippet = `import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("${net}");
+
+// Classify any job: 'submitted' / 'in-flight' / 'completed' /
+// 'stalled' / 'disputed' / 'resolved' / 'unknown'. The 'refundable'
+// flag is true when the protocol's dispute window would refund the fee.
+const status = await ln.getJobStatus(${jobId.trim() || "1234"}n);
+if (!status) {
+  console.log("not yet indexed");
+} else {
+  console.log("category   :", status.category);
+  console.log("refundable :", status.refundable);
+  console.log("worker     :", status.worker);
+  console.log("model      :", status.model);
+}`;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:gap-4">
+        <StepDot n={1} current={step as BridgeStep} label="Network" />
+        <StepConnector filled={step > 1} />
+        <StepDot n={2} current={step as BridgeStep} label="Job" />
+        <StepConnector filled={step > 2} />
+        <StepDot n={3} current={step as BridgeStep} label="Use it" />
+      </div>
+
+      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
+        {step === 1 ? (
+          <div>
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a network</h3>
+            <p className="mt-1 text-sm text-content-soft">Job ids are scoped per network.</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {MODELS_NETS.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => { setNet(n.id); setStep(2); }}
+                  className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
+                    net === n.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
+                  }`}
+                >
+                  <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
+                    <Database className="size-5 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-content-primary">{n.label}</div>
+                    <div className="truncate text-xs text-content-soft">{n.sub}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div>
+            <StepBack onClick={() => setStep(1)} />
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Inspect a job</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              Any job id on <span className="text-content-primary">{net === "mainnet" ? "Mainnet" : "Testnet"}</span>.
+              <code className="font-mono text-content-default"> ln.getJobStatus(id)</code> returns the category and a
+              refundable flag.
+            </p>
+            <label className="mt-5 block">
+              <span className="mb-1.5 block text-xs text-content-soft">Job ID</span>
+              <input
+                type="text"
+                value={jobId}
+                onChange={(e) => setJobId(e.target.value.trim())}
+                placeholder="e.g. 1234"
+                inputMode="numeric"
+                className="w-48 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-sm text-content-primary outline-none focus:border-primary/60"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={run}
+              disabled={busy || !jobId.trim()}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+              {busy ? "Looking up job" : `Inspect job ${jobId.trim() || "..."}`}
+            </button>
+
+            {err ? (
+              <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
+            ) : null}
+
+            {result ? (
+              <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
+                <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
+                <dl className="grid gap-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Category</dt>
+                    <dd>
+                      <Badge tone={
+                        result.category === "completed" || result.category === "resolved" ? "success"
+                          : result.category === "stalled" || result.category === "disputed" ? "warning"
+                          : "muted"
+                      }>{result.category ?? "?"}</Badge>
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Refundable</dt>
+                    <dd className="font-mono text-content-primary">{String(result.refundable ?? false)}</dd>
+                  </div>
+                  {result.worker ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-content-soft">Worker</dt>
+                      <dd className="break-all font-mono text-content-default">
+                        {result.worker.slice(0, 10)}…{result.worker.slice(-6)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {result.model ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-content-soft">Model</dt>
+                      <dd className="break-all font-mono text-content-default">
+                        {result.model.slice(0, 10)}…{result.model.slice(-6)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+                <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
+                  <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">
+                    Show raw JSON
+                  </summary>
+                  <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">
+{JSON.stringify(result, null, 2)}
+                  </pre>
+                </details>
+                <button
+                  type="button"
+                  onClick={() => setStep(3)}
+                  className="group mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3.5 text-base font-semibold text-white shadow-[0_4px_18px_-4px_rgba(112,100,233,0.6)] transition-all duration-500 active:scale-95"
+                  style={{ background: "linear-gradient(94deg, #7064E9 10%, #5a4fd6 60%, #410093 100%)" }}
+                >
+                  Get the code for your project
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {step === 3 ? (
+          <div>
+            <StepBack onClick={() => setStep(2)} />
+            <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Use it in your project</h3>
+            <p className="mt-1 text-sm text-content-soft">
+              The snippet targets <span className="text-content-primary">{net}</span> and job{" "}
+              <code className="font-mono text-content-default">{jobId.trim() || "1234"}n</code>.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 text-xs text-content-default">
+              <span className="truncate text-content-soft">
+                Save in your project at <code className="font-mono text-content-default">index.ts</code>
+              </span>
+              <button
+                type="button"
+                onClick={() => openSnippetInStackBlitz({ title: "Refund SDK", snippet, needsPrivateKey: false })}
+                className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-white shadow-[0_0_18px_-4px_rgba(112,100,233,0.7)] transition-all duration-300 hover:shadow-[0_0_24px_-2px_rgba(221,0,172,0.55)]"
+                style={{ background: "linear-gradient(94deg, #7064E9 0%, #9333ea 60%, #dd00ac 100%)" }}
+              >
+                <PlayCircle className="size-3.5 transition-transform group-hover:scale-110" />
+                Open in StackBlitz
+              </button>
+            </div>
+            <div className="mt-3">
+              <CodeBox code={snippet} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function BatchExplainer() {

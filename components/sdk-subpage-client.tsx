@@ -93,9 +93,9 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
       </section>
 
       {/* 'Use this in your project' — every sub-page that doesn't already
-          have its own 3-step stepper. Bridge and DAO both ship the
-          integration block as step 3 of their stepper, so they skip this. */}
-      {m.id !== "bridge" && m.id !== "dao" && m.sandboxBody ? (
+          have its own 3-step stepper. Bridge, DAO, Models and Dispute
+          ship the integration block as step 3 of their stepper. */}
+      {m.id !== "bridge" && m.id !== "dao" && m.id !== "models" && m.id !== "dispute" && m.sandboxBody ? (
         <UseInYourProject m={m} />
       ) : null}
 
