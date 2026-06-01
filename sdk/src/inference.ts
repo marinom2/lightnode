@@ -139,38 +139,56 @@ export interface SessionPreparation {
  */
 export async function prepareSession(gateway: GatewayClient, modelTag: string): Promise<SessionPreparation> {
   const id = modelId(modelTag);
-  const selected = await gateway.selectSession(id);
-  const sessionKey = await generateSessionKey();
+  // The gateway returns 409 selection_mismatch when a NEWER selectSession()
+  // for the same wallet supersedes ours between the select and the prepare.
+  // The error message is literally "re-run POST /api/sessions/select", so we
+  // do exactly that: rebuild from a fresh selection. The cap stops a busy
+  // pool of callers from looping forever - 4 attempts at 250ms / 750ms /
+  // 1500ms covers every churn pattern we have seen.
+  const MAX_ATTEMPTS = 4;
+  const BACKOFFS_MS = [0, 250, 750, 1500];
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, BACKOFFS_MS[attempt]));
+    const selected = await gateway.selectSession(id);
+    const sessionKey = await generateSessionKey();
 
-  // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
-  // accepts either.
-  const workerPub = await importPublicKey(decodePublicKey(selected.workerEncryptionKey));
-  const encWorker = await encryptSessionKey(sessionKey, workerPub);
-  const encDisputer: Uint8Array = selected.disputerEncryptionKey
-    ? await encryptSessionKey(sessionKey, await importPublicKey(decodePublicKey(selected.disputerEncryptionKey)))
-    : new Uint8Array(0);
+    // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
+    // accepts either.
+    const workerPub = await importPublicKey(decodePublicKey(selected.workerEncryptionKey));
+    const encWorker = await encryptSessionKey(sessionKey, workerPub);
+    const encDisputer: Uint8Array = selected.disputerEncryptionKey
+      ? await encryptSessionKey(sessionKey, await importPublicKey(decodePublicKey(selected.disputerEncryptionKey)))
+      : new Uint8Array(0);
 
-  // The gateway expects the wrapped keys as BASE64; the same bytes are passed
-  // as HEX to the on-chain createSession. Sending hex to the gateway makes the
-  // dispatcher reject the prepare with an opaque error.
-  const prepared = await gateway.prepareSession({
-    modelId: id,
-    encWorkerKey: bytesToBase64(encWorker),
-    encDisputerKey: bytesToBase64(encDisputer),
-  });
-
-  return {
-    sessionKey,
-    nonce: prepared.nonce,
-    createSessionArgs: {
-      paramsHash: id,
-      worker: prepared.worker,
-      encWorkerKey: bytesToHex(encWorker),
-      ephemeralPubKey: bytesToHex(encDisputer),
-      initState: prepared.signature,
-      expiry: BigInt(prepared.expiry),
-    },
-  };
+    try {
+      const prepared = await gateway.prepareSession({
+        modelId: id,
+        encWorkerKey: bytesToBase64(encWorker),
+        encDisputerKey: bytesToBase64(encDisputer),
+      });
+      return {
+        sessionKey,
+        nonce: prepared.nonce,
+        createSessionArgs: {
+          paramsHash: id,
+          worker: prepared.worker,
+          encWorkerKey: bytesToHex(encWorker),
+          ephemeralPubKey: bytesToHex(encDisputer),
+          initState: prepared.signature,
+          expiry: BigInt(prepared.expiry),
+        },
+      };
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/selection_mismatch|selection was superseded|409/.test(msg)) throw e;
+      // else loop: a newer select stole this session, try again from select.
+    }
+  }
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error("prepareSession: gateway selection_mismatch did not clear");
 }
 
 /**

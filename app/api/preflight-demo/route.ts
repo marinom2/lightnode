@@ -15,6 +15,12 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { workerPreflight, isStalledWorker } from "lightnode-sdk";
+import { preflightMutex } from "@/lib/demo-wallet-mutex";
+
+// Serialise the demo wallet so two visitors do not race the gateway's
+// per-wallet session selection. Anything queued longer than this gives
+// up cleanly instead of hitting Vercel's 60s function timeout.
+const MUTEX_TIMEOUT_MS = 45_000;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -74,50 +80,30 @@ export async function POST(req: NextRequest) {
       ? body.deadlineMs
       : 45_000;
 
-  // Retry on gateway-state churn. The gateway returns 409
-  // selection_mismatch when a prior session for this wallet has not
-  // aged out - common on a shared demo wallet. workerPreflight folds the
-  // error into a `failed` verdict with the message in summary instead of
-  // throwing, so we inspect the verdict + summary for the retry signal.
-  type PreflightResult = Awaited<ReturnType<typeof workerPreflight>>;
-  let result: PreflightResult | null = null;
-  let lastErr: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      // 1.5s, then 3s - same backoff as the chat-demo retry path.
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
-    }
-    try {
-      result = await workerPreflight({
-        network: "testnet",
-        privateKey: DEMO_KEY,
-        model,
-        deadlineMs,
-      });
-      const summary = result.summary ?? "";
-      const failedOnSelection =
-        result.verdict !== "ok" && /selection_mismatch|selection was superseded|409/.test(summary);
-      if (!failedOnSelection) break;
-      result = null; // try again
-    } catch (e) {
-      lastErr = e as Error;
-      if (isStalledWorker(e)) {
-        return NextResponse.json(
-          {
-            verdict: "stalled",
-            elapsedMs: null,
-            worker: null,
-            submitJobTx: null,
-            summary: "Workers stalled in a row. The protocol refunds the fees; try again later.",
-            remaining: rl.remaining,
-          },
-          { status: 200 },
-        );
-      }
-      if (!/selection_mismatch|selection was superseded|409/.test(lastErr.message ?? "")) break;
-    }
+  // Wait for our turn at the shared wallet. Without this, two concurrent
+  // visitors race the gateway's per-wallet selectSession and the loser
+  // sees 409 selection_mismatch.
+  const release = await preflightMutex.acquire(MUTEX_TIMEOUT_MS);
+  if (!release) {
+    return NextResponse.json(
+      {
+        error: "The demo wallet is busy with another preflight. Try again in 30 s, or open the example in StackBlitz with your own key.",
+        runLocally: true,
+      },
+      { status: 503 },
+    );
   }
-  if (result) {
+  try {
+    // SDK 0.7.8 auto-retries the inner selectSession/prepareSession dance
+    // on 409. The mutex below serialises us at the wallet level so we do
+    // not collide with our OWN parallel requests. Both together fix the
+    // class of error: SDK handles transient, mutex handles concurrent.
+    const result = await workerPreflight({
+      network: "testnet",
+      privateKey: DEMO_KEY,
+      model,
+      deadlineMs,
+    });
     return NextResponse.json({
       verdict: result.verdict,
       elapsedMs: result.elapsedMs ?? null,
@@ -126,16 +112,31 @@ export async function POST(req: NextRequest) {
       summary: result.summary ?? "",
       remaining: rl.remaining,
     });
+  } catch (e) {
+    if (isStalledWorker(e)) {
+      return NextResponse.json(
+        {
+          verdict: "stalled",
+          elapsedMs: null,
+          worker: null,
+          submitJobTx: null,
+          summary: "Workers stalled in a row. The protocol refunds the fees; try again later.",
+          remaining: rl.remaining,
+        },
+        { status: 200 },
+      );
+    }
+    const msg = (e as Error).message ?? "preflight failed";
+    return NextResponse.json(
+      {
+        error: /selection_mismatch|selection was superseded|409/.test(msg)
+          ? "The demo wallet has a session in flight from another visitor. Try again in 30 s, or open the example in StackBlitz with your own key."
+          : msg.split("\n")[0],
+        runLocally: true,
+      },
+      { status: 500 },
+    );
+  } finally {
+    release();
   }
-  // Friendly translation of the gateway state error.
-  return NextResponse.json(
-    {
-      error:
-        lastErr && !/selection_mismatch|selection was superseded|409/.test(lastErr.message ?? "")
-          ? lastErr.message.split("\n")[0]
-          : "The demo wallet has a session in flight from another visitor. Try again in 30 s, or open the example in StackBlitz with your own key.",
-      runLocally: true,
-    },
-    { status: 500 },
-  );
 }

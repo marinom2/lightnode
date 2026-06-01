@@ -16,6 +16,9 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { Conversation, type ChatMessage } from "lightnode-sdk";
+import { chatMutex } from "@/lib/demo-wallet-mutex";
+
+const MUTEX_TIMEOUT_MS = 45_000;
 
 export const dynamic = "force-dynamic";
 // Node.js runtime: the SDK's WebSocket auto-resolution uses the Node `ws`
@@ -86,47 +89,47 @@ export async function POST(req: NextRequest) {
   if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
   if (message.length > 500) return NextResponse.json({ error: "message too long (max 500 chars)" }, { status: 400 });
 
-  // The gateway returns 409 selection_mismatch when a prior session for
-  // this wallet hasn't aged out. The SDK doesn't auto-retry that (it's not
-  // a stalled worker). We retry up to 3 times with backoff so a single
-  // visitor whose own previous call left a stuck session can recover.
-  let lastErr: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      // 1.5s, then 3s
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
-    }
-    try {
-      const chat = new Conversation({
-        network: "testnet",
-        privateKey: DEMO_KEY,
-        model: "llama3-8b",
-        system: "You are a concise assistant. Reply in one or two short sentences.",
-        maxHistoryTurns: 10,
-      });
-      for (const m of (body.history ?? []).slice(-10)) {
-        if (m.role === "user" || m.role === "assistant") {
-          (chat as unknown as { history: ChatMessage[] }).history.push(m);
-        }
-      }
-      const result = await chat.send(message);
-      return NextResponse.json({
-        answer: result.answer,
-        jobId: result.jobId.toString(),
-        worker: result.worker,
-        remaining: rl.remaining,
-      });
-    } catch (e) {
-      lastErr = e as Error;
-      const msg = lastErr.message ?? "";
-      // Retry on gateway-state churn. Anything else fails fast.
-      if (!/selection_mismatch|selection was superseded|409/.test(msg)) break;
-    }
+  // Serialise concurrent visitors at the wallet level. The SDK's own
+  // selectSession/prepareSession retry handles transient 409s; this
+  // queue prevents us from CAUSING them by hitting the gateway with
+  // two simultaneous requests for the same wallet.
+  const release = await chatMutex.acquire(MUTEX_TIMEOUT_MS);
+  if (!release) {
+    return NextResponse.json(
+      {
+        error: "The demo wallet is busy with another visitor. Try again in 30 s, or open the example in StackBlitz with your own key.",
+        runLocally: true,
+      },
+      { status: 503 },
+    );
   }
-  // Translate the raw gateway error into something the visitor can act on.
-  const raw = lastErr?.message ?? "chat failed";
-  const friendly = /selection_mismatch|selection was superseded|409/.test(raw)
-    ? "The demo wallet has a session in flight from another visitor. Try again in 30 s, or open the example in StackBlitz with your own key."
-    : raw.split("\n")[0];
-  return NextResponse.json({ error: friendly, runLocally: true }, { status: 500 });
+  try {
+    const chat = new Conversation({
+      network: "testnet",
+      privateKey: DEMO_KEY,
+      model: "llama3-8b",
+      system: "You are a concise assistant. Reply in one or two short sentences.",
+      maxHistoryTurns: 10,
+    });
+    for (const m of (body.history ?? []).slice(-10)) {
+      if (m.role === "user" || m.role === "assistant") {
+        (chat as unknown as { history: ChatMessage[] }).history.push(m);
+      }
+    }
+    const result = await chat.send(message);
+    return NextResponse.json({
+      answer: result.answer,
+      jobId: result.jobId.toString(),
+      worker: result.worker,
+      remaining: rl.remaining,
+    });
+  } catch (e) {
+    const raw = (e as Error).message ?? "chat failed";
+    const friendly = /selection_mismatch|selection was superseded|409/.test(raw)
+      ? "The demo wallet has a session in flight from another visitor. Try again in 30 s, or open the example in StackBlitz with your own key."
+      : raw.split("\n")[0];
+    return NextResponse.json({ error: friendly, runLocally: true }, { status: 500 });
+  } finally {
+    release();
+  }
 }
