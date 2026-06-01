@@ -36,6 +36,7 @@
  * silently.
  */
 
+import { parseAbi } from "viem";
 import { NETWORKS } from "./networks.js";
 import type { NetworkConfig, NetworkId } from "./types.js";
 
@@ -99,8 +100,11 @@ export const WORKER_REGISTRY_ABI = [
   "function isEligible(address worker, bytes32 modelId) view returns (bool)",
 ] as const;
 
-/** JobRegistry (proxy). Job lifecycle + settlement + the timeout primitive. */
+/** JobRegistry (proxy). Job lifecycle + settlement + the timeout primitive.
+ *  The Job struct is a named human-readable struct (abitype needs a named
+ *  struct, not an inline `tuple(...)`, for the getJob return). */
 export const JOB_REGISTRY_OPERATOR_ABI = [
+  "struct Job { uint256 jobId; address worker; uint8 state; uint256 escrowedFee; bytes32 promptBlobHash; bytes32 responseBlobHash; uint64 submittedAt; uint64 ackAt; uint64 completedAt; uint64 deadlineAt; uint256 r10; uint256 r11; uint256 r12; uint256 r13; uint256 r14; uint256 r15; uint256 submitBlockNumber; uint256 completionBlockNumber; }",
   "function acknowledgeJob(uint256 jobId)",
   "function completeJob(uint256 jobId, bytes32 responseBlobHash, bytes32 responseCiphertextHash)",
   "function releaseJob(uint256 jobId)",
@@ -108,7 +112,7 @@ export const JOB_REGISTRY_OPERATOR_ABI = [
   "function claimTimeout(uint256 jobId)",
   "function withdraw()",
   "function workerBalance(address worker) view returns (uint256)",
-  "function getJob(uint256 jobId) view returns (tuple(uint256 jobId, address worker, uint8 state, uint256 escrowedFee, bytes32 promptBlobHash, bytes32 responseBlobHash, uint64 submittedAt, uint64 ackAt, uint64 completedAt, uint64 deadlineAt, uint256 r10, uint256 r11, uint256 r12, uint256 r13, uint256 r14, uint256 r15, uint256 submitBlockNumber, uint256 completionBlockNumber))",
+  "function getJob(uint256 jobId) view returns (Job)",
 ] as const;
 
 /** AIConfig (verified ABI). Live protocol parameters. */
@@ -130,6 +134,13 @@ export const AI_CONFIG_ABI = [
   "function getModelFee(bytes32 modelId) view returns (uint256)",
   "function isModelEnabled(bytes32 modelId) view returns (bool)",
 ] as const;
+
+// viem's readContract/writeContract need a PARSED ABI (objects), not the
+// human-readable strings above. We keep the strings exported for readability and
+// parse them once here for the actual on-chain calls.
+const WORKER_REGISTRY_ABI_PARSED = parseAbi(WORKER_REGISTRY_ABI);
+const JOB_REGISTRY_OPERATOR_ABI_PARSED = parseAbi(JOB_REGISTRY_OPERATOR_ABI);
+const AI_CONFIG_ABI_PARSED = parseAbi(AI_CONFIG_ABI);
 
 // ===========================================================================
 // Enums + struct types (pinned from the worker Go bindings + live decode).
@@ -509,7 +520,7 @@ export class WorkerOperator {
   async config(): Promise<WorkerProtocolConfig> {
     if (this.cfgCache) return this.cfgCache;
     const a = this.network.aiConfig as `0x${string}`;
-    const r = (fn: string) => this.read(a, AI_CONFIG_ABI, fn) as Promise<bigint>;
+    const r = (fn: string) => this.read(a, AI_CONFIG_ABI_PARSED, fn) as Promise<bigint>;
     const [
       minStake,
       completion,
@@ -565,11 +576,14 @@ export class WorkerOperator {
 
   /** One-call worker status: registration, stake, floor, claimable balance. */
   async status(): Promise<WorkerStatus> {
+    // minStake is sourced from AIConfig (verified live on BOTH networks), not
+    // WorkerRegistry.getMinWorkerStake — the testnet WorkerRegistry impl differs
+    // and reverts that getter. AIConfig is the canonical source either way.
     const [registered, stakeWei, minStakeWei, claimableWei] = await Promise.all([
-      this.read(this.workerReg, WORKER_REGISTRY_ABI, "isWorkerRegistered", [this.addr]) as Promise<boolean>,
-      this.read(this.workerReg, WORKER_REGISTRY_ABI, "getWorkerStake", [this.addr]) as Promise<bigint>,
-      this.read(this.workerReg, WORKER_REGISTRY_ABI, "getMinWorkerStake") as Promise<bigint>,
-      this.read(this.jobReg, JOB_REGISTRY_OPERATOR_ABI, "workerBalance", [this.addr]) as Promise<bigint>,
+      this.read(this.workerReg, WORKER_REGISTRY_ABI_PARSED, "isWorkerRegistered", [this.addr]) as Promise<boolean>,
+      this.read(this.workerReg, WORKER_REGISTRY_ABI_PARSED, "getWorkerStake", [this.addr]) as Promise<bigint>,
+      this.read(this.network.aiConfig as `0x${string}`, AI_CONFIG_ABI_PARSED, "getMinWorkerStake") as Promise<bigint>,
+      this.read(this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "workerBalance", [this.addr]) as Promise<bigint>,
     ]);
     const headroomLcai = toLcai(stakeWei - minStakeWei);
     return {
@@ -589,7 +603,7 @@ export class WorkerOperator {
 
   /** Typed on-chain job (the struct layout has no published ABI). */
   async getJob(jobId: bigint | number): Promise<OnchainJob> {
-    const raw = await this.read(this.jobReg, JOB_REGISTRY_OPERATOR_ABI, "getJob", [BigInt(jobId)]);
+    const raw = await this.read(this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "getJob", [BigInt(jobId)]);
     return normalizeJob(raw);
   }
 
@@ -629,7 +643,7 @@ export class WorkerOperator {
    * price of unblocking deregister.
    */
   async claimTimeout(jobId: bigint | number): Promise<`0x${string}`> {
-    return this.send("claimTimeout", this.jobReg, JOB_REGISTRY_OPERATOR_ABI, "claimTimeout", [BigInt(jobId)]);
+    return this.send("claimTimeout", this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "claimTimeout", [BigInt(jobId)]);
   }
 
   /**
@@ -678,7 +692,7 @@ export class WorkerOperator {
 
   /** Settle one completed job past its dispute window. Permissionless. */
   async releaseJob(jobId: bigint | number): Promise<`0x${string}`> {
-    return this.send("releaseJob", this.jobReg, JOB_REGISTRY_OPERATOR_ABI, "releaseJob", [BigInt(jobId)]);
+    return this.send("releaseJob", this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "releaseJob", [BigInt(jobId)]);
   }
 
   /**
@@ -708,12 +722,12 @@ export class WorkerOperator {
 
   /** Pull the worker's earned balance from the JobRegistry into the wallet. */
   async withdraw(): Promise<`0x${string}`> {
-    return this.send("withdraw", this.jobReg, JOB_REGISTRY_OPERATOR_ABI, "withdraw", []);
+    return this.send("withdraw", this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "withdraw", []);
   }
 
   /** Deregister — releases stake to the wallet. Reverts (ActiveJobsExist) if any in-flight job remains. */
   async deregister(): Promise<`0x${string}`> {
-    return this.send("deregister", this.workerReg, WORKER_REGISTRY_ABI, "deregisterWorker", []);
+    return this.send("deregister", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "deregisterWorker", []);
   }
 
   /**
@@ -739,15 +753,15 @@ export class WorkerOperator {
   // ---- stake ops ----------------------------------------------------------
 
   async topUpStake(lcai: number): Promise<`0x${string}`> {
-    return this.send("topUpStake", this.workerReg, WORKER_REGISTRY_ABI, "topUpStake", [], toWeiFromLcai(lcai));
+    return this.send("topUpStake", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "topUpStake", [], toWeiFromLcai(lcai));
   }
 
   async withdrawStake(lcai: number): Promise<`0x${string}`> {
-    return this.send("withdrawStake", this.workerReg, WORKER_REGISTRY_ABI, "withdrawStake", [toWeiFromLcai(lcai)]);
+    return this.send("withdrawStake", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "withdrawStake", [toWeiFromLcai(lcai)]);
   }
 
   async reinstate(): Promise<`0x${string}`> {
-    return this.send("reinstate", this.workerReg, WORKER_REGISTRY_ABI, "reinstate", []);
+    return this.send("reinstate", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "reinstate", []);
   }
 
   // ---- 5) Real economics --------------------------------------------------
@@ -766,7 +780,7 @@ export class WorkerOperator {
   }): Promise<EarningsBreakdown> {
     const claimableWei = (await this.read(
       this.jobReg,
-      JOB_REGISTRY_OPERATOR_ABI,
+      JOB_REGISTRY_OPERATOR_ABI_PARSED,
       "workerBalance",
       [this.addr],
     )) as bigint;
@@ -802,7 +816,7 @@ export class WorkerOperator {
     if (!feeWei && input.modelTag) {
       feeWei = (await this.read(
         this.network.aiConfig as `0x${string}`,
-        AI_CONFIG_ABI,
+        AI_CONFIG_ABI_PARSED,
         "getModelFee",
         [(await import("./inference.js")).modelId(input.modelTag)],
       )) as bigint;
