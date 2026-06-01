@@ -28,9 +28,15 @@ fixed-gas path is the only thing that fails.
    unwind. The worker is left registered but not serving, the binary retries, and
    that register then failed-rollback loop is the join/exit churn.
 
-Neither defect reproduces from a direct contract call: a manual call auto-estimates
-gas and runs against a settled state, so it succeeds. Both only appear through the
-binary's register flow.
+3. **No operator recovery for stuck acknowledged jobs (a tooling gap, not a contract
+   bug).** A job a worker acknowledged but never completed stays `Acknowledged` and
+   blocks deregister, locking the stake, and neither the daemon nor the toolkit
+   expose any way to clear it. `claimTimeout` is permissionless, so an operator can
+   self-recover, but nothing official surfaces it.
+
+The first two defects do not reproduce from a direct contract call: a manual call
+auto-estimates gas and runs against a settled state, so it succeeds. Both only
+appear through the binary's register flow.
 
 ## Environment
 
@@ -154,6 +160,42 @@ register then failed-rollback loop is the join/exit churn.
 
 Gas-estimate (or raise with margin) the rollback `deregisterWorker`. The same fix
 applies to a normal operator deregister, which the binary also under-gasses.
+
+---
+
+## Issue 3: no operator recovery for stuck acknowledged jobs
+
+This is a tooling gap, not a contract bug. The contract behaves correctly; the
+problem is that the official daemon and toolkit give an operator no way out of a
+common failure state.
+
+### What happens
+
+A worker acknowledges a job, then never completes it: the daemon crashes, the
+machine sleeps, or the model misses the deadline. On-chain the job stays in
+`Acknowledged` state. A job in that state counts as in-flight, and `deregisterWorker`
+reverts with `ActiveJobsExist` while any in-flight job remains. So the worker cannot
+exit, and its stake stays locked. Settling does not help (settle only releases
+`Completed` jobs), and the daemon never revisits its own abandoned acknowledged jobs.
+
+### Why there is no official way out
+
+The worker daemon only completes jobs it is actively serving; it has no path to give
+up and time out a job it already acknowledged. The toolkit has no command for it
+either. So a worker with one stuck acknowledged job is stuck registered, with no
+official recovery.
+
+The contract does expose the escape: `claimTimeout(jobId)` is permissionless, so the
+worker itself can time out its own past-deadline acknowledged job, which finalizes it
+as `TimedOut` and unblocks deregister. Nothing in the daemon or toolkit surfaces this.
+
+### Suggested fix
+
+Either expose `claimTimeout` in the toolkit, or have the daemon time out its own
+past-deadline acknowledged jobs automatically so a worker can always reach a clean
+exit. (Note: finalizing a stuck job as `TimedOut` realizes the completion-timeout
+slash on mainnet, so this should be an explicit, informed operator action or a
+clearly documented daemon behavior.)
 
 ---
 
