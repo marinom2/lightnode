@@ -172,10 +172,18 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
         ? await encryptSessionKey(sessionKey, await importPublicKey(decodePublicKey(selected.disputerEncryptionKey)))
         : new Uint8Array(0);
 
+      // ROOT-CAUSE FIX (lcai-chat-v2 commit 33c70841, May 2026): echo the
+      // dispatcher's selectionId from selectSession back into prepareSession.
+      // Without this, the dispatcher's pending-slot tracker matches against
+      // the LATEST select for our wallet, so any concurrent activity (other
+      // tab, other dApp signed into the same wallet) produces 409
+      // selection_mismatch. Threading it makes the prepare bind to the
+      // selection we actually got.
       const prepared = await gateway.prepareSession({
         modelId: id,
         encWorkerKey: bytesToBase64(encWorker),
         encDisputerKey: bytesToBase64(encDisputer),
+        ...(selected.selectionId ? { selectionId: selected.selectionId } : {}),
       });
       return {
         sessionKey,

@@ -3692,16 +3692,14 @@ interface PreflightDemoResp {
   runLocally?: boolean;
 }
 
-type PreflightMode = "demo" | "wallet";
 type PreflightNet = "testnet" | "mainnet";
 
 function PreflightRecipe() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
-  const [mode, setMode] = useState<PreflightMode>("wallet");
-  // For the demo flow the network is hard-coded to testnet (the demo key
-  // is testnet-only). For the wallet flow the network follows whichever
-  // chain the visitor's wallet is connected to.
+  // The network follows whichever chain the visitor's wallet is connected
+  // to. No demo-wallet fallback - we route through the user's own funded
+  // key so there is no shared gateway state to contend with.
   const [busy, setBusy] = useState(false);
   const [busyStage, setBusyStage] = useState<string>("");
   const [verdict, setVerdict] = useState<PreflightDemoResp | null>(null);
@@ -3732,39 +3730,7 @@ function PreflightRecipe() {
     return () => { cancelled = true; };
   }, [walletNetwork, model]);
 
-  async function runDemo() {
-    setBusy(true);
-    setBusyStage("Asking the demo wallet to run preflight...");
-    setErr(null);
-    setVerdict(null);
-    try {
-      const r = await fetch("/api/preflight-demo", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model, deadlineMs: 45_000 }),
-      });
-      const text = await r.text();
-      let json: PreflightDemoResp = {};
-      try {
-        json = JSON.parse(text) as PreflightDemoResp;
-      } catch {
-        setErr(`Demo failed (${r.status}). Run the example locally to try.`);
-        return;
-      }
-      if (!r.ok || json.error) {
-        setErr(json.error ?? "Preflight failed.");
-        return;
-      }
-      setVerdict(json);
-    } catch (e) {
-      setErr(humanizeError(e, { action: "the preflight" }));
-    } finally {
-      setBusy(false);
-      setBusyStage("");
-    }
-  }
-
-  async function runWallet() {
+  async function run() {
     if (!walletClient || !publicClient || !connectedAddress || !walletNetwork) {
       setErr("Connect a wallet on testnet or mainnet first.");
       return;
@@ -3804,22 +3770,25 @@ function PreflightRecipe() {
       setVerdict(v);
     } catch (e) {
       const msg = (e as Error).message ?? "preflight failed";
-      // Most common surfaces: SIWE rejection, user-cancelled tx, faucet-empty wallet.
+      // Translate the common surfaces.
+      // - user rejected: SIWE / tx popup dismissed
+      // - insufficient funds: empty wallet
+      // - selection_mismatch: ANOTHER session for this wallet is in flight
+      //   (almost always chat.lightchain.ai open in another tab signed into
+      //   the same wallet). The SDK already retried up to 6x over ~35s; if
+      //   the contention is sustained, no client retry will win.
       const friendly = /user rejected|user denied|cancelled|reject/i.test(msg)
         ? "You rejected the wallet popup. Reopen and approve to run preflight."
         : /insufficient funds|insufficient balance/i.test(msg)
           ? `Wallet has no ${walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"}. Top it up before trying again.`
-          : msg.split("\n")[0];
+          : /selection_mismatch|selection was superseded|409/.test(msg)
+            ? "Another session for this wallet is in flight on the gateway. This usually means chat.lightchain.ai (or another LightChain dApp) is open in a different tab signed into the same wallet. Close those tabs and try again."
+            : msg.split("\n")[0];
       setErr(friendly);
     } finally {
       setBusy(false);
       setBusyStage("");
     }
-  }
-
-  function run() {
-    if (mode === "demo") return runDemo();
-    return runWallet();
   }
 
   const snippet = `import { workerPreflight, LightNode } from "lightnode-sdk";
@@ -3926,69 +3895,45 @@ for (const w of top) {
             Signs one real <code className="font-mono text-content-default">{model}</code> inference and reports
             verdict + timing + worker, all live.
           </p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => { setMode("wallet"); setVerdict(null); setErr(null); }}
-              className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
-                mode === "wallet" ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft"
-              }`}
-            >
-              <div className="text-sm font-semibold text-content-primary">Your wallet (recommended)</div>
-              <div className="mt-0.5 text-[11px] text-content-soft">SIWE + createSession with your funded key. Testnet (free faucet) or mainnet. No shared state.</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMode("demo"); setVerdict(null); setErr(null); }}
-              className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
-                mode === "demo" ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft"
-              }`}
-            >
-              <div className="text-sm font-semibold text-content-primary">Demo wallet (may be busy)</div>
-              <div className="mt-0.5 text-[11px] text-content-soft">Testnet only. Shared key, can hit gateway 409 under load. Rate-limited 2/IP/hour.</div>
-            </button>
+          <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
+            {!connectedAddress ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-content-soft">Connect a wallet on testnet (chain 8200) or mainnet (chain 9200). Get free testnet LCAI from <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.</div>
+                <ConnectButton size="sm" />
+              </div>
+            ) : !walletNetwork ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain testnet or mainnet.</div>
+                <ConnectButton size="sm" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <div className="text-content-soft">
+                  Connected on <span className="font-mono text-content-primary">{walletNetwork}</span> as{" "}
+                  <code className="font-mono text-content-default">{connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}</code>.
+                  {" "}One preflight costs{" "}
+                  {feeLcai != null ? (
+                    <span className="font-mono text-content-primary">{feeLcai} LCAI</span>
+                  ) : (
+                    <span className="text-content-soft">(fetching fee…)</span>
+                  )}
+                  {" "}plus a small amount of gas.
+                  {walletNetwork === "testnet" ? (
+                    <>
+                      {" "}Get free testnet LCAI from{" "}
+                      <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.
+                    </>
+                  ) : null}
+                </div>
+                <ConnectButton size="sm" />
+              </div>
+            )}
           </div>
-          {mode === "wallet" ? (
-            <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
-              {!connectedAddress ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs text-content-soft">Connect a wallet on testnet (chain 8200) or mainnet (chain 9200). Get free testnet LCAI from <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.</div>
-                  <ConnectButton size="sm" />
-                </div>
-              ) : !walletNetwork ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain testnet or mainnet.</div>
-                  <ConnectButton size="sm" />
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <div className="text-content-soft">
-                    Connected on <span className="font-mono text-content-primary">{walletNetwork}</span> as{" "}
-                    <code className="font-mono text-content-default">{connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}</code>.
-                    {" "}One preflight costs{" "}
-                    {feeLcai != null ? (
-                      <span className="font-mono text-content-primary">{feeLcai} LCAI</span>
-                    ) : (
-                      <span className="text-content-soft">(fetching fee…)</span>
-                    )}
-                    {" "}plus a small amount of gas.
-                    {walletNetwork === "testnet" ? (
-                      <>
-                        {" "}Get free testnet LCAI from{" "}
-                        <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.
-                      </>
-                    ) : null}
-                  </div>
-                  <ConnectButton size="sm" />
-                </div>
-              )}
-            </div>
-          ) : null}
           <div className="mt-5">
             <PreviewButton
               onClick={run}
               busy={busy}
-              idle={mode === "wallet" ? "Run preflight with my wallet" : "Run preflight on demo wallet"}
+              idle="Run preflight with my wallet"
               working={busyStage || "Signing and dispatching"}
             />
           </div>

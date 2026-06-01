@@ -85,6 +85,19 @@ export interface SelectSessionResult {
   disputerEncryptionKey?: string;
   nonce: number;
   expiry: number;
+  /**
+   * Opaque correlation token added by the dispatcher in May 2026
+   * (lcai-chat-v2 commit 33c70841, web-search epic / Story 16). The client
+   * MUST echo it back to `prepareSession` so a later capability-aware
+   * select cannot overwrite our pending slot. Optional for forward-compat
+   * with older dispatchers that predate the token.
+   *
+   * Without this, any concurrent activity for the same wallet produces a
+   * 409 selection_mismatch on prepare.
+   */
+  selectionId?: string;
+  /** Worker capabilities reported by the dispatcher (web-search etc.). */
+  workerCapabilities?: string[];
 }
 
 export interface PrepareSessionResult {
@@ -154,6 +167,13 @@ export class GatewayClient {
     modelId: `0x${string}`;
     encWorkerKey: string;
     encDisputerKey: string;
+    /**
+     * Correlation token from {@link SelectSessionResult.selectionId}. Required
+     * by the May 2026 dispatcher to avoid 409 selection_mismatch when a newer
+     * select for the same wallet has overwritten the pending slot.
+     */
+    selectionId?: string;
+    requiredCapabilities?: string[];
   }): Promise<PrepareSessionResult> {
     return this.req("POST", "/api/sessions/prepare", input);
   }
