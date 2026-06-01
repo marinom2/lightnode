@@ -213,7 +213,7 @@ for await (const event of handle.events) {
 
 ### Worker operator (new in 0.7.0)
 
-The **write/ops side** of running a worker — the on-chain actions that are
+The **write/ops side** of running a worker - the on-chain actions that are
 otherwise only reachable through the multi-GB worker Docker image, or by
 reverse-engineering the unverified contracts. Pure RPC: run it from a laptop, a
 server, or CI with no worker image at all. This complements (does not replace)
@@ -221,7 +221,7 @@ server, or CI with no worker image at all. This complements (does not replace)
 
 Its flagship is **stuck-job recovery**. When a worker acknowledges a job but
 never completes it (Ollama down, machine asleep), that job sits `Acknowledged`
-forever and **blocks deregistration** — and no official tool clears it. The
+forever and **blocks deregistration** - and no official tool clears it. The
 JobRegistry's `claimTimeout` is permissionless, so the operator can self-clear
 it. `unstickAndDeregister()` is the one-call rescue.
 
@@ -243,7 +243,7 @@ await op.status();              // { registered, stakeLcai, claimableLcai, below
 await op.config();              // live AIConfig: minStake, timeouts, slashBps, fee split
 await op.getJob(974);           // typed Job { state, worker, escrowedFeeWei, timestamps, ... }
 
-// Pre-flight gating — know WHY before you spend gas. Pass the worker's job IDs
+// Pre-flight gating - know WHY before you spend gas. Pass the worker's job IDs
 // (from LightNode.getWorkerJobs / the subgraph).
 await op.canDeregister([974, 976, 978, 979]);   // { ok, blockedBy: [974, 976], reason }
 
@@ -255,11 +255,11 @@ await op.withdraw();             // pull earned balance into the worker wallet
 await op.unstickAndDeregister([974, 976, 978, 979]);
 ```
 
-> ⚠️ **Mainnet slashing.** `claimTimeout` / `clearStuck` / `unstickAndDeregister`
+> **Mainnet slashing.** `claimTimeout` / `clearStuck` / `unstickAndDeregister`
 > finalize a stuck job as `TimedOut`, which **realizes the completion-timeout
 > slash** on mainnet (`config().slashBps.completionTimeout`, 5% of stake per job
 > at writing). Testnet has slashing disabled. It is the deliberate price of
-> unblocking an exit a stuck job would otherwise block forever — only clear jobs
+> unblocking an exit a stuck job would otherwise block forever - only clear jobs
 > you accept are lost.
 
 **Decoded reverts.** The WorkerRegistry/JobRegistry custom errors aren't in the
@@ -268,13 +268,13 @@ fix, and every write throws a `WorkerOpError` carrying the decoded cause:
 
 | Error | Meaning |
 |---|---|
-| `ActiveJobsExist(worker, n)` | deregister blocked by `n` in-flight jobs — `clearStuck()` them first |
-| `DisputeWindowNotElapsed(jobId, releaseAt, now)` | `releaseJob` too early — retry after the window |
-| `InsufficientStake(requested, available)` | `withdrawStake` below the floor — `topUpStake()` + `reinstate()` |
+| `ActiveJobsExist(worker, n)` | deregister blocked by `n` in-flight jobs - `clearStuck()` them first |
+| `DisputeWindowNotElapsed(jobId, releaseAt, now)` | `releaseJob` too early - retry after the window |
+| `InsufficientStake(requested, available)` | `withdrawStake` below the floor - `topUpStake()` + `reinstate()` |
 | `WorkerNotRegistered(addr)` | not a registered worker |
 
 Scope: this is the **operator** surface (register/stake/settle/recover/exit). It
-does not serve jobs — that's the official Go worker daemon. Contracts are
+does not serve jobs - that's the official Go worker daemon. Contracts are
 unverified and may change; treat as 0.x and lean on `decodeWorkerError` to
 surface drift.
 

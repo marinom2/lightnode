@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
+import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
 import { addInference, addAnalyticsDashboard, addNftMint, addChat, addAgent } from "./add.js";
-import { createPublicClient, http, parseEther } from "viem";
+import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 function flag(name: string): string | undefined {
@@ -48,9 +48,16 @@ Read-only network commands (no key):
   analytics [--csv]        per-model performance (completion, p50/p95, incomplete)
   reliability [--csv]      per-worker reliability, busiest first
 
-Preflight (needs PRIVATE_KEY in env):
+Worker operator (needs PRIVATE_KEY in env; signs as the worker key):
   worker preflight         run one real test inference, print verdict + timings
                            ([--key 0x...] [--model llama3-8b] [--deadline 60])
+  worker status [addr]     registration, stake, claimable, live protocol config
+  worker can-deregister    check what blocks the exit (in-flight jobs), no spend
+  worker settle            release completed jobs past their window + withdraw
+  worker clearstuck        claimTimeout acked, past-deadline jobs (unblocks exit)
+                           (mainnet realizes a per-job slash; needs --yes)
+  worker withdraw          pull the earned balance into the worker wallet
+  worker deregister        clear stuck + settle + withdraw + deregister (mainnet: --yes)
 
 Ecosystem (read-only):
   bridge addresses         print bridge route (Ethereum <-> LightChain) addresses
@@ -73,6 +80,44 @@ function pickKey(): `0x${string}` {
     die("set PRIVATE_KEY=0x... in your env, or pass --key 0x...   (need a funded EVM key)");
   }
   return k as `0x${string}`;
+}
+
+const viemChain = (n: LightNode) => ({
+  id: n.network.chainId,
+  name: n.network.label,
+  nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 },
+  rpcUrls: { default: { http: [n.network.rpc] } },
+});
+
+/** A read-only WorkerOperator for the given worker address (no key). */
+function readOperator(n: LightNode, address: string): WorkerOperator {
+  const chain = viemChain(n);
+  const publicClient = createPublicClient({ transport: http(n.network.rpc), chain });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new WorkerOperator(n.network, { publicClient: publicClient as any, workerAddress: address as `0x${string}` });
+}
+
+/** A write-capable WorkerOperator signed by PRIVATE_KEY / --key. The viem clients
+ *  are cast to the SDK's structural Minimal* types (same boundary cast the
+ *  inference module uses) - viem's strict writeContract union does not accept the
+ *  intentionally-loose Minimal shape directly. */
+function writeOperator(n: LightNode): WorkerOperator {
+  const chain = viemChain(n);
+  const account = privateKeyToAccount(pickKey());
+  const publicClient = createPublicClient({ transport: http(n.network.rpc), chain });
+  const walletClient = createWalletClient({ account, transport: http(n.network.rpc), chain });
+  return new WorkerOperator(n.network, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    publicClient: publicClient as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    walletClient: walletClient as any,
+  });
+}
+
+/** The worker's job IDs from the indexer, used to drive on-chain settle/clear. */
+async function workerJobIds(n: LightNode, address: string): Promise<number[]> {
+  const jobs = await n.getWorkerJobs(address, 100);
+  return jobs.map((j) => Number(j.id)).filter((x) => Number.isFinite(x));
 }
 
 async function main() {
@@ -208,8 +253,75 @@ async function main() {
         if (r.verdict === "failed" || r.verdict === "stalled") process.exit(1);
         break;
       }
+      // Operator subcommands (the write/ops side). status is read-only; the rest
+      // sign with PRIVATE_KEY / --key and act on the worker that key controls.
+      if (sub === "status") {
+        const addr = positionals[2] ?? (flag("--key") || process.env.PRIVATE_KEY ? privateKeyToAccount(pickKey()).address : die("usage: lightnode worker status <address>   (or set PRIVATE_KEY)"));
+        const op = readOperator(ln, addr);
+        const [st, cfg] = await Promise.all([op.status(), op.config()]);
+        console.log(JSON.stringify({ ...st, stakeWei: st.stakeWei.toString(), minStakeWei: st.minStakeWei.toString(), claimableWei: st.claimableWei.toString(), config: { minStakeLcai: cfg.minStakeLcai, completionTimeoutSec: cfg.completionTimeoutSec, slashBps: cfg.slashBps } }, null, 2));
+        break;
+      }
+      if (sub === "can-deregister") {
+        const op = writeOperator(ln);
+        const ids = await workerJobIds(ln, privateKeyToAccount(pickKey()).address);
+        const r = await op.canDeregister(ids);
+        console.log(JSON.stringify({ ok: r.ok, blockedBy: r.blockedBy.map(String), reason: r.reason }, null, 2));
+        break;
+      }
+      if (sub === "settle") {
+        const op = writeOperator(ln);
+        const addr = privateKeyToAccount(pickKey()).address;
+        const ids = await workerJobIds(ln, addr);
+        console.error(`> releasing completed jobs on ${net}...`);
+        const rel = await op.releaseAll(ids);
+        let withdrawTx: string | undefined;
+        if ((await op.status()).claimableWei > 0n) withdrawTx = await op.withdraw();
+        console.log(JSON.stringify({ released: rel.released.map((r) => ({ jobId: r.jobId.toString(), tx: r.tx })), notReady: rel.notReady.map(String), withdrawTx: withdrawTx ?? null }, null, 2));
+        break;
+      }
+      if (sub === "clearstuck") {
+        const op = writeOperator(ln);
+        const addr = privateKeyToAccount(pickKey()).address;
+        const ids = await workerJobIds(ln, addr);
+        if (net === "mainnet" && !process.argv.includes("--yes")) {
+          const cfg = await op.config();
+          die(`clearstuck finalizes stuck jobs as TimedOut, realizing a ${cfg.slashBps.completionTimeout / 100}% slash per job on mainnet. Re-run with --yes to confirm.`);
+        }
+        console.error(`> clearing stuck (acknowledged, past-deadline) jobs on ${net}...`);
+        const r = await op.clearStuck(ids);
+        console.log(JSON.stringify({ cleared: r.cleared.map((c) => ({ jobId: c.jobId.toString(), tx: c.tx })), skipped: r.skipped.map(String) }, null, 2));
+        break;
+      }
+      if (sub === "withdraw") {
+        const op = writeOperator(ln);
+        const before = (await op.status()).claimableLcai;
+        if (before <= 0) {
+          console.log(JSON.stringify({ withdrawn: 0, note: "no claimable balance in the JobRegistry" }, null, 2));
+          break;
+        }
+        const tx = await op.withdraw();
+        console.log(JSON.stringify({ withdrawnLcai: before, tx }, null, 2));
+        break;
+      }
+      if (sub === "deregister") {
+        const op = writeOperator(ln);
+        const addr = privateKeyToAccount(pickKey()).address;
+        const ids = await workerJobIds(ln, addr);
+        if (net === "mainnet" && !process.argv.includes("--yes")) {
+          die("deregister on mainnet may require clearing stuck jobs first (which realizes a slash). Run 'worker can-deregister' to check, then re-run with --yes.");
+        }
+        try {
+          const r = await op.unstickAndDeregister(ids);
+          console.log(JSON.stringify({ cleared: r.cleared.map((c) => c.jobId.toString()), released: r.released.map((c) => c.jobId.toString()), withdrawTx: r.withdrawTx ?? null, deregisterTx: r.deregisterTx }, null, 2));
+        } catch (e) {
+          if (isWorkerOpError(e)) die(`deregister failed: ${e.message}`);
+          throw e;
+        }
+        break;
+      }
       // Default: one-shot worker summary by address.
-      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight> [...]");
+      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight|status|can-deregister|settle|clearstuck|withdraw|deregister> [...]");
       const [w, registered, jobs] = await Promise.all([ln.getWorker(addr), ln.isRegistered(addr), ln.getWorkerJobs(addr, 5)]);
       console.log(JSON.stringify({ onchainRegistered: registered, worker: w, recentJobs: jobs.map((j) => ({ id: j.id, state: j.state })) }, null, 2));
       break;

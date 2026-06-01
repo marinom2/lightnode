@@ -1,5 +1,5 @@
 /**
- * Worker-OPERATOR module — the write/ops side of running a LightChain worker.
+ * Worker-OPERATOR module - the write/ops side of running a LightChain worker.
  *
  * The published `lightnode-sdk` is read-only (observe a worker) and the existing
  * `worker.ts` does remote preflight/watch. This module is different: it performs
@@ -7,23 +7,23 @@
  * require the multi-GB worker Docker image and reverse-engineering unverified
  * contracts. It is deliberately NOT a re-wrap of the worker toolkit's happy path:
  *
- *   1. Stuck-job recovery  — claimTimeout / clearStuck / unstickAndDeregister.
+ *   1. Stuck-job recovery  - claimTimeout / clearStuck / unstickAndDeregister.
  *      The toolkit, the daemon, AND the published SDK all lack this. claimTimeout
  *      is permissionless on-chain (verified), so an operator CAN self-clear the
  *      acknowledged-but-never-completed jobs that block deregister. Nothing else
  *      exposes it.
- *   2. Revert decoding     — the WorkerRegistry/JobRegistry custom errors aren't
+ *   2. Revert decoding     - the WorkerRegistry/JobRegistry custom errors aren't
  *      even in the 4byte directory; decodeWorkerError turns them into a sentence
  *      plus the fix.
- *   3. Pre-flight gating   — canDeregister()/simulate tell you a tx will revert,
+ *   3. Pre-flight gating   - canDeregister()/simulate tell you a tx will revert,
  *      and WHY, before you spend gas.
- *   4. Docker-free settle+exit — deregister/releaseJob/withdraw/stake ops over
+ *   4. Docker-free settle+exit - deregister/releaseJob/withdraw/stake ops over
  *      pure RPC, from a laptop / CI / server, with no worker image running.
- *   5. Real economics      — settled vs pending, claimable, profitability (net of
- *      gas), forecast — joins subgraph + on-chain workerBalance + window math.
- *   6. Live protocol config — the AIConfig stake/timeouts/slash-bps/fee-split, so
+ *   5. Real economics      - settled vs pending, claimable, profitability (net of
+ *      gas), forecast - joins subgraph + on-chain workerBalance + window math.
+ *   6. Live protocol config - the AIConfig stake/timeouts/slash-bps/fee-split, so
  *      nobody hardcodes "50,000" again.
- *   7. Typed getJob/getSession — the exact struct layouts (no published ABI).
+ *   7. Typed getJob/getSession - the exact struct layouts (no published ABI).
  *
  * Conventions match the rest of the SDK: viem writes via a structural
  * `MinimalWalletClient` (viem stays a soft dep), `NETWORKS` for config, the
@@ -31,7 +31,7 @@
  *
  * Source of truth for selectors/structs/errors: verified live on mainnet 9200 +
  * the official worker Go bindings. JobRegistry/WorkerRegistry impls are
- * UNVERIFIED on the explorer, so this is pinned to a snapshot — treat as 0.x and
+ * UNVERIFIED on the explorer, so this is pinned to a snapshot - treat as 0.x and
  * lean on decodeWorkerError() to surface any future drift instead of failing
  * silently.
  */
@@ -41,7 +41,7 @@ import { NETWORKS } from "./networks.js";
 import type { NetworkConfig, NetworkId } from "./types.js";
 
 // ===========================================================================
-// Structural viem types (soft dependency — same approach as inference.ts).
+// Structural viem types (soft dependency - same approach as inference.ts).
 // ===========================================================================
 
 export interface MinimalWalletClient {
@@ -80,11 +80,11 @@ export interface MinimalPublicClient {
 }
 
 // ===========================================================================
-// ABIs — minimal, operator-facing. Verified selectors (see module header).
+// ABIs - minimal, operator-facing. Verified selectors (see module header).
 // Human-readable strings; viem parseAbi-compatible if the caller wants typing.
 // ===========================================================================
 
-/** WorkerRegistry (genesis predeploy 0x…1002). Operator + stake surface. */
+/** WorkerRegistry (genesis predeploy 0x...1002). Operator + stake surface. */
 export const WORKER_REGISTRY_ABI = [
   "function registerWorker(bytes encryptionPubKey) payable",
   "function deregisterWorker()",
@@ -146,7 +146,7 @@ const AI_CONFIG_ABI_PARSED = parseAbi(AI_CONFIG_ABI);
 // Enums + struct types (pinned from the worker Go bindings + live decode).
 // ===========================================================================
 
-/** On-chain JobState. Order is ABI-load-bearing — do not reorder. */
+/** On-chain JobState. Order is ABI-load-bearing - do not reorder. */
 export const JOB_STATE = [
   "Submitted",
   "Acknowledged",
@@ -176,7 +176,7 @@ export interface OnchainJob {
 }
 
 // ===========================================================================
-// 2) Revert decoding. These selectors are NOT in 4byte.directory — verified
+// 2) Revert decoding. These selectors are NOT in 4byte.directory - verified
 //    live on mainnet. decodeWorkerError turns raw revert data into a sentence.
 // ===========================================================================
 
@@ -205,7 +205,7 @@ const WORKER_ERROR_TABLE: Record<string, ErrorSpec> = {
     types: ["address", "uint256"],
     explain: (a) =>
       `Can't deregister/withdraw yet: this worker still has ${a[1]} in-flight job(s) on-chain. ` +
-      `Clear them first — acknowledged-but-unfinished jobs are cleared with claimTimeout (clearStuck() does this), ` +
+      `Clear them first - acknowledged-but-unfinished jobs are cleared with claimTimeout (clearStuck() does this), ` +
       `then deregister succeeds.`,
   },
   "0xcb9a70eb": {
@@ -223,7 +223,7 @@ const WORKER_ERROR_TABLE: Record<string, ErrorSpec> = {
       const now = Number(a[2] ?? 0);
       const mins = releaseAt > now ? Math.ceil((releaseAt - now) / 60) : 0;
       return (
-        `Job ${a[0]} isn't releasable yet — it's still inside the dispute window. ` +
+        `Job ${a[0]} isn't releasable yet - it's still inside the dispute window. ` +
         (mins ? `Releasable in ~${mins} min (at unix ${releaseAt}). ` : "") +
         `releaseAll() skips jobs that aren't ready; retry later.`
       );
@@ -234,7 +234,7 @@ const WORKER_ERROR_TABLE: Record<string, ErrorSpec> = {
     types: ["uint256", "uint256"],
     explain: (a) =>
       `Insufficient stake: requested ${a[0]} but only ${a[1]} is available above the minimum. ` +
-      `Withdraw less, or you're below the floor — topUpStake() then reinstate().`,
+      `Withdraw less, or you're below the floor - topUpStake() then reinstate().`,
   },
   "0x50c83b95": {
     name: "JobNotFound",
@@ -259,7 +259,7 @@ const WORKER_ERROR_TABLE: Record<string, ErrorSpec> = {
   "0xe06b2da5": {
     name: "NoBalanceToWithdraw",
     types: ["address"],
-    explain: (a) => `Nothing to withdraw — ${a[0]} has a zero worker balance in the JobRegistry.`,
+    explain: (a) => `Nothing to withdraw - ${a[0]} has a zero worker balance in the JobRegistry.`,
   },
   "0x4a0bfec1": {
     name: "NotAuthorized",
@@ -305,7 +305,7 @@ export function decodeWorkerError(revertData: string | null | undefined): Decode
 
 /**
  * Operator-side typed error (mirrors the errors.ts convention: named class +
- * readonly fields + an `is…` guard). Carries the decoded contract error.
+ * readonly fields + an `is...` guard). Carries the decoded contract error.
  */
 export class WorkerOpError extends Error {
   readonly op: string;
@@ -393,7 +393,7 @@ export interface DeregisterReadiness {
 
 export interface StuckJob {
   /**
-   * The ID to pass to claimTimeout/getJob — i.e. the SAME id you looked the job
+   * The ID to pass to claimTimeout/getJob - i.e. the SAME id you looked the job
    * up by (the subgraph/display id). IMPORTANT: this is NOT the struct's internal
    * `jobId` field, which is a different counter; calling claimTimeout with the
    * struct field hits the wrong job. Always use this lookupId for writes.
@@ -445,7 +445,7 @@ function normalizeJob(raw: unknown): OnchainJob {
 }
 
 // ===========================================================================
-// WorkerOperator — the operator surface. Reads need only a publicClient;
+// WorkerOperator - the operator surface. Reads need only a publicClient;
 // writes need a walletClient (same shape as the DAO/Bridge write classes).
 // ===========================================================================
 
@@ -478,7 +478,7 @@ export class WorkerOperator {
   }
 
   private requireWallet(op: string): MinimalWalletClient {
-    if (!this.wallet) throw new WorkerOpError(op, `${op} needs a walletClient — construct WorkerOperator with one.`);
+    if (!this.wallet) throw new WorkerOpError(op, `${op} needs a walletClient - construct WorkerOperator with one.`);
     return this.wallet;
   }
 
@@ -585,7 +585,7 @@ export class WorkerOperator {
   /** One-call worker status: registration, stake, floor, claimable balance. */
   async status(): Promise<WorkerStatus> {
     // minStake is sourced from AIConfig (verified live on BOTH networks), not
-    // WorkerRegistry.getMinWorkerStake — the testnet WorkerRegistry impl differs
+    // WorkerRegistry.getMinWorkerStake - the testnet WorkerRegistry impl differs
     // and reverts that getter. AIConfig is the canonical source either way.
     const [registered, stakeWei, minStakeWei, claimableWei] = await Promise.all([
       this.read(this.workerReg, WORKER_REGISTRY_ABI_PARSED, "isWorkerRegistered", [this.addr]) as Promise<boolean>,
@@ -619,7 +619,7 @@ export class WorkerOperator {
 
   /**
    * Jobs this worker acknowledged but never completed that are now past the
-   * completion deadline — the ones that block deregister and are clearable via
+   * completion deadline - the ones that block deregister and are clearable via
    * claimTimeout. Needs the worker's job IDs (from the subgraph / LightNode
    * client); on-chain there is no enumerator. Pass the candidate IDs in.
    */
@@ -635,7 +635,7 @@ export class WorkerOperator {
       const deadline = j.deadlineAt || (j.ackAt ? j.ackAt + cfg.completionTimeoutSec : 0);
       const past = deadline ? now - deadline : 0;
       out.push({
-        // The id the caller passed IS the claimTimeout/getJob key — not j.jobId.
+        // The id the caller passed IS the claimTimeout/getJob key - not j.jobId.
         lookupId: BigInt(id),
         jobId: j.jobId,
         state: j.state,
@@ -649,13 +649,13 @@ export class WorkerOperator {
 
   /**
    * Clear one stuck (acknowledged-but-never-completed, past-deadline) job.
-   * Permissionless on-chain — the worker itself may call it.
+   * Permissionless on-chain - the worker itself may call it.
    *
    * ⚠️ MAINNET SLASH: this finalizes the job as TimedOut, which realizes the
    * completion-timeout slash on the worker's stake (mainnet:
    * `config().slashBps.completionTimeout` = 5% of stake per job at the time of
    * writing; TESTNET has slashing disabled, so it's free there). This is the
-   * deliberate price of unblocking deregister — a stuck acked job otherwise
+   * deliberate price of unblocking deregister - a stuck acked job otherwise
    * blocks the exit forever. Call `config()` first to see the live slash bps, and
    * only clear jobs you've accepted are lost. Verify eligibility with
    * `stuckJobs([id])` (pastDeadlineSec > 0) before calling.
@@ -667,7 +667,7 @@ export class WorkerOperator {
   /**
    * Clear every past-deadline acked job in `candidateJobIds`. Returns the txs and
    * the IDs it skipped (not stuck / not past deadline). Each cleared job realizes
-   * its completion-timeout slash — see slashBps.completionTimeout in config().
+   * its completion-timeout slash - see slashBps.completionTimeout in config().
    */
   async clearStuck(candidateJobIds: Array<bigint | number>): Promise<{ cleared: Array<{ jobId: bigint; tx: `0x${string}` }>; skipped: bigint[] }> {
     const stuck = await this.stuckJobs(candidateJobIds);
@@ -690,7 +690,7 @@ export class WorkerOperator {
   /**
    * Will deregister succeed right now? Reads the active-job count by checking the
    * candidate IDs (on-chain there's no enumerator, so pass the worker's job IDs).
-   * Returns the blocking job IDs and a human reason — BEFORE you spend gas.
+   * Returns the blocking job IDs and a human reason - BEFORE you spend gas.
    */
   async canDeregister(candidateJobIds: Array<bigint | number> = []): Promise<DeregisterReadiness> {
     const st = await this.status();
@@ -717,7 +717,7 @@ export class WorkerOperator {
   /**
    * Settle every releasable completed job in `candidateJobIds`. Skips jobs still
    * inside the dispute window (DisputeWindowNotElapsed) rather than failing the
-   * batch — uses per-job calls so one not-ready job can't revert the rest.
+   * batch - uses per-job calls so one not-ready job can't revert the rest.
    */
   async releaseAll(candidateJobIds: Array<bigint | number>): Promise<{ released: Array<{ jobId: bigint; tx: `0x${string}` }>; notReady: bigint[] }> {
     const released: Array<{ jobId: bigint; tx: `0x${string}` }> = [];
@@ -746,7 +746,7 @@ export class WorkerOperator {
     return this.send("withdraw", this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "withdraw", []);
   }
 
-  /** Deregister — releases stake to the wallet. Reverts (ActiveJobsExist) if any in-flight job remains. */
+  /** Deregister - releases stake to the wallet. Reverts (ActiveJobsExist) if any in-flight job remains. */
   async deregister(): Promise<`0x${string}`> {
     return this.send("deregister", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "deregisterWorker", []);
   }
