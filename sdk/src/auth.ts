@@ -24,6 +24,27 @@
 import type { NetworkId, NetworkConfig } from "./types.js";
 import { NETWORKS } from "./networks.js";
 
+// Same logic as gateway.ts: in a browser-like runtime the consumer-api's
+// CORS allowlist excludes most origins, so we route the SIWE handshake
+// through lightnode.app's public pass-through proxy. The proxy preserves
+// the upstream `/api/auth/{challenge,verify}` shape, so callers do not
+// have to special-case it.
+const PROXY_HOSTS: Record<NetworkId, string> = {
+  mainnet: "https://lightnode.app/api/gw/mainnet",
+  testnet: "https://lightnode.app/api/gw/testnet",
+};
+
+function looksLikeBrowserFetch(): boolean {
+  if (typeof window !== "undefined" && typeof document !== "undefined") return true;
+  const wc = (globalThis as { process?: { versions?: Record<string, string> } }).process?.versions?.webcontainer;
+  return Boolean(wc);
+}
+
+function defaultSiweBase(cfg: NetworkConfig): string {
+  if (looksLikeBrowserFetch()) return PROXY_HOSTS[cfg.id];
+  return cfg.consumerApi ?? "";
+}
+
 /**
  * Minimal subset of viem's `WalletClient` we need to sign the SIWE
  * message. Accepts viem's `WalletClient`, wagmi's `useWalletClient().data`,
@@ -123,13 +144,18 @@ async function httpJson<T>(
 export async function siweChallenge(
   network: NetworkId | NetworkConfig,
   address: `0x${string}`,
-  opts: { signal?: AbortSignal } = {},
+  opts: { signal?: AbortSignal; baseUrl?: string } = {},
 ): Promise<SiweChallenge> {
   const cfg = resolveNetwork(network);
-  if (!cfg.consumerApi) {
-    throw new Error(`siweChallenge: network "${cfg.id}" has no consumerApi configured`);
+  // baseUrl override lets a browser caller route through a different
+  // proxy. By default the SDK auto-routes browser traffic through
+  // lightnode.app's pass-through proxy (the consumer-api's CORS allowlist
+  // excludes most origins). Server-side, we hit the consumer-api direct.
+  const base = (opts.baseUrl ?? defaultSiweBase(cfg)).replace(/\/+$/, "");
+  if (!base) {
+    throw new Error(`siweChallenge: network "${cfg.id}" has no consumerApi configured (and no baseUrl override)`);
   }
-  const url = `${cfg.consumerApi.replace(/\/+$/, "")}/api/auth/challenge?address=${address}`;
+  const url = `${base}/api/auth/challenge?address=${address}`;
   return httpJson<SiweChallenge>(url, { method: "GET", signal: opts.signal });
 }
 
@@ -139,13 +165,14 @@ export async function siweChallenge(
 export async function siweVerify(
   network: NetworkId | NetworkConfig,
   args: { message: string; signature: `0x${string}` },
-  opts: { signal?: AbortSignal } = {},
+  opts: { signal?: AbortSignal; baseUrl?: string } = {},
 ): Promise<SiweVerifyResult> {
   const cfg = resolveNetwork(network);
-  if (!cfg.consumerApi) {
-    throw new Error(`siweVerify: network "${cfg.id}" has no consumerApi configured`);
+  const base = (opts.baseUrl ?? defaultSiweBase(cfg)).replace(/\/+$/, "");
+  if (!base) {
+    throw new Error(`siweVerify: network "${cfg.id}" has no consumerApi configured (and no baseUrl override)`);
   }
-  const url = `${cfg.consumerApi.replace(/\/+$/, "")}/api/auth/verify`;
+  const url = `${base}/api/auth/verify`;
   const out = await httpJson<SiweVerifyResult>(url, {
     method: "POST",
     body: { message: args.message, signature: args.signature },
@@ -186,21 +213,21 @@ function parseExpiry(message: string): number | null {
 export async function siweSignIn(
   walletClient: SiweWalletClient,
   network: NetworkId | NetworkConfig,
-  opts: { address?: `0x${string}`; signal?: AbortSignal } = {},
+  opts: { address?: `0x${string}`; signal?: AbortSignal; baseUrl?: string } = {},
 ): Promise<SiweSession> {
   const cfg = resolveNetwork(network);
   const address = opts.address ?? walletClient.account?.address;
   if (!address) {
     throw new Error("siweSignIn: walletClient has no account; pass `address` explicitly");
   }
-  const { message } = await siweChallenge(cfg, address, { signal: opts.signal });
+  const { message } = await siweChallenge(cfg, address, { signal: opts.signal, baseUrl: opts.baseUrl });
   // viem's signMessage requires `account` even when one is set on the
   // client; passing it explicitly works with both wagmi and bare viem.
   const signature = await walletClient.signMessage({
     account: walletClient.account?.address ?? address,
     message,
   });
-  const verified = await siweVerify(cfg, { message, signature }, { signal: opts.signal });
+  const verified = await siweVerify(cfg, { message, signature }, { signal: opts.signal, baseUrl: opts.baseUrl });
   const token = verified.token;
   return {
     token,

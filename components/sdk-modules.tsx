@@ -3713,6 +3713,24 @@ function PreflightRecipe() {
     connectedChain?.id === 9200 ? "mainnet" : connectedChain?.id === 8200 ? "testnet" : null;
   const { data: walletClient } = useWalletClient({ chainId: connectedChain?.id });
   const publicClient = usePublicClient({ chainId: connectedChain?.id });
+  // Read the live model fee from AIConfig for the connected network so we
+  // do not lie about cost (hardcoding misrepresents what the wallet popup
+  // will actually demand). 8b/70b have different fees.
+  const [feeLcai, setFeeLcai] = useState<number | null>(null);
+  useEffect(() => {
+    if (!walletNetwork) { setFeeLcai(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { estimateJobFee, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
+        const fee = await estimateJobFee(SDK_NETWORKS[walletNetwork], model);
+        if (!cancelled) setFeeLcai(fee);
+      } catch {
+        if (!cancelled) setFeeLcai(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [walletNetwork, model]);
 
   async function runDemo() {
     setBusy(true);
@@ -3947,7 +3965,19 @@ for (const w of top) {
                   <div className="text-content-soft">
                     Connected on <span className="font-mono text-content-primary">{walletNetwork}</span> as{" "}
                     <code className="font-mono text-content-default">{connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}</code>.
-                    Each preflight costs ~0.022 {walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"} (free from the faucet).
+                    {" "}One preflight costs{" "}
+                    {feeLcai != null ? (
+                      <span className="font-mono text-content-primary">{feeLcai} LCAI</span>
+                    ) : (
+                      <span className="text-content-soft">(fetching fee…)</span>
+                    )}
+                    {" "}plus a small amount of gas.
+                    {walletNetwork === "testnet" ? (
+                      <>
+                        {" "}Get free testnet LCAI from{" "}
+                        <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.
+                      </>
+                    ) : null}
                   </div>
                   <ConnectButton size="sm" />
                 </div>
