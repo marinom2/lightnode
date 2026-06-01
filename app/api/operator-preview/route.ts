@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";
 import { WorkerOperator, NETWORKS, LightNode, type NetworkId } from "lightnode-sdk";
 
+const STUCK_DEADLINE_SEC = 60 * 60; // SDK default completion timeout
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -63,14 +65,56 @@ export async function GET(req: Request) {
         publicClient: publicClient as unknown as ConstructorParameters<typeof WorkerOperator>[1]["publicClient"],
         workerAddress: worker as `0x${string}`,
       });
-      // Pull spendable native balance in parallel - this is the LCAI the
-      // visitor sees in their wallet after deregister returns the stake.
-      // Without this, a deregistered worker looks empty even when it holds
-      // its returned stake.
-      const [st, walletWei] = await Promise.all([
+      const ln = new LightNode(network);
+      // Fan out: on-chain operator status, native LCAI balance, subgraph
+      // worker record (lifetime counts + last-seen), recent jobs (for
+      // bucketing into pending-release / stuck / released / timed-out),
+      // and the model registry (to map model_id back to a human name).
+      // The whole panel resolves in a single tab of round-trips.
+      const [st, walletWei, w, jobs, models] = await Promise.all([
         op.status(),
         publicClient.getBalance({ address: worker as `0x${string}` }),
+        ln.getWorker(worker),
+        ln.getWorkerJobs(worker, 50),
+        ln.getModels(),
       ]);
+      // Pending release: completed but not yet released. Released: paid out.
+      // Stuck: acknowledged past the completion deadline.
+      // Timed-out: lifetime counter from the indexer.
+      // In-flight: submitted/acknowledged and still inside the deadline.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const buckets = jobs.reduce(
+        (acc: { released: number; pendingRelease: number; stuck: number; inFlight: number }, j) => {
+          const state = (j.state ?? "").toLowerCase();
+          if (state.includes("released") || state.includes("resolved") || state.includes("paid")) {
+            acc.released += 1;
+          } else if (state.includes("complet")) {
+            acc.pendingRelease += 1;
+          } else if (state.includes("ack")) {
+            const since = j.ack_at ? nowSec - j.ack_at : 0;
+            if (since > STUCK_DEADLINE_SEC) acc.stuck += 1;
+            else acc.inFlight += 1;
+          } else if (state.includes("submitted")) {
+            acc.inFlight += 1;
+          }
+          return acc;
+        },
+        { released: 0, pendingRelease: 0, stuck: 0, inFlight: 0 },
+      );
+      // Active model: top model_id by job count in recent jobs. Falls
+      // back to null if the worker has never served anything indexed.
+      const modelCounts = new Map<string, number>();
+      for (const j of jobs) {
+        const mid = j.model_id;
+        if (!mid) continue;
+        modelCounts.set(mid, (modelCounts.get(mid) ?? 0) + 1);
+      }
+      const ranked = [...modelCounts.entries()].sort((a, b) => b[1] - a[1]);
+      const topModelId = ranked[0]?.[0] ?? null;
+      const modelName = topModelId
+        ? models.find((m) => m.id.toLowerCase() === topModelId.toLowerCase())?.name ?? null
+        : null;
+      const lifetimeEarnedLcai = w?.total_earned ? Number(BigInt(w.total_earned)) / 1e18 : 0;
       return NextResponse.json({
         action: "status",
         net,
@@ -83,6 +127,22 @@ export async function GET(req: Request) {
           belowFloor: st.belowFloor,
           claimableLcai: st.claimableLcai,
           walletBalanceLcai: Number(walletWei) / 1e18,
+          // Activity (subgraph-backed)
+          subgraphStatus: w?.status ?? null, // active | deactivated | deregistered
+          activeJobCount: w?.active_job_count ?? 0,
+          lifetimeJobsCompleted: w?.jobs_completed ?? 0,
+          lifetimeJobsTimedOut: w?.jobs_timed_out ?? 0,
+          lifetimeEarnedLcai,
+          lastSeenAt: w?.last_seen_at ?? null,
+          createdAt: w?.created_at ?? null,
+          // Buckets derived from recent jobs (last 50)
+          recentReleased: buckets.released,
+          recentPendingRelease: buckets.pendingRelease,
+          recentStuck: buckets.stuck,
+          recentInFlight: buckets.inFlight,
+          // Active model
+          activeModel: modelName,
+          activeModelId: topModelId,
         },
       });
     }

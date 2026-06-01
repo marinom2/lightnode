@@ -1978,6 +1978,43 @@ function blocksToDays(blocks: string): string {
   return `${days} day${days === 1 ? "" : "s"}`;
 }
 
+/**
+ * Render a unix timestamp as relative-to-now ("2 min ago", "3 days ago").
+ * Used in the operator status panel to surface freshness of the indexer's
+ * last_seen_at signal.
+ */
+function relativeTime(sec: number): string {
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - sec;
+  if (diff < 60) return `${Math.max(0, diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)} hour${Math.round(diff / 3600) === 1 ? "" : "s"} ago`;
+  return `${Math.round(diff / 86400)} day${Math.round(diff / 86400) === 1 ? "" : "s"} ago`;
+}
+
+type StatTone = "success" | "warning" | "info" | "muted";
+
+/**
+ * Compact counter tile: big number, two-line label below. Tone drives the
+ * accent (success=green, warning=amber, info=brand purple, muted=gray) so
+ * the operator can scan four tiles and spot what needs attention without
+ * reading the labels.
+ */
+function StatTile({ label, sub, value, tone }: { label: string; sub: string; value: string; tone: StatTone }) {
+  const accent =
+    tone === "success" ? "text-emerald-500 dark:text-emerald-400"
+    : tone === "warning" ? "text-amber-500 dark:text-amber-400"
+    : tone === "info" ? "text-primary"
+    : "text-content-default";
+  return (
+    <div className="rounded-lg border border-bdr-soft bg-card px-3 py-2.5">
+      <div className={`font-mono text-xl font-semibold leading-none ${accent}`}>{value}</div>
+      <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-primary">{label}</div>
+      <div className="text-[10px] text-content-soft">{sub}</div>
+    </div>
+  );
+}
+
 function DaoRecipe() {
   const [step, setStep] = useState<DaoStep>(1);
   const [chain, setChain] = useState<DaoChainKey>("ethereum");
@@ -2868,6 +2905,19 @@ interface OpStatus {
   belowFloor: boolean;
   headroomLcai: number;
   walletBalanceLcai?: number;
+  subgraphStatus?: string | null;
+  activeJobCount?: number;
+  lifetimeJobsCompleted?: number;
+  lifetimeJobsTimedOut?: number;
+  lifetimeEarnedLcai?: number;
+  lastSeenAt?: number | null;
+  createdAt?: number | null;
+  recentReleased?: number;
+  recentPendingRelease?: number;
+  recentStuck?: number;
+  recentInFlight?: number;
+  activeModel?: string | null;
+  activeModelId?: string | null;
 }
 interface OpJob {
   id: string;
@@ -3066,7 +3116,64 @@ function OperatorRecipe() {
                 {result.status.walletBalanceLcai != null ? (
                   <div className="flex items-center justify-between gap-3"><dt className="text-content-soft">Wallet balance</dt><dd className="font-mono text-content-primary">{result.status.walletBalanceLcai.toLocaleString()} LCAI</dd></div>
                 ) : null}
+                {result.status.activeModel ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Active model</dt>
+                    <dd className="font-mono text-content-primary">{result.status.activeModel}</dd>
+                  </div>
+                ) : null}
+                {result.status.lifetimeEarnedLcai != null && result.status.lifetimeEarnedLcai > 0 ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Lifetime earned</dt>
+                    <dd className="font-mono text-content-primary">{result.status.lifetimeEarnedLcai.toLocaleString(undefined, { maximumFractionDigits: 4 })} LCAI</dd>
+                  </div>
+                ) : null}
+                {result.status.lastSeenAt ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-content-soft">Last seen</dt>
+                    <dd className="font-mono text-content-default">{relativeTime(result.status.lastSeenAt)}</dd>
+                  </div>
+                ) : null}
               </dl>
+              {/* Activity buckets: surfaces the numbers that operators
+                  actually scan for - released vs pending vs stuck vs
+                  timed-out. The grid layout makes 4-5 small counters
+                  readable at a glance. */}
+              {(result.status.lifetimeJobsCompleted != null || result.status.recentReleased != null) ? (
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <StatTile
+                    label="Released"
+                    sub="jobs paid out"
+                    value={(result.status.recentReleased ?? 0).toLocaleString()}
+                    tone={result.status.recentReleased ? "success" : "muted"}
+                  />
+                  <StatTile
+                    label="Pending release"
+                    sub="awaiting settle"
+                    value={(result.status.recentPendingRelease ?? 0).toLocaleString()}
+                    tone={result.status.recentPendingRelease ? "info" : "muted"}
+                  />
+                  <StatTile
+                    label="Stuck"
+                    sub="acked past deadline"
+                    value={(result.status.recentStuck ?? 0).toLocaleString()}
+                    tone={result.status.recentStuck ? "warning" : "muted"}
+                  />
+                  <StatTile
+                    label="Timed out"
+                    sub="lifetime"
+                    value={(result.status.lifetimeJobsTimedOut ?? 0).toLocaleString()}
+                    tone={result.status.lifetimeJobsTimedOut ? "warning" : "muted"}
+                  />
+                </div>
+              ) : null}
+              {(result.status.recentStuck ?? 0) > 0 ? (
+                <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
+                  This worker has acked jobs past their completion deadline. Operators can self-clear with{" "}
+                  <code className="font-mono">op.stuckJobs([...])</code> then{" "}
+                  <code className="font-mono">op.claimTimeout(jobId)</code> - the worker keeps its stake, the protocol refunds the consumer.
+                </p>
+              ) : null}
               {/* Explanatory copy: deregistered workers will show stake 0,
                   claimable 0, but their wallet balance carries the returned
                   stake. Without saying so, the panel reads as 'empty worker'. */}
