@@ -5,9 +5,10 @@
 
 **The community SDK for LightChain AI.** Encrypted on-chain inference, network
 analytics, multi-turn chat, an Ethereum bridge wrapper, an LCAI Governor
-client, an on-chain model registry reader, worker preflight + watch, and a
-bundled `lightnode` CLI. Non-custodial. Pure JS (works in Node 18+, browsers,
-StackBlitz, Cloudflare Workers, Bun). Single peer dep: `viem`.
+client, an on-chain model registry reader, worker preflight + watch, a full
+worker-operator surface (register, stake, settle, stuck-job recovery, exit),
+and a bundled `lightnode` CLI. Non-custodial. Pure JS (works in Node 18+,
+browsers, StackBlitz, Cloudflare Workers, Bun). Single peer dep: `viem`.
 
 ```bash
 npm install lightnode-sdk viem
@@ -255,6 +256,29 @@ await op.withdraw();             // pull earned balance into the worker wallet
 await op.unstickAndDeregister([974, 976, 978, 979]);
 ```
 
+Full method reference (`jobIds` are the worker's IDs from
+`LightNode.getWorkerJobs` or the subgraph):
+
+| Method | Wallet | What it does |
+|---|---|---|
+| `status()` | no | registration, stake, claimable balance, below-floor flag |
+| `config()` | no | live AIConfig: minStake, timeouts, slash bps, fee split |
+| `getJob(id)` | no | one job as a typed `OnchainJob` struct |
+| `stuckJobs(jobIds)` | no | the acked, past-deadline jobs (with seconds past deadline) |
+| `canDeregister(jobIds)` | no | `{ ok, blockedBy, reason }` without sending a tx |
+| `earnings({ ... })` | no | claimable now vs lifetime vs pending-release |
+| `profitability({ ... })` | no | per-job worker fee net of gas, from the live fee split |
+| `claimTimeout(id)` | yes | time out one stuck job (mainnet: realizes a slash) |
+| `clearStuck(jobIds)` | yes | claimTimeout every past-deadline acked job; returns cleared + skipped |
+| `releaseJob(id)` | yes | settle one completed job past its window |
+| `releaseAll(jobIds)` | yes | settle all releasable completed jobs; skips not-ready ones |
+| `withdraw()` | yes | pull the earned balance into the worker wallet |
+| `topUpStake(lcai)` | yes | add stake |
+| `withdrawStake(lcai)` | yes | remove stake above the floor |
+| `reinstate()` | yes | reactivate a suspended worker |
+| `deregister()` | yes | exit and release stake (reverts if in-flight jobs remain) |
+| `unstickAndDeregister(jobIds)` | yes | clear stuck + release + withdraw + deregister, in one call |
+
 > **Mainnet slashing.** `claimTimeout` / `clearStuck` / `unstickAndDeregister`
 > finalize a stuck job as `TimedOut`, which **realizes the completion-timeout
 > slash** on mainnet (`config().slashBps.completionTimeout`, 5% of stake per job
@@ -406,6 +430,22 @@ PRIVATE_KEY=0x... npx lightnode wallet address
 PRIVATE_KEY=0x... npx lightnode wallet balance --net testnet
                   npx lightnode wallet new           # generates a fresh key
 PRIVATE_KEY=0x... npx lightnode worker preflight --net testnet
+```
+
+### Worker operator (signs as the worker key)
+
+Run a worker's on-chain lifecycle from the terminal. `status` and `can-deregister`
+are read-only; the rest sign with `PRIVATE_KEY` and act on the worker that key
+controls. Mainnet `clearstuck` and `deregister` realize a slash, so they require
+`--yes`.
+
+```bash
+                  npx lightnode worker status 0x...        # registration, stake, claimable, live config
+PRIVATE_KEY=0x... npx lightnode worker can-deregister      # what blocks the exit, before spending gas
+PRIVATE_KEY=0x... npx lightnode worker settle              # release completed jobs past their window + withdraw
+PRIVATE_KEY=0x... npx lightnode worker withdraw            # pull the earned balance into the worker wallet
+PRIVATE_KEY=0x... npx lightnode worker clearstuck --yes    # claimTimeout acked, past-deadline jobs that block exit
+PRIVATE_KEY=0x... npx lightnode worker deregister --yes    # clear stuck + settle + withdraw + deregister
 ```
 
 ### Scaffolders (write files into your project)
