@@ -3159,12 +3159,17 @@ function OperatorRecipe() {
                         {visible.map((rm) => (
                           <div key={rm.id} className="inline-flex items-center gap-2">
                             <code className="font-mono text-content-primary">{rm.name ?? rm.id.slice(0, 12) + "…"}</code>
-                            {rm.isLive ? (
-                              <Badge tone="success">live</Badge>
-                            ) : rm.onchainUnknown ? (
-                              <Badge tone="muted">{isRegistered ? "indexed" : "registered"}</Badge>
+                            {/* Badge states:
+                                - Worker registered + chain eligible: live (green)
+                                - Worker registered + chain read failed: indexed (gray, fallback)
+                                - Worker deregistered: each row is historical.
+                                  The chain says nothing is registered, so the
+                                  badge has to match that, not echo the
+                                  indexer's stale is_active=true. */}
+                            {isRegistered ? (
+                              rm.isLive ? <Badge tone="success">live</Badge> : <Badge tone="muted">indexed</Badge>
                             ) : (
-                              <Badge tone="muted">registered</Badge>
+                              <Badge tone="muted">not registered</Badge>
                             )}
                           </div>
                         ))}
