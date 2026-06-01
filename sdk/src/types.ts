@@ -7,6 +7,16 @@ export interface NetworkConfig {
   rpc: string;
   explorer: string;
   workerGateway: string;
+  /**
+   * LightChain consumer-api host (SIWE sign-in + JWT issuance). The worker
+   * gateway accepts the JWT minted here as its Authorization Bearer.
+   *
+   * - `GET  {consumerApi}/api/auth/challenge?address=0x...` -> { nonce, message }
+   * - `POST {consumerApi}/api/auth/verify`  body { message, signature } -> { token, ... }
+   *
+   * Wrapped end-to-end by {@link siweSignIn}.
+   */
+  consumerApi: string;
   subgraph: string;
   /** Genesis predeploy, same address on both networks. */
   workerRegistry: string;

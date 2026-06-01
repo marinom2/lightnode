@@ -84,6 +84,7 @@ import {
   isStalledWorker,
 } from "./errors.js";
 import { GatewayClient, GatewayHttpError } from "./gateway.js";
+import { siweSignIn, siweChallenge, siweVerify } from "./auth.js";
 import * as crypto from "./crypto.js";
 import type {
   NetworkId,
@@ -346,7 +347,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.7.9";
+export const SDK_VERSION = "0.7.10";
 
 export {
   NETWORKS,
@@ -362,6 +363,12 @@ export {
   // v0.7.3 per-job transaction-hash resolver (lifts the upstream
   // subgraph's "block-only" Job entity to a deep-linkable Job + tx pair).
   resolveJobTransactions,
+  // v0.7.10 SIWE sign-in against the consumer-api: returns a JWT bearer
+  // the worker-gateway accepts. End-to-end wallet-signed inference with
+  // no shared demo-wallet state.
+  siweSignIn,
+  siweChallenge,
+  siweVerify,
   // v0.7.4 per-worker model-registration list (the authoritative "what is
   // this worker offering to serve" signal, not derived from past jobs).
   fetchWorkerModels,
@@ -460,3 +467,4 @@ export type {
   DecodedWorkerError,
 } from "./worker-operator.js";
 export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
+export type { SiweWalletClient, SiweChallenge, SiweVerifyResult, SiweSession } from "./auth.js";

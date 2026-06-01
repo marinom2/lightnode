@@ -44,6 +44,8 @@ import {
 } from "lucide-react";
 import { NETWORKS } from "lightnode-sdk";
 import sdk from "@stackblitz/sdk";
+import { useAccount, useWalletClient, usePublicClient } from "wagmi";
+import { ConnectButton } from "@/components/connect-button";
 import { humanizeError } from "@/lib/humanize-error";
 import { MODULES, type ModuleDef, type ModuleId } from "@/lib/sdk-modules-data";
 import { Card } from "@/components/ui/card";
@@ -3690,15 +3692,31 @@ interface PreflightDemoResp {
   runLocally?: boolean;
 }
 
+type PreflightMode = "demo" | "wallet";
+type PreflightNet = "testnet" | "mainnet";
+
 function PreflightRecipe() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
+  const [mode, setMode] = useState<PreflightMode>("wallet");
+  // For the demo flow the network is hard-coded to testnet (the demo key
+  // is testnet-only). For the wallet flow the network follows whichever
+  // chain the visitor's wallet is connected to.
   const [busy, setBusy] = useState(false);
+  const [busyStage, setBusyStage] = useState<string>("");
   const [verdict, setVerdict] = useState<PreflightDemoResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  async function run() {
+  const { address: connectedAddress } = useAccount();
+  const { chain: connectedChain } = useAccount();
+  const walletNetwork: PreflightNet | null =
+    connectedChain?.id === 9200 ? "mainnet" : connectedChain?.id === 8200 ? "testnet" : null;
+  const { data: walletClient } = useWalletClient({ chainId: connectedChain?.id });
+  const publicClient = usePublicClient({ chainId: connectedChain?.id });
+
+  async function runDemo() {
     setBusy(true);
+    setBusyStage("Asking the demo wallet to run preflight...");
     setErr(null);
     setVerdict(null);
     try {
@@ -3724,35 +3742,82 @@ function PreflightRecipe() {
       setErr(humanizeError(e, { action: "the preflight" }));
     } finally {
       setBusy(false);
+      setBusyStage("");
     }
+  }
+
+  async function runWallet() {
+    if (!walletClient || !publicClient || !connectedAddress || !walletNetwork) {
+      setErr("Connect a wallet on testnet or mainnet first.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setVerdict(null);
+    const t0 = Date.now();
+    try {
+      const { siweSignIn, GatewayClient, runInference, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
+      const network = SDK_NETWORKS[walletNetwork];
+      setBusyStage("Asking your wallet to sign in (SIWE)...");
+      const session = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], walletNetwork);
+      setBusyStage("Sign the createSession transaction in your wallet...");
+      const gateway = new GatewayClient({ network: walletNetwork, bearer: session.bearer });
+      const result = await runInference({
+        prompt: "Reply with the single word OK.",
+        gateway,
+        wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
+        publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
+        network,
+        model,
+        jobCompletedTimeoutMs: 120_000,
+        maxRetries: 1,
+      });
+      const elapsedMs = Date.now() - t0;
+      const v: PreflightDemoResp = {
+        verdict: elapsedMs > 45_000 ? "over-deadline" : "ok",
+        elapsedMs,
+        worker: result.worker ?? null,
+        submitJobTx: result.txs?.submitJob ?? null,
+        summary:
+          elapsedMs > 45_000
+            ? `Answer arrived but took ${(elapsedMs / 1000).toFixed(1)}s, over the 45s deadline.`
+            : `OK in ${(elapsedMs / 1000).toFixed(1)}s. Worker ${result.worker ?? "?"} replied with ${result.answer.length} chars.`,
+      };
+      setVerdict(v);
+    } catch (e) {
+      const msg = (e as Error).message ?? "preflight failed";
+      // Most common surfaces: SIWE rejection, user-cancelled tx, faucet-empty wallet.
+      const friendly = /user rejected|user denied|cancelled|reject/i.test(msg)
+        ? "You rejected the wallet popup. Reopen and approve to run preflight."
+        : /insufficient funds|insufficient balance/i.test(msg)
+          ? `Wallet has no ${walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"}. Top it up before trying again.`
+          : msg.split("\n")[0];
+      setErr(friendly);
+    } finally {
+      setBusy(false);
+      setBusyStage("");
+    }
+  }
+
+  function run() {
+    if (mode === "demo") return runDemo();
+    return runWallet();
   }
 
   const snippet = `import { workerPreflight, LightNode } from "lightnode-sdk";
 
 const ln = new LightNode("testnet");
 
-// One real test inference. CI-friendly - run this in a workflow before
-// shipping anything that depends on the public pool.
-//
-// Retry up to 3x on transient gateway 'selection_mismatch' (a previous
-// session for this wallet has not aged out). On a wallet you own this
-// is rare; on the shared demo wallet it is routine.
-async function tryPreflight() {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
-    const r = await workerPreflight({
-      network: "testnet",
-      privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-      model: "${model}",
-      deadlineMs: 60_000,
-    });
-    const transient = r.verdict !== "ok" && /selection_mismatch|409/.test(r.summary ?? "");
-    if (!transient) return r;
-  }
-  throw new Error("gateway selection_mismatch did not clear after 3 attempts");
-}
-
-const r = await tryPreflight();
+// CI-friendly preflight: workerPreflight handles SIWE -> session ->
+// createSession -> wait -> decrypt for you. lightnode-sdk >= 0.7.10
+// auto-retries gateway 409 selection_mismatch internally, so on your
+// OWN funded wallet you do not need an outer retry loop.
+const r = await workerPreflight({
+  network: "testnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "${model}",
+  deadlineMs: 60_000,
+});
 console.log("verdict       :", r.verdict);    // "ok" | "over-deadline" | "stalled" | "failed"
 console.log("elapsed (ms)  :", r.elapsedMs ?? "(none)");
 console.log("worker        :", r.worker ?? "(none assigned)");
@@ -3763,8 +3828,8 @@ if (r.verdict !== "ok") {
   process.exit(1);
 }
 
-// Free read - top testnet workers (no key needed), to compare your
-// verdict against the rest of the pool. WorkerStat fields:
+// Free read - top testnet workers (no key needed). Use it to compare
+// your verdict against the rest of the pool. WorkerStat fields:
 //   - success: completed jobs in the sample
 //   - p50: median processing seconds (null until enough data)
 //   - completionRate: success / (success + incomplete + disputed)
@@ -3777,7 +3842,30 @@ for (const w of top) {
     "p50:", w.p50 != null ? w.p50.toFixed(1) + "s" : "n/a",
     "completion:", w.completionRate != null ? (w.completionRate * 100).toFixed(0) + "%" : "n/a",
   );
-}`;
+}
+
+// -----------------------------------------------------------------------------
+// Browser pattern (what the /build/sdks/preflight widget runs with your wallet):
+// -----------------------------------------------------------------------------
+//   import { siweSignIn, GatewayClient, runInference, NETWORKS } from "lightnode-sdk";
+//   import { useAccount, useWalletClient, usePublicClient } from "wagmi";
+//
+//   const { address, chain } = useAccount();
+//   const { data: walletClient } = useWalletClient({ chainId: chain?.id });
+//   const publicClient = usePublicClient({ chainId: chain?.id });
+//
+//   // 1. SIWE -> JWT (one wallet popup, no gas).
+//   const session = await siweSignIn(walletClient, chain.id === 9200 ? "mainnet" : "testnet");
+//
+//   // 2. Authenticated gateway client (the JWT is its Authorization Bearer).
+//   const gateway = new GatewayClient({ network: "testnet", bearer: session.bearer });
+//
+//   // 3. Run inference with the wallet (one tx popup for createSession).
+//   const result = await runInference({
+//     prompt: "Reply with the single word OK.",
+//     gateway, wallet: walletClient, publicClient,
+//     network: NETWORKS.testnet, model: "${model}",
+//   });`;
 
   return (
     <StepperShell step={step as BridgeStep} labels={["Model", "Live verdict", "Use it"]}>
@@ -3817,11 +3905,63 @@ for (const w of top) {
           <StepBack onClick={() => setStep(1)} />
           <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Run a live preflight</h3>
           <p className="mt-1 text-sm text-content-soft">
-            Signs one real <code className="font-mono text-content-default">{model}</code> inference against the
-            testnet pool. Verdict + timing + worker, all live. Rate-limited to 2 per IP per hour to keep the demo
-            wallet alive.
+            Signs one real <code className="font-mono text-content-default">{model}</code> inference and reports
+            verdict + timing + worker, all live.
           </p>
-          <PreviewButton onClick={run} busy={busy} idle="Run preflight" working="Signing and dispatching" />
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => { setMode("wallet"); setVerdict(null); setErr(null); }}
+              className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
+                mode === "wallet" ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft"
+              }`}
+            >
+              <div className="text-sm font-semibold text-content-primary">Your wallet (recommended)</div>
+              <div className="mt-0.5 text-[11px] text-content-soft">SIWE + createSession with your funded key. Testnet (free faucet) or mainnet. No shared state.</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode("demo"); setVerdict(null); setErr(null); }}
+              className={`rounded-xl border bg-surface-base-faint p-4 text-left transition-all hover:border-bdr-light ${
+                mode === "demo" ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft"
+              }`}
+            >
+              <div className="text-sm font-semibold text-content-primary">Demo wallet (may be busy)</div>
+              <div className="mt-0.5 text-[11px] text-content-soft">Testnet only. Shared key, can hit gateway 409 under load. Rate-limited 2/IP/hour.</div>
+            </button>
+          </div>
+          {mode === "wallet" ? (
+            <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
+              {!connectedAddress ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-content-soft">Connect a wallet on testnet (chain 8200) or mainnet (chain 9200). Get free testnet LCAI from <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.</div>
+                  <ConnectButton size="sm" />
+                </div>
+              ) : !walletNetwork ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain testnet or mainnet.</div>
+                  <ConnectButton size="sm" />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <div className="text-content-soft">
+                    Connected on <span className="font-mono text-content-primary">{walletNetwork}</span> as{" "}
+                    <code className="font-mono text-content-default">{connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}</code>.
+                    Each preflight costs ~0.022 {walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"} (free from the faucet).
+                  </div>
+                  <ConnectButton size="sm" />
+                </div>
+              )}
+            </div>
+          ) : null}
+          <div className="mt-5">
+            <PreviewButton
+              onClick={run}
+              busy={busy}
+              idle={mode === "wallet" ? "Run preflight with my wallet" : "Run preflight on demo wallet"}
+              working={busyStage || "Signing and dispatching"}
+            />
+          </div>
           {err ? (
             <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
           ) : null}
