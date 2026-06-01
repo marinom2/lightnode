@@ -86,34 +86,42 @@ export async function POST(req: NextRequest) {
   if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
   if (message.length > 500) return NextResponse.json({ error: "message too long (max 500 chars)" }, { status: 400 });
 
-  try {
-    const chat = new Conversation({
-      network: "testnet",
-      privateKey: DEMO_KEY,
-      model: "llama3-8b",
-      system: "You are a concise assistant. Reply in one or two short sentences.",
-      maxHistoryTurns: 10,
-    });
-    // Replay history if provided so the model sees the conversation.
-    for (const m of (body.history ?? []).slice(-10)) {
-      if (m.role === "user") {
-        // Push without calling send so we don't burn an inference per replay turn.
-        (chat as unknown as { history: ChatMessage[] }).history.push(m);
-      } else if (m.role === "assistant") {
-        (chat as unknown as { history: ChatMessage[] }).history.push(m);
+  // The gateway occasionally returns 409 selection_mismatch when a prior
+  // session selection from this wallet hasn't fully cleaned up. The SDK
+  // doesn't auto-retry that case (it's not a stalled worker), so we wrap
+  // one extra attempt here.
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const chat = new Conversation({
+        network: "testnet",
+        privateKey: DEMO_KEY,
+        model: "llama3-8b",
+        system: "You are a concise assistant. Reply in one or two short sentences.",
+        maxHistoryTurns: 10,
+      });
+      for (const m of (body.history ?? []).slice(-10)) {
+        if (m.role === "user" || m.role === "assistant") {
+          (chat as unknown as { history: ChatMessage[] }).history.push(m);
+        }
       }
+      const result = await chat.send(message);
+      return NextResponse.json({
+        answer: result.answer,
+        jobId: result.jobId.toString(),
+        worker: result.worker,
+        remaining: rl.remaining,
+      });
+    } catch (e) {
+      lastErr = e as Error;
+      const msg = lastErr.message ?? "";
+      // Retry once on transient gateway-state errors. Anything else fails fast.
+      if (/selection_mismatch|selection was superseded|409/.test(msg) && attempt === 0) continue;
+      break;
     }
-    const result = await chat.send(message);
-    return NextResponse.json({
-      answer: result.answer,
-      jobId: result.jobId.toString(),
-      worker: result.worker,
-      remaining: rl.remaining,
-    });
-  } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message?.split("\n")[0] ?? "chat failed", runLocally: true },
-      { status: 500 },
-    );
   }
+  return NextResponse.json(
+    { error: lastErr?.message?.split("\n")[0] ?? "chat failed", runLocally: true },
+    { status: 500 },
+  );
 }
