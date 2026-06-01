@@ -200,6 +200,17 @@ export function isStreamBusy(): boolean {
   return streamBusy;
 }
 
+// Wait (up to `timeoutMs`) for the shared event channel to go idle. Background
+// status/health polls set `streamBusy` for <12s; a user-initiated command must
+// not attach its listeners while one is in flight, or the poll's output (e.g.
+// the `===CHAIN===/===SERVED===/===END===` health markers) bleeds into its log.
+async function waitForStreamIdle(timeoutMs = 13000): Promise<void> {
+  const start = Date.now();
+  while (streamBusy && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 /**
  * Real local state of the worker container on this machine - the one thing the
  * on-chain subgraph can't see. Runs `docker ps` natively and parses the result.
@@ -357,6 +368,12 @@ export async function runSetupStreamed(
   // Detach the listeners the instant the command ends (fire-once). Otherwise they
   // linger on the shared global channel and pick up later commands - e.g. the
   // 15s container-status poll, which would spam "Up N minutes" / "done." forever.
+  // A background health/status poll may hold the shared channel; wait it out so
+  // its marker output can't bleed into this command's log (the garbled-Settle bug).
+  // Claim the channel the instant it is idle (before attaching listeners) so a poll
+  // - which bails when `streamBusy` is set - can't slip in during listener setup.
+  await waitForStreamIdle();
+  streamBusy = true;
   let done = false;
   const unsubs: Array<() => void> = [];
   const cleanup = () => {
@@ -374,7 +391,7 @@ export async function runSetupStreamed(
     cleanup();
   });
   unsubs.push(un1, un2);
-  streamBusy = true;
+  // streamBusy already claimed above (before listeners attached).
   // `secretEnv` is a list of secret NAMES the native side pulls from the
   // keychain into the child env - so the worker key/password never have to be
   // passed through (or held by) the web layer.

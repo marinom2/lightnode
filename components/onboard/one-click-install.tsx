@@ -728,7 +728,8 @@ export function OneClickInstall({ models = [DEFAULT_MODEL], onAlready, onInstall
     if (pwVal) await setSecret(SECRET_WORKER_PW, pwVal, network);
     const k = await getSecret(SECRET_WORKER_KEY, network);
     // Fresh install uses the picked set; bringing an existing worker back online
-    // reuses its recorded set (so we don't silently change what it serves).
+    // reuses its recorded set (so we don't silently change what it serves - the
+    // model picker is hidden in that mode, so `models` here is NOT the user's pick).
     const installModels = showAlready ? (getServedModels(network).length ? getServedModels(network) : [DEFAULT_MODEL]) : models;
     setServedModels(network, installModels);
     // Every password slot that has ever been saved for a worker on this device,
