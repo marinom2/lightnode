@@ -3443,7 +3443,7 @@ function ChatRecipe() {
           ? `Wallet has no ${walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"}. Top it up before trying again.`
           : /selection_mismatch|selection was superseded|409/.test(msg)
             ? walletNetwork === "testnet"
-              ? "LightChain testnet dispatcher returned 409 selection_mismatch. Reproduced upstream — this is a testnet dispatcher issue, not your wallet. Switch to mainnet for an immediate working chat, or wait for the LightChain team to fix the testnet pod."
+              ? "LightChain testnet dispatcher returned 409 selection_mismatch. Reproduced upstream, this is a testnet dispatcher issue, not your wallet. Switch to mainnet for an immediate working chat, or wait for the LightChain team to fix the testnet pod."
               : "Another session for this wallet is in flight on the gateway. This usually means chat.lightchain.ai (or another LightChain dApp) is open in a different tab signed into the same wallet. Close those tabs and try again."
             : msg.split("\n")[0];
       setErr(friendly);
@@ -3853,7 +3853,7 @@ function InferenceRecipe() {
           ? `Wallet has no ${walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"}. Top it up before trying again.`
           : /selection_mismatch|selection was superseded|409/.test(msg)
             ? walletNetwork === "testnet"
-              ? "LightChain testnet dispatcher returned 409 selection_mismatch. Reproduced upstream — this is a testnet dispatcher issue, not your wallet. Switch to mainnet for an immediate working preflight, or wait for the LightChain team to fix the testnet pod."
+              ? "LightChain testnet dispatcher returned 409 selection_mismatch. Reproduced upstream, this is a testnet dispatcher issue, not your wallet. Switch to mainnet for an immediate working preflight, or wait for the LightChain team to fix the testnet pod."
               : "Another session for this wallet is in flight on the gateway. This usually means chat.lightchain.ai (or another LightChain dApp) is open in a different tab signed into the same wallet. Close those tabs and try again."
             : msg.split("\n")[0];
       setErr(friendly);
@@ -4044,7 +4044,7 @@ for (const w of top) {
           </div>
           {walletNetwork === "testnet" ? (
             <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
-              <strong>Heads up:</strong> the LightChain testnet dispatcher is currently returning 409 selection_mismatch on every prepareSession call (reproduced against the live <code className="font-mono">chat-api.testnet.lightchain.ai</code> with a brand-new wallet and no concurrent traffic; mainnet works fine on the same code). If you hit it, switch to mainnet to try the flow — the SDK code is identical and the fee is the same 0.02 LCAI.
+              <strong>Heads up:</strong> the LightChain testnet dispatcher is currently returning 409 selection_mismatch on every prepareSession call (reproduced against the live <code className="font-mono">chat-api.testnet.lightchain.ai</code> with a brand-new wallet and no concurrent traffic; mainnet works fine on the same code). If you hit it, switch to mainnet to try the flow. The SDK code is identical and the fee is the same 0.02 LCAI.
             </p>
           ) : null}
           <div className="mt-5">

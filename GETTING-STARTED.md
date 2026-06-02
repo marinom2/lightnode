@@ -126,7 +126,7 @@ Use this when you already have a folder or project and want to drop AI files int
 it. These commands write files into your current folder. They do not create a new
 one.
 
-**Server-paid** (your funded wallet pays per call — needs a `PRIVATE_KEY`):
+**Server-paid** (your funded wallet pays per call, needs a `PRIVATE_KEY`):
 
 ```bash
 npx lightnode add inference                  # a basic prompt-to-answer file
@@ -137,7 +137,7 @@ npx lightnode add analytics-dashboard         # read-only network + worker stats
 npx lightnode add nft-mint-with-inference     # generate NFT metadata with AI
 ```
 
-**User-paid** (no backend — each visitor signs + pays from their own wallet).
+**User-paid** (no backend, each visitor signs + pays from their own wallet).
 These write Next.js pages, so run them inside a Next.js app
 (`npx create-next-app@latest .` first if you have none), then `add wagmi-setup`:
 
