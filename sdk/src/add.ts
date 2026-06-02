@@ -1015,7 +1015,9 @@ type Turn = {
   jobCompletedTx?: \`0x\${string}\` | null;
 };
 
-const MODEL = "llama3-8b";
+// Models live on LightChain mainnet. The visitor picks one per the dropdown.
+const MODELS = ["llama3-8b", "llama3-70b"] as const;
+type ModelId = (typeof MODELS)[number];
 
 export default function ChatWeb3() {
   const { address, chain } = useAccount();
@@ -1024,6 +1026,7 @@ export default function ChatWeb3() {
   const { data: walletClient } = useWalletClient({ chainId: chain?.id });
   const publicClient = usePublicClient({ chainId: chain?.id });
 
+  const [model, setModel] = useState<ModelId>("llama3-8b");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1037,12 +1040,12 @@ export default function ChatWeb3() {
   useEffect(() => {
     if (!network) { setFeeLcai(null); return; }
     let cancelled = false;
-    estimateJobFee(NETWORKS[network], MODEL).then(
+    estimateJobFee(NETWORKS[network], model).then(
       (fee) => { if (!cancelled) setFeeLcai(fee); },
       () => { if (!cancelled) setFeeLcai(null); },
     );
     return () => { cancelled = true; };
-  }, [network]);
+  }, [network, model]);
 
   // Keep the latest turn in view. Instant while streaming (smooth scrolling on
   // every chunk competes for the main thread); smooth once idle.
@@ -1099,7 +1102,7 @@ export default function ChatWeb3() {
         wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
         publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
         network: NETWORKS[network],
-        model: MODEL,
+        model,
         jobCompletedTimeoutMs: 120_000,
         maxRetries: 1,
         // Stream each decrypted chunk into the assistant bubble as it arrives.
@@ -1244,14 +1247,17 @@ export default function ChatWeb3() {
           />
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4" y="4" width="16" height="16" rx="2" />
-              <rect x="9" y="9" width="6" height="6" />
-              <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
-            </svg>
-            {MODEL}
-          </span>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as ModelId)}
+            disabled={busy}
+            title="Model (both live on LightChain mainnet)"
+            className="rounded-lg border border-border bg-background px-2 py-1 text-xs font-medium text-muted-foreground outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+          >
+            {MODELS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => send()}
@@ -1305,7 +1311,8 @@ type Result = {
   elapsedMs: number;
 };
 
-const MODEL = "llama3-8b";
+const MODELS = ["llama3-8b", "llama3-70b"] as const;
+type ModelId = (typeof MODELS)[number];
 
 export default function InferenceWeb3() {
   const { address, chain } = useAccount();
@@ -1314,6 +1321,7 @@ export default function InferenceWeb3() {
   const { data: walletClient } = useWalletClient({ chainId: chain?.id });
   const publicClient = usePublicClient({ chainId: chain?.id });
 
+  const [model, setModel] = useState<ModelId>("llama3-8b");
   const [system, setSystem] = useState("You are a concise assistant. Reply in one or two short sentences.");
   const [prompt, setPrompt] = useState("Reply with the single word OK.");
   const [busy, setBusy] = useState(false);
@@ -1326,12 +1334,12 @@ export default function InferenceWeb3() {
   useEffect(() => {
     if (!network) { setFeeLcai(null); return; }
     let cancelled = false;
-    estimateJobFee(NETWORKS[network], MODEL).then(
+    estimateJobFee(NETWORKS[network], model).then(
       (fee) => { if (!cancelled) setFeeLcai(fee); },
       () => { if (!cancelled) setFeeLcai(null); },
     );
     return () => { cancelled = true; };
-  }, [network]);
+  }, [network, model]);
 
   async function run() {
     if (!walletClient || !publicClient || !address || !network) {
@@ -1357,7 +1365,7 @@ export default function InferenceWeb3() {
         wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
         publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
         network: NETWORKS[network],
-        model: MODEL,
+        model,
         jobCompletedTimeoutMs: 120_000,
         maxRetries: 1,
         // Stream the answer live as decrypted chunks arrive.
@@ -1420,10 +1428,23 @@ export default function InferenceWeb3() {
             className="resize-none rounded-xl border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none focus:ring-2 focus:ring-primary" />
         </label>
 
-        <button type="button" onClick={() => run()} disabled={busy || !prompt.trim() || !address || !network}
-          className="self-start rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
-          {busy ? (busyStage || "Running...") : "Run inference"}
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as ModelId)}
+            disabled={busy}
+            title="Model (both live on LightChain mainnet)"
+            className="rounded-xl border border-border bg-card px-2 py-2 text-xs font-medium text-muted-foreground outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+          >
+            {MODELS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => run()} disabled={busy || !prompt.trim() || !address || !network}
+            className="rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+            {busy ? (busyStage || "Running...") : "Run inference"}
+          </button>
+        </div>
 
         {err && (
           <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1503,7 +1524,8 @@ type Result = {
   jobCompleted: \`0x\${string}\` | null;
 };
 
-const MODEL = "llama3-8b";
+const MODELS = ["llama3-8b", "llama3-70b"] as const;
+type ModelId = (typeof MODELS)[number];
 
 export default function JudgeWeb3() {
   const { address, chain } = useAccount();
@@ -1512,6 +1534,7 @@ export default function JudgeWeb3() {
   const { data: walletClient } = useWalletClient({ chainId: chain?.id });
   const publicClient = usePublicClient({ chainId: chain?.id });
 
+  const [model, setModel] = useState<ModelId>("llama3-8b");
   const [criteria, setCriteria] = useState("Run a mile under 8 minutes");
   const [evidence, setEvidence] = useState('{"distance_km": 1.61, "time_minutes": 7.4}');
   const [busy, setBusy] = useState(false);
@@ -1524,12 +1547,12 @@ export default function JudgeWeb3() {
   useEffect(() => {
     if (!network) { setFeeLcai(null); return; }
     let cancelled = false;
-    estimateJobFee(NETWORKS[network], MODEL).then(
+    estimateJobFee(NETWORKS[network], model).then(
       (fee) => { if (!cancelled) setFeeLcai(fee); },
       () => { if (!cancelled) setFeeLcai(null); },
     );
     return () => { cancelled = true; };
-  }, [network]);
+  }, [network, model]);
 
   /** Parse the verdict defensively; fall back to the first {...} block. */
   function parseVerdict(answer: string): Verdict | null {
@@ -1574,7 +1597,7 @@ Reply with STRICT JSON only, matching: { "passed": boolean, "confidence": 0-1, "
         wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
         publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
         network: NETWORKS[network],
-        model: MODEL,
+        model,
         jobCompletedTimeoutMs: 120_000,
         maxRetries: 1,
         // Show the model's raw output streaming in while it generates the verdict.
@@ -1637,10 +1660,23 @@ Reply with STRICT JSON only, matching: { "passed": boolean, "confidence": 0-1, "
             className="resize-none rounded-xl border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none focus:ring-2 focus:ring-primary" />
         </label>
 
-        <button type="button" onClick={() => run()} disabled={busy || !criteria.trim() || !evidence.trim() || !address || !network}
-          className="self-start rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
-          {busy ? (busyStage || "Judging...") : "Get AI verdict"}
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as ModelId)}
+            disabled={busy}
+            title="Model (both live on LightChain mainnet)"
+            className="rounded-xl border border-border bg-card px-2 py-2 text-xs font-medium text-muted-foreground outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+          >
+            {MODELS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => run()} disabled={busy || !criteria.trim() || !evidence.trim() || !address || !network}
+            className="rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+            {busy ? (busyStage || "Judging...") : "Get AI verdict"}
+          </button>
+        </div>
 
         {err && (
           <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
