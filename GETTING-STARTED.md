@@ -126,13 +126,35 @@ Use this when you already have a folder or project and want to drop AI files int
 it. These commands write files into your current folder. They do not create a new
 one.
 
+**Server-paid** (your funded wallet pays per call — needs a `PRIVATE_KEY`):
+
 ```bash
 npx lightnode add inference                  # a basic prompt-to-answer file
+npx lightnode add chat                        # chat UI with conversation history
+npx lightnode add judge                       # pass/fail evaluator (criteria + evidence)
+npx lightnode add agent                       # scheduled / loop inference
+npx lightnode add analytics-dashboard         # read-only network + worker stats page
 npx lightnode add nft-mint-with-inference     # generate NFT metadata with AI
 ```
 
+**User-paid** (no backend — each visitor signs + pays from their own wallet).
+These write Next.js pages, so run them inside a Next.js app
+(`npx create-next-app@latest .` first if you have none), then `add wagmi-setup`:
+
+```bash
+npx lightnode add inference-web3              # one-shot inference UI, wallet-signed
+npx lightnode add chat-web3                    # chat UI, wallet-signed
+npx lightnode add judge-web3                   # evaluator UI, wallet-signed
+npx lightnode add wagmi-setup                  # wallet wiring (providers + connect button)
+```
+
 After it runs, follow its printed steps (install, set up `.env`, then run with
-`npx tsx <file>.ts`).
+`npx tsx <file>.ts` or `npm run dev`).
+
+> Getting `unknown add target` or an old command list? An outdated global
+> install or npx cache is shadowing the registry. Force the current release:
+> `npx lightnode-sdk@latest add <name>` (or update the global with
+> `npm install -g lightnode-sdk@latest`).
 
 | | Tool A: `create-lightnode-app` | Tool B: `lightnode add` |
 |---|---|---|
