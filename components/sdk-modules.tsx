@@ -3425,9 +3425,10 @@ function ChatRecipe() {
     return () => { cancelled = true; };
   }, [walletNetwork, model]);
 
-  // Keep the latest turn (and the streaming indicator) in view.
+  // Keep the latest turn in view. Instant while streaming (smooth scrolling on
+  // every chunk competes for the main thread); smooth once idle.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "nearest" });
   }, [turns, busy]);
 
   /**
@@ -3652,9 +3653,15 @@ console.log("full transcript:", chat.messages());`;
                     <LcaiMark className="mt-0.5 size-7 shrink-0" />
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                       {t.text ? (
-                        <div className="max-w-none text-sm leading-relaxed text-content-default [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
-                          <Streamdown>{t.text}</Streamdown>
-                        </div>
+                        t.streaming ? (
+                          // Plain text while streaming (cheap); markdown is parsed
+                          // once when the turn finalizes.
+                          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-content-default">{t.text}</div>
+                        ) : (
+                          <div className="max-w-none text-sm leading-relaxed text-content-default [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
+                            <Streamdown>{t.text}</Streamdown>
+                          </div>
+                        )
                       ) : (
                         <div className="animate-pulse-dot pt-1 text-sm text-content-soft">
                           {busyStage || "Writing on chain…"}
