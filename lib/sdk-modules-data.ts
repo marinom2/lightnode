@@ -224,7 +224,7 @@ console.log("delegated to            =", delegateTo);
     kicker: "Chatbot, agent, tools",
     tagline: "Add a chatbot to your project.",
     subtitle:
-      "Conversation handles history, system prompts, and one encrypted inference per turn. Wrap it with Agent for tool-calling loops. Drop into Node, Next.js, or React with a single import.",
+      "Conversation handles history, system prompts, and one encrypted inference per turn. Add the Agent helper for tool-calling (ReAct) loops. Drop into Node, Next.js, or React with a single import.",
     heroImage: "/images/sdk/chat-hero.svg",
     cta: { label: "Try the chat", href: "#try-it" },
     npm: "#five-line-hello-world",
@@ -294,7 +294,7 @@ console.log(JSON.stringify(chat.messages(), null, 2));`,
         includes: [
           "app/chat-web3/page.tsx with a wired Connect button",
           "wagmi config + providers + layout wired for you",
-          "Each turn: one SIWE sig + one tx popup",
+          "Each turn: one SIWE sign-in + createSession + submitJob on-chain",
           "Scaffolds Next.js + installs deps when missing",
           "No backend, no .env, scales infinitely",
         ],

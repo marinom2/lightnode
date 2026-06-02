@@ -3546,11 +3546,11 @@ console.log("full transcript:", chat.messages());`;
       {step === 1 ? (
         <div>
           <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a model</h3>
-          <p className="mt-1 text-sm text-content-soft">Both run on the LightChain testnet worker pool.</p>
+          <p className="mt-1 text-sm text-content-soft">Both are live on LightChain mainnet.</p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {([
-              { id: "llama3-8b" as const, label: "llama3-8b", sub: "8B params - fast, free testnet" },
-              { id: "llama3-70b" as const, label: "llama3-70b", sub: "70B params - more capable, slightly slower" },
+              { id: "llama3-8b" as const, label: "llama3-8b", sub: "8B · 0.02 LCAI/turn · fastest" },
+              { id: "llama3-70b" as const, label: "llama3-70b", sub: "70B · 0.15 LCAI/turn · more capable" },
             ]).map((m) => (
               <button
                 key={m.id}
