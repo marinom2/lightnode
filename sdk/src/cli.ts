@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, SDK_VERSION, type NetworkId, type AgentTool } from "./index.js";
-import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup } from "./add.js";
+import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup, patchLayoutWithProviders, type LayoutPatch } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -21,6 +22,71 @@ function die(msg: string): never {
 }
 const lcai = (wei?: string) => (wei ? Number(BigInt(wei)) / 1e18 : 0);
 const rate = (r: number | null) => (r == null ? "-" : `${Math.round(r * 100)}%`);
+
+// `add` targets that are always a Next.js client page. In a bare folder these
+// get a real Next.js app scaffolded first so the generated page can render.
+const NEXT_PAGE_TARGETS = new Set(["chat-web3", "inference-web3", "judge-web3", "wagmi-setup"]);
+
+function printWritten(files: { path: string; skipped?: boolean; reason?: string }[]): void {
+  for (const f of files) {
+    if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
+    else console.log(`  ✓ ${f.path}`);
+  }
+}
+
+/**
+ * Scaffold a Next.js app into cwd via create-next-app. Returns true on success.
+ *
+ * We scaffold into a fixed-name subfolder and move the files up rather than
+ * passing ".", because create-next-app derives the project name from the
+ * target and rejects names npm won't allow (capital letters, leading dots,
+ * etc.) - which would make this fail in any folder like "MyApp". The subfolder
+ * name is one we control, so that validation always passes.
+ */
+function scaffoldNextApp(cwd: string, target: string): boolean {
+  console.log(`\nNo Next.js app here yet - scaffolding one with create-next-app...\n`);
+  const stageName = "lightnode-next-app-stage";
+  const args = [
+    "--yes", "create-next-app@latest", stageName,
+    "--ts", "--app", "--no-src-dir", "--eslint", "--tailwind",
+    "--use-npm", "--no-turbopack", "--import-alias", "@/*",
+  ];
+  const r = spawnSync("npx", args, { cwd, stdio: "inherit" });
+  if (r.status !== 0) {
+    console.error(`\ncreate-next-app did not complete (exit ${r.status ?? "?"}).`);
+    console.error(`If this folder already had files, scaffold manually then re-run:`);
+    console.error(`  npx create-next-app@latest .  &&  npx lightnode-sdk@latest add ${target}`);
+    return false;
+  }
+  return relocateScaffold(join(cwd, stageName), cwd, target);
+}
+
+/** Move every entry from the staged scaffold dir up into cwd, then remove it. */
+function relocateScaffold(from: string, cwd: string, target: string): boolean {
+  try {
+    for (const entry of readdirSync(from)) {
+      const dest = join(cwd, entry);
+      if (existsSync(dest)) continue; // never clobber files the user already had
+      renameSync(join(from, entry), dest);
+    }
+    rmSync(from, { recursive: true, force: true });
+    return true;
+  } catch (e) {
+    console.error(`\nScaffolded into ${from} but could not move it up (${(e as Error).message}).`);
+    console.error(`Move its contents into this folder, then re-run: npx lightnode-sdk@latest add ${target}`);
+    return false;
+  }
+}
+
+/** Run an `npm install ...` line in cwd. The line is an internal constant
+ *  (never user input), so running it through a shell is safe here. */
+function installDeps(installLine: string, cwd: string): boolean {
+  console.log(`\nInstalling dependencies: ${installLine}\n`);
+  const r = spawnSync(installLine, { cwd, stdio: "inherit", shell: true });
+  if (r.status === 0) return true;
+  console.error(`\nDependency install failed (exit ${r.status ?? "?"}). Run it yourself:\n  ${installLine}`);
+  return false;
+}
 
 const HELP = `lightnode <command> [--net mainnet|testnet]
 
@@ -526,6 +592,19 @@ async function main() {
         }
         die(lines.join("\n"));
       }
+      // ---- one-command setup: flags + optional scaffold ----
+      const noInstall = process.argv.includes("--no-install");
+      const noScaffold = process.argv.includes("--no-scaffold");
+      const cwd = process.cwd();
+      const isWeb3Page = sub === "chat-web3" || sub === "inference-web3" || sub === "judge-web3";
+      // A Next.js client page needs a Next.js app to live in. In a bare folder,
+      // scaffold one first so the generated page renders instead of throwing
+      // "Cannot find module 'react'". Opt out with --no-scaffold.
+      if (NEXT_PAGE_TARGETS.has(sub ?? "") && !existsSync(join(cwd, "package.json")) && !noScaffold) {
+        scaffoldNextApp(cwd, sub ?? "");
+      }
+
+      // ---- write the requested files ----
       const result =
         sub === "analytics-dashboard" ? addAnalyticsDashboard({ template, network, force })
         : sub === "nft-mint-with-inference" ? addNftMint({ template, network, force })
@@ -538,64 +617,51 @@ async function main() {
         : sub === "judge" ? addJudge({ template, network, force })
         : addInference({ template, network, force });
       console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
-      for (const f of result.written) {
-        if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
-        else console.log(`  ✓ ${f.path}`);
+      printWritten(result.written);
+
+      // ---- web3 pages: bundle the wagmi wiring + wrap the root layout so the
+      // page's <ConnectButton /> and wagmi hooks have a provider to resolve. ----
+      let layout: LayoutPatch | null = null;
+      if (isWeb3Page) {
+        const wagmi = addWagmiSetup({ template: result.template, network, force });
+        printWritten(wagmi.written);
       }
-      const anyWritten = result.written.some((f) => !f.skipped);
-      if (!anyWritten) {
-        console.log("\nNothing to do - all target files already exist. Pass --force to overwrite.");
-      } else {
-        // The *-web3 pages and wagmi-setup are Next.js React files. If no
-        // Next.js app was detected (e.g. an empty folder), nothing can render
-        // what we just wrote - surface that before the numbered steps so the
-        // user scaffolds an app first instead of chasing a non-running page.
-        const isNextOnly = sub === "chat-web3" || sub === "inference-web3" || sub === "judge-web3" || sub === "wagmi-setup";
-        const hasPackageJson = existsSync(join(process.cwd(), "package.json"));
-        if (isNextOnly && result.template !== "nextjs-api") {
-          console.log(`\nNo Next.js app detected in this folder. ${sub} is a Next.js page, so`);
-          console.log(`create one here first, then re-run this command:`);
-          console.log(`  npx create-next-app@latest .`);
-        } else if (!hasPackageJson) {
-          // A scaffolded script dropped into a bare folder (no package.json)
-          // gives the editor nothing to resolve Node/ws types against - the
-          // user sees "Cannot find name 'process'" everywhere. Initialize a
-          // project first so the install below lands in a real node_modules.
-          console.log(`\nNo package.json in this folder yet, so your editor can't resolve types`);
-          console.log(`(you'd see "Cannot find name 'process'" etc.). Initialize a project first:`);
-          console.log(`  npm init -y`);
+      if (isWeb3Page || sub === "wagmi-setup") {
+        layout = patchLayoutWithProviders(cwd);
+        if (layout.patched) console.log(`  ✓ ${layout.path} (wrapped children with <Providers>)`);
+        else console.log(`  ⤴ ${layout.path} (${layout.reason})`);
+      }
+
+      // ---- install dependencies (opt out with --no-install) ----
+      const installed = noInstall ? false : installDeps(result.install, cwd);
+
+      // ---- next steps ----
+      const layoutNeedsManual = layout != null && !layout.patched && !/already/.test(layout.reason ?? "");
+      if (isWeb3Page) {
+        const route = sub === "chat-web3" ? "/chat-web3" : sub === "inference-web3" ? "/inference-web3" : "/judge-web3";
+        const chainId = result.network === "mainnet" ? "9200" : "8200";
+        console.log(`\n${installed ? "✓ Done - deps installed, wagmi + layout wired. Just run it:" : "Files written. Next:"}`);
+        if (!installed) console.log(`  ${result.install}`);
+        console.log(`  npm run dev`);
+        console.log(`  open http://localhost:3000${route}  and click Connect wallet (chainId ${chainId})`);
+        console.log(`  ${result.network === "mainnet" ? "llama3-8b costs 0.02 LCAI per call" : "testnet is free"}`);
+        if (layoutNeedsManual) {
+          console.log(`\nHeads up: couldn't auto-wire the layout (${layout?.reason}).`);
+          console.log(`Wrap {children} with <Providers> in app/layout.tsx (import from "./providers").`);
         }
-        console.log(`\nNext steps (these files were added to your CURRENT folder, not a new project):`);
-        console.log(`  1. ${result.install}`);
-        if (sub === "wagmi-setup") {
-          console.log(`  2. Import Providers in app/layout.tsx and wrap children:`);
-          console.log(`     import { Providers } from "./providers";`);
-          console.log(`     // <body><Providers>{children}</Providers></body>`);
-          console.log(`  3. Drop <ConnectButton /> anywhere you want a connect UI:`);
-          console.log(`     import { ConnectButton } from "@/components/connect-button";`);
-          console.log(`  4. You can now use any wagmi hook (useAccount, useWalletClient, ...).`);
-          console.log(`     Wallets on chains other than 9200/8200 will be prompted to switch.`);
-        } else if (sub === "chat-web3" || sub === "inference-web3" || sub === "judge-web3") {
-          // *-web3 variants have no PRIVATE_KEY (each visitor pays their own way).
-          const needsWagmi = (result as { needsWagmi?: boolean }).needsWagmi;
-          const route = sub === "chat-web3" ? "/chat-web3"
-                      : sub === "inference-web3" ? "/inference-web3"
-                      : "/judge-web3";
-          if (needsWagmi) {
-            console.log(`  2. Get wagmi wired up with one command:`);
-            console.log(`     npx lightnode add wagmi-setup`);
-            console.log(`     (drops lib/wagmi.ts + app/providers.tsx + components/connect-button.tsx)`);
-            console.log(`  3. Wrap your layout with <Providers> and drop <ConnectButton /> on the page.`);
-            console.log(`  4. npm run dev, open ${route}, connect on chainId ${result.network === "mainnet" ? "9200" : "8200"}.`);
-            console.log(`     Mainnet llama3-8b is 0.02 LCAI per call; testnet is free from https://lightfaucet.ai`);
-          } else {
-            console.log(`  2. npm run dev, open ${route}`);
-            console.log(`  3. Connect a wallet on LightChain ${result.network === "mainnet" ? "mainnet (chainId 9200)" : "testnet (chainId 8200)"}.`);
-            console.log(`     Mainnet llama3-8b is 0.02 LCAI per call; testnet is free from https://lightfaucet.ai`);
-          }
-          console.log(`\n  Note: ${sub} has NO server-side route, so it scales infinitely on`);
-          console.log(`  static hosting (Vercel/Netlify/Cloudflare Pages free tier all work).`);
-        } else if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent" || sub === "judge") {
+        console.log(`\n  No server-side route - deploy static (Vercel/Netlify/Cloudflare free tier all work).`);
+      } else if (sub === "wagmi-setup") {
+        console.log(`\n${installed ? "✓ Done - deps installed and layout wired." : "Files written. Run: " + result.install}`);
+        console.log(`\nUse it: import { ConnectButton } from "@/components/connect-button"; drop <ConnectButton /> anywhere.`);
+        console.log(`Any wagmi hook (useAccount, useWalletClient, ...) now works app-wide. Off-network wallets get a switch prompt.`);
+        if (layoutNeedsManual) {
+          console.log(`\nHeads up: couldn't auto-wire the layout (${layout?.reason}). Wrap {children} with <Providers> in app/layout.tsx.`);
+        }
+      } else {
+        // server-paid + read-only targets keep the detailed guidance.
+        console.log(`\nNext steps:`);
+        console.log(`  1. ${installed ? "(done) " : ""}${result.install}`);
+        if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent" || sub === "judge") {
           console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
           if (sub === "agent" && result.template === "nextjs-api") {
             console.log(`  3. Set CRON_SECRET in your Vercel env vars + edit AGENT_TASK in .env`);
@@ -641,8 +707,6 @@ async function main() {
           }
         }
         // Hosting note: the Docker setup we shipped is the recommended path.
-        // The managed platforms (Vercel etc.) are the fallback if a builder is
-        // already committed to one.
         if (result.template === "nextjs-api"
             && (sub === "inference" || sub === "chat" || sub === "judge")) {
           console.log(`\n  Hosting: a mainnet inference takes 60-90s. The Dockerfile + docker-compose.yml`);
@@ -651,13 +715,13 @@ async function main() {
           console.log(`  Don't use Vercel Hobby (10s cap, every call times out). Vercel Pro works at`);
           console.log(`  60s if you'd rather stay on Vercel. See LIGHTNODE-HOSTING.md for the full table.`);
         }
-        if (result.network === "testnet") {
-          console.log(`\nNo wallet yet? Make one:  npx lightnode wallet new   then fund it free below.`);
-        }
-        console.log(`\nFree testnet LCAI: https://lightfaucet.ai`);
-        console.log(`Builder docs:     https://lightnode.app/build`);
-        console.log(`New to all this?  See GETTING-STARTED.md in the lightnode repo.`);
       }
+      if (result.network === "testnet") {
+        console.log(`\nNo wallet yet? Make one:  npx lightnode wallet new   then fund it free below.`);
+      }
+      console.log(`\nFree testnet LCAI: https://lightfaucet.ai`);
+      console.log(`Builder docs:     https://lightnode.app/build`);
+      console.log(`New to all this?  See GETTING-STARTED.md in the lightnode repo.`);
       break;
     }
     case "batch": {

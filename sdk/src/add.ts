@@ -1001,6 +1001,7 @@ const NEXTJS_CHAT_WEB3_PAGE = `// app/chat-web3/page.tsx
 import { useEffect, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { ConnectButton } from "@/components/connect-button";
 
 type Turn = {
   role: "user" | "assistant";
@@ -1111,16 +1112,19 @@ export default function ChatWeb3() {
 
   return (
     <main style={{ maxWidth: 720, margin: "32px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>Chat (user-pays)</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <h1>Chat (user-pays)</h1>
+        <ConnectButton />
+      </div>
       <p style={{ color: "#666" }}>
         Each turn signs one createSession transaction from your wallet on{" "}
         <code>{network ?? "(connect a wallet)"}</code>. Fee:{" "}
         <code>{feeLcai != null ? \`\${feeLcai} LCAI\` : "(fetching)"}</code> per turn plus a small gas amount.
       </p>
       {!address && (
-        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0" }}>
-          Connect a wallet to start chatting. (Use whichever connector your app exposes - e.g. RainbowKit,
-          ConnectKit, Reown AppKit, or wagmi&apos;s useConnect directly.)
+        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0", display: "flex", alignItems: "center", gap: 12 }}>
+          <span>Connect a wallet to start chatting.</span>
+          <ConnectButton />
         </div>
       )}
 
@@ -1204,6 +1208,7 @@ const NEXTJS_INFERENCE_WEB3_PAGE = `// app/inference-web3/page.tsx
 import { useEffect, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { ConnectButton } from "@/components/connect-button";
 
 type Result = {
   answer: string;
@@ -1292,15 +1297,19 @@ export default function InferenceWeb3() {
 
   return (
     <main style={{ maxWidth: 720, margin: "32px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>Inference (user-pays)</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <h1>Inference (user-pays)</h1>
+        <ConnectButton />
+      </div>
       <p style={{ color: "#666" }}>
         Signs one encrypted inference from your wallet on{" "}
         <code>{network ?? "(connect a wallet)"}</code>. Fee:{" "}
         <code>{feeLcai != null ? \`\${feeLcai} LCAI\` : "(fetching)"}</code> per call plus a small gas amount.
       </p>
       {!address && (
-        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0" }}>
-          Connect a wallet to run inference. Drop &lt;ConnectButton /&gt; here or wherever your app exposes one.
+        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0", display: "flex", alignItems: "center", gap: 12 }}>
+          <span>Connect a wallet to run inference.</span>
+          <ConnectButton />
         </div>
       )}
 
@@ -1360,6 +1369,7 @@ const NEXTJS_JUDGE_WEB3_PAGE = `// app/judge-web3/page.tsx
 import { useEffect, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { ConnectButton } from "@/components/connect-button";
 
 type Verdict = {
   passed: boolean;
@@ -1473,15 +1483,19 @@ Reply with STRICT JSON only, matching: { "passed": boolean, "confidence": 0-1, "
 
   return (
     <main style={{ maxWidth: 720, margin: "32px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>AI Judge (user-pays)</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <h1>AI Judge (user-pays)</h1>
+        <ConnectButton />
+      </div>
       <p style={{ color: "#666" }}>
         Each submission signs one inference from your wallet on{" "}
         <code>{network ?? "(connect a wallet)"}</code>. Cost:{" "}
         <code>{feeLcai != null ? \`\${feeLcai} LCAI\` : "(fetching)"}</code> plus gas. Verdict comes back with on-chain proof.
       </p>
       {!address && (
-        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0" }}>
-          Connect a wallet to submit. Drop &lt;ConnectButton /&gt; here or wherever your app exposes one.
+        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0", display: "flex", alignItems: "center", gap: 12 }}>
+          <span>Connect a wallet to submit.</span>
+          <ConnectButton />
         </div>
       )}
 
@@ -2056,6 +2070,79 @@ export function addWagmiSetup(opts: AddOpts = {}): { written: WrittenFile[]; ins
     template,
     network,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Auto-wire app/layout.tsx so wagmi's <Providers> wraps the tree. Without this
+// step every wagmi hook throws "must be used within WagmiProvider" and the
+// generated -web3 pages render blank. Idempotent: a layout already wrapped
+// with <Providers> is left untouched.
+// ---------------------------------------------------------------------------
+
+export interface LayoutPatch {
+  path: string;
+  patched: boolean;
+  reason?: string;
+}
+
+function findLayoutFile(cwd: string): string | null {
+  const candidates = ["app/layout.tsx", "app/layout.jsx", "src/app/layout.tsx", "src/app/layout.jsx"];
+  for (const rel of candidates) {
+    const abs = path.join(cwd, rel);
+    if (fs.existsSync(abs)) return abs;
+  }
+  return null;
+}
+
+function withProvidersImport(source: string): string {
+  if (/from\s+["']\.\/providers["']/.test(source)) return source;
+  const importLine = `import { Providers } from "./providers";`;
+  const lines = source.split("\n");
+  let lastImport = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*import\s/.test(lines[i])) lastImport = i;
+  }
+  if (lastImport === -1) return `${importLine}\n${source}`;
+  return [...lines.slice(0, lastImport + 1), importLine, ...lines.slice(lastImport + 1)].join("\n");
+}
+
+function withWrappedChildren(source: string): string | null {
+  if (/<Providers>/.test(source)) return source;
+  if (!source.includes("{children}")) return null;
+  return source.replace("{children}", "<Providers>{children}</Providers>");
+}
+
+/**
+ * Patch the project's root layout to import and wrap children in <Providers>.
+ * Returns what happened so the CLI can report it; never throws.
+ */
+export function patchLayoutWithProviders(cwd: string = process.cwd()): LayoutPatch {
+  const abs = findLayoutFile(cwd);
+  if (!abs) return { path: "app/layout.tsx", patched: false, reason: "no layout file found" };
+  const rel = path.relative(cwd, abs) || abs;
+
+  let source: string;
+  try {
+    source = fs.readFileSync(abs, "utf8");
+  } catch (e) {
+    return { path: rel, patched: false, reason: `could not read layout (${(e as Error).message})` };
+  }
+
+  if (/<Providers>/.test(source) && /from\s+["']\.\/providers["']/.test(source)) {
+    return { path: rel, patched: false, reason: "already wrapped with <Providers>" };
+  }
+
+  const wrapped = withWrappedChildren(withProvidersImport(source));
+  if (wrapped === null) {
+    return { path: rel, patched: false, reason: "no {children} found - wrap with <Providers> manually" };
+  }
+
+  try {
+    fs.writeFileSync(abs, wrapped);
+  } catch (e) {
+    return { path: rel, patched: false, reason: `could not write layout (${(e as Error).message})` };
+  }
+  return { path: rel, patched: true };
 }
 
 const NEXTJS_JUDGE_ROUTE = `// app/api/judge/route.ts

@@ -19,10 +19,10 @@ const CLI_ADD = [
   { cmd: "lightnode add agent", desc: "Server-paid. Scheduled / loop inference. Next.js: Vercel Cron route + vercel.json. Node: long-running setInterval daemon." },
   { cmd: "lightnode add analytics-dashboard", desc: "Read-only network + worker analytics page. No wallet, no fees. Next.js: SSR page; Node: CLI script." },
   { cmd: "lightnode add nft-mint-with-inference", desc: "AI-generated NFT metadata with on-chain provenance. Mint flow that anchors the answer to a content hash." },
-  { cmd: "lightnode add inference-web3", desc: "User-paid. One-shot inference UI, wallet-signed. No backend, no .env. Next.js page; pair with add wagmi-setup." },
-  { cmd: "lightnode add chat-web3", desc: "User-paid. Chat UI, wallet-signed (mainnet + testnet aware). No backend; each turn is one SIWE sig + one tx. Pair with add wagmi-setup." },
-  { cmd: "lightnode add judge-web3", desc: "User-paid. Evaluator UI, wallet-signed. Criteria + evidence in, PASSED/FAILED + on-chain receipt out. Pair with add wagmi-setup." },
-  { cmd: "lightnode add wagmi-setup", desc: "Wallet wiring for the web3 scaffolders: lib/wagmi + app/providers + a connect button, mainnet + testnet aware." },
+  { cmd: "lightnode add inference-web3", desc: "User-paid. One-shot inference UI, wallet-signed. Scaffolds Next.js, bundles wagmi + Connect button, and installs deps - one command. No backend, no .env." },
+  { cmd: "lightnode add chat-web3", desc: "User-paid. Chat UI, wallet-signed (mainnet + testnet aware). Scaffolds Next.js, bundles wagmi + Connect button, wires the layout, installs deps - one command. Each turn is one SIWE sig + one tx." },
+  { cmd: "lightnode add judge-web3", desc: "User-paid. Evaluator UI, wallet-signed. Scaffolds Next.js, bundles wagmi + Connect button, and installs deps - one command. Criteria + evidence in, PASSED/FAILED + on-chain receipt out." },
+  { cmd: "lightnode add wagmi-setup", desc: "Wallet wiring on its own: lib/wagmi + app/providers + a connect button, and it wraps your layout with <Providers>. Bundled automatically by the web3 scaffolders. Add --no-install / --no-scaffold to opt out." },
 ] as const;
 
 export default function BuildCliPage() {
