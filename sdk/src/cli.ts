@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
+import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, SDK_VERSION, type NetworkId, type AgentTool } from "./index.js";
 import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 function flag(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -80,7 +82,12 @@ Scaffold templates into the current project (run inside a Next.js app):
     add wagmi-setup               wallet wiring: lib/wagmi + providers + connect button
                                   (all add commands: [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force])
 
-To scaffold a new project instead, run: npm create lightnode-app my-app`;
+To scaffold a new project instead, run: npm create lightnode-app my-app
+
+Diagnostics:
+  version                  print this CLI's version (also: --version, -v)
+                           (a missing 'add' target usually means an old install -
+                            update with: npm install -g lightnode-sdk@latest)`;
 
 function pickKey(): `0x${string}` {
   const k = flag("--key") ?? process.env.PRIVATE_KEY;
@@ -129,6 +136,14 @@ async function workerJobIds(n: LightNode, address: string): Promise<number[]> {
 }
 
 async function main() {
+  // Answer `version` / `--version` / `-v` before anything else so a user who
+  // suspects they're on a stale binary can confirm it without a network call
+  // or a funded key. This is the first thing to check when an `add` target
+  // "doesn't exist" - an old global install is the common cause.
+  if (cmd === "version" || process.argv.includes("--version") || process.argv.includes("-v")) {
+    console.log(SDK_VERSION);
+    return;
+  }
   const ln = new LightNode(net);
   switch (cmd) {
     case "chat": {
@@ -495,13 +510,19 @@ async function main() {
         const lines = [
           `usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`,
         ];
-        // If the requested name is valid in a newer release but missing here,
-        // the user is almost certainly running a stale npx-cached CLI. Point
-        // them at @latest rather than letting them think the command is gone.
+        // A target that's missing here but valid in a newer release means the
+        // user is running an OLD lightnode-sdk. The usual cause is an outdated
+        // GLOBAL install (`npm i -g lightnode-sdk`) on PATH, which npx prefers
+        // over the registry - so `npx lightnode-sdk add ...` keeps hitting the
+        // stale binary. We can't know the latest version offline, but we can
+        // show what THIS binary is and the two commands that fix it. Listing
+        // the global update first because that's the one most people miss.
         if (sub) {
           lines.push("");
-          lines.push(`unknown add target "${sub}". If you expected this to work, you may be on an`);
-          lines.push(`older cached CLI. Force the current version:  npx lightnode-sdk@latest add ${sub}`);
+          lines.push(`unknown add target "${sub}" - this CLI is lightnode-sdk v${SDK_VERSION}, which`);
+          lines.push(`does not have it. You're likely on an older install. Update, then retry:`);
+          lines.push(`  npm install -g lightnode-sdk@latest     # if 'lightnode' is on your PATH`);
+          lines.push(`  npx lightnode-sdk@latest add ${sub}   # or force the latest for one run`);
         }
         die(lines.join("\n"));
       }
@@ -530,10 +551,19 @@ async function main() {
         // what we just wrote - surface that before the numbered steps so the
         // user scaffolds an app first instead of chasing a non-running page.
         const isNextOnly = sub === "chat-web3" || sub === "inference-web3" || sub === "judge-web3" || sub === "wagmi-setup";
+        const hasPackageJson = existsSync(join(process.cwd(), "package.json"));
         if (isNextOnly && result.template !== "nextjs-api") {
           console.log(`\nNo Next.js app detected in this folder. ${sub} is a Next.js page, so`);
           console.log(`create one here first, then re-run this command:`);
           console.log(`  npx create-next-app@latest .`);
+        } else if (!hasPackageJson) {
+          // A scaffolded script dropped into a bare folder (no package.json)
+          // gives the editor nothing to resolve Node/ws types against - the
+          // user sees "Cannot find name 'process'" everywhere. Initialize a
+          // project first so the install below lands in a real node_modules.
+          console.log(`\nNo package.json in this folder yet, so your editor can't resolve types`);
+          console.log(`(you'd see "Cannot find name 'process'" etc.). Initialize a project first:`);
+          console.log(`  npm init -y`);
         }
         console.log(`\nNext steps (these files were added to your CURRENT folder, not a new project):`);
         console.log(`  1. ${result.install}`);
