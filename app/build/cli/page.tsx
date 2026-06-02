@@ -6,15 +6,23 @@ import { CliRunner } from "@/components/cli-runner";
 export const metadata = {
   title: "CLI - Build with LightChain AI",
   description:
-    "The lightnode CLI runs from any terminal. Eight read-only commands, five add scaffolders, plus wallet, chat, worker preflight + watch, bridge, dao. Try the read-only commands inline here.",
+    "The lightnode CLI runs from any terminal. Eight read-only commands, ten add scaffolders (server-paid + user-paid web3), plus wallet, chat, worker preflight + watch, bridge, dao. Try the read-only commands inline here.",
 };
 
+// Server-paid (your funded wallet pays per call) and user-paid (web3: each
+// visitor signs + pays from their own wallet). Same split the CLI's own
+// `--help` uses, so the docs and the tool stay in lockstep.
 const CLI_ADD = [
-  { cmd: "lightnode add inference", desc: "Encrypted inference route or script. Next.js: app/api/inference/route.ts. Hono / Node: lightchain-inference.ts." },
-  { cmd: "lightnode add chat", desc: "Chat UI with conversation history. Next.js: app/chat/page.tsx. Node: terminal REPL with rolling memory." },
-  { cmd: "lightnode add agent", desc: "Scheduled / loop inference. Next.js: Vercel Cron route + vercel.json. Node: long-running setInterval daemon." },
+  { cmd: "lightnode add inference", desc: "Server-paid. Encrypted inference route or script. Next.js: app/api/inference/route.ts. Hono / Node: lightchain-inference.ts." },
+  { cmd: "lightnode add chat", desc: "Server-paid. Chat UI with conversation history. Next.js: app/chat/page.tsx. Node: terminal REPL with rolling memory." },
+  { cmd: "lightnode add judge", desc: "Server-paid. Pass/fail evaluator route - post criteria + evidence, get structured verdict + on-chain proof." },
+  { cmd: "lightnode add agent", desc: "Server-paid. Scheduled / loop inference. Next.js: Vercel Cron route + vercel.json. Node: long-running setInterval daemon." },
   { cmd: "lightnode add analytics-dashboard", desc: "Read-only network + worker analytics page. No wallet, no fees. Next.js: SSR page; Node: CLI script." },
   { cmd: "lightnode add nft-mint-with-inference", desc: "AI-generated NFT metadata with on-chain provenance. Mint flow that anchors the answer to a content hash." },
+  { cmd: "lightnode add inference-web3", desc: "User-paid. One-shot inference UI, wallet-signed. No backend, no .env. Next.js page; pair with add wagmi-setup." },
+  { cmd: "lightnode add chat-web3", desc: "User-paid. Chat UI, wallet-signed (mainnet + testnet aware). No backend; each turn is one SIWE sig + one tx. Pair with add wagmi-setup." },
+  { cmd: "lightnode add judge-web3", desc: "User-paid. Evaluator UI, wallet-signed. Criteria + evidence in, PASSED/FAILED + on-chain receipt out. Pair with add wagmi-setup." },
+  { cmd: "lightnode add wagmi-setup", desc: "Wallet wiring for the web3 scaffolders: lib/wagmi + app/providers + a connect button, mainnet + testnet aware." },
 ] as const;
 
 export default function BuildCliPage() {
@@ -25,8 +33,8 @@ export default function BuildCliPage() {
           lightnode CLI
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-content-soft">
-          Bundled in lightnode-sdk. Read-only commands run inline below; the rest run from your terminal. Five add
-          scaffolders patch an existing project.
+          Bundled in lightnode-sdk. Read-only commands run inline below; the rest run from your terminal. Ten add
+          scaffolders patch an existing project - six server-paid, plus the user-paid web3 trio and wagmi-setup.
         </p>
       </div>
 

@@ -259,7 +259,8 @@ export default function BuildHubPage() {
               <code>npx lightnode add inference</code>
             </pre>
             <p className="mt-3 text-xs leading-relaxed text-content-soft">
-              Five subcommands: inference, chat, agent, analytics-dashboard, nft-mint-with-inference. Detects your
+              Ten subcommands, server-paid and user-paid (web3): inference, chat, judge, agent, analytics-dashboard,
+              nft-mint-with-inference, plus inference-web3, chat-web3, judge-web3, and wagmi-setup. Detects your
               framework. Full catalog on the{" "}
               <Link href="/build/cli" className="text-primary hover:underline">
                 CLI page
