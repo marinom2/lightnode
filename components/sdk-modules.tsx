@@ -3577,9 +3577,10 @@ console.log("full transcript:", chat.messages());`;
             <button
               type="button"
               onClick={() => setShowCode(true)}
-              className="shrink-0 whitespace-nowrap rounded-full border border-bdr-soft bg-surface-base-faint px-3 py-1.5 text-xs font-medium text-content-primary transition-all hover:border-primary/60 hover:bg-primary/10"
+              className="group inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
             >
-              Get the code →
+              Get the code
+              <ArrowRight className="size-4 transition-transform duration-200 ease-out group-hover:translate-x-1" />
             </button>
           </div>
           {walletNetwork === "testnet" ? (
