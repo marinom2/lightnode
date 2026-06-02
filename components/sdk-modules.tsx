@@ -3334,62 +3334,143 @@ interface ChatDemoResp {
   howTo?: string;
 }
 
+interface WalletChatTurn {
+  role: "user" | "assistant";
+  text: string;
+  worker?: string | null;
+  jobId?: string | null;
+  submitTx?: string | null;
+  jobCompletedTx?: string | null;
+}
+
 function ChatRecipe() {
   const [step, setStep] = useState<ChatStep>(1);
   const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
-  const [prompt, setPrompt] = useState("Reply with a one-sentence fun fact about the moon.");
+  const [system, setSystem] = useState<string>("You are a concise assistant. Reply in one or two short sentences.");
+  const [input, setInput] = useState<string>("");
+  const [turns, setTurns] = useState<WalletChatTurn[]>([]);
   const [busy, setBusy] = useState(false);
+  const [busyStage, setBusyStage] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
-  const [resp, setResp] = useState<ChatDemoResp | null>(null);
+
+  const { address: connectedAddress } = useAccount();
+  const { chain: connectedChain } = useAccount();
+  const walletNetwork: PreflightNet | null =
+    connectedChain?.id === 9200 ? "mainnet" : connectedChain?.id === 8200 ? "testnet" : null;
+  const { data: walletClient } = useWalletClient({ chainId: connectedChain?.id });
+  const publicClient = usePublicClient({ chainId: connectedChain?.id });
+
+  // Per-turn fee comes from AIConfig on the connected network.
+  const [feeLcai, setFeeLcai] = useState<number | null>(null);
+  useEffect(() => {
+    if (!walletNetwork) { setFeeLcai(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { estimateJobFee, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
+        const fee = await estimateJobFee(SDK_NETWORKS[walletNetwork], model);
+        if (!cancelled) setFeeLcai(fee);
+      } catch {
+        if (!cancelled) setFeeLcai(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [walletNetwork, model]);
+
+  /**
+   * Compose the OpenAI-style chat history into a single prompt the way the
+   * SDK's `Conversation` helper does internally: system block at the top,
+   * then `User: ...` / `Assistant: ...` lines per turn, then the new user
+   * message. Llama-style instruction-tuned models handle this layout.
+   */
+  function composeChatPrompt(history: WalletChatTurn[], next: string): { system: string; prompt: string } {
+    const lines: string[] = [];
+    for (const t of history) {
+      lines.push(`${t.role === "user" ? "User" : "Assistant"}: ${t.text}`);
+    }
+    lines.push(`User: ${next}`);
+    lines.push("Assistant:");
+    return { system: system.trim(), prompt: lines.join("\n\n") };
+  }
 
   async function run() {
+    if (!walletClient || !publicClient || !connectedAddress || !walletNetwork) {
+      setErr("Connect a wallet on testnet or mainnet first.");
+      return;
+    }
+    const next = input.trim();
+    if (!next) return;
     setBusy(true);
     setErr(null);
-    setResp(null);
+    const history = [...turns];
+    // Optimistic user-bubble so the visitor sees their message appear immediately.
+    setTurns([...history, { role: "user", text: next }]);
+    setInput("");
     try {
-      const r = await fetch("/api/chat-demo", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: prompt }),
+      const { siweSignIn, GatewayClient, runInference, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
+      const network = SDK_NETWORKS[walletNetwork];
+      setBusyStage("Asking your wallet to sign in (SIWE)...");
+      const session = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], walletNetwork);
+      setBusyStage("Sign the createSession transaction in your wallet...");
+      const gateway = new GatewayClient({ network: walletNetwork, bearer: session.bearer });
+      const composed = composeChatPrompt(history, next);
+      const result = await runInference({
+        prompt: composed.system ? `${composed.system}\n\n${composed.prompt}` : composed.prompt,
+        gateway,
+        wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
+        publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
+        network,
+        model,
+        jobCompletedTimeoutMs: 120_000,
+        maxRetries: 1,
       });
-      const text = await r.text();
-      let json: ChatDemoResp = {};
-      try {
-        json = JSON.parse(text) as ChatDemoResp;
-      } catch {
-        const timeoutish = /FUNCTION_INVOCATION_TIMEOUT/i.test(text);
-        setErr(
-          timeoutish
-            ? "The worker took longer than the demo budget allows (~30 s). Try again or run the example locally."
-            : `Demo failed (${r.status}). Try again or run the example locally.`,
-        );
-        return;
-      }
-      if (!r.ok || json.error) {
-        setErr(json.error ?? "Demo failed.");
-        return;
-      }
-      setResp(json);
+      setTurns([...history, { role: "user", text: next }, {
+        role: "assistant",
+        text: result.answer,
+        worker: result.worker,
+        jobId: result.jobId?.toString() ?? null,
+        submitTx: result.txs?.submitJob ?? null,
+        jobCompletedTx: result.txs?.jobCompleted ?? null,
+      }]);
     } catch (e) {
-      setErr(humanizeError(e, { action: "the chat demo" }));
+      // Rollback the optimistic user bubble so the visitor can edit and retry.
+      setTurns(history);
+      setInput(next);
+      const msg = (e as Error).message ?? "chat failed";
+      const friendly = /user rejected|user denied|cancelled|reject/i.test(msg)
+        ? "You rejected the wallet popup. Reopen and approve to send the message."
+        : /insufficient funds|insufficient balance/i.test(msg)
+          ? `Wallet has no ${walletNetwork === "mainnet" ? "LCAI" : "testnet LCAI"}. Top it up before trying again.`
+          : /selection_mismatch|selection was superseded|409/.test(msg)
+            ? walletNetwork === "testnet"
+              ? "LightChain testnet dispatcher returned 409 selection_mismatch. Reproduced upstream — this is a testnet dispatcher issue, not your wallet. Switch to mainnet for an immediate working chat, or wait for the LightChain team to fix the testnet pod."
+              : "Another session for this wallet is in flight on the gateway. This usually means chat.lightchain.ai (or another LightChain dApp) is open in a different tab signed into the same wallet. Close those tabs and try again."
+            : msg.split("\n")[0];
+      setErr(friendly);
     } finally {
       setBusy(false);
+      setBusyStage("");
     }
   }
 
   const snippet = `import { Conversation } from "lightnode-sdk";
 
 const chat = new Conversation({
-  network: "testnet",
+  network: "${walletNetwork ?? "mainnet"}",
   privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
   model: "${model}",
-  system: "You are a concise assistant. Reply in one short sentence.",
+  system: ${JSON.stringify(system)},
   maxHistoryTurns: 20,
 });
 
-const r = await chat.send(${JSON.stringify(prompt)});
-console.log("answer:", r.answer);
-console.log("worker:", r.worker, "job:", r.jobId.toString());`;
+// Multi-turn: each .send() carries the prior history forward.
+const r1 = await chat.send(${JSON.stringify(turns[0]?.text ?? "Who wrote The Great Gatsby?")});
+console.log("answer 1:", r1.answer);
+
+const r2 = await chat.send("In what year?");   // sees the prior turn
+console.log("answer 2:", r2.answer);
+
+console.log("full transcript:", chat.messages());`;
 
   return (
     <StepperShell step={step as BridgeStep} labels={["Model", "Prompt", "Use it"]}>
@@ -3426,43 +3507,151 @@ console.log("worker:", r.worker, "job:", r.jobId.toString());`;
       {step === 2 ? (
         <div>
           <StepBack onClick={() => setStep(1)} />
-          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Send a prompt</h3>
+          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Multi-turn chat</h3>
           <p className="mt-1 text-sm text-content-soft">
-            Runs one encrypted inference against <span className="text-content-primary">{model}</span> on the public
-            testnet (free, paid by the demo wallet).
+            One encrypted inference per turn against <span className="font-mono text-content-default">{model}</span>.
+            History accumulates client-side and is replayed into each new prompt - the same pattern the SDK&apos;s{" "}
+            <code className="font-mono text-content-default">Conversation</code> helper uses.
           </p>
-          <label className="mt-5 block">
-            <span className="mb-1.5 block text-xs text-content-soft">Prompt</span>
+
+          {/* Wallet status row */}
+          <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
+            {!connectedAddress ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-content-soft">Connect a wallet on mainnet (chain 9200) or testnet (chain 8200).</div>
+                <ConnectButton size="sm" />
+              </div>
+            ) : !walletNetwork ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain mainnet or testnet.</div>
+                <ConnectButton size="sm" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <div className="text-content-soft">
+                  Connected on <span className="font-mono text-content-primary">{walletNetwork}</span> as{" "}
+                  <code className="font-mono text-content-default">{connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}</code>.
+                  {" "}Each turn costs{" "}
+                  {feeLcai != null ? (
+                    <span className="font-mono text-content-primary">{feeLcai} LCAI</span>
+                  ) : (
+                    <span className="text-content-soft">(fetching fee…)</span>
+                  )}
+                  {" "}plus a small amount of gas.
+                  {walletNetwork === "testnet" ? (
+                    <>
+                      {" "}Get free testnet LCAI from{" "}
+                      <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.
+                    </>
+                  ) : null}
+                </div>
+                <ConnectButton size="sm" />
+              </div>
+            )}
+          </div>
+          {walletNetwork === "testnet" ? (
+            <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
+              <strong>Heads up:</strong> the LightChain testnet dispatcher is currently returning 409 selection_mismatch on every prepareSession call. Mainnet works on the same code. If you hit it, switch to mainnet.
+            </p>
+          ) : null}
+
+          {/* System prompt (collapsible) */}
+          <details className="mt-4 rounded-lg border border-bdr-soft bg-card">
+            <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-content-soft hover:text-content-primary">System prompt (optional)</summary>
+            <div className="border-t border-bdr-soft p-3">
+              <textarea
+                value={system}
+                onChange={(e) => setSystem(e.target.value)}
+                rows={2}
+                className="w-full rounded-md border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
+              />
+            </div>
+          </details>
+
+          {/* Chat thread */}
+          {turns.length > 0 ? (
+            <div className="mt-4 flex flex-col gap-2">
+              {turns.map((t, i) => (
+                <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
+                    t.role === "user"
+                      ? "bg-primary/10 text-content-primary"
+                      : "border border-bdr-soft bg-card text-content-default"
+                  }`}>
+                    <p className="whitespace-pre-wrap break-words">{t.text}</p>
+                    {t.role === "assistant" && (t.worker || t.submitTx) ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-bdr-soft/60 pt-2 text-[10px] text-content-soft">
+                        {t.worker ? (
+                          <span className="inline-flex items-center gap-1">
+                            worker <code className="font-mono">{t.worker.slice(0, 8)}…{t.worker.slice(-4)}</code>
+                            <a href={`https://${walletNetwork ?? "mainnet"}.lightscan.app/address/${t.worker}`} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
+                              <ExternalLink className="size-3" />
+                            </a>
+                          </span>
+                        ) : null}
+                        {t.jobId ? <span>job <code className="font-mono">#{t.jobId}</code></span> : null}
+                        {t.submitTx ? (
+                          <a href={`https://${walletNetwork ?? "mainnet"}.lightscan.app/tx/${t.submitTx}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-primary">
+                            submitJob <ExternalLink className="size-3" />
+                          </a>
+                        ) : null}
+                        {t.jobCompletedTx ? (
+                          <a href={`https://${walletNetwork ?? "mainnet"}.lightscan.app/tx/${t.jobCompletedTx}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-primary">
+                            completed <ExternalLink className="size-3" />
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Input + send */}
+          <div className="mt-4">
             <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!busy && input.trim()) run(); }
+              }}
+              rows={2}
               maxLength={500}
+              placeholder={turns.length === 0 ? "Ask anything… (cmd+enter to send)" : "Reply…"}
               className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
             />
-          </label>
-          <PreviewButton
-            onClick={run}
-            busy={busy || !prompt.trim()}
-            idle="Send prompt"
-            working="Running encrypted inference"
-          />
+            <div className="mt-3 flex items-center justify-between gap-3">
+              {turns.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => { setTurns([]); setErr(null); }}
+                  className="text-[11px] text-content-soft hover:text-content-primary"
+                >
+                  Reset thread
+                </button>
+              ) : <span />}
+              <PreviewButton
+                onClick={run}
+                busy={busy || !input.trim() || !connectedAddress || !walletNetwork}
+                idle={turns.length === 0 ? "Send first message" : "Send"}
+                working={busyStage || "Signing and dispatching"}
+              />
+            </div>
+          </div>
+
           {err ? (
             <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
           ) : null}
-          {resp?.answer ? (
-            <div className="mt-6 rounded-lg border border-bdr-soft bg-surface-base-faint p-4">
-              <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">SDK preview</p>
-              <p className="rounded-md border border-bdr-soft bg-card p-3 text-sm leading-relaxed text-content-default">{resp.answer}</p>
-              <dl className="mt-3 grid gap-1 text-xs">
-                <div className="flex items-center justify-between"><dt className="text-content-soft">Worker</dt><dd className="break-all font-mono text-content-default">{resp.worker ? `${resp.worker.slice(0, 10)}…${resp.worker.slice(-6)}` : "?"}</dd></div>
-                <div className="flex items-center justify-between"><dt className="text-content-soft">Job ID</dt><dd className="break-all font-mono text-content-default">{resp.jobId ?? "?"}</dd></div>
-              </dl>
-              <details className="mt-3 rounded-lg border border-bdr-soft bg-card">
-                <summary className="cursor-pointer px-3 py-2 text-[11px] text-content-soft hover:text-content-primary">Show raw JSON</summary>
-                <pre className="overflow-x-auto border-t border-bdr-soft px-3 py-2 font-mono text-[11px] text-content-default">{JSON.stringify(resp, null, 2)}</pre>
-              </details>
-              <GetTheCodeCTA onClick={() => setStep(3)} />
+          {turns.length > 0 ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setStep(3)}
+                className="text-[11px] text-content-soft underline-offset-2 hover:text-primary hover:underline"
+              >
+                Get the code →
+              </button>
             </div>
           ) : null}
         </div>
