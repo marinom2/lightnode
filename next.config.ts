@@ -39,6 +39,18 @@ const nextConfig: NextConfig = {
     config.resolve.alias = { ...config.resolve.alias, "idb-keyval": idbKeyvalShim };
     return config;
   },
+  async redirects() {
+    // The /build/sdks reorg (2026-06): preflight + batch + agent + models were
+    // collapsed into the new Inference SDK + Chat SDK. Keep old links live so
+    // anything bookmarked, indexed, or shared in the wild still lands somewhere
+    // meaningful.
+    return [
+      { source: "/build/sdks/preflight", destination: "/build/sdks/inference", permanent: true },
+      { source: "/build/sdks/batch", destination: "/build/sdks/inference", permanent: true },
+      { source: "/build/sdks/models", destination: "/build/sdks/inference", permanent: true },
+      { source: "/build/sdks/agent", destination: "/build/sdks/chat", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

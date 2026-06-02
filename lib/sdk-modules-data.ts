@@ -7,17 +7,14 @@
  * components/sdk-modules.tsx (which IS "use client"). That file re-exports
  * MODULES / ModuleDef / ModuleId from here so existing callers keep working.
  */
-import { Bot, Boxes, Coins, Database, Layers3, PlayCircle, ShieldCheck, Wrench, Workflow } from "lucide-react";
+import { Boxes, Coins, Database, ShieldCheck, Wrench, Workflow } from "lucide-react";
 
 export type ModuleId =
   | "bridge"
   | "dao"
   | "chat"
-  | "preflight"
-  | "operator"
-  | "models"
-  | "batch"
-  | "agent";
+  | "inference"
+  | "operator";
 
 export interface ModuleDef {
   id: ModuleId;
@@ -188,14 +185,14 @@ console.log("delegated to            =", delegateTo);
   {
     id: "chat",
     icon: Workflow,
-    title: "Conversation SDK",
+    title: "Chat SDK",
     blurb:
-      "new Conversation({ network, privateKey }).send('hi') keeps history client-side and runs one encrypted inference per turn. Optional system prompt + maxHistoryTurns cap.",
+      "Drop a real chatbot into your project. new Conversation({ network, privateKey }).send('hi') keeps history client-side and runs one encrypted inference per turn. Optional system prompt, maxHistoryTurns cap, and tool calls via the Agent helper for ReAct-style loops.",
     titleAccent: "SDK",
-    kicker: "Multi-turn chat",
-    tagline: "Stateful AI chat. No server.",
+    kicker: "Chatbot, agent, tools",
+    tagline: "Add a chatbot to your project.",
     subtitle:
-      "Conversation keeps history client-side and signs one encrypted inference per turn. Drop it into a Node script, a Next.js API route, or a React component.",
+      "Conversation handles history, system prompts, and one encrypted inference per turn. Wrap it with Agent for tool-calling loops. Drop into Node, Next.js, or React with a single import.",
     heroImage: "/images/sdk/chat-hero.svg",
     cta: { label: "Try the chat", href: "#try-it" },
     npm: "#five-line-hello-world",
@@ -237,80 +234,58 @@ console.log(JSON.stringify(chat.messages(), null, 2));`,
     triable: true,
   },
   {
-    id: "preflight",
-    icon: PlayCircle,
-    title: "Preflight SDK",
+    id: "inference",
+    icon: Boxes,
+    title: "Inference SDK",
     blurb:
-      "workerPreflight submits ONE real test inference + returns verdict. workerWatch streams state-change events (registered, went-stale, jobs-completed) for any worker, no key required.",
-    titleAccent: "SDK",
-    kicker: "Worker preflight + watch",
-    tagline: "Test inference. Watch workers.",
+      "Send a prompt to LightChain AI (AIVM) and get an answer back plus an on-chain submitJob + jobCompleted tx that anyone can verify. The exact pattern LightChallenge uses to AI-judge whether a challenge is complete. Same import covers one-shot inference, parallel fan-out, CI preflight, and an on-chain read of the model registry.",
+    titleAccent: "Inference",
+    kicker: "AIVM + verifiable answers",
+    tagline: "Verifiable AI in your project.",
     subtitle:
-      "Drop workerPreflight into CI to verify the network responds before a release. Stream live state changes on any worker with workerWatch - no key needed.",
-    cta: { label: "Run preflight", href: "#try-it" },
-    npm: "#worker-preflight--watch-new-in-050",
-    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/worker.ts",
-    example: "https://github.com/marinom2/lightnode-examples/tree/main/worker-preflight",
-    snippet: `import { workerPreflight, workerWatch, LightNode } from "lightnode-sdk";
+      "Each call returns the answer plus on-chain proof. Drop in for judging, scoring, classification, generation, evaluators - anything where you want a verifiable answer. Single-shot, batched fan-out, or CI preflight from one import.",
+    heroImage: "/images/sdk/sdk-hero.svg",
+    cta: { label: "Try a live inference", href: "#try-it" },
+    npm: "#inference",
+    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/inference.ts",
+    example: "https://github.com/marinom2/lightnode-examples/tree/main/inference",
+    snippet: `import { runInferenceWithKey } from "lightnode-sdk";
 
-// One real test inference (CI gate)
-const r = await workerPreflight({ network: "testnet", privateKey: "0x...", model: "llama3-8b" });
-console.log(r.verdict);                // "ok" | "over-deadline" | "stalled" | "failed"
+// One inference. Returns the answer + tx hashes you can put on a receipt.
+const { answer, worker, txs } = await runInferenceWithKey({
+  network: "mainnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  prompt: "Reply STRICT JSON: { passed: boolean, confidence: number }",
+});
 
-// Watch a worker - emits events on state change
+console.log(answer);             // model output
+console.log(worker, txs.submitJob, txs.jobCompleted);  // on-chain proof`,
+    sandboxBody: `import { runInferenceWithKey, LightNode } from "lightnode-sdk";
+
 const ln = new LightNode("mainnet");
-for await (const event of workerWatch(ln, "0xWorker...", { intervalMs: 30_000 }).events) {
-  console.log(event.kind, event.state);
-}`,
-    sandboxBody: `import { workerPreflight, LightNode } from "lightnode-sdk";
 
-const ln = new LightNode("testnet");
+// The 'judge' pattern used by LightChallenge to grade a submission.
+// Same shape works for NFT trait extraction, meme-coin sentiment,
+// content moderation, automated grading - anything where you want a
+// verifiable answer with on-chain proof.
+const { answer, worker, txs, jobId } = await runInferenceWithKey({
+  network: "mainnet",
+  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
+  system: "You are a careful judge. Reply with STRICT JSON only.",
+  prompt: \`Did the user complete the challenge "Run a mile under 8 minutes"?
 
-// One real testnet inference. PRIVATE_KEY in .env must be funded
-// (the testnet faucet at https://lightfaucet.ai gives free LCAI).
-//
-// Retry up to 3x on transient gateway 'selection_mismatch' (a previous
-// session for this wallet has not aged out). On a wallet you own this
-// is rare; on the shared demo wallet it is routine.
-async function tryPreflight() {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
-    const r = await workerPreflight({
-      network: "testnet",
-      privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-      model: "llama3-8b",
-      deadlineMs: 60_000,
-    });
-    const transient = r.verdict !== "ok" && /selection_mismatch|409/.test(r.summary ?? "");
-    if (!transient) return r;
-  }
-  throw new Error("gateway selection_mismatch did not clear after 3 attempts");
-}
+Evidence: { distance_km: 1.61, time_minutes: 7.4 }
 
-const r = await tryPreflight();
-console.log("verdict       :", r.verdict);
-console.log("elapsed (ms)  :", r.elapsedMs ?? "(none)");
-console.log("worker        :", r.worker ?? "(none assigned)");
-if (r.worker) console.log("worker page   :", ln.explorerAddressUrl(r.worker));
-if (r.txs?.submitJob) console.log("submitJob tx  :", ln.explorerTxUrl(r.txs.submitJob));
-if (r.verdict !== "ok") {
-  console.log("why           :", r.summary);
-}
+Reply: { "passed": boolean, "confidence": 0-1, "reason": string }\`,
+});
 
-// Free read - top testnet workers (no key needed). WorkerStat fields:
-//   - success: completed jobs in the sample
-//   - p50: median processing seconds (null until enough data)
-//   - completionRate: success / (success + incomplete + disputed)
-const top = await ln.getWorkerStats(500, 5);
-console.log("\\nTop 5 testnet workers (last 500 jobs):");
-for (const w of top) {
-  console.log(
-    w.address,
-    "jobs:", w.success,
-    "p50:", w.p50 != null ? w.p50.toFixed(1) + "s" : "n/a",
-    "completion:", w.completionRate != null ? (w.completionRate * 100).toFixed(0) + "%" : "n/a",
-  );
-}`,
+console.log("\\nanswer       :", answer);
+console.log("job id       :", jobId.toString());
+console.log("worker       :", worker);
+console.log("submitJob tx :", ln.explorerTxUrl(txs.submitJob));
+console.log("completed tx :", ln.explorerTxUrl(txs.jobCompleted));`,
     sandboxNeedsKey: true,
     triable: true,
   },
@@ -369,177 +344,5 @@ console.log("completion :", cfg.completionTimeoutSec, "s");
 console.log("slash bps  :", JSON.stringify(cfg.slashBps));`,
     sandboxNeedsKey: false,
     triable: false,
-  },
-  {
-    id: "models",
-    icon: Boxes,
-    title: "Models SDK",
-    blurb:
-      "On LightChain mainnet the official model registry is AIConfig - whitelisted models, fees, and output limits. ln.getModels() / ln.estimateFee() read it directly. The custom lcai_listSupportedModels RPC method returns the live whitelist.",
-    titleAccent: "SDK",
-    kicker: "On-chain model registry",
-    tagline: "Every model. Every fee. Live.",
-    subtitle:
-      "ln.getModels() pulls the canonical model list from AIConfig on chain. No off-chain config to drift, no hand-maintained JSON to break.",
-    cta: { label: "Browse models", href: "#try-it" },
-    npm: "#read-only-lightnode-client-free-no-key",
-    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/onchain.ts",
-    snippet: `import { LightNode } from "lightnode-sdk";
-
-const ln = new LightNode("mainnet");
-
-// Read every whitelisted model + fee + max tokens straight from AIConfig:
-const models = await ln.getModels();
-for (const m of models) {
-  console.log(m.name, m.fee, m.max_output_tokens);
-}
-
-// Or the on-chain fee for a single model:
-const fee = await ln.estimateFee("llama3-8b");   // -> 0.02 LCAI
-const id = ln.modelId("llama3-8b");              // keccak256(name)`,
-    sandboxBody: `import { LightNode } from "lightnode-sdk";
-
-const ln = new LightNode("mainnet");
-
-console.log("All whitelisted models on mainnet AIConfig:\\n");
-const models = await ln.getModels();
-for (const m of models) {
-  console.log(
-    m.name.padEnd(20),
-    "fee=" + m.fee.padStart(10),
-    "max_out=" + m.max_output_tokens.toString().padStart(6),
-    "whitelisted=" + m.is_whitelisted,
-  );
-}
-
-// On-chain fee for one model + its computed id:
-const tag = "llama3-8b";
-const feeLcai = await ln.estimateFee(tag);
-const id = ln.modelId(tag);
-console.log("\\nestimateFee('" + tag + "') = " + feeLcai + " LCAI");
-console.log("modelId('" + tag + "')     = " + id);`,
-    sandboxNeedsKey: false,
-    triable: true,
-  },
-  {
-    id: "batch",
-    icon: Layers3,
-    title: "Batch SDK",
-    blurb:
-      "Fan out many encrypted inferences in parallel with capped concurrency. Stable result order, per-slot errors so one stalled worker does not kill the batch. Optional onSlotComplete for live progress UI, optional AbortSignal to cancel queued work.",
-    titleAccent: "SDK",
-    kicker: "Parallel inference",
-    tagline: "Run N prompts. Get N answers.",
-    subtitle:
-      "Fan out prompts in parallel against the encrypted network, capped at the concurrency you pick. Stable result order, per-slot errors so one stalled worker does not kill the batch.",
-    cta: { label: "Run a batch", href: "#try-it" },
-    npm: "#batch-runner-new-in-060",
-    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/batch.ts",
-    snippet: `import { runInferenceBatch } from "lightnode-sdk";
-
-const results = await runInferenceBatch({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY!,
-  model: "llama3-8b",
-  system: "Reply in one short sentence.",
-  concurrency: 4,
-  prompts: [
-    "fact about the ocean",
-    "fact about the moon",
-    "fact about coffee",
-  ],
-  onSlotComplete: ({ index, result, error }) => {
-    console.log(\`#\${index}\`, error?.message ?? result?.answer);
-  },
-});`,
-    sandboxBody: `import { runInferenceBatch } from "lightnode-sdk";
-
-const results = await runInferenceBatch({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-  model: "llama3-8b",
-  system: "Reply in one short sentence.",
-  concurrency: 3,
-  prompts: [
-    "Give me a fact about the ocean.",
-    "Give me a fact about the moon.",
-    "Give me a fact about coffee.",
-  ],
-  onSlotComplete: ({ index, result, error }) => {
-    console.log(\`#\${index}\`, error?.message ?? result?.answer);
-  },
-});
-
-console.log("\\nFinal results:");
-for (const r of results) {
-  if (r.error) console.warn(\`#\${r.index} failed:\`, r.error.message);
-  else console.log(\`#\${r.index}\`, r.result.answer);
-}`,
-    sandboxNeedsKey: true,
-    triable: true,
-  },
-  {
-    id: "agent",
-    icon: Bot,
-    title: "Agent SDK",
-    blurb:
-      "ReAct-style loop on top of runInferenceWithKey. The model picks tools, runs them, observes the result, iterates. Uses simple <tool> / <answer> string markers so it works on small open models without native function-calling.",
-    titleAccent: "SDK",
-    kicker: "Tool-calling loop",
-    tagline: "Agents on the encrypted network.",
-    subtitle:
-      "ReAct loop on top of one inference per step. Model decides which tool to call, the SDK runs the handler, threads the result back. Works on llama3-8b without native function calling.",
-    cta: { label: "Run the agent", href: "#try-it" },
-    npm: "#agent-class-new-in-060",
-    github: "https://github.com/marinom2/lightnode/blob/main/sdk/src/agent.ts",
-    snippet: `import { Agent } from "lightnode-sdk";
-
-const agent = new Agent({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY!,
-  model: "llama3-8b",
-  system: "You are a careful research assistant.",
-  tools: [{
-    name: "add",
-    description: "Add two integers, return the sum.",
-    args: { a: "int", b: "int" },
-    handler: ({ a, b }) => Number(a) + Number(b),
-  }],
-  maxIterations: 4,
-});
-
-const { answer, steps } = await agent.run("17 + 25?");`,
-    sandboxBody: `import { Agent } from "lightnode-sdk";
-
-const agent = new Agent({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-  model: "llama3-8b",
-  system: "You are a careful assistant. Use tools when they help.",
-  tools: [
-    {
-      name: "add",
-      description: "Add two integers, return the sum.",
-      args: { a: "first integer", b: "second integer" },
-      handler: ({ a, b }) => Number(a) + Number(b),
-    },
-    {
-      name: "now",
-      description: "Return the current ISO timestamp.",
-      args: {},
-      handler: () => new Date().toISOString(),
-    },
-  ],
-  maxIterations: 3,
-  onStep: (step) => {
-    if (step.kind === "tool_call") console.log(\`[tool] \${step.name}(\${JSON.stringify(step.args)}) -> \${JSON.stringify(step.result)}\`);
-  },
-});
-
-const { answer, steps, iterations, hitLimit } = await agent.run("What is 17 + 25?");
-console.log("\\nfinal answer:", answer);
-console.log("iterations  :", iterations, "hit limit:", hitLimit);`,
-    sandboxNeedsKey: true,
-    triable: true,
   },
 ];
