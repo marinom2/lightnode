@@ -1003,6 +1003,7 @@ import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
 import { Streamdown } from "streamdown";
 import { ConnectButton } from "@/components/connect-button";
+import { LcaiMark } from "@/components/lcai-mark";
 
 type Turn = {
   role: "user" | "assistant";
@@ -1015,30 +1016,6 @@ type Turn = {
 };
 
 const MODEL = "llama3-8b";
-
-/** The LightChain atom mark (gradient logo). No wordmark - the viewBox frames
- *  the atom only. Used as the assistant avatar and the input glyph. */
-function LcaiMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="854.3951253356933 398.23541259765625 186.60832495117188 198.4013696411746"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <g transform="translate(856.3148789999999, 398.23539999999997) scale(0.6266964564006055)">
-        <linearGradient gradientTransform="matrix(1 0 0 1 0 -244)" gradientUnits="userSpaceOnUse" id="lcai-mark-grad" x1="-0.0000002" x2="298.8796082" y1="401.5" y2="401.5">
-          <stop offset="0" stopColor="rgb(48, 5, 250)" />
-          <stop offset="1" stopColor="rgb(255, 18, 251)" />
-        </linearGradient>
-        <path
-          fill="url(#lcai-mark-grad)"
-          d="M280.0912476,168.2428284c0.0187378-0.036911,0.0380554-0.0726929,0.0562134-0.1096191c16.2681885-32.6010895,17.265564-64.3445282,2.8092651-89.3834915c-12.8778992-22.3064003-36.5042877-36.642292-67.219101-41.070858C196.544342,13.2930756,172.316452,0,146.5589905,0c-22.3245773,0-43.5001221,9.986846-61.2456131,28.5235424C59.731987,30.5614643,38.6132431,40.6585007,24.5028381,57.9581261C6.2308226,80.3639221,2.1413448,111.8585815,12.9886856,146.6407318c0.0119276,0.0391846,0.0255585,0.0778198,0.0380545,0.1170044c-0.0181751,0.0363464-0.0380545,0.0727081-0.0562305,0.1090546c-16.2681713,32.6010895-17.2655487,64.3445282-2.8092442,89.3834991c12.8778811,22.3069611,36.5042725,36.6422882,67.2190933,41.0714264C96.5736389,301.7069092,120.8015289,315,146.5589905,315c22.3296814,0,43.5103455-9.991394,61.2581024-28.5365906c25.5706024-2.0402222,46.6916199-12.125885,60.7980499-29.4215393c18.2720032-22.4057922,22.3614807-53.9004517,11.5141602-88.6826019C280.1173706,168.3206482,280.1037292,168.2814484,280.0912476,168.2428284z M271.8764954,85.1474762c10.6303711,18.4145813,11.1694031,41.5411453,1.7635803,66.0655212c-3.7219849-8.3783264-8.2141418-16.6447449-13.4100647-24.7055588l-4.6642761,17.0429001c4.3473511,7.8126068,7.9301758,15.6831512,10.7121582,23.4855347c-4.3819885,8.0193481-9.6506042,15.8308258-15.7041626,23.3338776c1.5176544-10.6928558,2.3207703-21.6884308,2.3207703-32.8691864c0-29.667511-5.4985657-60.093277-17.7237091-87.3391113c-2.6733246-5.9579468-5.6783905-11.7689896-9.0385132-17.369133C246.8721771,58.2199669,262.7427673,69.3285828,271.8764954,85.1474762z M53.0189972,157.5005646c0-17.7983093,2.0930176-34.8525772,5.9098625-50.615242c11.8929939-11.332962,25.6574974-21.6162949,40.8601341-30.3939056c17.8886261-10.3276367,36.5854874-17.8778381,55.0960617-22.4290848c17.2502136,7.3440208,34.5396118,17.6932373,50.7930145,30.9488297c11.4465637,9.3348007,21.5856323,19.4636459,30.3081512,30.0235825c2.6712189,13.4345093,4.1127625,27.6942902,4.1127625,42.4658203c0,17.79776-2.0930176,34.852005-5.9092865,50.6141052c-11.8930054,11.3329773-25.6575012,21.6163025-40.8607025,30.3939209c-17.8818207,10.3236542-36.5724335,17.8908844-55.0767517,22.4427032c-17.2558975-7.3440094-34.5521164-17.7017517-50.811203-30.9624481h-0.0011368c-11.4465637-9.3348083-21.5856247-19.4636536-30.3081436-30.0235901C54.460537,186.531311,53.0189972,172.27211,53.0189972,157.5005646z M197.5405884,36.2367516c-8.420929-0.1454048-17.0355225,0.3947487-25.7472534,1.5812645l10.6093597,11.7066994c4.158783-0.3368149,8.2834625-0.5191383,12.357605-0.5191383c2.894455,0,5.7661743,0.0851974,8.6072235,0.2578659c1.8720703,0.1141663,3.7151794,0.2686577,5.5338593,0.456089c7.9432373,11.0063782,14.6692963,24.0733986,19.8174896,38.6586342c-4.7466278-4.5887375-9.7346497-9.0269547-14.9538574-13.283989c-5.9595642-4.8602829-12.1525574-9.4351349-18.5579681-13.6909294c-6.3523102-4.2205162-12.9407349-7.9979477-19.6017914-11.7028999c-4.8133698-2.6772537-9.9029083-5.0026283-14.9892578-7.1101379c-1.8141327-0.7520103-3.3374634-1.3887177-4.6540527-1.9288712c-15.6155548-6.2455406-31.4423981-10.2702694-46.9034653-11.8191586c-1.6102371-0.1607399-3.2039948-0.2845592-4.789238-0.3907719c12.707489-10.0067272,27.0797272-15.6558857,42.2897491-15.6558857C165.352417,12.7955227,182.865036,21.4209137,197.5405884,36.2367516z M34.4186859,66.0450745c9.6119766-11.7850838,23.0726089-19.3455086,38.8551559-22.8698425c-0.9178619,1.2932968-1.8266373,2.6036339-2.717804,3.9503212c-7.5609894,11.4329338-13.7923317,24.314785-18.6122322,38.2065163l15.7944679-5.6764221c6.2233963-15.0276947,14.1956024-28.1611671,23.4639511-38.7228127c1.3574829-0.0494118,2.7212067-0.0846291,4.0997009-0.0846291c12.3808975,0,25.5910492,1.9907799,39.0925751,5.8922577c-13.8752594,4.7176666-27.6653214,10.9700241-41.0032654,18.6707382c-9.0180283,5.2061462-17.6032944,11.0505371-25.9167862,17.3136139c-6.0140381,4.5307617-12.0375252,9.2800751-17.314682,14.6695099c-0.9797707,0.965004-1.8680954,1.8391342-2.6734962,2.6308975c-0.0170364,0.0653229-0.0329399,0.1312103-0.0505486,0.1965256c-9.7846451,9.6653671-18.3208618,20.0276489-25.3808918,30.852272C16.8799381,106.224762,20.5229797,83.083992,34.4186859,66.0450745z M21.2414799,229.8525238c-10.630372-18.4140167-11.1693878-41.5405731-1.763588-66.0655212c4.1763802,9.4012604,9.3228741,18.6616516,15.3446293,27.6482849l4.0724411-17.6199799c-4.9550858-8.587326-8.9911728-17.2598572-12.054306-25.851181c4.381422-8.0193481,9.650032-15.8308258,15.7035942-23.3338776c-1.5176506,10.6934204-2.3207779,21.6895752-2.3207779,32.8703156c0,7.742981,0.3608093,15.5649719,1.0776787,23.2746582c2.6225128,28.2041779,11.0045586,56.9674835,25.6845512,81.4324493C46.2463646,256.7800293,30.3752155,245.6719818,21.2414799,229.8525238z M95.5614929,278.7479248c0.9189987,0.0158997,1.8345871,0.0408936,2.7575607,0.0408936c7.9733429,0,16.1102676-0.612854,24.3289871-1.7931213l-10.7837296-11.6033325c-7.5093002,0.662262-14.9044418,0.7838135-22.1138535,0.3441772c-1.8720703-0.1135864-3.7151718-0.2680664-5.5338593-0.4555054c-7.9438095-11.0069427-14.6698608-24.0739594-19.8180618-38.6603394c4.7472,4.5893097,9.7357941,9.0280914,14.9555588,13.2851257h-0.0011292c11.9242325,9.7244415,24.5255051,18.0942383,37.4562073,24.9662781c-0.021019,0.0028381-0.0420303,0.0050964-0.0630493,0.0073547c5.3225708,2.7774658,11.9242401,6.0115356,18.2651978,8.5464478c2.2242279,0.8894653,4.0071259,1.6102295,5.4679718,2.2071838c14.5341187,5.5088806,29.2147827,9.0860291,43.5802155,10.5247192c1.6107941,0.1613159,3.2039948,0.2845764,4.7897949,0.3907776c-12.7080536,10.0067444-27.0802917,15.6558838-42.2903137,15.6558838C127.7593155,302.2044678,110.240448,293.5728455,95.5614929,278.7479248z M258.6993103,248.9549255c-9.6131287,11.7862244-23.0743256,19.3534546-38.8602753,22.8778076c0.9195557-1.2955933,1.8305969-2.6087646,2.7229004-3.9582825c7.3122253-11.0557861,13.3947449-23.4577026,18.1470642-36.8263245l-15.8035583,5.4151459c-6.1529694,14.5613861-13.9542084,27.3091888-22.9919586,37.6073151c-13.5583191,0.4913025-28.2117157-1.4767761-43.229187-5.8201294c13.8883209-4.7193909,27.6931458-10.9535522,41.04245-18.6616669c9.6801453-5.5883789,18.8150177-11.7680359,27.3148804-18.427063c-0.0124969,0.0312347-0.0238647,0.0630493-0.0363464,0.0942841c4.5438538-3.6339569,9.8499603-8.1062622,14.4875336-12.6194458c3.7958374-3.6941681,6.0331268-5.820694,7.3400421-7.0401611c8.474884-8.7463684,15.9393005-18.0238037,22.2302856-27.6698608C276.2380371,208.775238,272.5950012,231.9165802,258.6993103,248.9549255z M151.8601074,99.7067947l2.0352783,43.1479874c0.1197662,2.5387726,2.1956635,4.5453033,4.7370453,4.5787506l30.6875916,0.4037781c3.7883453,0.0498505,6.0318604,4.2594757,3.9608765,7.4320374l-40.7515411,62.4279022c-2.6121979,4.0016479-8.8297119,2.1519318-8.8297119-2.6268463v-42.6512451c0-2.6540527-2.151535-4.8055878-4.805603-4.8055878h-32.7028122c-3.7936096,0-6.0953522-4.18367-4.056221-7.3826447c9.1347427-14.3305359,29.4064636-45.9985199,40.9515228-63.0014496C145.6810608,93.4083862,151.6424866,95.0932236,151.8601074,99.7067947z"
-        />
-      </g>
-    </svg>
-  );
-}
 
 export default function ChatWeb3() {
   const { address, chain } = useAccount();
@@ -1308,7 +1285,9 @@ const NEXTJS_INFERENCE_WEB3_PAGE = `// app/inference-web3/page.tsx
 import { useEffect, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { Streamdown } from "streamdown";
 import { ConnectButton } from "@/components/connect-button";
+import { LcaiMark } from "@/components/lcai-mark";
 
 type Result = {
   answer: string;
@@ -1333,6 +1312,7 @@ export default function InferenceWeb3() {
   const [busy, setBusy] = useState(false);
   const [busyStage, setBusyStage] = useState("");
   const [result, setResult] = useState<Result | null>(null);
+  const [stream, setStream] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [feeLcai, setFeeLcai] = useState<number | null>(null);
 
@@ -1355,6 +1335,7 @@ export default function InferenceWeb3() {
     setBusy(true);
     setErr(null);
     setResult(null);
+    setStream("");
     const t0 = Date.now();
     try {
       setBusyStage("Sign in with your wallet (SIWE)...");
@@ -1372,6 +1353,8 @@ export default function InferenceWeb3() {
         model: MODEL,
         jobCompletedTimeoutMs: 120_000,
         maxRetries: 1,
+        // Stream the answer live as decrypted chunks arrive.
+        onChunk: (_chunk, totalSoFar) => { setBusyStage(""); setStream(totalSoFar); },
       });
       setResult({
         answer: r.answer,
@@ -1441,18 +1424,32 @@ export default function InferenceWeb3() {
           </p>
         )}
 
-        {result && (
+        {(busy || result) && (
           <div className="rounded-2xl border border-border bg-card p-4">
-            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Answer</div>
-            <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm text-foreground">{result.answer}</pre>
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span>elapsed {Math.round(result.elapsedMs / 1000)}s</span>
-              <span>job #{result.jobId}</span>
-              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
-              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
-              {result.jobCompleted && (
-                <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
-              )}
+            <div className="flex gap-3">
+              <LcaiMark className="mt-0.5 size-7 shrink-0" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                {result || stream ? (
+                  <div className="max-w-none text-sm leading-relaxed text-foreground [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
+                    <Streamdown>{result ? result.answer : stream}</Streamdown>
+                  </div>
+                ) : (
+                  <div className="animate-pulse-dot pt-1 text-sm text-muted-foreground">
+                    {busyStage || "Writing on chain..."}
+                  </div>
+                )}
+                {result && (
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <span>elapsed {Math.round(result.elapsedMs / 1000)}s</span>
+                    <span>job #{result.jobId}</span>
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
+                    {result.jobCompleted && (
+                      <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1477,7 +1474,9 @@ const NEXTJS_JUDGE_WEB3_PAGE = `// app/judge-web3/page.tsx
 import { useEffect, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { Streamdown } from "streamdown";
 import { ConnectButton } from "@/components/connect-button";
+import { LcaiMark } from "@/components/lcai-mark";
 
 type Verdict = {
   passed: boolean;
@@ -1508,6 +1507,7 @@ export default function JudgeWeb3() {
   const [busy, setBusy] = useState(false);
   const [busyStage, setBusyStage] = useState("");
   const [result, setResult] = useState<Result | null>(null);
+  const [stream, setStream] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [feeLcai, setFeeLcai] = useState<number | null>(null);
 
@@ -1545,6 +1545,7 @@ export default function JudgeWeb3() {
     setBusy(true);
     setErr(null);
     setResult(null);
+    setStream("");
     try {
       setBusyStage("Sign in with your wallet (SIWE)...");
       const session = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], network);
@@ -1566,6 +1567,8 @@ Reply with STRICT JSON only, matching: { "passed": boolean, "confidence": 0-1, "
         model: MODEL,
         jobCompletedTimeoutMs: 120_000,
         maxRetries: 1,
+        // Show the model's raw output streaming in while it generates the verdict.
+        onChunk: (_chunk, totalSoFar) => { setBusyStage(""); setStream(totalSoFar); },
       });
       setResult({
         verdict: parseVerdict(r.answer),
@@ -1635,31 +1638,45 @@ Reply with STRICT JSON only, matching: { "passed": boolean, "confidence": 0-1, "
           </p>
         )}
 
-        {result && (
+        {(busy || result) && (
           <div className="rounded-2xl border border-border bg-card p-4">
-            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Verdict</div>
-            {result.verdict ? (
-              <div>
-                <div className={"flex items-baseline gap-3 text-2xl font-semibold " + (result.verdict.passed ? "text-success" : "text-destructive")}>
-                  {result.verdict.passed ? "PASSED" : "FAILED"}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    confidence {Math.round(result.verdict.confidence * 100)}%
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-foreground">{result.verdict.reason}</p>
+            <div className="flex gap-3">
+              <LcaiMark className="mt-0.5 size-7 shrink-0" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                {result ? (
+                  result.verdict ? (
+                    <div>
+                      <div className={"flex items-baseline gap-3 text-2xl font-semibold " + (result.verdict.passed ? "text-success" : "text-destructive")}>
+                        {result.verdict.passed ? "PASSED" : "FAILED"}
+                        <span className="text-sm font-normal text-muted-foreground">
+                          confidence {Math.round(result.verdict.confidence * 100)}%
+                        </span>
+                      </div>
+                      <div className="mt-2 max-w-none text-sm leading-relaxed text-foreground [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
+                        <Streamdown>{result.verdict.reason}</Streamdown>
+                      </div>
+                    </div>
+                  ) : (
+                    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">{result.raw}</pre>
+                  )
+                ) : stream ? (
+                  <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">{stream}</pre>
+                ) : (
+                  <div className="animate-pulse-dot pt-1 text-sm text-muted-foreground">
+                    {busyStage || "Writing on chain..."}
+                  </div>
+                )}
+                {result && (
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <span>job #{result.jobId}</span>
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
+                    {result.jobCompleted && (
+                      <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
+                    )}
+                  </div>
+                )}
               </div>
-            ) : (
-              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">
-                {result.raw}
-              </pre>
-            )}
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span>job #{result.jobId}</span>
-              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
-              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
-              {result.jobCompleted && (
-                <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
-              )}
             </div>
           </div>
         )}
@@ -2002,7 +2019,7 @@ export function addInferenceWeb3(opts: AddOpts = {}): {
 
   return {
     written,
-    install: `npm install lightnode-sdk viem` + (hasWagmi ? "" : " wagmi @tanstack/react-query"),
+    install: `npm install lightnode-sdk viem streamdown` + (hasWagmi ? "" : " wagmi @tanstack/react-query"),
     template, network, needsWagmi: !hasWagmi,
   };
 }
@@ -2033,7 +2050,7 @@ export function addJudgeWeb3(opts: AddOpts = {}): {
 
   return {
     written,
-    install: `npm install lightnode-sdk viem` + (hasWagmi ? "" : " wagmi @tanstack/react-query"),
+    install: `npm install lightnode-sdk viem streamdown` + (hasWagmi ? "" : " wagmi @tanstack/react-query"),
     template, network, needsWagmi: !hasWagmi,
   };
 }
@@ -2177,6 +2194,33 @@ export function ConnectButton() {
 }
 `;
 
+const LCAI_MARK_FILE = `// components/lcai-mark.tsx
+// Generated by 'lightnode add wagmi-setup'. The LightChain atom mark (gradient
+// logo). The viewBox frames the atom only - no wordmark. Used as the assistant
+// avatar / glyph in the generated chat + inference pages.
+export function LcaiMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="854.3951253356933 398.23541259765625 186.60832495117188 198.4013696411746"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <g transform="translate(856.3148789999999, 398.23539999999997) scale(0.6266964564006055)">
+        <linearGradient gradientTransform="matrix(1 0 0 1 0 -244)" gradientUnits="userSpaceOnUse" id="lcai-mark-grad" x1="-0.0000002" x2="298.8796082" y1="401.5" y2="401.5">
+          <stop offset="0" stopColor="rgb(48, 5, 250)" />
+          <stop offset="1" stopColor="rgb(255, 18, 251)" />
+        </linearGradient>
+        <path
+          fill="url(#lcai-mark-grad)"
+          d="M280.0912476,168.2428284c0.0187378-0.036911,0.0380554-0.0726929,0.0562134-0.1096191c16.2681885-32.6010895,17.265564-64.3445282,2.8092651-89.3834915c-12.8778992-22.3064003-36.5042877-36.642292-67.219101-41.070858C196.544342,13.2930756,172.316452,0,146.5589905,0c-22.3245773,0-43.5001221,9.986846-61.2456131,28.5235424C59.731987,30.5614643,38.6132431,40.6585007,24.5028381,57.9581261C6.2308226,80.3639221,2.1413448,111.8585815,12.9886856,146.6407318c0.0119276,0.0391846,0.0255585,0.0778198,0.0380545,0.1170044c-0.0181751,0.0363464-0.0380545,0.0727081-0.0562305,0.1090546c-16.2681713,32.6010895-17.2655487,64.3445282-2.8092442,89.3834991c12.8778811,22.3069611,36.5042725,36.6422882,67.2190933,41.0714264C96.5736389,301.7069092,120.8015289,315,146.5589905,315c22.3296814,0,43.5103455-9.991394,61.2581024-28.5365906c25.5706024-2.0402222,46.6916199-12.125885,60.7980499-29.4215393c18.2720032-22.4057922,22.3614807-53.9004517,11.5141602-88.6826019C280.1173706,168.3206482,280.1037292,168.2814484,280.0912476,168.2428284z M271.8764954,85.1474762c10.6303711,18.4145813,11.1694031,41.5411453,1.7635803,66.0655212c-3.7219849-8.3783264-8.2141418-16.6447449-13.4100647-24.7055588l-4.6642761,17.0429001c4.3473511,7.8126068,7.9301758,15.6831512,10.7121582,23.4855347c-4.3819885,8.0193481-9.6506042,15.8308258-15.7041626,23.3338776c1.5176544-10.6928558,2.3207703-21.6884308,2.3207703-32.8691864c0-29.667511-5.4985657-60.093277-17.7237091-87.3391113c-2.6733246-5.9579468-5.6783905-11.7689896-9.0385132-17.369133C246.8721771,58.2199669,262.7427673,69.3285828,271.8764954,85.1474762z M53.0189972,157.5005646c0-17.7983093,2.0930176-34.8525772,5.9098625-50.615242c11.8929939-11.332962,25.6574974-21.6162949,40.8601341-30.3939056c17.8886261-10.3276367,36.5854874-17.8778381,55.0960617-22.4290848c17.2502136,7.3440208,34.5396118,17.6932373,50.7930145,30.9488297c11.4465637,9.3348007,21.5856323,19.4636459,30.3081512,30.0235825c2.6712189,13.4345093,4.1127625,27.6942902,4.1127625,42.4658203c0,17.79776-2.0930176,34.852005-5.9092865,50.6141052c-11.8930054,11.3329773-25.6575012,21.6163025-40.8607025,30.3939209c-17.8818207,10.3236542-36.5724335,17.8908844-55.0767517,22.4427032c-17.2558975-7.3440094-34.5521164-17.7017517-50.811203-30.9624481h-0.0011368c-11.4465637-9.3348083-21.5856247-19.4636536-30.3081436-30.0235901C54.460537,186.531311,53.0189972,172.27211,53.0189972,157.5005646z M197.5405884,36.2367516c-8.420929-0.1454048-17.0355225,0.3947487-25.7472534,1.5812645l10.6093597,11.7066994c4.158783-0.3368149,8.2834625-0.5191383,12.357605-0.5191383c2.894455,0,5.7661743,0.0851974,8.6072235,0.2578659c1.8720703,0.1141663,3.7151794,0.2686577,5.5338593,0.456089c7.9432373,11.0063782,14.6692963,24.0733986,19.8174896,38.6586342c-4.7466278-4.5887375-9.7346497-9.0269547-14.9538574-13.283989c-5.9595642-4.8602829-12.1525574-9.4351349-18.5579681-13.6909294c-6.3523102-4.2205162-12.9407349-7.9979477-19.6017914-11.7028999c-4.8133698-2.6772537-9.9029083-5.0026283-14.9892578-7.1101379c-1.8141327-0.7520103-3.3374634-1.3887177-4.6540527-1.9288712c-15.6155548-6.2455406-31.4423981-10.2702694-46.9034653-11.8191586c-1.6102371-0.1607399-3.2039948-0.2845592-4.789238-0.3907719c12.707489-10.0067272,27.0797272-15.6558857,42.2897491-15.6558857C165.352417,12.7955227,182.865036,21.4209137,197.5405884,36.2367516z M34.4186859,66.0450745c9.6119766-11.7850838,23.0726089-19.3455086,38.8551559-22.8698425c-0.9178619,1.2932968-1.8266373,2.6036339-2.717804,3.9503212c-7.5609894,11.4329338-13.7923317,24.314785-18.6122322,38.2065163l15.7944679-5.6764221c6.2233963-15.0276947,14.1956024-28.1611671,23.4639511-38.7228127c1.3574829-0.0494118,2.7212067-0.0846291,4.0997009-0.0846291c12.3808975,0,25.5910492,1.9907799,39.0925751,5.8922577c-13.8752594,4.7176666-27.6653214,10.9700241-41.0032654,18.6707382c-9.0180283,5.2061462-17.6032944,11.0505371-25.9167862,17.3136139c-6.0140381,4.5307617-12.0375252,9.2800751-17.314682,14.6695099c-0.9797707,0.965004-1.8680954,1.8391342-2.6734962,2.6308975c-0.0170364,0.0653229-0.0329399,0.1312103-0.0505486,0.1965256c-9.7846451,9.6653671-18.3208618,20.0276489-25.3808918,30.852272C16.8799381,106.224762,20.5229797,83.083992,34.4186859,66.0450745z M21.2414799,229.8525238c-10.630372-18.4140167-11.1693878-41.5405731-1.763588-66.0655212c4.1763802,9.4012604,9.3228741,18.6616516,15.3446293,27.6482849l4.0724411-17.6199799c-4.9550858-8.587326-8.9911728-17.2598572-12.054306-25.851181c4.381422-8.0193481,9.650032-15.8308258,15.7035942-23.3338776c-1.5176506,10.6934204-2.3207779,21.6895752-2.3207779,32.8703156c0,7.742981,0.3608093,15.5649719,1.0776787,23.2746582c2.6225128,28.2041779,11.0045586,56.9674835,25.6845512,81.4324493C46.2463646,256.7800293,30.3752155,245.6719818,21.2414799,229.8525238z M95.5614929,278.7479248c0.9189987,0.0158997,1.8345871,0.0408936,2.7575607,0.0408936c7.9733429,0,16.1102676-0.612854,24.3289871-1.7931213l-10.7837296-11.6033325c-7.5093002,0.662262-14.9044418,0.7838135-22.1138535,0.3441772c-1.8720703-0.1135864-3.7151718-0.2680664-5.5338593-0.4555054c-7.9438095-11.0069427-14.6698608-24.0739594-19.8180618-38.6603394c4.7472,4.5893097,9.7357941,9.0280914,14.9555588,13.2851257h-0.0011292c11.9242325,9.7244415,24.5255051,18.0942383,37.4562073,24.9662781c-0.021019,0.0028381-0.0420303,0.0050964-0.0630493,0.0073547c5.3225708,2.7774658,11.9242401,6.0115356,18.2651978,8.5464478c2.2242279,0.8894653,4.0071259,1.6102295,5.4679718,2.2071838c14.5341187,5.5088806,29.2147827,9.0860291,43.5802155,10.5247192c1.6107941,0.1613159,3.2039948,0.2845764,4.7897949,0.3907776c-12.7080536,10.0067444-27.0802917,15.6558838-42.2903137,15.6558838C127.7593155,302.2044678,110.240448,293.5728455,95.5614929,278.7479248z M258.6993103,248.9549255c-9.6131287,11.7862244-23.0743256,19.3534546-38.8602753,22.8778076c0.9195557-1.2955933,1.8305969-2.6087646,2.7229004-3.9582825c7.3122253-11.0557861,13.3947449-23.4577026,18.1470642-36.8263245l-15.8035583,5.4151459c-6.1529694,14.5613861-13.9542084,27.3091888-22.9919586,37.6073151c-13.5583191,0.4913025-28.2117157-1.4767761-43.229187-5.8201294c13.8883209-4.7193909,27.6931458-10.9535522,41.04245-18.6616669c9.6801453-5.5883789,18.8150177-11.7680359,27.3148804-18.427063c-0.0124969,0.0312347-0.0238647,0.0630493-0.0363464,0.0942841c4.5438538-3.6339569,9.8499603-8.1062622,14.4875336-12.6194458c3.7958374-3.6941681,6.0331268-5.820694,7.3400421-7.0401611c8.474884-8.7463684,15.9393005-18.0238037,22.2302856-27.6698608C276.2380371,208.775238,272.5950012,231.9165802,258.6993103,248.9549255z M151.8601074,99.7067947l2.0352783,43.1479874c0.1197662,2.5387726,2.1956635,4.5453033,4.7370453,4.5787506l30.6875916,0.4037781c3.7883453,0.0498505,6.0318604,4.2594757,3.9608765,7.4320374l-40.7515411,62.4279022c-2.6121979,4.0016479-8.8297119,2.1519318-8.8297119-2.6268463v-42.6512451c0-2.6540527-2.151535-4.8055878-4.805603-4.8055878h-32.7028122c-3.7936096,0-6.0953522-4.18367-4.056221-7.3826447c9.1347427-14.3305359,29.4064636-45.9985199,40.9515228-63.0014496C145.6810608,93.4083862,151.6424866,95.0932236,151.8601074,99.7067947z"
+        />
+      </g>
+    </svg>
+  );
+}
+`;
+
 export function addWagmiSetup(opts: AddOpts = {}): { written: WrittenFile[]; install: string; template: Template; network: Network } {
   const cwd = opts.cwd ?? process.cwd();
   const network = opts.network ?? "mainnet";
@@ -2187,6 +2231,7 @@ export function addWagmiSetup(opts: AddOpts = {}): { written: WrittenFile[]; ins
   written.push(writeFile(path.join(cwd, "lib/wagmi.ts"), WAGMI_CONFIG_FILE, force));
   written.push(writeFile(path.join(cwd, "app/providers.tsx"), WAGMI_PROVIDERS_FILE, force));
   written.push(writeFile(path.join(cwd, "components/connect-button.tsx"), WAGMI_CONNECT_BUTTON, force));
+  written.push(writeFile(path.join(cwd, "components/lcai-mark.tsx"), LCAI_MARK_FILE, force));
 
   return {
     written,
