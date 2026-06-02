@@ -260,32 +260,49 @@ function renderAccentedTitle(title: string, accent?: string): React.ReactNode {
 function ScaffoldCTA({ scaffolds, moduleTitle }: { scaffolds: ScaffoldDef[]; moduleTitle: string }) {
   const hasServer = scaffolds.some((s) => s.kind === "server");
   const hasBrowser = scaffolds.some((s) => s.kind === "browser");
-  const tagline =
-    hasServer && hasBrowser
-      ? "Two ways to ship it. Pick whichever fits your app."
-      : hasBrowser
-        ? "Drop the wallet-signed flow into your project."
-        : "Drop the server-side flow into your project.";
+  const both = hasServer && hasBrowser;
+  // Guided chooser: pick by who pays, then reveal the matching command. Default
+  // to the zero-backend user-paid path when both exist.
+  const [picked, setPicked] = useState<"server" | "browser">(hasBrowser ? "browser" : "server");
+  const selected = scaffolds.find((s) => s.kind === picked) ?? scaffolds[0];
+
   return (
     <section className="mb-16">
       <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-content-soft">Add it to your project</p>
-      <h2 className="mb-2 text-2xl font-semibold tracking-tight text-content-primary sm:text-3xl">
+      <h2 className="mb-4 text-2xl font-semibold tracking-tight text-content-primary sm:text-3xl">
         Ship {moduleTitle} in one command
       </h2>
-      <p className="mb-6 max-w-2xl text-sm text-content-soft">{tagline}</p>
-      <div className={`grid gap-4 ${scaffolds.length > 1 ? "sm:grid-cols-2" : ""}`}>
-        {scaffolds.map((s) => (
-          <ScaffoldCard key={s.id} scaffold={s} />
-        ))}
-      </div>
-      {hasServer && hasBrowser ? (
-        <p className="mt-4 text-[11px] text-content-soft">
-          New here? <span className="text-content-default">Server-paid</span> means YOUR funded wallet pays for every
-          call (typical SaaS).{" "}
-          <span className="text-content-default">User-paid</span> means each visitor signs and pays from their own
-          wallet (typical Web3 dApp). Pick whichever matches who&apos;s using the app.
-        </p>
-      ) : null}
+      {both ? (
+        <>
+          <p className="mb-3 text-sm text-content-soft">Who pays for each call?</p>
+          <div className="mb-5 inline-flex rounded-xl border border-bdr-soft bg-surface-base-faint p-1">
+            {([
+              { key: "server" as const, label: "You host it", sub: "SaaS" },
+              { key: "browser" as const, label: "Your users", sub: "Web3 dApp" },
+            ]).map((opt) => {
+              const active = picked === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setPicked(opt.key)}
+                  aria-pressed={active}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                    active ? "text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)]" : "text-content-soft hover:text-content-primary"
+                  }`}
+                  style={active ? { background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" } : undefined}
+                >
+                  {opt.label}
+                  <span className={active ? "ml-1.5 text-xs text-white/70" : "ml-1.5 text-xs text-content-soft"}>· {opt.sub}</span>
+                </button>
+              );
+            })}
+          </div>
+          <ScaffoldCard key={selected.id} scaffold={selected} />
+        </>
+      ) : (
+        <ScaffoldCard scaffold={scaffolds[0]} />
+      )}
     </section>
   );
 }

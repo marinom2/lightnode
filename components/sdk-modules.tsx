@@ -3391,7 +3391,7 @@ function ChatCopyButton({ text }: { text: string }) {
 }
 
 function ChatRecipe() {
-  const [step, setStep] = useState<ChatStep>(1);
+  const [showCode, setShowCode] = useState(false);
   const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
   const [system, setSystem] = useState<string>("You are a concise assistant. Reply in one or two short sentences.");
   const [input, setInput] = useState<string>("");
@@ -3542,46 +3542,35 @@ console.log("answer 2:", r2.answer);
 console.log("full transcript:", chat.messages());`;
 
   return (
-    <StepperShell step={step as BridgeStep} labels={["Model", "Prompt", "Use it"]}>
-      {step === 1 ? (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
+        {showCode ? (
+          <UseItStep
+            onBack={() => setShowCode(false)}
+            title="Conversation SDK"
+            hint={`Targets ${model} on mainnet. PRIVATE_KEY must be funded with the per-turn fee (${model === "llama3-70b" ? "0.15" : "0.02"} LCAI).`}
+            snippet={snippet}
+            needsKey={true}
+          />
+        ) : (
         <div>
-          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Pick a model</h3>
-          <p className="mt-1 text-sm text-content-soft">Both are live on LightChain mainnet.</p>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {([
-              { id: "llama3-8b" as const, label: "llama3-8b", sub: "8B · 0.02 LCAI/turn · fastest" },
-              { id: "llama3-70b" as const, label: "llama3-70b", sub: "70B · 0.15 LCAI/turn · more capable" },
-            ]).map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => { setModel(m.id); setStep(2); }}
-                className={`group flex items-center gap-3 rounded-xl border bg-card p-5 text-left transition-all hover:-translate-y-0.5 ${
-                  model === m.id ? "border-primary shadow-[0_0_0_1px_var(--primary)_inset]" : "border-bdr-soft hover:border-bdr-light"
-                }`}
-              >
-                <div className="grid size-10 place-items-center rounded-lg bg-surface-base-faint">
-                  <Workflow className="size-5 text-primary" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-mono text-sm font-semibold text-content-primary">{m.label}</div>
-                  <div className="truncate text-xs text-content-soft">{m.sub}</div>
-                </div>
-              </button>
-            ))}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Multi-turn chat</h3>
+              <p className="mt-1 text-sm text-content-soft">
+                One encrypted inference per turn against <span className="font-mono text-content-default">{model}</span>.
+                History accumulates client-side and is replayed into each new prompt - the same pattern the SDK&apos;s{" "}
+                <code className="font-mono text-content-default">Conversation</code> helper uses.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCode(true)}
+              className="shrink-0 whitespace-nowrap rounded-full border border-bdr-soft bg-surface-base-faint px-3 py-1.5 text-xs font-medium text-content-primary transition-all hover:border-primary/60 hover:bg-primary/10"
+            >
+              Get the code →
+            </button>
           </div>
-        </div>
-      ) : null}
-
-      {step === 2 ? (
-        <div>
-          <StepBack onClick={() => setStep(1)} />
-          <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Multi-turn chat</h3>
-          <p className="mt-1 text-sm text-content-soft">
-            One encrypted inference per turn against <span className="font-mono text-content-default">{model}</span>.
-            History accumulates client-side and is replayed into each new prompt - the same pattern the SDK&apos;s{" "}
-            <code className="font-mono text-content-default">Conversation</code> helper uses.
-          </p>
 
           {/* Wallet status row */}
           <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
@@ -3713,15 +3702,27 @@ console.log("full transcript:", chat.messages());`;
               className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
             />
             <div className="mt-3 flex items-center justify-between gap-3">
-              {turns.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => { setTurns([]); setErr(null); }}
-                  className="text-[11px] text-content-soft hover:text-content-primary"
+              <div className="flex items-center gap-3">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value as "llama3-8b" | "llama3-70b")}
+                  disabled={busy}
+                  title="Model (both live on mainnet)"
+                  className="rounded-lg border border-bdr-soft bg-surface-base-faint px-2 py-1.5 font-mono text-xs text-content-primary outline-none focus:border-primary/60 disabled:opacity-50"
                 >
-                  Reset thread
-                </button>
-              ) : <span />}
+                  <option value="llama3-8b">llama3-8b · 0.02</option>
+                  <option value="llama3-70b">llama3-70b · 0.15</option>
+                </select>
+                {turns.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => { setTurns([]); setErr(null); }}
+                    className="text-[11px] text-content-soft hover:text-content-primary"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -3747,30 +3748,10 @@ console.log("full transcript:", chat.messages());`;
           {err ? (
             <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
           ) : null}
-          {turns.length > 0 ? (
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                className="text-[11px] text-content-soft underline-offset-2 hover:text-primary hover:underline"
-              >
-                Get the code →
-              </button>
-            </div>
-          ) : null}
         </div>
-      ) : null}
-
-      {step === 3 ? (
-        <UseItStep
-          onBack={() => setStep(2)}
-          title="Conversation SDK"
-          hint={`Targets ${model} on testnet. PRIVATE_KEY must be funded with ≥0.02 LCAI per call (use the testnet faucet).`}
-          snippet={snippet}
-          needsKey={true}
-        />
-      ) : null}
-    </StepperShell>
+        )}
+      </div>
+    </div>
   );
 }
 
