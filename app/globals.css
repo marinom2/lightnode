@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* let Tailwind v4 emit the utility classes streamdown uses to render markdown */
+@source "../node_modules/streamdown/dist";
+
 /* dark mode via .dark class (we default the app to dark) */
 @custom-variant dark (&:is(.dark, .dark *));
 
