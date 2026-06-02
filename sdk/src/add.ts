@@ -998,9 +998,10 @@ const NEXTJS_CHAT_WEB3_PAGE = `// app/chat-web3/page.tsx
 //     turn plus a small gas amount.
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { Streamdown } from "streamdown";
 import { ConnectButton } from "@/components/connect-button";
 
 type Turn = {
@@ -1027,6 +1028,7 @@ export default function ChatWeb3() {
   const [busyStage, setBusyStage] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [feeLcai, setFeeLcai] = useState<number | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
   // Read the on-chain fee for the connected network so we can show the
   // visitor the real cost per turn before they click Send.
@@ -1039,6 +1041,11 @@ export default function ChatWeb3() {
     );
     return () => { cancelled = true; };
   }, [network]);
+
+  // Keep the latest turn (and the "writing on chain" indicator) in view.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns, busy]);
 
   /** Build a single prompt from history + new user input. */
   function composePrompt(history: Turn[], next: string, system: string): string {
@@ -1111,10 +1118,10 @@ export default function ChatWeb3() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 py-6">
-      <header className="flex items-center justify-between gap-3 border-b border-border pb-4">
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 py-6">
+      <header className="flex items-center justify-between gap-3 pb-6">
         <div className="min-w-0">
-          <h1 className="text-base font-semibold text-foreground">Chat</h1>
+          <h1 className="font-semibold text-foreground">Chat</h1>
           <p className="truncate text-xs text-muted-foreground">
             {network ? (
               <>Signed from your wallet on {network} · {feeLcai != null ? feeLcai + " LCAI" : "..."}/turn + gas</>
@@ -1126,10 +1133,12 @@ export default function ChatWeb3() {
         <ConnectButton />
       </header>
 
-      <div className="flex flex-1 flex-col gap-3 overflow-y-auto py-6">
-        {turns.length === 0 ? (
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto pb-6">
+        {turns.length === 0 && !busy ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-            <h2 className="text-2xl font-medium text-foreground">How can I help?</h2>
+            <h2 className="text-3xl font-medium tracking-tight text-foreground">
+              Start talking with <span className="text-gradient">AI Chat</span>
+            </h2>
             <p className="max-w-sm text-sm text-muted-foreground">
               Connect your wallet and send a message. Each turn is signed and paid from your
               own wallet, no backend required.
@@ -1141,61 +1150,88 @@ export default function ChatWeb3() {
             )}
           </div>
         ) : (
-          turns.map((t, i) => (
-            <div
-              key={i}
-              className={
-                "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm " +
-                (t.role === "user"
-                  ? "self-end rounded-br-md bg-primary text-primary-foreground"
-                  : "self-start rounded-bl-md border border-border bg-card text-foreground")
-              }
-            >
-              <div>{t.text}</div>
-              {t.role === "assistant" && t.submitTx ? (
-                <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-                  {t.worker && (
-                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${t.worker}\`} target="_blank" rel="noopener noreferrer">
-                      worker
-                    </a>
-                  )}
-                  {t.jobId && <span>job #{t.jobId}</span>}
-                  {t.submitTx && (
-                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${t.submitTx}\`} target="_blank" rel="noopener noreferrer">
-                      submitJob
-                    </a>
-                  )}
-                  {t.jobCompletedTx && (
-                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${t.jobCompletedTx}\`} target="_blank" rel="noopener noreferrer">
-                      completed
-                    </a>
-                  )}
+          <>
+            {turns.map((t, i) =>
+              t.role === "user" ? (
+                <div key={i} className="flex justify-end">
+                  <div className="w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-base-faint px-4 py-2.5 text-sm text-foreground">
+                    {t.text}
+                  </div>
                 </div>
-              ) : null}
-            </div>
-          ))
+              ) : (
+                <div key={i} className="group flex flex-col gap-2">
+                  <div className="prose-sm max-w-none text-sm leading-relaxed text-foreground [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
+                    <Streamdown>{t.text}</Streamdown>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard?.writeText(t.text)}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      aria-label="Copy"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </svg>
+                      Copy
+                    </button>
+                    {t.worker && (
+                      <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${t.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
+                    )}
+                    {t.jobId && <span>job #{t.jobId}</span>}
+                    {t.submitTx && (
+                      <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${t.submitTx}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
+                    )}
+                    {t.jobCompletedTx && (
+                      <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${t.jobCompletedTx}\`} target="_blank" rel="noopener noreferrer">completed</a>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
+            {busy && (
+              <div className="animate-pulse-dot text-sm text-muted-foreground">
+                {busyStage || "Writing on chain..."}
+              </div>
+            )}
+          </>
         )}
+        <div ref={endRef} />
       </div>
 
-      <div className="border-t border-border pt-4">
-        <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 transition focus-within:ring-2 focus-within:ring-primary">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!busy && input.trim()) send(); }
-            }}
-            rows={1}
-            placeholder={turns.length === 0 ? "Say hello (cmd+enter to send)" : "Reply... (cmd+enter)"}
-            className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
-          />
+      <div className="rounded-2xl border border-border bg-card p-3">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!busy && input.trim()) send(); }
+          }}
+          rows={1}
+          placeholder="Send a message..."
+          className="max-h-40 min-h-[44px] w-full resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        />
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+              <rect x="9" y="9" width="6" height="6" />
+              <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
+            </svg>
+            {MODEL}
+          </span>
           <button
             type="button"
             onClick={() => send()}
             disabled={busy || !input.trim() || !address || !network}
-            className="shrink-0 rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-primary text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-none disabled:bg-muted disabled:text-muted-foreground"
+            aria-label={busy ? "Working" : "Send"}
           >
-            {busy ? (busyStage || "Sending...") : "Send"}
+            {busy ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+            )}
           </button>
         </div>
         {err && (
@@ -1883,7 +1919,8 @@ export function addChatWeb3(opts: AddOpts = {}): {
 
   return {
     written,
-    install: `npm install lightnode-sdk viem` + (hasWagmi ? "" : " wagmi @tanstack/react-query"),
+    // streamdown renders the assistant answers as markdown (bold, lists, code).
+    install: `npm install lightnode-sdk viem streamdown` + (hasWagmi ? "" : " wagmi @tanstack/react-query"),
     template,
     network,
     needsWagmi: !hasWagmi,
@@ -2053,9 +2090,13 @@ export function ConnectButton() {
         type="button"
         onClick={() => connect({ connector })}
         disabled={isPending}
-        style={{ padding: "8px 16px", borderRadius: 8, cursor: "pointer" }}
+        className="bg-gradient-btn inline-flex items-center gap-2 rounded-[10px] px-5 py-2.5 text-sm font-medium tracking-wide text-white transition hover:brightness-110 disabled:opacity-60"
       >
-        {isPending ? "Connecting..." : "Connect wallet"}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+          <path d="M21 12h-6a2 2 0 0 0 0 4h6v-4Z" />
+        </svg>
+        {isPending ? "Connecting..." : "Connect Wallet"}
       </button>
     );
   }
@@ -2066,7 +2107,7 @@ export function ConnectButton() {
         type="button"
         onClick={() => switchChain({ chainId: 9200 })}
         disabled={switching}
-        style={{ padding: "8px 16px", borderRadius: 8, background: "#fee", cursor: "pointer" }}
+        className="rounded-[10px] border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive transition hover:bg-destructive/20 disabled:opacity-60"
       >
         {switching ? "Switching..." : "Switch to LightChain"}
       </button>
@@ -2077,9 +2118,12 @@ export function ConnectButton() {
     <button
       type="button"
       onClick={() => disconnect()}
-      style={{ padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontFamily: "monospace" }}
+      className="group inline-flex items-center gap-2 rounded-[10px] border border-border bg-card px-4 py-2 font-mono text-sm text-foreground transition hover:border-primary"
+      title={\`\${chain?.name} - click to disconnect\`}
     >
-      {address ? shortAddress(address) : "(unknown)"} ({chain?.name}) - disconnect
+      <span className="size-2 rounded-full bg-success" />
+      {address ? shortAddress(address) : "(unknown)"}
+      <span className="text-muted-foreground group-hover:text-foreground">disconnect</span>
     </button>
   );
 }
@@ -2193,6 +2237,10 @@ export function patchLayoutWithProviders(cwd: string = process.cwd()): LayoutPat
 // lightnode app's globals.css. Shipped as the scaffold's app/globals.css so
 // installs default to the real look instead of the create-next-app starter.
 export const SCAFFOLD_GLOBALS_CSS = `@import "tailwindcss";
+
+/* let Tailwind v4 see streamdown's classes so markdown answers are styled
+   (harmless when streamdown isn't installed - the path just matches nothing) */
+@source "../node_modules/streamdown/dist/index.js";
 
 /* dark mode via .dark class (we default the app to dark) */
 @custom-variant dark (&:is(.dark, .dark *));
@@ -2391,6 +2439,18 @@ body::before {
 /* signature lcai gradient (primary buttons / accents) */
 .bg-gradient-primary {
   background-image: var(--color-gradient-primary);
+}
+/* the lcai-chat connect-button gradient (pink -> purple) */
+.bg-gradient-btn {
+  background-image: linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%);
+  background-size: 200% auto;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
 }
 .text-gradient {
   background: linear-gradient(94deg, #dd00ac 10%, #7130c3 53%, #7064e9 96%);
