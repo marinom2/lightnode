@@ -484,6 +484,8 @@ export async function openSession(args: OpenSessionArgs): Promise<OpenSession> {
 
 export interface RunJobOpts {
   onChunk?: (chunk: string, totalSoFar: string) => void;
+  /** Human-readable progress, e.g. "Uploading prompt to chain..." then "Thinking...". */
+  onStage?: (stage: string) => void;
   jobCompletedTimeoutMs?: number;
   WebSocket?: WebSocketCtor;
   relayUrl?: string;
@@ -501,7 +503,7 @@ export async function runJobOnSession(
   attempt = 1,
 ): Promise<RunInferenceResult> {
   const { gateway, wallet, publicClient, network, sessionId, sessionKey, worker, fee, createTx } = session;
-  const { onChunk, jobCompletedTimeoutMs = 120_000 } = opts;
+  const { onChunk, onStage, jobCompletedTimeoutMs = 120_000 } = opts;
   const WS = pickWebSocket(opts.WebSocket);
   const relayUrl = opts.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
   // Shim so the job body below can keep referencing prepared.* unchanged.
@@ -600,6 +602,7 @@ export async function runJobOnSession(
   }
 
   // 4. encrypt + upload prompt
+  onStage?.("Uploading prompt to chain...");
   const promptHash = await submitPrompt(gateway, prepared.sessionKey, prompt);
 
   // 5. submitJob on-chain
@@ -625,6 +628,7 @@ export async function runJobOnSession(
   ).find((l) => l.transactionHash === submitTx && l.topics[0] === JOB_SUBMITTED_TOPIC);
   if (!jobLog) throw new Error("JobSubmitted log missing in submitJob receipt");
   const jobId = topicAsUint(jobLog.topics[1]);
+  onStage?.("Thinking...");
 
   // 6. wait for JobCompleted
   // The actual *result* is the WS-delivered, session-key-decrypted ciphertext.

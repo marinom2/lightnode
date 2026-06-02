@@ -1122,17 +1122,17 @@ export default function ChatWeb3() {
         setBusyStage("");
         patchLastAssistant({ text: totalSoFar });
       };
+      const onStage = (s: string) => setBusyStage(s);
+      const sendOpts = { onChunk, onStage };
 
       const chat = await ensureSession();
-      setBusyStage("Approve the per-turn transaction in your wallet...");
-      const result = await chat.send(prompt, { onChunk }).catch(async () => {
+      const result = await chat.send(prompt, sendOpts).catch(async () => {
         // Session expired or the worker stopped serving - reopen once and retry.
         sessionRef.current = null;
         patchLastAssistant({ text: "" });
         setBusyStage("Re-opening session...");
         const fresh = await ensureSession();
-        setBusyStage("Approve the per-turn transaction in your wallet...");
-        return fresh.send(prompt, { onChunk });
+        return fresh.send(prompt, sendOpts);
       });
 
       patchLastAssistant({
@@ -1218,7 +1218,7 @@ export default function ChatWeb3() {
                     )
                   ) : (
                     <div className="animate-pulse-dot pt-1 text-sm text-muted-foreground">
-                      {busyStage || "Writing on chain..."}
+                      {busyStage || "Thinking..."}
                     </div>
                   )}
                   {t.submitTx && (
