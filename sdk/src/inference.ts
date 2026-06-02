@@ -486,6 +486,8 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
   });
 
   const chunks: string[] = [];
+  let streamDone = false;
+  let streamDoneAt: number | null = null;
   const handleMessage = async (rawData: unknown) => {
     const raw =
       typeof rawData === "string"
@@ -501,22 +503,30 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     } catch {
       return;
     }
-    if (!frame?.payload) return;
-    if (frame.type === "chunk") {
+    // "complete" marks end-of-stream (it may or may not carry a payload).
+    // Record it so the JobCompleted wait can stop promptly instead of polling
+    // the full grace window after the answer is already in hand.
+    if (frame.type === "complete") {
+      streamDone = true;
+      streamDoneAt = Date.now();
+      if (chunks.length === 0 && frame.payload) {
+        try {
+          const piece = await decryptResponse(prepared.sessionKey, frame.payload);
+          chunks.push(piece);
+          if (onChunk) onChunk(piece, chunks.join(""));
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    if (frame.type === "chunk" && frame.payload) {
       try {
         const piece = await decryptResponse(prepared.sessionKey, frame.payload);
         chunks.push(piece);
         if (onChunk) onChunk(piece, chunks.join(""));
       } catch {
         /* control frame */
-      }
-    } else if (frame.type === "complete" && chunks.length === 0) {
-      try {
-        const piece = await decryptResponse(prepared.sessionKey, frame.payload);
-        chunks.push(piece);
-        if (onChunk) onChunk(piece, chunks.join(""));
-      } catch {
-        /* ignore */
       }
     }
   };
@@ -565,7 +575,8 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
   //     answer with txs.jobCompleted=null (the answer is still session-key
   //     authentic; the on-chain proof can be polled for separately by callers).
   const deadline = Date.now() + jobCompletedTimeoutMs;
-  const POST_CHUNKS_GRACE_MS = 45_000;
+  const POST_CHUNKS_GRACE_MS = 45_000; // fallback if the relay never sends a 'complete' frame
+  const POST_DONE_GRACE_MS = 8_000;    // once the answer is fully in, the worker commits JobCompleted within ~seconds
   const waitStart = Date.now();
   let firstChunkAt: number | null = chunks.length > 0 ? waitStart : null;
   const jobIdTopic = (`0x${jobId.toString(16).padStart(64, "0")}`) as `0x${string}`;
@@ -573,8 +584,12 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
   while (!completed) {
     const now = Date.now();
     if (now >= deadline) break;
+    // Answer fully received (relay sent 'complete'): wait only briefly for the
+    // on-chain proof, then return. The answer is already session-key authentic;
+    // callers get txs.jobCompleted=null and can poll the proof later if needed.
+    if (streamDone && now - (streamDoneAt ?? now) >= POST_DONE_GRACE_MS) break;
     if (firstChunkAt != null && now - firstChunkAt >= POST_CHUNKS_GRACE_MS) break;
-    await new Promise((res) => setTimeout(res, 3000));
+    await new Promise((res) => setTimeout(res, 1500));
     if (firstChunkAt == null && chunks.length > 0) firstChunkAt = Date.now();
     const logs = await publicClient.getLogs({
       address: network.jobRegistry as `0x${string}`,
@@ -599,8 +614,9 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     });
   }
 
-  // 7. grace period for the last relay frame, then close
-  await new Promise((res) => setTimeout(res, 4000));
+  // 7. grace period for the last relay frame, then close. If the stream already
+  // signaled 'complete', no more frames are coming - skip the wait.
+  await new Promise((res) => setTimeout(res, streamDone ? 300 : 4000));
   try {
     ws.close();
   } catch {
