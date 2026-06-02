@@ -342,6 +342,15 @@ function ScaffoldCard({ scaffold }: { scaffold: ScaffoldDef }) {
       {/* Blurb */}
       <p className="text-sm leading-relaxed text-content-soft">{scaffold.blurb}</p>
 
+      {/* Optional prerequisite (e.g. web3 scaffolds need a Next.js app). Shown
+          above the command so the visitor sees it before copy-pasting. */}
+      {scaffold.prereq ? (
+        <p className="flex items-start gap-1.5 text-xs text-content-soft">
+          <Terminal className="mt-[2px] size-3 shrink-0 opacity-60" />
+          <span>{scaffold.prereq}</span>
+        </p>
+      ) : null}
+
       {/* Command + copy button. Inline so the visitor can read AND copy. */}
       <div className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-surface-base-faint p-2 pl-3">
         <Terminal className="size-4 shrink-0 text-content-soft" />

@@ -96,6 +96,9 @@ export interface ScaffoldDef {
   blurb: string;
   /** The exact command the visitor copies. */
   command: string;
+  /** Optional one-line prerequisite shown above the command (e.g. that the
+   *  browser/web3 scaffolds must be run inside a Next.js app). */
+  prereq?: string;
   /** Bullet list of what the scaffold drops into the project. */
   includes: string[];
 }
@@ -271,7 +274,7 @@ console.log(JSON.stringify(chat.messages(), null, 2));`,
         kind: "server",
         title: "Server-paid chat",
         blurb: "Your funded wallet pays for every visitor's turn. Users never touch a wallet. SaaS chatbot pattern.",
-        command: "npx lightnode-sdk add chat",
+        command: "npx lightnode-sdk@latest add chat",
         includes: [
           "app/chat/page.tsx (streaming UI)",
           "app/api/inference/route.ts (streaming route)",
@@ -285,7 +288,8 @@ console.log(JSON.stringify(chat.messages(), null, 2));`,
         kind: "browser",
         title: "User-paid chat",
         blurb: "Each visitor signs from their own wallet. No backend, no PRIVATE_KEY, no per-call cost for you. Web3 dApp pattern.",
-        command: "npx lightnode-sdk add chat-web3",
+        command: "npx lightnode-sdk@latest add chat-web3",
+        prereq: "Run inside a Next.js app (npx create-next-app@latest .)",
         includes: [
           "app/chat-web3/page.tsx (wallet-signed)",
           "wagmi-based, mainnet + testnet aware",
@@ -357,7 +361,7 @@ console.log("completed tx :", ln.explorerTxUrl(txs.jobCompleted));`,
         kind: "server",
         title: "Server-paid inference",
         blurb: "Your funded wallet pays per call. POST a prompt, get the answer + on-chain proof. Same shape for classify, generate, evaluate.",
-        command: "npx lightnode-sdk add inference",
+        command: "npx lightnode-sdk@latest add inference",
         includes: [
           "app/api/inference/route.ts",
           "Dockerfile + docker-compose.yml",
@@ -370,7 +374,8 @@ console.log("completed tx :", ln.explorerTxUrl(txs.jobCompleted));`,
         kind: "browser",
         title: "User-paid inference",
         blurb: "Each visitor's wallet pays per call. One-shot inference UI with on-chain receipts. No backend.",
-        command: "npx lightnode-sdk add inference-web3",
+        command: "npx lightnode-sdk@latest add inference-web3",
+        prereq: "Run inside a Next.js app (npx create-next-app@latest .)",
         includes: [
           "app/inference-web3/page.tsx",
           "System + prompt textareas, verdict panel",
@@ -384,7 +389,7 @@ console.log("completed tx :", ln.explorerTxUrl(txs.jobCompleted));`,
         kind: "server",
         title: "Server-paid AI judge",
         blurb: "The LightChallenge pattern. Post criteria + evidence, get structured pass/fail/confidence + on-chain proof.",
-        command: "npx lightnode-sdk add judge",
+        command: "npx lightnode-sdk@latest add judge",
         includes: [
           "app/api/judge/route.ts (POST verdict)",
           "Defensive JSON parsing (model adds prose? still works)",
@@ -397,7 +402,8 @@ console.log("completed tx :", ln.explorerTxUrl(txs.jobCompleted));`,
         kind: "browser",
         title: "User-paid AI judge",
         blurb: "Same judge pattern, the user pays for their own verdict. Fits challenge completion grading, NFT trait verification, content moderation.",
-        command: "npx lightnode-sdk add judge-web3",
+        command: "npx lightnode-sdk@latest add judge-web3",
+        prereq: "Run inside a Next.js app (npx create-next-app@latest .)",
         includes: [
           "app/judge-web3/page.tsx",
           "Criteria + evidence inputs",
