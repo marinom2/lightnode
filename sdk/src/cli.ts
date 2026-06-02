@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
-import { addInference, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge } from "./add.js";
+import { addInference, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
@@ -483,7 +483,7 @@ async function main() {
       const template = (flag("--template") as "auto" | "nextjs-api" | "hono" | "node" | undefined) ?? "auto";
       const force = process.argv.includes("--force");
       const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
-      const known = ["inference", "chat", "chat-web3", "agent", "judge", "analytics-dashboard", "nft-mint-with-inference"];
+      const known = ["inference", "chat", "chat-web3", "wagmi-setup", "agent", "judge", "analytics-dashboard", "nft-mint-with-inference"];
       if (!known.includes(sub ?? "")) {
         die(`usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`);
       }
@@ -494,13 +494,15 @@ async function main() {
             ? addNftMint({ template, network, force })
             : sub === "chat-web3"
               ? addChatWeb3({ template, network, force })
-              : sub === "chat"
-                ? addChat({ template, network, force })
-                : sub === "agent"
-                  ? addAgent({ template, network, force })
-                  : sub === "judge"
-                    ? addJudge({ template, network, force })
-                    : addInference({ template, network, force });
+              : sub === "wagmi-setup"
+                ? addWagmiSetup({ template, network, force })
+                : sub === "chat"
+                  ? addChat({ template, network, force })
+                  : sub === "agent"
+                    ? addAgent({ template, network, force })
+                    : sub === "judge"
+                      ? addJudge({ template, network, force })
+                      : addInference({ template, network, force });
       console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
       for (const f of result.written) {
         if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
@@ -512,22 +514,32 @@ async function main() {
       } else {
         console.log(`\nNext steps (these files were added to your CURRENT folder, not a new project):`);
         console.log(`  1. ${result.install}`);
-        if (sub === "chat-web3") {
+        if (sub === "wagmi-setup") {
+          console.log(`  2. Import Providers in app/layout.tsx and wrap children:`);
+          console.log(`     import { Providers } from "./providers";`);
+          console.log(`     // <body><Providers>{children}</Providers></body>`);
+          console.log(`  3. Drop <ConnectButton /> anywhere you want a connect UI:`);
+          console.log(`     import { ConnectButton } from "@/components/connect-button";`);
+          console.log(`  4. You can now use any wagmi hook (useAccount, useWalletClient, ...).`);
+          console.log(`     Wallets on chains other than 9200/8200 will be prompted to switch.`);
+        } else if (sub === "chat-web3") {
           // chat-web3 has no PRIVATE_KEY (each visitor pays their own way).
           const needsWagmi = (result as { needsWagmi?: boolean }).needsWagmi;
           if (needsWagmi) {
-            console.log(`  2. Set up wagmi in your app if you have not already.`);
-            console.log(`     See https://wagmi.sh/react/getting-started - wrap your root layout with`);
-            console.log(`     <WagmiProvider config={wagmiConfig}> and add a Connect button using`);
-            console.log(`     useConnect / RainbowKit / Reown AppKit / ConnectKit, whatever you prefer.`);
-            console.log(`  3. npm run dev, open /chat-web3`);
-            console.log(`  4. Connect a wallet on LightChain ${result.network === "mainnet" ? "mainnet (chainId 9200)" : "testnet (chainId 8200)"}.`);
+            console.log(`  2. Get wagmi wired up with one command:`);
+            console.log(`     npx lightnode add wagmi-setup`);
+            console.log(`     (drops lib/wagmi.ts + app/providers.tsx + components/connect-button.tsx)`);
+            console.log(`  3. Wrap your layout with <Providers> (see step 2 output) and drop`);
+            console.log(`     <ConnectButton /> somewhere on the page.`);
+            console.log(`  4. npm run dev, open /chat-web3, connect on chainId ${result.network === "mainnet" ? "9200" : "8200"}.`);
             console.log(`     Mainnet llama3-8b costs 0.02 LCAI per turn; testnet is free from https://lightfaucet.ai`);
           } else {
             console.log(`  2. npm run dev, open /chat-web3`);
             console.log(`  3. Connect a wallet on LightChain ${result.network === "mainnet" ? "mainnet (chainId 9200)" : "testnet (chainId 8200)"}.`);
             console.log(`     Mainnet llama3-8b costs 0.02 LCAI per turn; testnet is free from https://lightfaucet.ai`);
           }
+          console.log(`\n  Note: chat-web3 has NO server-side route, so it scales infinitely on`);
+          console.log(`  static hosting (Vercel/Netlify/Cloudflare Pages free tier all work).`);
         } else if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent" || sub === "judge") {
           console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
           if (sub === "agent" && result.template === "nextjs-api") {
@@ -536,8 +548,8 @@ async function main() {
           } else if (sub === "agent") {
             console.log(`  3. AGENT_INTERVAL_MS=3600000 npx tsx agent.ts   # or run under pm2/systemd`);
           } else if (sub === "chat" && result.template === "nextjs-api") {
-            console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
-            console.log(`  4. npm run dev, open /chat`);
+            console.log(`  3. npm run dev, open /chat`);
+            console.log(`     (the chat page + /api/inference streaming route are both already wired up)`);
           } else if (sub === "chat") {
             console.log(`  3. npx tsx chat-repl.ts  (interactive terminal chat)`);
           } else if (sub === "judge" && result.template === "nextjs-api") {
@@ -565,6 +577,13 @@ async function main() {
           } else {
             console.log(`  2. npx tsx lightnode-analytics.ts`);
           }
+        }
+        // Hosting warning for server-side commands that ship LIGHTNODE-HOSTING.md.
+        if (result.template === "nextjs-api"
+            && (sub === "inference" || sub === "chat" || sub === "judge")) {
+          console.log(`\n  Hosting: a mainnet inference takes 60-90s. Vercel Hobby (free) times`);
+          console.log(`  out at 10s; Vercel Pro at 60s. See LIGHTNODE-HOSTING.md (in this folder)`);
+          console.log(`  for hosts that work - Railway / Fly / Render handle long calls fine.`);
         }
         if (result.network === "testnet") {
           console.log(`\nNo wallet yet? Make one:  npx lightnode wallet new   then fund it free below.`);
