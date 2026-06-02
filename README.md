@@ -183,11 +183,15 @@ npx lightnode add judge-web3                    # evaluator UI, wallet-signed
 npx lightnode add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
 ```
 
-The `*-web3` scaffolders and `wagmi-setup` write Next.js pages, so run them
-inside a Next.js app (`npx create-next-app@latest .` first if you have none).
+The `*-web3` scaffolders are one command end to end: run in an empty folder and
+they scaffold a Next.js app, write the page with a wired Connect button, bundle
+the wagmi config + providers + connect button, wrap your layout with
+`<Providers>`, and `npm install` the deps. Run inside an existing Next.js app
+and they skip the scaffold and just add what's missing. Opt out with
+`--no-scaffold` and `--no-install`.
 
 All `add` commands accept `--template auto|nextjs-api|hono|node`,
-`--net testnet|mainnet`, and `--force`.
+`--net testnet|mainnet`, `--force`, `--no-install`, and `--no-scaffold`.
 
 > If `add <name>` reports an unknown target, an old global install or npx cache
 > is shadowing the registry. Force the current release with
@@ -249,7 +253,7 @@ and what file ends up where.
 | A Discord bot, Cloudflare Worker, or CLI tool | `npm install lightnode-sdk viem ws` plus the `hono-server` snippet | A Hono `/inference` endpoint you can host anywhere with Node. |
 | A user-facing leaderboard or worker dashboard | `cd your-app && npx lightnode add analytics-dashboard` | A read-only page that pulls live network + worker stats and renders them. No keys, no wallet. |
 | An NFT mint where each mint generates unique metadata with AI | `cd your-app && npx lightnode add nft-mint-with-inference` | A mint flow that runs an inference, anchors the answer to a content hash, and returns metadata. |
-| You want users to pay per call from their own wallet (no server custody) | `cd your-app && npx lightnode add chat-web3` (or `inference-web3` / `judge-web3`, then `add wagmi-setup`) | The wallet-connect path as a ready Next.js page. Each visitor signs `createSession` + `submitJob` in their browser and pays the LCAI directly - no backend, no `.env`. |
+| You want users to pay per call from their own wallet (no server custody) | `npx lightnode add chat-web3` (or `inference-web3` / `judge-web3`) | One command, even in an empty folder: scaffolds Next.js, writes the page with a wired Connect button, bundles wagmi + providers, wraps the layout, and installs deps. Each visitor signs `createSession` + `submitJob` in their browser and pays the LCAI directly - no backend, no `.env`. |
 
 ### Two patterns: server-pays vs user-pays
 

@@ -138,14 +138,16 @@ npx lightnode add nft-mint-with-inference     # generate NFT metadata with AI
 ```
 
 **User-paid** (no backend, each visitor signs + pays from their own wallet).
-These write Next.js pages, so run them inside a Next.js app
-(`npx create-next-app@latest .` first if you have none), then `add wagmi-setup`:
+One command, even in an empty folder: each `*-web3` scaffolder creates a Next.js
+app if there isn't one, writes the page with a wired Connect button, bundles the
+wagmi setup, wraps your layout with `<Providers>`, and installs the deps. In an
+existing app it just adds what's missing. `--no-scaffold` / `--no-install` opt out.
 
 ```bash
 npx lightnode add inference-web3              # one-shot inference UI, wallet-signed
 npx lightnode add chat-web3                    # chat UI, wallet-signed
 npx lightnode add judge-web3                   # evaluator UI, wallet-signed
-npx lightnode add wagmi-setup                  # wallet wiring (providers + connect button)
+npx lightnode add wagmi-setup                  # wallet wiring on its own (providers + connect button)
 ```
 
 After it runs, follow its printed steps (install, set up `.env`, then run with

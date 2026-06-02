@@ -484,11 +484,15 @@ npx lightnode add judge-web3                    # evaluator UI, wallet-signed
 npx lightnode add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
 ```
 
-The `*-web3` scaffolders and `wagmi-setup` write Next.js pages, so run them
-inside a Next.js app (`npx create-next-app@latest .` first if you have none).
+The `*-web3` scaffolders are one command end to end: run in an empty folder and
+they scaffold a Next.js app, write the page with a wired Connect button, bundle
+the wagmi config + providers + connect button, wrap your layout with
+`<Providers>`, and `npm install` the deps. Run inside an existing Next.js app
+and they skip the scaffold and just add what's missing. Opt out of the
+automation with `--no-scaffold` and `--no-install`.
 
 All `add` commands accept `--template auto|nextjs-api|hono|node`,
-`--net testnet|mainnet`, and `--force`.
+`--net testnet|mainnet`, `--force`, `--no-install`, and `--no-scaffold`.
 
 > If `add <name>` reports an unknown target, your `npx` cache is serving an
 > older CLI. Force the current release: `npx lightnode-sdk@latest add <name>`.
