@@ -2145,6 +2145,324 @@ export function patchLayoutWithProviders(cwd: string = process.cwd()): LayoutPat
   return { path: rel, patched: true };
 }
 
+// ---------------------------------------------------------------------------
+// Fresh-scaffold wiring: when `add <x>-web3` scaffolds a brand-new Next.js app
+// (bare folder), the create-next-app starter page sits at `/` and the generated
+// page sits at `/<x>-web3`, so `npm run dev` + localhost:3000 lands on the
+// starter, not the chat. This makes the generated page the homepage and ships
+// the LightChain theme so the first render is the real thing.
+//
+// Only ever invoked on a scaffold WE just created, so overwriting page.tsx and
+// globals.css is safe - there is no user content to clobber. In an existing app
+// none of this runs; the page keeps its dedicated /<x>-web3 route untouched.
+// ---------------------------------------------------------------------------
+
+// The LightChain chat theme (Tailwind v4 tokens, light + dark), ported from the
+// lightnode app's globals.css. Shipped as the scaffold's app/globals.css so
+// installs default to the real look instead of the create-next-app starter.
+export const SCAFFOLD_GLOBALS_CSS = `@import "tailwindcss";
+
+/* dark mode via .dark class (we default the app to dark) */
+@custom-variant dark (&:is(.dark, .dark *));
+
+/* design tokens (light) - ported from lcai-chat-v2 */
+:root {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --background: #ffffff;
+  --primary: #6767e9;
+  --primary-600: #5a4fd8;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: hsl(240 10% 3.9%);
+  --primary-foreground: #fafafa;
+  --secondary: hsl(240 4.8% 95.9%);
+  --secondary-foreground: hsl(240 5.9% 10%);
+  --muted: hsl(240 4.8% 95.9%);
+  --muted-foreground: hsl(240 3.8% 46.1%);
+  --accent: hsl(240 4.8% 95.9%);
+  --accent-foreground: hsl(240 5.9% 10%);
+  --destructive: #ef4d6a;
+  --destructive-foreground: hsl(0 0% 98%);
+  --success: #15bd77;
+  --warning: #eaa53d;
+  --border: hsl(240 5.9% 90%);
+  --input: hsl(240 5.9% 90%);
+  --ring: hsl(240 10% 3.9%);
+  --radius: 0.625rem;
+
+  --surface-base-subtle: rgba(34, 35, 42, 0.02);
+  --surface-base-faint: rgba(14, 18, 27, 0.04);
+  --surface-base-light: rgba(204, 206, 239, 0.16);
+  --surface-elevation-light: #ffffff;
+
+  --content-primary: #0f0f14;
+  --content-default: #373842;
+  --content-soft: #656678;
+  --content-extraLight: #9798b6;
+
+  --border-soft: rgba(14, 18, 27, 0.08);
+  --border-light: rgba(14, 18, 27, 0.06);
+}
+
+/* design tokens (dark) */
+.dark {
+  --background: #070710;
+  --foreground: hsl(0 0% 98%);
+  --card: #0f0f14;
+  --card-foreground: hsl(0 0% 98%);
+  --popover: #0f0f14;
+  --popover-foreground: hsl(0 0% 98%);
+  --primary: #7064e9;
+  --primary-600: #8c71f6;
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(240 3.7% 15.9%);
+  --secondary-foreground: hsl(0 0% 98%);
+  --muted: hsl(240 3.7% 15.9%);
+  --muted-foreground: hsl(240 5% 64.9%);
+  --accent: hsl(240 3.7% 15.9%);
+  --accent-foreground: hsl(0 0% 98%);
+  --destructive: #fb5a76;
+  --destructive-foreground: hsl(0 0% 98%);
+  --success: #22d68a;
+  --warning: #f5be5c;
+  --border: hsl(240 3.7% 15.9%);
+  --input: hsl(240 3.7% 15.9%);
+  --ring: hsl(240 4.9% 83.9%);
+
+  --surface-base-subtle: rgba(204, 206, 239, 0.02);
+  --surface-base-faint: rgba(204, 206, 239, 0.04);
+  --surface-base-light: rgba(204, 206, 239, 0.08);
+  --surface-elevation-light: #0f0f14;
+
+  --content-primary: #cccef0;
+  --content-default: #9798b6;
+  --content-soft: rgba(154, 156, 207, 0.8);
+  --content-extraLight: #9798b6;
+
+  --border-soft: rgba(204, 206, 239, 0.12);
+  --border-light: rgba(204, 206, 239, 0.08);
+}
+
+/* theme mapping (Tailwind v4 @theme) */
+@theme inline {
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-600: var(--primary-600);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-surface-base-subtle: var(--surface-base-subtle);
+  --color-surface-base-faint: var(--surface-base-faint);
+  --color-surface-base-light: var(--surface-base-light);
+  --color-surface-elevation-light: var(--surface-elevation-light);
+  --color-surface-base-brand-default: #693ee0;
+  --color-surface-base-brand-strong: #8c71f6;
+
+  --color-content-primary: var(--content-primary);
+  --color-content-default: var(--content-default);
+  --color-content-soft: var(--content-soft);
+  --color-content-extraLight: var(--content-extraLight);
+
+  --color-bdr-soft: var(--border-soft);
+  --color-bdr-light: var(--border-light);
+
+  --color-gradient-primary: linear-gradient(270deg, #7064e9 0%, #dd00ac 100%);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    overflow-x: hidden;
+  }
+  html {
+    overflow-x: hidden;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  /* visible keyboard focus across interactive elements */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* respect reduced-motion: kill non-essential animation */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ambient app background (gradient mesh behind everything) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 50% -6%, rgba(221, 0, 172, 0.10), transparent 60%),
+    radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.14), transparent 60%),
+    radial-gradient(50% 40% at 88% -2%, rgba(112, 100, 233, 0.12), transparent 60%),
+    radial-gradient(45% 45% at 50% 115%, rgba(112, 100, 233, 0.07), transparent 60%);
+}
+.dark body::before {
+  background:
+    radial-gradient(60% 50% at 50% -6%, rgba(221, 0, 172, 0.12), transparent 60%),
+    radial-gradient(55% 45% at 12% -8%, rgba(112, 100, 233, 0.18), transparent 60%),
+    radial-gradient(50% 40% at 88% -2%, rgba(112, 100, 233, 0.14), transparent 60%),
+    radial-gradient(45% 45% at 50% 118%, rgba(112, 100, 233, 0.10), transparent 60%);
+}
+
+/* minimal scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+`;
+
+/** Map an `add` target to the route folder its page lives in. */
+const WEB3_ROUTE_DIR: Record<string, string> = {
+  "chat-web3": "chat-web3",
+  "inference-web3": "inference-web3",
+  "judge-web3": "judge-web3",
+};
+
+export interface ScaffoldWiring {
+  written: WrittenFile[];
+  /** The route now also served at `/` (e.g. "/chat-web3"), or null if nothing was wired. */
+  homepageRoute: string | null;
+  /** Whether the `dark` class was added to <html> (dark kept as the default). */
+  darkDefault: boolean;
+}
+
+/** The app/page.tsx we drop in to make the generated page the homepage. It
+ *  re-exports the real page so its documented /<target> route still works. */
+function homepageReexport(dir: string, target: string): string {
+  return `// app/page.tsx
+// Generated by 'lightnode add ${target}'. Makes the ${dir} page the homepage so
+// 'npm run dev' + http://localhost:3000 lands on it directly. The page itself
+// still lives at app/${dir}/page.tsx and is also served at /${dir}.
+export { default } from "./${dir}/page";
+`;
+}
+
+/** Add the \`dark\` class to the layout's <html> element so dark stays the
+ *  default theme. Returns the patched source, or null if <html> was not found
+ *  or already carries a \`dark\` class. Handles className as a template literal,
+ *  a string literal, or absent. */
+function withDarkHtml(source: string): string | null {
+  const match = source.match(/<html\b[^>]*>/);
+  if (!match) return null;
+  const tag = match[0];
+  // Already dark? Cover both className={`...dark...`} and className="...dark...".
+  if (/className=\{`[^`]*\bdark\b/.test(tag) || /className=(["'])[^"']*\bdark\b/.test(tag)) return null;
+
+  if (/className=\{`/.test(tag)) {
+    return source.replace(tag, tag.replace(/className=\{`/, "className={`dark "));
+  }
+  if (/className=(["'])/.test(tag)) {
+    return source.replace(tag, tag.replace(/className=(["'])/, 'className=$1dark '));
+  }
+  // No className on <html>: add one.
+  return source.replace(tag, tag.replace(/<html\b/, '<html className="dark"'));
+}
+
+function setDarkDefaultOnLayout(cwd: string): boolean {
+  const abs = findLayoutFile(cwd);
+  if (!abs) return false;
+  let source: string;
+  try {
+    source = fs.readFileSync(abs, "utf8");
+  } catch {
+    return false;
+  }
+  const patched = withDarkHtml(source);
+  if (patched === null) return false;
+  try {
+    fs.writeFileSync(abs, patched);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Wire a freshly scaffolded Next.js app so the generated -web3 page is the
+ * homepage and the LightChain theme + dark default are in place. No-op for any
+ * target without a known route folder.
+ */
+export function wireFreshScaffold(target: string, opts: AddOpts = {}): ScaffoldWiring {
+  const cwd = opts.cwd ?? process.cwd();
+  const dir = WEB3_ROUTE_DIR[target];
+  const written: WrittenFile[] = [];
+  if (!dir) return { written, homepageRoute: null, darkDefault: false };
+
+  // 1. Ship the LightChain theme, replacing the create-next-app starter globals.
+  written.push(writeFile(path.join(cwd, "app/globals.css"), SCAFFOLD_GLOBALS_CSS, true));
+
+  // 2. Make the generated page the homepage (replaces the starter page.tsx).
+  written.push(writeFile(path.join(cwd, "app/page.tsx"), homepageReexport(dir, target), true));
+
+  // 3. Keep dark as the default theme (matches lightnode.app).
+  const darkDefault = setDarkDefaultOnLayout(cwd);
+
+  return { written, homepageRoute: `/${dir}`, darkDefault };
+}
+
 const NEXTJS_JUDGE_ROUTE = `// app/api/judge/route.ts
 // Generated by 'lightnode add judge'. See https://lightnode.app/build
 // The LightChallenge-style evaluator: post evidence + criteria, get a

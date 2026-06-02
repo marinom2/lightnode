@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, SDK_VERSION, type NetworkId, type AgentTool } from "./index.js";
-import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup, patchLayoutWithProviders, type LayoutPatch } from "./add.js";
+import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup, patchLayoutWithProviders, wireFreshScaffold, type LayoutPatch, type ScaffoldWiring } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
@@ -600,9 +600,10 @@ async function main() {
       // A Next.js client page needs a Next.js app to live in. In a bare folder,
       // scaffold one first so the generated page renders instead of throwing
       // "Cannot find module 'react'". Opt out with --no-scaffold.
-      if (NEXT_PAGE_TARGETS.has(sub ?? "") && !existsSync(join(cwd, "package.json")) && !noScaffold) {
-        scaffoldNextApp(cwd, sub ?? "");
-      }
+      const didScaffold =
+        NEXT_PAGE_TARGETS.has(sub ?? "") && !existsSync(join(cwd, "package.json")) && !noScaffold
+          ? scaffoldNextApp(cwd, sub ?? "")
+          : false;
 
       // ---- write the requested files ----
       const result =
@@ -632,6 +633,17 @@ async function main() {
         else console.log(`  ⤴ ${layout.path} (${layout.reason})`);
       }
 
+      // ---- fresh scaffold only: make the generated page the homepage and ship
+      // the LightChain theme so localhost:3000 lands on the chat, not the
+      // create-next-app starter. Skipped in an existing app (nothing to clobber).
+      let wiring: ScaffoldWiring | null = null;
+      if (didScaffold && isWeb3Page) {
+        wiring = wireFreshScaffold(sub as string, { cwd });
+        printWritten(wiring.written);
+        if (wiring.homepageRoute) console.log(`  ✓ app/page.tsx (chat is now the homepage at /)`);
+        if (wiring.darkDefault) console.log(`  ✓ app/layout.tsx (dark theme default)`);
+      }
+
       // ---- install dependencies (opt out with --no-install) ----
       const installed = noInstall ? false : installDeps(result.install, cwd);
 
@@ -643,7 +655,9 @@ async function main() {
         console.log(`\n${installed ? "✓ Done - deps installed, wagmi + layout wired. Just run it:" : "Files written. Next:"}`);
         if (!installed) console.log(`  ${result.install}`);
         console.log(`  npm run dev`);
-        console.log(`  open http://localhost:3000${route}  and click Connect wallet (chainId ${chainId})`);
+        const openPath = wiring ? "" : route; // fresh scaffold serves the page at /
+        console.log(`  open http://localhost:3000${openPath}  and click Connect wallet (chainId ${chainId})`);
+        if (wiring) console.log(`  (also reachable at ${route})`);
         console.log(`  ${result.network === "mainnet" ? "llama3-8b costs 0.02 LCAI per call" : "testnet is free"}`);
         if (layoutNeedsManual) {
           console.log(`\nHeads up: couldn't auto-wire the layout (${layout?.reason}).`);
