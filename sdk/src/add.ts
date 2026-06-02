@@ -2288,7 +2288,7 @@ export const SCAFFOLD_GLOBALS_CSS = `@import "tailwindcss";
 
 /* let Tailwind v4 see streamdown's classes so markdown answers are styled
    (harmless when streamdown isn't installed - the path just matches nothing) */
-@source "../node_modules/streamdown/dist/index.js";
+@source "../node_modules/streamdown/dist";
 
 /* dark mode via .dark class (we default the app to dark) */
 @custom-variant dark (&:is(.dark, .dark *));
