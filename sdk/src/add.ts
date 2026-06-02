@@ -46,57 +46,72 @@ function detectTemplate(cwd: string): Template {
   return "node";
 }
 
-const HOSTING_GUIDE = `# Hosting LightChain AI inference - your options
+const HOSTING_GUIDE = `# Hosting your LightChain AI app
 
-A single LightChain mainnet inference takes **60-90 seconds** under normal
-load (the workers do the model run, attest the result on-chain, and return
-the answer). If your server-side route has a function timeout shorter than
-that, every call will fail with a generic timeout error.
+A single LightChain mainnet inference takes **60-90 seconds** (the workers
+run the model, attest the result on-chain, and return the answer). Anywhere
+that puts a short timeout on your request will fail with a generic timeout
+error. So the question is just: how do you give your route enough time to
+finish?
 
-This file is a quick reference for picking a host that actually finishes
-the request. If you used \`lightnode add chat-web3\`, ignore everything
-below - that path has NO server-side route to worry about.
+If you used \`lightnode add chat-web3\`, skip this file - that path has NO
+server-side route, the visitor's own browser does the wait.
 
-## TL;DR
+## The clean answer: run it yourself
 
-| Need                                  | Use                            |
-|---------------------------------------|--------------------------------|
-| Zero infra, users pay (Web3 dApp)     | \`lightnode add chat-web3\`      |
-| Cheapest server-side host that works  | Railway / Fly.io / Render      |
-| Already on Vercel and need it to fit  | Vercel Pro (60s) + streaming   |
-| You self-host already (Docker, VPS)   | Anywhere - no timeout to fight |
+This template ships with a **Dockerfile + docker-compose.yml** so you can
+run the entire stack on your own machine, your own VPS, or anywhere Docker
+runs. Long-running Node processes have no timeout. The result:
 
-## The detailed table
+\`\`\`bash
+docker compose up --build
+# → http://localhost:3000 ready, no signup, no per-call cost beyond your
+#   LCAI fee, no platform vendor lock-in.
+\`\`\`
 
-| Host                | Free / Hobby timeout       | Paid timeout                | Verdict |
-|---------------------|----------------------------|-----------------------------|---------|
-| Vercel Hobby (free) | **10 seconds**             | -                           | **DOES NOT WORK** for mainnet inference. Every call times out. |
-| Vercel Pro ($20/mo) | -                          | 60s default, up to 800s with \`maxDuration\` config | Works if calls finish under 60s; 70-80s calls cut it close. Stream tokens to keep the connection warm. |
-| Cloudflare Workers  | 30s CPU                    | unbounded with Durable Objects | Free tier 30s is too tight; Workers + DO works but is complex. |
-| Railway             | none                       | none                        | **Great fit.** $5/mo for the smallest container, no timeout. Deploy a plain Node server or Next.js. |
-| Fly.io              | none                       | none                        | **Great fit.** Free tier covers small apps, scales to paid. |
-| Render              | none                       | none                        | **Great fit.** $7/mo for the smallest web service. |
-| Netlify Functions   | 26s sync / 15min background | 26s sync / 15min background | Use background functions for inference; sync functions time out. |
-| AWS Lambda          | 15 min                     | 15 min                      | Works, but WebSocket setup for streaming is involved. |
-| Self-host (Docker)  | no limit                   | no limit                    | **Works anywhere.** ECS, Cloud Run, your own VPS, fine. |
+That's the recommended path. You own the box, you own the keys, you own
+the uptime. Costs as much as the VPS does - $5/mo on Hetzner gets you a
+2-core machine that handles plenty of traffic.
 
-## What I recommend
+### Where to run that container
 
-1. **Building a Web3 app where users have wallets?** Switch to \`lightnode add
-   chat-web3\`. Each user signs and pays from their own wallet. You host the
-   static page (Vercel/Netlify/Cloudflare Pages free tier all work). No timeout
-   to fight because there is no server-side inference route.
+| Where                    | Cost                  | Notes |
+|--------------------------|-----------------------|-------|
+| Your laptop / home server | free                 | Perfect for dev + small personal projects. Expose via Cloudflare Tunnel or Tailscale Funnel if you want a public URL. |
+| Hetzner CX22             | ~€4/mo                | 2 CPU, 4 GB RAM. Generous bandwidth. EU-based. |
+| DigitalOcean droplet     | $4/mo                 | 1 CPU, 512 MB. Bumps to $6 for 1 GB. |
+| OVH VPS                  | ~€3/mo                | Cheap, EU. |
+| AWS Lightsail            | $5/mo                 | 1 CPU, 1 GB. AWS billing if you want it. |
+| Your existing k8s        | $0 marginal           | Just \`docker push\` and \`kubectl apply\`. |
+| Fly.io                   | free tier + $0-5/mo   | Their Docker-native platform, cleanest UX of the paid options. |
+| Railway                  | $5/mo                 | Same idea. No timeout, easy deploys. |
+| Render                   | $7/mo                 | Same idea. |
+| Google Cloud Run         | pay-per-request       | Scales to zero. Watch the 60-minute request limit. |
 
-2. **Building a SaaS chatbot where users do NOT have wallets?** Deploy your
-   inference route on Railway or Fly. Both have no function timeout, scale
-   to traffic, and cost ~$5/mo for small apps. Cheaper than Vercel Pro.
+## When you'd pick a managed platform instead
 
-3. **Already committed to Vercel?** Upgrade to Pro and add streaming. The
-   chat template generated by \`lightnode add chat\` already uses streaming
-   tokens, so the connection stays warm while the model runs.
+| Platform            | Trade-off |
+|---------------------|-----------|
+| Vercel Pro ($20/mo) | If you're already deploying your Next.js app on Vercel and don't want to split infra. The 60s function cap is tight for mainnet (70-80s calls cut it close); rely on streaming to keep the connection warm. **Hobby tier (free) does NOT work** - 10s cap, every call times out. |
+| Netlify             | 26s sync function cap is too tight. Use Netlify's "background functions" (15min) and adapt the route to write the result to KV / a webhook. More work. |
+| Cloudflare Workers  | 30s on free, unbounded with Durable Objects. The WebSocket relay setup is more involved than a plain Node server. |
 
-4. **Have a Docker setup already?** Run the inference route in your existing
-   container. No timeout, no per-call cost beyond your existing infra.
+The free-tier serverless platforms (Vercel Hobby, Netlify free, Cloudflare
+free) **all fail** at the 60-90s mark. There's no way around that on those
+plans short of upgrading. If you're not paying anyway, self-host - it's
+strictly cheaper and faster than a $20/mo plan.
+
+## What I'd actually pick
+
+- **First time trying this out**: \`docker compose up\` on your laptop. Free,
+  works in 30 seconds, real end-to-end test of your code.
+- **Going to production with users**: same Dockerfile on a $5/mo Hetzner or
+  Fly VM. You're done; it'll handle plenty of traffic.
+- **You already have a Next.js app on Vercel**: upgrade to Pro and keep your
+  build pipeline. The streaming route works under their 60s cap for most
+  mainnet calls.
+- **You're building a Web3 dApp**: re-run \`lightnode add chat-web3\`. No
+  backend, no LCAI cost for you - each user pays their own way.
 
 ## Why the request is slow at all
 
@@ -113,7 +128,77 @@ and worker pickup. The protocol's verifiable-AI guarantee comes from doing
 all of this on-chain instead of just hitting an OpenAI-style API, which is
 the reason the call takes 60-90s instead of 1-2s. There is no way to
 shortcut this on the SDK side; the host just has to allow long-running
-functions.
+processes - which is exactly what a plain Node server (or Docker container)
+already does for free.
+`;
+
+/**
+ * Dockerfile that builds your Next.js app and runs it as a long-running
+ * Node server. There is no function timeout on a plain server, so a 60-90s
+ * mainnet inference just works. Multi-stage build keeps the runtime image
+ * around 200 MB.
+ */
+const NEXTJS_DOCKERFILE = `# Generated by 'lightnode add chat' (or 'add inference' / 'add judge').
+# Build a Next.js production image; run with 'docker compose up --build'.
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=optional
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+EXPOSE 3000
+# Long-running Node process - no function timeout to fight. Mainnet inference
+# calls (60-90s) complete normally because the process just stays up.
+CMD ["npm", "start"]
+`;
+
+/**
+ * docker-compose.yml. The 'env_file' line wires .env from the project root
+ * into the container at runtime, so the same PRIVATE_KEY a 'npm run dev'
+ * session uses also flows to the container build.
+ */
+const NEXTJS_DOCKER_COMPOSE = `# Generated by 'lightnode add chat' (or 'add inference' / 'add judge').
+# Quick start: docker compose up --build
+# (then visit http://localhost:3000)
+services:
+  app:
+    build: .
+    image: lightnode-app
+    container_name: lightnode-app
+    ports:
+      - "3000:3000"
+    # PRIVATE_KEY, NETWORK, MODEL are read from .env at runtime.
+    # Make sure .env exists in the same folder as this file (cp .env.example .env).
+    env_file:
+      - .env
+    restart: unless-stopped
+`;
+
+const DOCKERIGNORE = `# Generated by 'lightnode add chat' (or 'add inference' / 'add judge').
+.git
+.gitignore
+node_modules
+.next
+.env
+.env.local
+.env.*.local
+LIGHTNODE-HOSTING.md
+README.md
+*.log
 `;
 
 const ENV_EXAMPLE = (net: Network) => `# Funded private key. Testnet works free (faucet at https://lightfaucet.ai).
@@ -274,6 +359,9 @@ export function addInference(opts: AddOpts = {}): { written: WrittenFile[]; inst
   if (template === "nextjs-api") {
     written.push(writeFile(path.join(cwd, "app/api/inference/route.ts"), NEXTJS_ROUTE, force));
     written.push(writeFile(path.join(cwd, "LIGHTNODE-HOSTING.md"), HOSTING_GUIDE, force));
+    written.push(writeFile(path.join(cwd, "Dockerfile"), NEXTJS_DOCKERFILE, force));
+    written.push(writeFile(path.join(cwd, "docker-compose.yml"), NEXTJS_DOCKER_COMPOSE, force));
+    written.push(writeFile(path.join(cwd, ".dockerignore"), DOCKERIGNORE, force));
   } else if (template === "hono") {
     written.push(writeFile(path.join(cwd, "lightchain-inference.ts"), HONO_HANDLER, force));
   } else {
@@ -1327,12 +1415,16 @@ export function addChat(opts: AddOpts = {}): { written: WrittenFile[]; install: 
   const written: WrittenFile[] = [];
 
   if (template === "nextjs-api") {
-    // 'add chat' is now self-contained: it writes BOTH the chat page AND
-    // the streaming inference route. Previously the user had to remember
-    // to also run 'add inference' separately, which was easy to miss.
+    // 'add chat' is self-contained: it writes the chat page, the streaming
+    // inference route, the hosting guide, AND the Docker setup so the dev
+    // can run the whole stack locally (or anywhere Docker runs) with one
+    // command. No external host signup, no function-timeout fights.
     written.push(writeFile(path.join(cwd, "app/chat/page.tsx"), NEXTJS_CHAT_PAGE, force));
     written.push(writeFile(path.join(cwd, "app/api/inference/route.ts"), NEXTJS_INFERENCE_STREAM_ROUTE, force));
     written.push(writeFile(path.join(cwd, "LIGHTNODE-HOSTING.md"), HOSTING_GUIDE, force));
+    written.push(writeFile(path.join(cwd, "Dockerfile"), NEXTJS_DOCKERFILE, force));
+    written.push(writeFile(path.join(cwd, "docker-compose.yml"), NEXTJS_DOCKER_COMPOSE, force));
+    written.push(writeFile(path.join(cwd, ".dockerignore"), DOCKERIGNORE, force));
   } else {
     written.push(writeFile(path.join(cwd, "chat-repl.ts"), NODE_CHAT_REPL, force));
   }
@@ -1679,6 +1771,9 @@ export function addJudge(opts: AddOpts = {}): { written: WrittenFile[]; install:
   if (template === "nextjs-api") {
     written.push(writeFile(path.join(cwd, "app/api/judge/route.ts"), NEXTJS_JUDGE_ROUTE, force));
     written.push(writeFile(path.join(cwd, "LIGHTNODE-HOSTING.md"), HOSTING_GUIDE, force));
+    written.push(writeFile(path.join(cwd, "Dockerfile"), NEXTJS_DOCKERFILE, force));
+    written.push(writeFile(path.join(cwd, "docker-compose.yml"), NEXTJS_DOCKER_COMPOSE, force));
+    written.push(writeFile(path.join(cwd, ".dockerignore"), DOCKERIGNORE, force));
   } else {
     written.push(writeFile(path.join(cwd, "judge.ts"), NODE_JUDGE_SCRIPT, force));
   }

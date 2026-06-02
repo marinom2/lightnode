@@ -548,12 +548,16 @@ async function main() {
           } else if (sub === "agent") {
             console.log(`  3. AGENT_INTERVAL_MS=3600000 npx tsx agent.ts   # or run under pm2/systemd`);
           } else if (sub === "chat" && result.template === "nextjs-api") {
-            console.log(`  3. npm run dev, open /chat`);
-            console.log(`     (the chat page + /api/inference streaming route are both already wired up)`);
+            console.log(`  3. Pick one:`);
+            console.log(`     a) docker compose up --build         # run the whole stack yourself, no timeout`);
+            console.log(`     b) npm run dev                       # local dev only`);
+            console.log(`     Open http://localhost:3000/chat`);
           } else if (sub === "chat") {
             console.log(`  3. npx tsx chat-repl.ts  (interactive terminal chat)`);
           } else if (sub === "judge" && result.template === "nextjs-api") {
-            console.log(`  3. npm run dev`);
+            console.log(`  3. Pick one:`);
+            console.log(`     a) docker compose up --build         # run the whole stack yourself, no timeout`);
+            console.log(`     b) npm run dev                       # local dev only`);
             console.log(`  4. curl -X POST localhost:3000/api/judge -H 'content-type: application/json' \\\\`);
             console.log(`         -d '{"criteria":"Run a mile under 8 minutes","evidence":{"time_minutes":7.4,"distance_km":1.61}}'`);
           } else if (sub === "judge") {
@@ -562,7 +566,10 @@ async function main() {
             console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
             console.log(`  4. npm run dev, open /nft-mint`);
           } else if (result.template === "nextjs-api") {
-            console.log(`  3. npm run dev  (then POST /api/inference)`);
+            console.log(`  3. Pick one:`);
+            console.log(`     a) docker compose up --build         # run the whole stack yourself, no timeout`);
+            console.log(`     b) npm run dev                       # local dev only`);
+            console.log(`     POST http://localhost:3000/api/inference  {"prompt":"hello"}`);
           } else if (result.template === "hono") {
             console.log(`  3. wire inferenceHandler into your Hono app, then start it`);
           } else if (sub === "nft-mint-with-inference") {
@@ -578,12 +585,16 @@ async function main() {
             console.log(`  2. npx tsx lightnode-analytics.ts`);
           }
         }
-        // Hosting warning for server-side commands that ship LIGHTNODE-HOSTING.md.
+        // Hosting note: the Docker setup we shipped is the recommended path.
+        // The managed platforms (Vercel etc.) are the fallback if a builder is
+        // already committed to one.
         if (result.template === "nextjs-api"
             && (sub === "inference" || sub === "chat" || sub === "judge")) {
-          console.log(`\n  Hosting: a mainnet inference takes 60-90s. Vercel Hobby (free) times`);
-          console.log(`  out at 10s; Vercel Pro at 60s. See LIGHTNODE-HOSTING.md (in this folder)`);
-          console.log(`  for hosts that work - Railway / Fly / Render handle long calls fine.`);
+          console.log(`\n  Hosting: a mainnet inference takes 60-90s. The Dockerfile + docker-compose.yml`);
+          console.log(`  we just dropped run a long-running Node server with no timeout - that's the`);
+          console.log(`  recommended path (your laptop, a $5/mo VPS, anywhere Docker runs).`);
+          console.log(`  Don't use Vercel Hobby (10s cap, every call times out). Vercel Pro works at`);
+          console.log(`  60s if you'd rather stay on Vercel. See LIGHTNODE-HOSTING.md for the full table.`);
         }
         if (result.network === "testnet") {
           console.log(`\nNo wallet yet? Make one:  npx lightnode wallet new   then fund it free below.`);
