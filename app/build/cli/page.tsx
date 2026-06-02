@@ -6,7 +6,7 @@ import { CliRunner } from "@/components/cli-runner";
 export const metadata = {
   title: "CLI - Build with LightChain AI",
   description:
-    "The lightnode CLI runs from any terminal. Eight read-only commands, ten add scaffolders (server-paid + user-paid web3), plus wallet, chat, worker preflight + watch, bridge, dao. Try the read-only commands inline here.",
+    "The lightnode CLI runs from any terminal. Nine read-only commands, ten add scaffolders (server-paid + user-paid web3), plus wallet, chat, worker preflight + watch, bridge, dao. Try the read-only commands inline here.",
 };
 
 // Server-paid (your funded wallet pays per call) and user-paid (web3: each
