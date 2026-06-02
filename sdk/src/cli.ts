@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
-import { addInference, addAnalyticsDashboard, addNftMint, addChat, addAgent } from "./add.js";
+import { addInference, addAnalyticsDashboard, addNftMint, addChat, addAgent, addJudge } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
@@ -483,7 +483,7 @@ async function main() {
       const template = (flag("--template") as "auto" | "nextjs-api" | "hono" | "node" | undefined) ?? "auto";
       const force = process.argv.includes("--force");
       const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
-      const known = ["inference", "chat", "agent", "analytics-dashboard", "nft-mint-with-inference"];
+      const known = ["inference", "chat", "agent", "judge", "analytics-dashboard", "nft-mint-with-inference"];
       if (!known.includes(sub ?? "")) {
         die(`usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`);
       }
@@ -496,7 +496,9 @@ async function main() {
               ? addChat({ template, network, force })
               : sub === "agent"
                 ? addAgent({ template, network, force })
-                : addInference({ template, network, force });
+                : sub === "judge"
+                  ? addJudge({ template, network, force })
+                  : addInference({ template, network, force });
       console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
       for (const f of result.written) {
         if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
@@ -508,7 +510,7 @@ async function main() {
       } else {
         console.log(`\nNext steps (these files were added to your CURRENT folder, not a new project):`);
         console.log(`  1. ${result.install}`);
-        if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent") {
+        if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent" || sub === "judge") {
           console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
           if (sub === "agent" && result.template === "nextjs-api") {
             console.log(`  3. Set CRON_SECRET in your Vercel env vars + edit AGENT_TASK in .env`);
@@ -520,6 +522,12 @@ async function main() {
             console.log(`  4. npm run dev, open /chat`);
           } else if (sub === "chat") {
             console.log(`  3. npx tsx chat-repl.ts  (interactive terminal chat)`);
+          } else if (sub === "judge" && result.template === "nextjs-api") {
+            console.log(`  3. npm run dev`);
+            console.log(`  4. curl -X POST localhost:3000/api/judge -H 'content-type: application/json' \\\\`);
+            console.log(`         -d '{"criteria":"Run a mile under 8 minutes","evidence":{"time_minutes":7.4,"distance_km":1.61}}'`);
+          } else if (sub === "judge") {
+            console.log(`  3. npx tsx judge.ts 'Run a mile under 8 minutes' '{"time_minutes":7.4,"distance_km":1.61}'`);
           } else if (sub === "nft-mint-with-inference" && result.template === "nextjs-api") {
             console.log(`  3. Make sure /api/inference is mounted too (run: npx lightnode add inference)`);
             console.log(`  4. npm run dev, open /nft-mint`);
