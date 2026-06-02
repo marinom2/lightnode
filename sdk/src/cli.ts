@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, type NetworkId, type AgentTool } from "./index.js";
-import { addInference, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup } from "./add.js";
+import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
@@ -483,26 +483,21 @@ async function main() {
       const template = (flag("--template") as "auto" | "nextjs-api" | "hono" | "node" | undefined) ?? "auto";
       const force = process.argv.includes("--force");
       const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
-      const known = ["inference", "chat", "chat-web3", "wagmi-setup", "agent", "judge", "analytics-dashboard", "nft-mint-with-inference"];
+      const known = ["inference", "inference-web3", "chat", "chat-web3", "judge", "judge-web3", "wagmi-setup", "agent", "analytics-dashboard", "nft-mint-with-inference"];
       if (!known.includes(sub ?? "")) {
         die(`usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`);
       }
       const result =
-        sub === "analytics-dashboard"
-          ? addAnalyticsDashboard({ template, network, force })
-          : sub === "nft-mint-with-inference"
-            ? addNftMint({ template, network, force })
-            : sub === "chat-web3"
-              ? addChatWeb3({ template, network, force })
-              : sub === "wagmi-setup"
-                ? addWagmiSetup({ template, network, force })
-                : sub === "chat"
-                  ? addChat({ template, network, force })
-                  : sub === "agent"
-                    ? addAgent({ template, network, force })
-                    : sub === "judge"
-                      ? addJudge({ template, network, force })
-                      : addInference({ template, network, force });
+        sub === "analytics-dashboard" ? addAnalyticsDashboard({ template, network, force })
+        : sub === "nft-mint-with-inference" ? addNftMint({ template, network, force })
+        : sub === "chat-web3" ? addChatWeb3({ template, network, force })
+        : sub === "inference-web3" ? addInferenceWeb3({ template, network, force })
+        : sub === "judge-web3" ? addJudgeWeb3({ template, network, force })
+        : sub === "wagmi-setup" ? addWagmiSetup({ template, network, force })
+        : sub === "chat" ? addChat({ template, network, force })
+        : sub === "agent" ? addAgent({ template, network, force })
+        : sub === "judge" ? addJudge({ template, network, force })
+        : addInference({ template, network, force });
       console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
       for (const f of result.written) {
         if (f.skipped) console.log(`  ⤴ ${f.path} (skipped - ${f.reason})`);
@@ -522,23 +517,25 @@ async function main() {
           console.log(`     import { ConnectButton } from "@/components/connect-button";`);
           console.log(`  4. You can now use any wagmi hook (useAccount, useWalletClient, ...).`);
           console.log(`     Wallets on chains other than 9200/8200 will be prompted to switch.`);
-        } else if (sub === "chat-web3") {
-          // chat-web3 has no PRIVATE_KEY (each visitor pays their own way).
+        } else if (sub === "chat-web3" || sub === "inference-web3" || sub === "judge-web3") {
+          // *-web3 variants have no PRIVATE_KEY (each visitor pays their own way).
           const needsWagmi = (result as { needsWagmi?: boolean }).needsWagmi;
+          const route = sub === "chat-web3" ? "/chat-web3"
+                      : sub === "inference-web3" ? "/inference-web3"
+                      : "/judge-web3";
           if (needsWagmi) {
             console.log(`  2. Get wagmi wired up with one command:`);
             console.log(`     npx lightnode add wagmi-setup`);
             console.log(`     (drops lib/wagmi.ts + app/providers.tsx + components/connect-button.tsx)`);
-            console.log(`  3. Wrap your layout with <Providers> (see step 2 output) and drop`);
-            console.log(`     <ConnectButton /> somewhere on the page.`);
-            console.log(`  4. npm run dev, open /chat-web3, connect on chainId ${result.network === "mainnet" ? "9200" : "8200"}.`);
-            console.log(`     Mainnet llama3-8b costs 0.02 LCAI per turn; testnet is free from https://lightfaucet.ai`);
+            console.log(`  3. Wrap your layout with <Providers> and drop <ConnectButton /> on the page.`);
+            console.log(`  4. npm run dev, open ${route}, connect on chainId ${result.network === "mainnet" ? "9200" : "8200"}.`);
+            console.log(`     Mainnet llama3-8b is 0.02 LCAI per call; testnet is free from https://lightfaucet.ai`);
           } else {
-            console.log(`  2. npm run dev, open /chat-web3`);
+            console.log(`  2. npm run dev, open ${route}`);
             console.log(`  3. Connect a wallet on LightChain ${result.network === "mainnet" ? "mainnet (chainId 9200)" : "testnet (chainId 8200)"}.`);
-            console.log(`     Mainnet llama3-8b costs 0.02 LCAI per turn; testnet is free from https://lightfaucet.ai`);
+            console.log(`     Mainnet llama3-8b is 0.02 LCAI per call; testnet is free from https://lightfaucet.ai`);
           }
-          console.log(`\n  Note: chat-web3 has NO server-side route, so it scales infinitely on`);
+          console.log(`\n  Note: ${sub} has NO server-side route, so it scales infinitely on`);
           console.log(`  static hosting (Vercel/Netlify/Cloudflare Pages free tier all work).`);
         } else if (sub === "nft-mint-with-inference" || sub === "inference" || sub === "chat" || sub === "agent" || sub === "judge") {
           console.log(`  2. cp .env.example .env  (and put a funded ${result.network} PRIVATE_KEY in it)`);
