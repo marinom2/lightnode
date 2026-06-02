@@ -508,11 +508,21 @@ export async function runJobOnSession(
   const prepared = { sessionKey, createSessionArgs: { worker } };
 
   // 3. relay token + WebSocket
+  // Poll the gateway for the relay token with a fast backoff (it's usually ready
+  // within ~1s of createSession). Catch it sooner than a fixed 1s interval, and
+  // cap the total at a 20s deadline instead of 30 fixed iterations.
   let relayToken: string | undefined;
-  for (let i = 0; i < 30 && !relayToken; i++) {
+  const tokenDeadline = Date.now() + 20_000;
+  let tokenDelay = 250;
+  while (!relayToken) {
     const r = await gateway.getSessionToken(Number(sessionId));
-    if ("token" in r && r.token) relayToken = r.token;
-    else await new Promise((res) => setTimeout(res, 1000));
+    if ("token" in r && r.token) {
+      relayToken = r.token;
+      break;
+    }
+    if (Date.now() >= tokenDeadline) break;
+    await new Promise((res) => setTimeout(res, tokenDelay));
+    tokenDelay = Math.min(tokenDelay * 2, 2000);
   }
   if (!relayToken) throw new RelayTokenTimeoutError();
 
