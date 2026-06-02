@@ -50,6 +50,10 @@ function scaffoldNextApp(cwd: string, target: string): boolean {
     "--yes", "create-next-app@latest", stageName,
     "--ts", "--app", "--no-src-dir", "--eslint", "--tailwind",
     "--use-npm", "--no-turbopack", "--import-alias", "@/*",
+    // Don't dump create-next-app's AGENTS.md (the nextjs-agent-rules block)
+    // into the user's project. Supported by current create-next-app, which is
+    // what `@latest` resolves to here.
+    "--no-agents-md",
   ];
   const r = spawnSync("npx", args, { cwd, stdio: "inherit" });
   if (r.status !== 0) {

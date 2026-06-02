@@ -1111,83 +1111,99 @@ export default function ChatWeb3() {
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "32px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <h1>Chat (user-pays)</h1>
-        <ConnectButton />
-      </div>
-      <p style={{ color: "#666" }}>
-        Each turn signs one createSession transaction from your wallet on{" "}
-        <code>{network ?? "(connect a wallet)"}</code>. Fee:{" "}
-        <code>{feeLcai != null ? \`\${feeLcai} LCAI\` : "(fetching)"}</code> per turn plus a small gas amount.
-      </p>
-      {!address && (
-        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0", display: "flex", alignItems: "center", gap: 12 }}>
-          <span>Connect a wallet to start chatting.</span>
-          <ConnectButton />
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 py-6">
+      <header className="flex items-center justify-between gap-3 border-b border-border pb-4">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-foreground">Chat</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            {network ? (
+              <>Signed from your wallet on {network} · {feeLcai != null ? feeLcai + " LCAI" : "..."}/turn + gas</>
+            ) : (
+              "Connect a wallet on LightChain to start"
+            )}
+          </p>
         </div>
-      )}
+        <ConnectButton />
+      </header>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "16px 0" }}>
-        {turns.map((t, i) => (
-          <div
-            key={i}
-            style={{
-              alignSelf: t.role === "user" ? "flex-end" : "flex-start",
-              maxWidth: "85%",
-              borderRadius: 12,
-              padding: "8px 12px",
-              background: t.role === "user" ? "#e9e7ff" : "#f5f5f7",
-            }}
-          >
-            <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{t.text}</div>
-            {t.role === "assistant" && t.submitTx ? (
-              <div style={{ marginTop: 6, fontSize: 11, color: "#666", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {t.worker && (
-                  <a href={\`https://\${network}.lightscan.app/address/\${t.worker}\`} target="_blank" rel="noopener noreferrer">
-                    worker
-                  </a>
-                )}
-                {t.jobId && <span>job #{t.jobId}</span>}
-                {t.submitTx && (
-                  <a href={\`https://\${network}.lightscan.app/tx/\${t.submitTx}\`} target="_blank" rel="noopener noreferrer">
-                    submitJob
-                  </a>
-                )}
-                {t.jobCompletedTx && (
-                  <a href={\`https://\${network}.lightscan.app/tx/\${t.jobCompletedTx}\`} target="_blank" rel="noopener noreferrer">
-                    completed
-                  </a>
-                )}
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto py-6">
+        {turns.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+            <h2 className="text-2xl font-medium text-foreground">How can I help?</h2>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Connect your wallet and send a message. Each turn is signed and paid from your
+              own wallet, no backend required.
+            </p>
+            {!address && (
+              <div className="mt-2">
+                <ConnectButton />
               </div>
-            ) : null}
+            )}
           </div>
-        ))}
+        ) : (
+          turns.map((t, i) => (
+            <div
+              key={i}
+              className={
+                "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm " +
+                (t.role === "user"
+                  ? "self-end rounded-br-md bg-primary text-primary-foreground"
+                  : "self-start rounded-bl-md border border-border bg-card text-foreground")
+              }
+            >
+              <div>{t.text}</div>
+              {t.role === "assistant" && t.submitTx ? (
+                <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                  {t.worker && (
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${t.worker}\`} target="_blank" rel="noopener noreferrer">
+                      worker
+                    </a>
+                  )}
+                  {t.jobId && <span>job #{t.jobId}</span>}
+                  {t.submitTx && (
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${t.submitTx}\`} target="_blank" rel="noopener noreferrer">
+                      submitJob
+                    </a>
+                  )}
+                  {t.jobCompletedTx && (
+                    <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${t.jobCompletedTx}\`} target="_blank" rel="noopener noreferrer">
+                      completed
+                    </a>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ))
+        )}
       </div>
 
-      <textarea
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!busy && input.trim()) send(); }
-        }}
-        rows={2}
-        placeholder={turns.length === 0 ? "Say hello (cmd+enter to send)" : "Reply..."}
-        style={{ width: "100%", padding: 8, fontFamily: "inherit" }}
-      />
-      <button
-        type="button"
-        onClick={() => send()}
-        disabled={busy || !input.trim() || !address || !network}
-        style={{ marginTop: 8, padding: "8px 16px" }}
-      >
-        {busy ? (busyStage || "Sending...") : (turns.length === 0 ? "Send first message" : "Send")}
-      </button>
-      {err && (
-        <p style={{ marginTop: 8, padding: "8px 12px", border: "1px solid #f5c2c7", background: "#f8d7da", color: "#842029", borderRadius: 6 }}>
-          {err}
-        </p>
-      )}
+      <div className="border-t border-border pt-4">
+        <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 transition focus-within:ring-2 focus-within:ring-primary">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!busy && input.trim()) send(); }
+            }}
+            rows={1}
+            placeholder={turns.length === 0 ? "Say hello (cmd+enter to send)" : "Reply... (cmd+enter)"}
+            className="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            type="button"
+            onClick={() => send()}
+            disabled={busy || !input.trim() || !address || !network}
+            className="shrink-0 rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? (busyStage || "Sending...") : "Send"}
+          </button>
+        </div>
+        {err && (
+          <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {err}
+          </p>
+        )}
+      </div>
     </main>
   );
 }
@@ -2356,6 +2372,17 @@ body::before {
     radial-gradient(45% 45% at 50% 118%, rgba(112, 100, 233, 0.10), transparent 60%);
 }
 
+/* signature lcai gradient (primary buttons / accents) */
+.bg-gradient-primary {
+  background-image: var(--color-gradient-primary);
+}
+.text-gradient {
+  background: linear-gradient(94deg, #dd00ac 10%, #7130c3 53%, #7064e9 96%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* minimal scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -2440,6 +2467,49 @@ function setDarkDefaultOnLayout(cwd: string): boolean {
   return true;
 }
 
+/** One-line description of what each scaffold target gives the dev. */
+const SCAFFOLD_README_WHAT: Record<string, string> = {
+  "chat-web3":
+    "A self-contained, wallet-signed chat you can drop into any project - for example, to give an agent a chat UI.",
+  "inference-web3":
+    "A self-contained, wallet-signed one-shot inference page you can drop into any project.",
+  "judge-web3":
+    "A self-contained, wallet-signed pass/fail evaluator page you can drop into any project.",
+};
+
+/** A real README for a freshly scaffolded app, replacing the create-next-app
+ *  default so the dev knows what they got and how to use it. */
+function scaffoldReadme(target: string, dir: string): string {
+  const what = SCAFFOLD_README_WHAT[target] ?? "A self-contained, wallet-signed page.";
+  return `# LightNode ${dir}
+
+Generated by \`lightnode add ${target}\`. ${what}
+No backend, no database, no API keys: each visitor signs and pays for their own
+turns from their own wallet on LightChain.
+
+## Run it
+
+    npm run dev
+
+Open http://localhost:3000 and click **Connect wallet** (LightChain mainnet
+9200 or testnet 8200). Free testnet LCAI: https://lightfaucet.ai
+
+## Where things live
+
+- \`app/page.tsx\` - re-exports the page below as the homepage
+- \`app/${dir}/page.tsx\` - the UI (also served at /${dir}). Edit this.
+- \`app/providers.tsx\` + \`lib/wagmi.ts\` - wagmi + React Query setup
+- \`components/connect-button.tsx\` - the Connect wallet button
+- \`app/globals.css\` - the theme (light + dark design tokens)
+
+## Customize
+
+It is a normal React client component using \`lightnode-sdk\` wired to the
+connected wallet. Change the model or system prompt, restyle it, or call it
+from your own agent. Builder docs: https://lightnode.app/build
+`;
+}
+
 /**
  * Wire a freshly scaffolded Next.js app so the generated -web3 page is the
  * homepage and the LightChain theme + dark default are in place. No-op for any
@@ -2457,7 +2527,10 @@ export function wireFreshScaffold(target: string, opts: AddOpts = {}): ScaffoldW
   // 2. Make the generated page the homepage (replaces the starter page.tsx).
   written.push(writeFile(path.join(cwd, "app/page.tsx"), homepageReexport(dir, target), true));
 
-  // 3. Keep dark as the default theme (matches lightnode.app).
+  // 3. Replace create-next-app's default README with one about this scaffold.
+  written.push(writeFile(path.join(cwd, "README.md"), scaffoldReadme(target, dir), true));
+
+  // 4. Keep dark as the default theme (matches lightnode.app).
   const darkDefault = setDarkDefaultOnLayout(cwd);
 
   return { written, homepageRoute: `/${dir}`, darkDefault };
