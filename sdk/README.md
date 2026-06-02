@@ -464,16 +464,34 @@ PRIVATE_KEY=0x... npx lightnode worker deregister --yes    # clear stuck + settl
 
 ### Scaffolders (write files into your project)
 
+Server-paid (you host a backend; your funded wallet pays per call):
+
 ```bash
 npx lightnode add inference                    # encrypted inference route or script
 npx lightnode add chat                         # chat UI with conversation history
+npx lightnode add judge                        # pass/fail evaluator route (criteria + evidence)
 npx lightnode add agent                        # scheduled inference (Vercel Cron / setInterval)
 npx lightnode add analytics-dashboard          # read-only network + worker analytics page
 npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
 ```
 
+User-paid (no backend; each visitor signs + pays from their own wallet):
+
+```bash
+npx lightnode add inference-web3               # one-shot inference UI, wallet-signed
+npx lightnode add chat-web3                     # chat UI, wallet-signed (mainnet + testnet aware)
+npx lightnode add judge-web3                    # evaluator UI, wallet-signed
+npx lightnode add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
+```
+
+The `*-web3` scaffolders and `wagmi-setup` write Next.js pages, so run them
+inside a Next.js app (`npx create-next-app@latest .` first if you have none).
+
 All `add` commands accept `--template auto|nextjs-api|hono|node`,
 `--net testnet|mainnet`, and `--force`.
+
+> If `add <name>` reports an unknown target, your `npx` cache is serving an
+> older CLI. Force the current release: `npx lightnode-sdk@latest add <name>`.
 
 ## Networks
 
