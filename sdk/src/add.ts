@@ -1044,9 +1044,10 @@ export default function ChatWeb3() {
     return () => { cancelled = true; };
   }, [network]);
 
-  // Keep the latest turn (and the "writing on chain" indicator) in view.
+  // Keep the latest turn in view. Instant while streaming (smooth scrolling on
+  // every chunk competes for the main thread); smooth once idle.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "nearest" });
   }, [turns, busy]);
 
   /** Build a single prompt from history + new user input. */
@@ -1180,9 +1181,15 @@ export default function ChatWeb3() {
                 <LcaiMark className="mt-0.5 size-7 shrink-0" />
                 <div className="flex min-w-0 flex-1 flex-col gap-2">
                   {t.text ? (
-                    <div className="max-w-none text-sm leading-relaxed text-foreground [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
-                      <Streamdown>{t.text}</Streamdown>
-                    </div>
+                    t.streaming ? (
+                      // While streaming, render plain text (cheap) - markdown is
+                      // parsed once when the turn finalizes, below.
+                      <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{t.text}</div>
+                    ) : (
+                      <div className="max-w-none text-sm leading-relaxed text-foreground [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
+                        <Streamdown>{t.text}</Streamdown>
+                      </div>
+                    )
                   ) : (
                     <div className="animate-pulse-dot pt-1 text-sm text-muted-foreground">
                       {busyStage || "Writing on chain..."}
@@ -1429,10 +1436,13 @@ export default function InferenceWeb3() {
             <div className="flex gap-3">
               <LcaiMark className="mt-0.5 size-7 shrink-0" />
               <div className="flex min-w-0 flex-1 flex-col gap-2">
-                {result || stream ? (
+                {result ? (
                   <div className="max-w-none text-sm leading-relaxed text-foreground [&_*:first-child]:mt-0 [&_*:last-child]:mb-0">
-                    <Streamdown>{result ? result.answer : stream}</Streamdown>
+                    <Streamdown>{result.answer}</Streamdown>
                   </div>
+                ) : stream ? (
+                  // Plain text while streaming; markdown is parsed once on completion.
+                  <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{stream}</div>
                 ) : (
                   <div className="animate-pulse-dot pt-1 text-sm text-muted-foreground">
                     {busyStage || "Writing on chain..."}
