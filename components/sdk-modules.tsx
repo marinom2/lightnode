@@ -3757,14 +3757,18 @@ function PreflightRecipe() {
         maxRetries: 1,
       });
       const elapsedMs = Date.now() - t0;
+      // Mainnet 8b workers can take 60-90s under load; the 45s deadline
+      // was making OK responses look like over-deadline failures. Use
+      // the same 120s budget the SDK's runInference defaults to.
+      const DEADLINE_MS = 120_000;
       const v: PreflightDemoResp = {
-        verdict: elapsedMs > 45_000 ? "over-deadline" : "ok",
+        verdict: elapsedMs > DEADLINE_MS ? "over-deadline" : "ok",
         elapsedMs,
         worker: result.worker ?? null,
         submitJobTx: result.txs?.submitJob ?? null,
         summary:
-          elapsedMs > 45_000
-            ? `Answer arrived but took ${(elapsedMs / 1000).toFixed(1)}s, over the 45s deadline.`
+          elapsedMs > DEADLINE_MS
+            ? `Answer arrived but took ${(elapsedMs / 1000).toFixed(1)}s, over the ${DEADLINE_MS / 1000}s deadline.`
             : `OK in ${(elapsedMs / 1000).toFixed(1)}s. Worker ${result.worker ?? "?"} replied with ${result.answer.length} chars.`,
       };
       setVerdict(v);
