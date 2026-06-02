@@ -201,7 +201,7 @@ console.log("delegated to            =", delegateTo);
     snippet: `import { Conversation } from "lightnode-sdk";
 
 const chat = new Conversation({
-  network: "testnet",
+  network: "mainnet",          // testnet dispatcher currently broken upstream
   privateKey: process.env.PRIVATE_KEY,
   system: "You are a concise assistant.",
   maxHistoryTurns: 20,
@@ -212,9 +212,13 @@ await chat.send("In what year?");      // sees prior turn
 chat.messages();                       // full transcript`,
     sandboxBody: `import { Conversation } from "lightnode-sdk";
 
+// Targets mainnet because the testnet dispatcher is currently returning
+// 409 selection_mismatch on every prepareSession call (reproduced upstream;
+// not a client bug). Mainnet fee for llama3-8b is 0.02 LCAI per turn.
 const chat = new Conversation({
-  network: "testnet",
+  network: "mainnet",
   privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
+  model: "llama3-8b",
   system: "You are a concise assistant. Reply in one short sentence.",
   maxHistoryTurns: 20,
 });

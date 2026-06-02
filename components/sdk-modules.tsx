@@ -3631,12 +3631,25 @@ console.log("full transcript:", chat.messages());`;
                   Reset thread
                 </button>
               ) : <span />}
-              <PreviewButton
-                onClick={run}
-                busy={busy || !input.trim() || !connectedAddress || !walletNetwork}
-                idle={turns.length === 0 ? "Send first message" : "Send"}
-                working={busyStage || "Signing and dispatching"}
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (busy || !input.trim() || !connectedAddress || !walletNetwork) return;
+                  run();
+                }}
+                disabled={busy || !input.trim() || !connectedAddress || !walletNetwork}
+                className="flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
+              >
+                {busy ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    {busyStage || "Signing and dispatching"}
+                  </>
+                ) : (
+                  turns.length === 0 ? "Send first message" : "Send"
+                )}
+              </button>
             </div>
           </div>
 
