@@ -3573,15 +3573,7 @@ console.log("full transcript:", chat.messages());`;
           </div>
         ) : (
         <div>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-2xl font-semibold tracking-tight text-content-primary">Multi-turn chat</h3>
-              <p className="mt-1 text-sm text-content-soft">
-                One encrypted inference per turn against <span className="font-mono text-content-default">{model}</span>.
-                History accumulates client-side and is replayed into each new prompt - the same pattern the SDK&apos;s{" "}
-                <code className="font-mono text-content-default">Conversation</code> helper uses.
-              </p>
-            </div>
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={() => setShowCode(true)}
@@ -3668,7 +3660,14 @@ console.log("full transcript:", chat.messages());`;
               )}
               <div ref={endRef} />
             </div>
-          ) : null}
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <LcaiMark className="size-12" />
+              <h3 className="text-2xl font-medium tracking-tight text-content-primary">
+                Start talking with <span className="text-gradient">Lightchain AI Chat</span>
+              </h3>
+            </div>
+          )}
 
           {/* Input + send */}
           <div className="mt-4">
