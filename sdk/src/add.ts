@@ -344,6 +344,17 @@ function depsNeeded(template: Template): string[] {
   return ["lightnode-sdk", "viem", "ws", "tsx"];
 }
 
+/** Full `npm install` line for a template's next-steps, including the dev type
+ *  packages an editor needs. The node/script template uses Node builtins
+ *  (`node:process`, `node:readline`) and imports `ws`, so without @types/node
+ *  and @types/ws a freshly-scaffolded file is a wall of red squiggles in any
+ *  TypeScript-aware editor even though `tsx` runs it fine. */
+function installLine(template: Template): string {
+  const runtime = `npm install ${depsNeeded(template).join(" ")}`;
+  if (template === "node") return `${runtime} && npm install -D @types/node @types/ws`;
+  return runtime;
+}
+
 /**
  * Implementation called by `lightnode add inference [...]`.
  * Returns the list of files written + the install command the user should run.
@@ -371,7 +382,7 @@ export function addInference(opts: AddOpts = {}): { written: WrittenFile[]; inst
 
   return {
     written,
-    install: `npm install ${depsNeeded(template).join(" ")}`,
+    install: installLine(template),
     template,
     network,
   };
@@ -1754,7 +1765,7 @@ export function addAgent(opts: AddOpts = {}): { written: WrittenFile[]; install:
   }
   written.push(writeFile(path.join(cwd, ".env.example"), ENV_EXAMPLE(network), force));
 
-  return { written, install: `npm install ${depsNeeded(template).join(" ")}`, template, network };
+  return { written, install: installLine(template), template, network };
 }
 
 export function addChat(opts: AddOpts = {}): { written: WrittenFile[]; install: string; template: Template; network: Network } {
@@ -1780,7 +1791,7 @@ export function addChat(opts: AddOpts = {}): { written: WrittenFile[]; install: 
   }
   written.push(writeFile(path.join(cwd, ".env.example"), ENV_EXAMPLE(network), force));
 
-  return { written, install: `npm install ${depsNeeded(template).join(" ")}`, template, network };
+  return { written, install: installLine(template), template, network };
 }
 
 /**
@@ -2192,7 +2203,7 @@ export function addJudge(opts: AddOpts = {}): { written: WrittenFile[]; install:
   }
   written.push(writeFile(path.join(cwd, ".env.example"), ENV_EXAMPLE(network), force));
 
-  return { written, install: `npm install ${depsNeeded(template).join(" ")}`, template, network };
+  return { written, install: installLine(template), template, network };
 }
 
 export function addNftMint(opts: AddOpts = {}): { written: WrittenFile[]; install: string; template: Template; network: Network } {
@@ -2212,7 +2223,7 @@ export function addNftMint(opts: AddOpts = {}): { written: WrittenFile[]; instal
 
   return {
     written,
-    install: `npm install ${depsNeeded(template).join(" ")}`,
+    install: installLine(template),
     template,
     network,
   };
