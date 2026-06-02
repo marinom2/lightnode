@@ -3400,6 +3400,9 @@ function ChatRecipe() {
   const [busyStage, setBusyStage] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // Reused across turns so follow-ups skip SIWE + createSession.
+  const sessionRef = useRef<import("lightnode-sdk").LightChatSession | null>(null);
+  const sessionKeyRef = useRef<string>("");
 
   const { address: connectedAddress } = useAccount();
   const { chain: connectedChain } = useAccount();
@@ -3457,6 +3460,30 @@ function ChatRecipe() {
     });
   }
 
+  /** Open a session on the first turn (or after expiry / a model or wallet
+   *  change), then reuse it so follow-up turns skip SIWE + createSession. */
+  async function ensureSession() {
+    if (!walletClient || !publicClient || !connectedAddress || !walletNetwork) throw new Error("connect a wallet first");
+    const key = `${connectedAddress}:${walletNetwork}:${model}`;
+    const existing = sessionRef.current;
+    if (existing && !existing.expired && sessionKeyRef.current === key) return existing;
+    const { siweSignIn, GatewayClient, LightChatSession, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
+    setBusyStage("Asking your wallet to sign in (SIWE)...");
+    const siwe = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], walletNetwork);
+    setBusyStage("Sign createSession in your wallet (one-time per session)...");
+    const gateway = new GatewayClient({ network: walletNetwork, bearer: siwe.bearer });
+    const chat = await LightChatSession.open({
+      gateway,
+      wallet: walletClient as unknown as Parameters<typeof LightChatSession.open>[0]["wallet"],
+      publicClient: publicClient as unknown as Parameters<typeof LightChatSession.open>[0]["publicClient"],
+      network: SDK_NETWORKS[walletNetwork],
+      model,
+    });
+    sessionRef.current = chat;
+    sessionKeyRef.current = key;
+    return chat;
+  }
+
   async function run() {
     if (!walletClient || !publicClient || !connectedAddress || !walletNetwork) {
       setErr("Connect a wallet on testnet or mainnet first.");
@@ -3471,27 +3498,22 @@ function ChatRecipe() {
     setTurns([...history, { role: "user", text: next }, { role: "assistant", text: "", streaming: true }]);
     setInput("");
     try {
-      const { siweSignIn, GatewayClient, runInference, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
-      const network = SDK_NETWORKS[walletNetwork];
-      setBusyStage("Asking your wallet to sign in (SIWE)...");
-      const session = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], walletNetwork);
-      setBusyStage("Sign the createSession transaction in your wallet...");
-      const gateway = new GatewayClient({ network: walletNetwork, bearer: session.bearer });
       const composed = composeChatPrompt(history, next);
-      const result = await runInference({
-        prompt: composed.system ? `${composed.system}\n\n${composed.prompt}` : composed.prompt,
-        gateway,
-        wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
-        publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
-        network,
-        model,
-        jobCompletedTimeoutMs: 120_000,
-        maxRetries: 1,
-        // Stream each decrypted chunk into the assistant bubble as it arrives.
-        onChunk: (_chunk, totalSoFar) => {
-          setBusyStage("");
-          patchLastAssistant({ text: totalSoFar });
-        },
+      const prompt = composed.system ? `${composed.system}\n\n${composed.prompt}` : composed.prompt;
+      const onChunk = (_chunk: string, totalSoFar: string) => {
+        setBusyStage("");
+        patchLastAssistant({ text: totalSoFar });
+      };
+      const chat = await ensureSession();
+      setBusyStage("Approve the per-turn transaction in your wallet...");
+      const result = await chat.send(prompt, { onChunk }).catch(async () => {
+        // Session expired or the worker stopped serving - reopen once and retry.
+        sessionRef.current = null;
+        patchLastAssistant({ text: "" });
+        setBusyStage("Re-opening session...");
+        const fresh = await ensureSession();
+        setBusyStage("Approve the per-turn transaction in your wallet...");
+        return fresh.send(prompt, { onChunk });
       });
       patchLastAssistant({
         text: result.answer,
