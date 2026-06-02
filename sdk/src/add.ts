@@ -1000,7 +1000,7 @@ const NEXTJS_CHAT_WEB3_PAGE = `// app/chat-web3/page.tsx
 
 import { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
-import { siweSignIn, GatewayClient, runInference, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { siweSignIn, GatewayClient, LightChatSession, estimateJobFee, NETWORKS } from "lightnode-sdk";
 import { Streamdown } from "streamdown";
 import { ConnectButton } from "@/components/connect-button";
 import { LcaiMark } from "@/components/lcai-mark";
@@ -1034,6 +1034,9 @@ export default function ChatWeb3() {
   const [err, setErr] = useState<string | null>(null);
   const [feeLcai, setFeeLcai] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // Reused across turns so follow-ups skip SIWE + createSession.
+  const sessionRef = useRef<LightChatSession | null>(null);
+  const sessionKeyRef = useRef<string>("");
 
   // Read the on-chain fee for the connected network so we can show the
   // visitor the real cost per turn before they click Send.
@@ -1074,6 +1077,31 @@ export default function ChatWeb3() {
     });
   }
 
+  /**
+   * Open a session on the first turn (or after expiry / a model or wallet
+   * change), then reuse it so every follow-up turn skips SIWE + createSession.
+   */
+  async function ensureSession(): Promise<LightChatSession> {
+    if (!walletClient || !publicClient || !address || !network) throw new Error("connect a wallet first");
+    const key = \`\${address}:\${network}:\${model}\`;
+    const existing = sessionRef.current;
+    if (existing && !existing.expired && sessionKeyRef.current === key) return existing;
+    setBusyStage("Sign in with your wallet (SIWE)...");
+    const siwe = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], network);
+    setBusyStage("Approve createSession in your wallet (one-time per session)...");
+    const gateway = new GatewayClient({ network, bearer: siwe.bearer });
+    const chat = await LightChatSession.open({
+      gateway,
+      wallet: walletClient as unknown as Parameters<typeof LightChatSession.open>[0]["wallet"],
+      publicClient: publicClient as unknown as Parameters<typeof LightChatSession.open>[0]["publicClient"],
+      network: NETWORKS[network],
+      model,
+    });
+    sessionRef.current = chat;
+    sessionKeyRef.current = key;
+    return chat;
+  }
+
   async function send() {
     if (!walletClient || !publicClient || !address || !network) {
       setErr("Connect a wallet on LightChain mainnet (9200) or testnet (8200) first.");
@@ -1090,26 +1118,21 @@ export default function ChatWeb3() {
     try {
       const system = "You are a concise assistant. Reply in one or two short sentences.";
       const prompt = composePrompt(history, next, system);
+      const onChunk = (_chunk: string, totalSoFar: string) => {
+        setBusyStage("");
+        patchLastAssistant({ text: totalSoFar });
+      };
 
-      setBusyStage("Sign in with your wallet (SIWE)...");
-      const session = await siweSignIn(walletClient as unknown as Parameters<typeof siweSignIn>[0], network);
-
-      setBusyStage("Approve the createSession transaction in your wallet...");
-      const gateway = new GatewayClient({ network, bearer: session.bearer });
-      const result = await runInference({
-        prompt,
-        gateway,
-        wallet: walletClient as unknown as Parameters<typeof runInference>[0]["wallet"],
-        publicClient: publicClient as unknown as Parameters<typeof runInference>[0]["publicClient"],
-        network: NETWORKS[network],
-        model,
-        jobCompletedTimeoutMs: 120_000,
-        maxRetries: 1,
-        // Stream each decrypted chunk into the assistant bubble as it arrives.
-        onChunk: (_chunk, totalSoFar) => {
-          setBusyStage("");
-          patchLastAssistant({ text: totalSoFar });
-        },
+      const chat = await ensureSession();
+      setBusyStage("Approve the per-turn transaction in your wallet...");
+      const result = await chat.send(prompt, { onChunk }).catch(async () => {
+        // Session expired or the worker stopped serving - reopen once and retry.
+        sessionRef.current = null;
+        patchLastAssistant({ text: "" });
+        setBusyStage("Re-opening session...");
+        const fresh = await ensureSession();
+        setBusyStage("Approve the per-turn transaction in your wallet...");
+        return fresh.send(prompt, { onChunk });
       });
 
       patchLastAssistant({

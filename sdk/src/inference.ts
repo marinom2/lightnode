@@ -413,25 +413,40 @@ function topicAsUint(hex: `0x${string}`): bigint {
   return BigInt(hex);
 }
 
-async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<RunInferenceResult> {
-  const {
-    prompt,
-    gateway,
-    wallet,
-    publicClient,
-    network,
-    model = "llama3-8b",
-    onChunk,
-    jobCompletedTimeoutMs = 120_000,
-  } = args;
-  const WS = pickWebSocket(args.WebSocket);
-  const relayUrl = args.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
+/** A live, on-chain session. Open once, then run many jobs through it - each
+ *  follow-up turn skips SIWE + createSession, leaving just the submitJob tx. */
+export interface OpenSession {
+  readonly gateway: GatewayClient;
+  readonly wallet: MinimalWalletClient;
+  readonly publicClient: MinimalPublicClient;
+  readonly network: NetworkConfig;
+  readonly model: string;
+  readonly fee: number;
+  readonly sessionId: bigint;
+  readonly sessionKey: Uint8Array;
+  readonly worker: `0x${string}`;
+  readonly createTx: `0x${string}`;
+  /** Unix seconds when the on-chain session window closes. */
+  readonly expirySec: number;
+}
 
-  // 1. prepareSession
+export interface OpenSessionArgs {
+  gateway: GatewayClient;
+  wallet: MinimalWalletClient;
+  publicClient: MinimalPublicClient;
+  network: NetworkConfig;
+  model?: string;
+}
+
+/**
+ * prepareSession + the on-chain createSession tx. Do this once, then run many
+ * jobs through the handle with `runJobOnSession`. Re-open when `expirySec`
+ * passes or the chosen worker stops serving.
+ */
+export async function openSession(args: OpenSessionArgs): Promise<OpenSession> {
+  const { gateway, wallet, publicClient, network, model = "llama3-8b" } = args;
   const prepared = await prepareSession(gateway, model);
   const fee = await estimateJobFee(network, model);
-
-  // 2. createSession on-chain
   const createTx = await wallet.writeContract({
     address: network.jobRegistry as `0x${string}`,
     abi: JOB_REGISTRY_ABI_PARSED,
@@ -452,7 +467,45 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     await publicClient.getLogs({ address: network.jobRegistry as `0x${string}`, blockHash: createReceipt.blockHash })
   ).find((l) => l.transactionHash === createTx && l.topics[0] === SESSION_CREATED_TOPIC);
   if (!createLog) throw new Error("SessionCreated log missing in createSession receipt");
-  const sessionId = topicAsUint(createLog.topics[1]);
+  return {
+    gateway,
+    wallet,
+    publicClient,
+    network,
+    model,
+    fee,
+    sessionId: topicAsUint(createLog.topics[1]),
+    sessionKey: prepared.sessionKey,
+    worker: prepared.createSessionArgs.worker,
+    createTx,
+    expirySec: Number(prepared.createSessionArgs.expiry),
+  };
+}
+
+export interface RunJobOpts {
+  onChunk?: (chunk: string, totalSoFar: string) => void;
+  jobCompletedTimeoutMs?: number;
+  WebSocket?: WebSocketCtor;
+  relayUrl?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Run ONE job against an already-open session: submitPrompt + submitJob + relay
+ * stream + wait for JobCompleted. No SIWE, no createSession.
+ */
+export async function runJobOnSession(
+  session: OpenSession,
+  prompt: string,
+  opts: RunJobOpts = {},
+  attempt = 1,
+): Promise<RunInferenceResult> {
+  const { gateway, wallet, publicClient, network, sessionId, sessionKey, worker, fee, createTx } = session;
+  const { onChunk, jobCompletedTimeoutMs = 120_000 } = opts;
+  const WS = pickWebSocket(opts.WebSocket);
+  const relayUrl = opts.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
+  // Shim so the job body below can keep referencing prepared.* unchanged.
+  const prepared = { sessionKey, createSessionArgs: { worker } };
 
   // 3. relay token + WebSocket
   let relayToken: string | undefined;
@@ -636,6 +689,58 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     attempts: attempt,
     stalled: [],
   };
+}
+
+/** One attempt = open a fresh session, then run one job through it. */
+async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<RunInferenceResult> {
+  const session = await openSession({
+    gateway: args.gateway,
+    wallet: args.wallet,
+    publicClient: args.publicClient,
+    network: args.network,
+    model: args.model,
+  });
+  return runJobOnSession(
+    session,
+    args.prompt,
+    {
+      onChunk: args.onChunk,
+      jobCompletedTimeoutMs: args.jobCompletedTimeoutMs,
+      WebSocket: args.WebSocket,
+      relayUrl: args.relayUrl,
+      signal: args.signal,
+    },
+    attempt,
+  );
+}
+
+/**
+ * A reusable, wallet-signed inference session. Open it once (SIWE happens before
+ * this; createSession happens here), then call `.send()` per turn - each
+ * follow-up turn skips createSession, leaving just the submitJob tx. Re-open
+ * (call `LightChatSession.open(...)` again) when `expired` is true or a
+ * `.send()` throws because the worker stopped serving.
+ *
+ * @example
+ * ```ts
+ * const session = await LightChatSession.open({ gateway, wallet, publicClient, network, model: "llama3-8b" });
+ * const a = await session.send("Who wrote The Great Gatsby?", { onChunk });
+ * const b = await session.send("In what year?", { onChunk }); // no createSession
+ * ```
+ */
+export class LightChatSession {
+  private constructor(private readonly session: OpenSession) {}
+  static async open(args: OpenSessionArgs): Promise<LightChatSession> {
+    return new LightChatSession(await openSession(args));
+  }
+  get sessionId(): bigint { return this.session.sessionId; }
+  get worker(): `0x${string}` { return this.session.worker; }
+  get model(): string { return this.session.model; }
+  /** true once the on-chain session window has closed; re-open before sending. */
+  get expired(): boolean { return Date.now() / 1000 >= this.session.expirySec; }
+  send(prompt: string, opts: RunJobOpts = {}): Promise<RunInferenceResult> {
+    return runJobOnSession(this.session, prompt, opts);
+  }
 }
 
 /**

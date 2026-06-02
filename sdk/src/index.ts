@@ -33,6 +33,9 @@ import {
   runInference,
   runInferenceWithKey,
   runInferenceStream,
+  openSession,
+  runJobOnSession,
+  LightChatSession,
 } from "./inference.js";
 import { Conversation, chat } from "./chat.js";
 import { runInferenceBatch } from "./batch.js";
@@ -391,6 +394,10 @@ export {
   runInferenceWithKey,
   // v0.4.9 AsyncIterable<string> wrapper around runInferenceWithKey.
   runInferenceStream,
+  // v0.9.0 session reuse: open once, run many jobs (follow-ups skip createSession).
+  openSession,
+  runJobOnSession,
+  LightChatSession,
   // v0.5.0 multi-turn conversation helper (history client-side; one inference per turn).
   Conversation,
   chat,
