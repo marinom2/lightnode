@@ -3411,23 +3411,6 @@ function ChatRecipe() {
   const { data: walletClient } = useWalletClient({ chainId: connectedChain?.id });
   const publicClient = usePublicClient({ chainId: connectedChain?.id });
 
-  // Per-turn fee comes from AIConfig on the connected network.
-  const [feeLcai, setFeeLcai] = useState<number | null>(null);
-  useEffect(() => {
-    if (!walletNetwork) { setFeeLcai(null); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { estimateJobFee, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
-        const fee = await estimateJobFee(SDK_NETWORKS[walletNetwork], model);
-        if (!cancelled) setFeeLcai(fee);
-      } catch {
-        if (!cancelled) setFeeLcai(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [walletNetwork, model]);
-
   // Keep the latest turn in view. Instant while streaming (smooth scrolling on
   // every chunk competes for the main thread); smooth once idle.
   useEffect(() => {
@@ -3504,16 +3487,16 @@ function ChatRecipe() {
         setBusyStage("");
         patchLastAssistant({ text: totalSoFar });
       };
+      const onStage = (s: string) => setBusyStage(s);
+      const sendOpts = { onChunk, onStage };
       const chat = await ensureSession();
-      setBusyStage("Approve the per-turn transaction in your wallet...");
-      const result = await chat.send(prompt, { onChunk }).catch(async () => {
+      const result = await chat.send(prompt, sendOpts).catch(async () => {
         // Session expired or the worker stopped serving - reopen once and retry.
         sessionRef.current = null;
         patchLastAssistant({ text: "" });
         setBusyStage("Re-opening session...");
         const fresh = await ensureSession();
-        setBusyStage("Approve the per-turn transaction in your wallet...");
-        return fresh.send(prompt, { onChunk });
+        return fresh.send(prompt, sendOpts);
       });
       patchLastAssistant({
         text: result.answer,
@@ -3574,6 +3557,20 @@ console.log("full transcript:", chat.messages());`;
             snippet={snippet}
             needsKey={true}
           />
+        ) : !connectedAddress || !walletNetwork ? (
+          // Not connected (or wrong chain): the connect happens in the nav bar.
+          <div className="flex flex-col items-center justify-center gap-5 py-12 text-center">
+            <LcaiMark className="size-14" />
+            <h3 className="text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
+              Start talking with <span className="text-gradient">Lightchain AI Chat</span>
+            </h3>
+            <p className="max-w-md text-sm text-content-soft">
+              {!connectedAddress
+                ? "Connect your wallet to sign in with Lightchain AI and start chatting."
+                : "Switch your wallet to LightChain mainnet or testnet to start chatting."}
+            </p>
+            <ConnectButton />
+          </div>
         ) : (
         <div>
           <div className="flex items-start justify-between gap-3">
@@ -3592,43 +3589,6 @@ console.log("full transcript:", chat.messages());`;
             >
               Get the code →
             </button>
-          </div>
-
-          {/* Wallet status row */}
-          <div className="mt-5 rounded-lg border border-bdr-soft bg-card p-4">
-            {!connectedAddress ? (
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs text-content-soft">Connect a wallet on mainnet (chain 9200) or testnet (chain 8200).</div>
-                <ConnectButton size="sm" />
-              </div>
-            ) : !walletNetwork ? (
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs text-content-soft">Your wallet is on an unsupported chain. Switch to LightChain mainnet or testnet.</div>
-                <ConnectButton size="sm" />
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <div className="text-content-soft">
-                  Connected on <span className="font-mono text-content-primary">{walletNetwork}</span> as{" "}
-                  <code className="font-mono text-content-default">{connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}</code>.
-                  {" "}Each turn costs{" "}
-                  {feeLcai != null ? (
-                    <span className="font-mono text-content-primary">{feeLcai} LCAI</span>
-                  ) : (
-                    <span className="text-content-soft">(fetching fee…)</span>
-                  )}
-                  {" "}plus a small amount of gas.
-                  {walletNetwork === "testnet" ? (
-                    <>
-                      {" "}Get free testnet LCAI from{" "}
-                      <a href="https://lightfaucet.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">lightfaucet.ai</a>.
-                    </>
-                  ) : null}
-                </div>
-                {/* Already connected via the nav bar - reuse that wallet, no duplicate button. */}
-                <span className="dot dot-live shrink-0" title="Using your connected wallet" />
-              </div>
-            )}
           </div>
           {walletNetwork === "testnet" ? (
             <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
@@ -3675,7 +3635,7 @@ console.log("full transcript:", chat.messages());`;
                         )
                       ) : (
                         <div className="animate-pulse-dot pt-1 text-sm text-content-soft">
-                          {busyStage || "Writing on chain…"}
+                          {busyStage || "Thinking…"}
                         </div>
                       )}
                       {(t.worker || t.submitTx) ? (
@@ -3732,8 +3692,8 @@ console.log("full transcript:", chat.messages());`;
                   title="Model (both live on mainnet)"
                   className="rounded-lg border border-bdr-soft bg-surface-base-faint px-2 py-1.5 font-mono text-xs text-content-primary outline-none focus:border-primary/60 disabled:opacity-50"
                 >
-                  <option value="llama3-8b">llama3-8b · 0.02</option>
-                  <option value="llama3-70b">llama3-70b · 0.15</option>
+                  <option value="llama3-8b">llama3-8b - 0.02 LCAI</option>
+                  <option value="llama3-70b">llama3-70b - 0.15 LCAI</option>
                 </select>
                 {turns.length > 0 ? (
                   <button
@@ -3756,10 +3716,7 @@ console.log("full transcript:", chat.messages());`;
                 style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
               >
                 {busy ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    {busyStage || "Signing and dispatching"}
-                  </>
+                  <Loader2 className="size-4 animate-spin" />
                 ) : (
                   turns.length === 0 ? "Send first message" : "Send"
                 )}
