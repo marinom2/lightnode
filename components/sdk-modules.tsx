@@ -3613,7 +3613,8 @@ console.log("full transcript:", chat.messages());`;
                     </>
                   ) : null}
                 </div>
-                <ConnectButton size="sm" />
+                {/* Already connected via the nav bar - reuse that wallet, no duplicate button. */}
+                <span className="dot dot-live shrink-0" title="Using your connected wallet" />
               </div>
             )}
           </div>
@@ -4121,7 +4122,8 @@ for (const w of top) {
                     </>
                   ) : null}
                 </div>
-                <ConnectButton size="sm" />
+                {/* Already connected via the nav bar - reuse that wallet, no duplicate button. */}
+                <span className="dot dot-live shrink-0" title="Using your connected wallet" />
               </div>
             )}
           </div>
