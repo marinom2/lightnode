@@ -65,13 +65,20 @@ Ecosystem (read-only):
   dao addresses            print LCAI Governor + Timelock + Treasury addresses
   dao config               print voting delay / period / threshold (live read)
 
-Scaffold templates into the current project:
-  add inference                   end-to-end encrypted inference route/script
-  add chat                        chat-style UI with conversation history
-  add agent                       scheduled/loop inference (cron-style)
-  add analytics-dashboard         read-only network + worker analytics page
-  add nft-mint-with-inference     AI-generated NFT metadata (provenance on-chain)
-                                  (all add commands: [--template auto|nextjs-api|hono|node] [--force])
+Scaffold templates into the current project (run inside a Next.js app):
+  Server-paid (you host a backend; your funded wallet pays per call):
+    add inference                 end-to-end encrypted inference route/script
+    add chat                      chat-style UI with conversation history
+    add judge                     pass/fail evaluator route (criteria + evidence)
+    add agent                     scheduled/loop inference (cron-style)
+    add analytics-dashboard       read-only network + worker analytics page
+    add nft-mint-with-inference   AI-generated NFT metadata (provenance on-chain)
+  User-paid (no backend; each visitor signs + pays from their own wallet):
+    add inference-web3            one-shot inference UI, wallet-signed
+    add chat-web3                 chat UI, wallet-signed (mainnet + testnet aware)
+    add judge-web3                evaluator UI, wallet-signed
+    add wagmi-setup               wallet wiring: lib/wagmi + providers + connect button
+                                  (all add commands: [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force])
 
 To scaffold a new project instead, run: npm create lightnode-app my-app`;
 
@@ -485,7 +492,18 @@ async function main() {
       const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
       const known = ["inference", "inference-web3", "chat", "chat-web3", "judge", "judge-web3", "wagmi-setup", "agent", "analytics-dashboard", "nft-mint-with-inference"];
       if (!known.includes(sub ?? "")) {
-        die(`usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`);
+        const lines = [
+          `usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`,
+        ];
+        // If the requested name is valid in a newer release but missing here,
+        // the user is almost certainly running a stale npx-cached CLI. Point
+        // them at @latest rather than letting them think the command is gone.
+        if (sub) {
+          lines.push("");
+          lines.push(`unknown add target "${sub}". If you expected this to work, you may be on an`);
+          lines.push(`older cached CLI. Force the current version:  npx lightnode-sdk@latest add ${sub}`);
+        }
+        die(lines.join("\n"));
       }
       const result =
         sub === "analytics-dashboard" ? addAnalyticsDashboard({ template, network, force })
@@ -507,6 +525,16 @@ async function main() {
       if (!anyWritten) {
         console.log("\nNothing to do - all target files already exist. Pass --force to overwrite.");
       } else {
+        // The *-web3 pages and wagmi-setup are Next.js React files. If no
+        // Next.js app was detected (e.g. an empty folder), nothing can render
+        // what we just wrote - surface that before the numbered steps so the
+        // user scaffolds an app first instead of chasing a non-running page.
+        const isNextOnly = sub === "chat-web3" || sub === "inference-web3" || sub === "judge-web3" || sub === "wagmi-setup";
+        if (isNextOnly && result.template !== "nextjs-api") {
+          console.log(`\nNo Next.js app detected in this folder. ${sub} is a Next.js page, so`);
+          console.log(`create one here first, then re-run this command:`);
+          console.log(`  npx create-next-app@latest .`);
+        }
         console.log(`\nNext steps (these files were added to your CURRENT folder, not a new project):`);
         console.log(`  1. ${result.install}`);
         if (sub === "wagmi-setup") {
