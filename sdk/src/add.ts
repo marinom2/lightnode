@@ -1312,59 +1312,67 @@ export default function InferenceWeb3() {
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "32px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <h1>Inference (user-pays)</h1>
-        <ConnectButton />
-      </div>
-      <p style={{ color: "#666" }}>
-        Signs one encrypted inference from your wallet on{" "}
-        <code>{network ?? "(connect a wallet)"}</code>. Fee:{" "}
-        <code>{feeLcai != null ? \`\${feeLcai} LCAI\` : "(fetching)"}</code> per call plus a small gas amount.
-      </p>
-      {!address && (
-        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0", display: "flex", alignItems: "center", gap: 12 }}>
-          <span>Connect a wallet to run inference.</span>
-          <ConnectButton />
-        </div>
-      )}
-
-      <label style={{ display: "block", margin: "12px 0" }}>
-        <div style={{ fontSize: 11, textTransform: "uppercase", color: "#888", marginBottom: 4 }}>System prompt</div>
-        <textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2}
-          style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
-      </label>
-      <label style={{ display: "block", margin: "12px 0" }}>
-        <div style={{ fontSize: 11, textTransform: "uppercase", color: "#888", marginBottom: 4 }}>Prompt</div>
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5}
-          style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
-      </label>
-      <button type="button" onClick={() => run()} disabled={busy || !prompt.trim() || !address || !network}
-        style={{ padding: "8px 16px", borderRadius: 8, cursor: busy ? "wait" : "pointer" }}>
-        {busy ? (busyStage || "Running...") : "Run inference"}
-      </button>
-
-      {err && (
-        <p style={{ marginTop: 12, padding: "8px 12px", border: "1px solid #f5c2c7", background: "#f8d7da", color: "#842029", borderRadius: 6 }}>
-          {err}
-        </p>
-      )}
-
-      {result && (
-        <div style={{ marginTop: 16, padding: 16, border: "1px solid #ddd", borderRadius: 8 }}>
-          <div style={{ fontSize: 11, textTransform: "uppercase", color: "#888", marginBottom: 8 }}>Answer</div>
-          <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.answer}</pre>
-          <div style={{ marginTop: 12, fontSize: 12, color: "#666", display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <span>elapsed {Math.round(result.elapsedMs / 1000)}s</span>
-            <span>job #{result.jobId}</span>
-            <a href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
-            <a href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
-            {result.jobCompleted && (
-              <a href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 py-6">
+      <header className="flex items-center justify-between gap-3 border-b border-border pb-4">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-foreground">Inference</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            {network ? (
+              <>Signed from your wallet on {network} · {feeLcai != null ? feeLcai + " LCAI" : "..."}/call + gas</>
+            ) : (
+              "Connect a wallet on LightChain to start"
             )}
-          </div>
+          </p>
         </div>
-      )}
+        <ConnectButton />
+      </header>
+
+      <div className="flex flex-col gap-4 py-6">
+        {!address && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+            <span>Connect a wallet to run inference.</span>
+            <ConnectButton />
+          </div>
+        )}
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">System prompt</span>
+          <textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2}
+            className="resize-none rounded-xl border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none focus:ring-2 focus:ring-primary" />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Prompt</span>
+          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5}
+            className="resize-none rounded-xl border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none focus:ring-2 focus:ring-primary" />
+        </label>
+
+        <button type="button" onClick={() => run()} disabled={busy || !prompt.trim() || !address || !network}
+          className="self-start rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+          {busy ? (busyStage || "Running...") : "Run inference"}
+        </button>
+
+        {err && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {err}
+          </p>
+        )}
+
+        {result && (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Answer</div>
+            <pre className="m-0 whitespace-pre-wrap break-words font-sans text-sm text-foreground">{result.answer}</pre>
+            <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span>elapsed {Math.round(result.elapsedMs / 1000)}s</span>
+              <span>job #{result.jobId}</span>
+              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
+              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
+              {result.jobCompleted && (
+                <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   );
 }
@@ -1498,72 +1506,80 @@ Reply with STRICT JSON only, matching: { "passed": boolean, "confidence": 0-1, "
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "32px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <h1>AI Judge (user-pays)</h1>
-        <ConnectButton />
-      </div>
-      <p style={{ color: "#666" }}>
-        Each submission signs one inference from your wallet on{" "}
-        <code>{network ?? "(connect a wallet)"}</code>. Cost:{" "}
-        <code>{feeLcai != null ? \`\${feeLcai} LCAI\` : "(fetching)"}</code> plus gas. Verdict comes back with on-chain proof.
-      </p>
-      {!address && (
-        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, margin: "12px 0", display: "flex", alignItems: "center", gap: 12 }}>
-          <span>Connect a wallet to submit.</span>
-          <ConnectButton />
-        </div>
-      )}
-
-      <label style={{ display: "block", margin: "12px 0" }}>
-        <div style={{ fontSize: 11, textTransform: "uppercase", color: "#888", marginBottom: 4 }}>Criteria</div>
-        <textarea value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={2}
-          style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
-      </label>
-      <label style={{ display: "block", margin: "12px 0" }}>
-        <div style={{ fontSize: 11, textTransform: "uppercase", color: "#888", marginBottom: 4 }}>Evidence (JSON)</div>
-        <textarea value={evidence} onChange={(e) => setEvidence(e.target.value)} rows={5}
-          style={{ width: "100%", padding: 8, fontFamily: "monospace", fontSize: 12 }} />
-      </label>
-      <button type="button" onClick={() => run()} disabled={busy || !criteria.trim() || !evidence.trim() || !address || !network}
-        style={{ padding: "8px 16px", borderRadius: 8, cursor: busy ? "wait" : "pointer" }}>
-        {busy ? (busyStage || "Judging...") : "Get AI verdict"}
-      </button>
-
-      {err && (
-        <p style={{ marginTop: 12, padding: "8px 12px", border: "1px solid #f5c2c7", background: "#f8d7da", color: "#842029", borderRadius: 6 }}>
-          {err}
-        </p>
-      )}
-
-      {result && (
-        <div style={{ marginTop: 16, padding: 16, border: "1px solid #ddd", borderRadius: 8 }}>
-          <div style={{ fontSize: 11, textTransform: "uppercase", color: "#888", marginBottom: 8 }}>Verdict</div>
-          {result.verdict ? (
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 600, color: result.verdict.passed ? "#2e7d32" : "#c62828" }}>
-                {result.verdict.passed ? "PASSED" : "FAILED"}
-                <span style={{ marginLeft: 12, fontSize: 14, color: "#666" }}>
-                  confidence {Math.round(result.verdict.confidence * 100)}%
-                </span>
-              </div>
-              <p style={{ marginTop: 8, color: "#444" }}>{result.verdict.reason}</p>
-            </div>
-          ) : (
-            <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "monospace", fontSize: 12, color: "#666" }}>
-              {result.raw}
-            </pre>
-          )}
-          <div style={{ marginTop: 12, fontSize: 12, color: "#666", display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <span>job #{result.jobId}</span>
-            <a href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
-            <a href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
-            {result.jobCompleted && (
-              <a href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 py-6">
+      <header className="flex items-center justify-between gap-3 border-b border-border pb-4">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-foreground">AI Judge</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            {network ? (
+              <>Signed from your wallet on {network} · {feeLcai != null ? feeLcai + " LCAI" : "..."} + gas · verdict has on-chain proof</>
+            ) : (
+              "Connect a wallet on LightChain to start"
             )}
-          </div>
+          </p>
         </div>
-      )}
+        <ConnectButton />
+      </header>
+
+      <div className="flex flex-col gap-4 py-6">
+        {!address && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+            <span>Connect a wallet to submit.</span>
+            <ConnectButton />
+          </div>
+        )}
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Criteria</span>
+          <textarea value={criteria} onChange={(e) => setCriteria(e.target.value)} rows={2}
+            className="resize-none rounded-xl border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none focus:ring-2 focus:ring-primary" />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Evidence (JSON)</span>
+          <textarea value={evidence} onChange={(e) => setEvidence(e.target.value)} rows={5}
+            className="resize-none rounded-xl border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none focus:ring-2 focus:ring-primary" />
+        </label>
+
+        <button type="button" onClick={() => run()} disabled={busy || !criteria.trim() || !evidence.trim() || !address || !network}
+          className="self-start rounded-xl bg-gradient-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+          {busy ? (busyStage || "Judging...") : "Get AI verdict"}
+        </button>
+
+        {err && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {err}
+          </p>
+        )}
+
+        {result && (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Verdict</div>
+            {result.verdict ? (
+              <div>
+                <div className={"flex items-baseline gap-3 text-2xl font-semibold " + (result.verdict.passed ? "text-success" : "text-destructive")}>
+                  {result.verdict.passed ? "PASSED" : "FAILED"}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    confidence {Math.round(result.verdict.confidence * 100)}%
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-foreground">{result.verdict.reason}</p>
+              </div>
+            ) : (
+              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">
+                {result.raw}
+              </pre>
+            )}
+            <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span>job #{result.jobId}</span>
+              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/address/\${result.worker}\`} target="_blank" rel="noopener noreferrer">worker</a>
+              <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.submitJob}\`} target="_blank" rel="noopener noreferrer">submitJob</a>
+              {result.jobCompleted && (
+                <a className="hover:text-foreground hover:underline" href={\`https://\${network}.lightscan.app/tx/\${result.jobCompleted}\`} target="_blank" rel="noopener noreferrer">jobCompleted</a>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   );
 }
