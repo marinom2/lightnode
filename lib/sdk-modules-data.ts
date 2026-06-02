@@ -69,6 +69,35 @@ export interface ModuleDef {
    * (eg #try-it) jump to the widget; external links open in a new tab.
    */
   cta?: { label: string; href: string };
+  /**
+   * Optional 'Add this to your project' scaffolds surfaced below the widget.
+   * Each entry is one of the two architectures:
+   *   - server: dev's PRIVATE_KEY pays per call. SaaS chatbot / internal tool
+   *     pattern. Writes a route + a Dockerfile + the hosting guide.
+   *   - browser: each visitor's wallet pays per call. Web3 dApp pattern. Writes
+   *     a React component only - no backend, no .env.
+   * Modules without a meaningful scaffolder (bridge / dao / operator are not
+   * 'drop into your project' shapes) leave this undefined.
+   */
+  scaffolds?: ScaffoldDef[];
+}
+
+/**
+ * One 'Add this to your project' card. Renders as a copy-the-command CTA.
+ */
+export interface ScaffoldDef {
+  /** Stable id. */
+  id: string;
+  /** 'server' = dev pays; 'browser' = user pays. Drives the icon + accent. */
+  kind: "server" | "browser";
+  /** Short, punchy title (3-5 words). */
+  title: string;
+  /** One-line description for the card body. */
+  blurb: string;
+  /** The exact command the visitor copies. */
+  command: string;
+  /** Bullet list of what the scaffold drops into the project. */
+  includes: string[];
 }
 
 export const MODULES: ModuleDef[] = [
@@ -236,6 +265,36 @@ console.log("\\nFull transcript :");
 console.log(JSON.stringify(chat.messages(), null, 2));`,
     sandboxNeedsKey: true,
     triable: true,
+    scaffolds: [
+      {
+        id: "chat",
+        kind: "server",
+        title: "Server-paid chat",
+        blurb: "Your funded wallet pays for every visitor's turn. Users never touch a wallet. SaaS chatbot pattern.",
+        command: "npx lightnode-sdk add chat",
+        includes: [
+          "app/chat/page.tsx (streaming UI)",
+          "app/api/inference/route.ts (streaming route)",
+          "Dockerfile + docker-compose.yml",
+          "LIGHTNODE-HOSTING.md",
+          ".env.example for PRIVATE_KEY",
+        ],
+      },
+      {
+        id: "chat-web3",
+        kind: "browser",
+        title: "User-paid chat",
+        blurb: "Each visitor signs from their own wallet. No backend, no PRIVATE_KEY, no per-call cost for you. Web3 dApp pattern.",
+        command: "npx lightnode-sdk add chat-web3",
+        includes: [
+          "app/chat-web3/page.tsx (wallet-signed)",
+          "wagmi-based, mainnet + testnet aware",
+          "Each turn: one SIWE sig + one tx popup",
+          "No backend, no .env, scales infinitely",
+          "Pair with: add wagmi-setup",
+        ],
+      },
+    ],
   },
   {
     id: "inference",
@@ -292,6 +351,62 @@ console.log("submitJob tx :", ln.explorerTxUrl(txs.submitJob));
 console.log("completed tx :", ln.explorerTxUrl(txs.jobCompleted));`,
     sandboxNeedsKey: true,
     triable: true,
+    scaffolds: [
+      {
+        id: "inference",
+        kind: "server",
+        title: "Server-paid inference",
+        blurb: "Your funded wallet pays per call. POST a prompt, get the answer + on-chain proof. Same shape for classify, generate, evaluate.",
+        command: "npx lightnode-sdk add inference",
+        includes: [
+          "app/api/inference/route.ts",
+          "Dockerfile + docker-compose.yml",
+          "LIGHTNODE-HOSTING.md",
+          ".env.example for PRIVATE_KEY",
+        ],
+      },
+      {
+        id: "inference-web3",
+        kind: "browser",
+        title: "User-paid inference",
+        blurb: "Each visitor's wallet pays per call. One-shot inference UI with on-chain receipts. No backend.",
+        command: "npx lightnode-sdk add inference-web3",
+        includes: [
+          "app/inference-web3/page.tsx",
+          "System + prompt textareas, verdict panel",
+          "Worker / submitJob / jobCompleted links",
+          "No backend, no .env",
+          "Pair with: add wagmi-setup",
+        ],
+      },
+      {
+        id: "judge",
+        kind: "server",
+        title: "Server-paid AI judge",
+        blurb: "The LightChallenge pattern. Post criteria + evidence, get structured pass/fail/confidence + on-chain proof.",
+        command: "npx lightnode-sdk add judge",
+        includes: [
+          "app/api/judge/route.ts (POST verdict)",
+          "Defensive JSON parsing (model adds prose? still works)",
+          "Dockerfile + hosting guide",
+          ".env.example for PRIVATE_KEY",
+        ],
+      },
+      {
+        id: "judge-web3",
+        kind: "browser",
+        title: "User-paid AI judge",
+        blurb: "Same judge pattern, the user pays for their own verdict. Fits challenge completion grading, NFT trait verification, content moderation.",
+        command: "npx lightnode-sdk add judge-web3",
+        includes: [
+          "app/judge-web3/page.tsx",
+          "Criteria + evidence inputs",
+          "PASSED / FAILED badge + confidence + reason",
+          "On-chain receipt every submission",
+          "Pair with: add wagmi-setup",
+        ],
+      },
+    ],
   },
   {
     id: "operator",

@@ -11,9 +11,10 @@
  */
 
 import type React from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Boxes, PlayCircle, Terminal } from "lucide-react";
-import { MODULES, type ModuleId, type ModuleDef } from "@/lib/sdk-modules-data";
+import { ArrowLeft, ArrowRight, Boxes, Check, Copy, Globe, PlayCircle, Server, Terminal } from "lucide-react";
+import { MODULES, type ModuleId, type ModuleDef, type ScaffoldDef } from "@/lib/sdk-modules-data";
 import { Widget, DocLinks, CodeBox, openSnippetInStackBlitz } from "@/components/sdk-modules";
 
 export function SdkSubpageClient({ id }: { id: ModuleId }) {
@@ -100,6 +101,14 @@ export function SdkSubpageClient({ id }: { id: ModuleId }) {
         : m.sandboxBody
           ? <UseInYourProject m={m} />
           : null}
+
+      {/* Add this to your project: the scaffold CTA. Lets the visitor go from
+          'I just tried it in the widget' to 'I dropped it into my project' in
+          one command. Two cards side by side for the server-pays vs user-pays
+          choice when both apply. */}
+      {m.scaffolds && m.scaffolds.length > 0 ? (
+        <ScaffoldCTA scaffolds={m.scaffolds} moduleTitle={m.title} />
+      ) : null}
 
       {/* Cross-link grid - one row, simple, no decoration. */}
       <section className="mb-4">
@@ -237,5 +246,137 @@ function renderAccentedTitle(title: string, accent?: string): React.ReactNode {
       </span>
       {after}
     </>
+  );
+}
+
+/**
+ * 'Add this to your project' section. Each scaffold renders as a card with a
+ * tone (server = soft blue, browser = brand purple) so the architecture choice
+ * is visually obvious. The command is one click to copy. The 'Includes' list
+ * makes the trade-off concrete instead of marketing-fluff.
+ *
+ * One card → centered; two-or-more → 2-column grid on >=sm.
+ */
+function ScaffoldCTA({ scaffolds, moduleTitle }: { scaffolds: ScaffoldDef[]; moduleTitle: string }) {
+  const hasServer = scaffolds.some((s) => s.kind === "server");
+  const hasBrowser = scaffolds.some((s) => s.kind === "browser");
+  const tagline =
+    hasServer && hasBrowser
+      ? "Two ways to ship it. Pick whichever fits your app."
+      : hasBrowser
+        ? "Drop the wallet-signed flow into your project."
+        : "Drop the server-side flow into your project.";
+  return (
+    <section className="mb-16">
+      <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-content-soft">Add it to your project</p>
+      <h2 className="mb-2 text-2xl font-semibold tracking-tight text-content-primary sm:text-3xl">
+        Ship {moduleTitle} in one command
+      </h2>
+      <p className="mb-6 max-w-2xl text-sm text-content-soft">{tagline}</p>
+      <div className={`grid gap-4 ${scaffolds.length > 1 ? "sm:grid-cols-2" : ""}`}>
+        {scaffolds.map((s) => (
+          <ScaffoldCard key={s.id} scaffold={s} />
+        ))}
+      </div>
+      {hasServer && hasBrowser ? (
+        <p className="mt-4 text-[11px] text-content-soft">
+          New here? <span className="text-content-default">Server-paid</span> means YOUR funded wallet pays for every
+          call (typical SaaS).{" "}
+          <span className="text-content-default">User-paid</span> means each visitor signs and pays from their own
+          wallet (typical Web3 dApp). Pick whichever matches who&apos;s using the app.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ScaffoldCard({ scaffold }: { scaffold: ScaffoldDef }) {
+  const [copied, setCopied] = useState(false);
+  const isBrowser = scaffold.kind === "browser";
+  const Icon = isBrowser ? Globe : Server;
+  // Browser variant gets the brand magenta-to-purple gradient on its eyebrow
+  // chip; server variant gets a quieter info-blue. Both work in dark + light
+  // mode because the chip itself uses translucent backgrounds over bg-card.
+  const eyebrowClass = isBrowser
+    ? "text-primary"
+    : "text-emerald-600 dark:text-emerald-400";
+  const ringClass = isBrowser
+    ? "ring-primary/20 hover:ring-primary/40"
+    : "ring-emerald-500/15 hover:ring-emerald-500/30 dark:ring-emerald-400/15";
+
+  async function copyCommand(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(scaffold.command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // navigator.clipboard unavailable in some contexts; ignore silently.
+    }
+  }
+
+  return (
+    <article
+      className={`group flex flex-col gap-4 rounded-2xl border border-bdr-soft bg-card p-5 ring-1 ${ringClass} transition-all sm:p-6`}
+    >
+      {/* Eyebrow + title row */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`grid size-9 shrink-0 place-items-center rounded-lg ${
+              isBrowser
+                ? "bg-primary/10 text-primary"
+                : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+            }`}
+          >
+            <Icon className="size-4" />
+          </div>
+          <div>
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${eyebrowClass}`}>
+              {isBrowser ? "User pays · browser" : "Dev pays · server"}
+            </p>
+            <h3 className="text-base font-semibold tracking-tight text-content-primary">{scaffold.title}</h3>
+          </div>
+        </div>
+      </div>
+
+      {/* Blurb */}
+      <p className="text-sm leading-relaxed text-content-soft">{scaffold.blurb}</p>
+
+      {/* Command + copy button. Inline so the visitor can read AND copy. */}
+      <div className="flex items-center gap-2 rounded-lg border border-bdr-soft bg-surface-base-faint p-2 pl-3">
+        <Terminal className="size-4 shrink-0 text-content-soft" />
+        <code className="flex-1 truncate font-mono text-xs text-content-default sm:text-[13px]">
+          {scaffold.command}
+        </code>
+        <button
+          type="button"
+          onClick={() => void copyCommand()}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-bdr-soft bg-card px-2.5 py-1.5 text-[11px] font-medium text-content-default transition-all hover:border-bdr-light hover:text-content-primary"
+          aria-label={`Copy ${scaffold.command}`}
+        >
+          {copied ? (
+            <>
+              <Check className="size-3.5 text-emerald-500 dark:text-emerald-400" />
+              <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="size-3.5" />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Includes list */}
+      <ul className="space-y-1.5">
+        {scaffold.includes.map((line) => (
+          <li key={line} className="flex items-start gap-2 text-xs text-content-soft">
+            <Check className={`mt-[2px] size-3.5 shrink-0 ${isBrowser ? "text-primary" : "text-emerald-500 dark:text-emerald-400"}`} />
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
   );
 }
