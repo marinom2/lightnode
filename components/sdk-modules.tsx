@@ -39,6 +39,7 @@ import {
   Loader2,
   PackageOpen,
   PlayCircle,
+  Settings2,
   ShieldCheck,
   Terminal,
   Workflow,
@@ -3343,6 +3344,7 @@ interface WalletChatTurn {
   jobId?: string | null;
   submitTx?: string | null;
   jobCompletedTx?: string | null;
+  sources?: { position: number; title: string; url: string; description: string }[];
 }
 
 /** The LightChain atom mark (gradient logo), used as the assistant avatar. The
@@ -3403,6 +3405,11 @@ function ChatRecipe() {
   // Reused across turns so follow-ups skip SIWE + createSession.
   const sessionRef = useRef<import("lightnode-sdk").LightChatSession | null>(null);
   const sessionKeyRef = useRef<string>("");
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const [searchCapable, setSearchCapable] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const searchEnabledRef = useRef(false);
+  searchEnabledRef.current = searchEnabled && searchCapable;
 
   const { address: connectedAddress } = useAccount();
   const { chain: connectedChain } = useAccount();
@@ -3416,6 +3423,24 @@ function ChatRecipe() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "nearest" });
   }, [turns, busy]);
+
+  // Gate the Web Search toggle on the model advertising the "search" capability.
+  // (On networks where the capabilities endpoint isn't deployed this 404s and
+  // the toggle stays locked - the honest state until a search-capable worker is up.)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { GatewayClient, modelId } = await import("lightnode-sdk");
+        const gw = new GatewayClient({ network: walletNetwork ?? "mainnet" });
+        const caps = await gw.getModelCapabilities(modelId(model));
+        if (!cancelled) setSearchCapable(Array.isArray(caps?.capabilities) && caps.capabilities.includes("search"));
+      } catch {
+        if (!cancelled) setSearchCapable(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [model, walletNetwork]);
 
   /**
    * Compose the OpenAI-style chat history into a single prompt the way the
@@ -3447,7 +3472,9 @@ function ChatRecipe() {
    *  change), then reuse it so follow-up turns skip SIWE + createSession. */
   async function ensureSession() {
     if (!walletClient || !publicClient || !connectedAddress || !walletNetwork) throw new Error("connect a wallet first");
-    const key = `${connectedAddress}:${walletNetwork}:${model}`;
+    // A search session must bind to a search-capable worker, so it keys separately.
+    const wantSearch = searchEnabledRef.current;
+    const key = `${connectedAddress}:${walletNetwork}:${model}:${wantSearch}`;
     const existing = sessionRef.current;
     if (existing && !existing.expired && sessionKeyRef.current === key) return existing;
     const { siweSignIn, GatewayClient, LightChatSession, NETWORKS: SDK_NETWORKS } = await import("lightnode-sdk");
@@ -3461,6 +3488,7 @@ function ChatRecipe() {
       publicClient: publicClient as unknown as Parameters<typeof LightChatSession.open>[0]["publicClient"],
       network: SDK_NETWORKS[walletNetwork],
       model,
+      ...(wantSearch ? { requiredCapabilities: ["search"] } : {}),
     });
     sessionRef.current = chat;
     sessionKeyRef.current = key;
@@ -3488,7 +3516,7 @@ function ChatRecipe() {
         patchLastAssistant({ text: totalSoFar });
       };
       const onStage = (s: string) => setBusyStage(s);
-      const sendOpts = { onChunk, onStage };
+      const sendOpts = { onChunk, onStage, searchEnabled: searchEnabledRef.current };
       const chat = await ensureSession();
       const result = await chat.send(prompt, sendOpts).catch(async () => {
         // Session expired or the worker stopped serving - reopen once and retry.
@@ -3505,6 +3533,7 @@ function ChatRecipe() {
         jobId: result.jobId?.toString() ?? null,
         submitTx: result.txs?.submitJob ?? null,
         jobCompletedTx: result.txs?.jobCompleted ?? null,
+        sources: result.sources,
       });
     } catch (e) {
       // Rollback the optimistic turns so the visitor can edit and retry.
@@ -3546,18 +3575,15 @@ console.log("answer 2:", r2.answer);
 
 console.log("full transcript:", chat.messages());`;
 
-  return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-bdr-soft bg-card p-6 sm:p-8">
-        {showCode ? (
-          <UseItStep
-            onBack={() => setShowCode(false)}
-            title="Conversation SDK"
-            hint={`Targets ${model} on mainnet. PRIVATE_KEY must be funded with the per-turn fee (${model === "llama3-70b" ? "0.15" : "0.02"} LCAI).`}
-            snippet={snippet}
-            needsKey={true}
-          />
-        ) : !connectedAddress || !walletNetwork ? (
+  return showCode ? (
+    <UseItStep
+      onBack={() => setShowCode(false)}
+      title="Conversation SDK"
+      hint={`Targets ${model} on mainnet. PRIVATE_KEY must be funded with the per-turn fee (${model === "llama3-70b" ? "0.15" : "0.02"} LCAI).`}
+      snippet={snippet}
+      needsKey={true}
+    />
+  ) : !connectedAddress || !walletNetwork ? (
           // Not connected (or wrong chain): the connect happens in the nav bar.
           <div className="flex flex-col items-center justify-center gap-5 py-12 text-center">
             <LcaiMark className="size-14" />
@@ -3573,7 +3599,16 @@ console.log("full transcript:", chat.messages());`;
           </div>
         ) : (
         <div>
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setShowSettings((v) => !v)}
+              aria-label="Chat settings"
+              title="Settings (system prompt)"
+              className={`inline-flex size-8 items-center justify-center rounded-lg text-content-soft transition-colors hover:bg-surface-base-faint hover:text-content-primary ${showSettings ? "bg-surface-base-faint text-content-primary" : ""}`}
+            >
+              <Settings2 className="size-4" />
+            </button>
             <button
               type="button"
               onClick={() => setShowCode(true)}
@@ -3583,24 +3618,22 @@ console.log("full transcript:", chat.messages());`;
               <ArrowRight className="size-4 transition-transform duration-200 ease-out group-hover:translate-x-1" />
             </button>
           </div>
-          {walletNetwork === "testnet" ? (
-            <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
-              <strong>Heads up:</strong> the LightChain testnet dispatcher is currently returning 409 selection_mismatch on every prepareSession call. Mainnet works on the same code. If you hit it, switch to mainnet.
-            </p>
-          ) : null}
-
-          {/* System prompt (collapsible) */}
-          <details className="mt-4 rounded-lg border border-bdr-soft bg-card">
-            <summary className="cursor-pointer px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-content-soft hover:text-content-primary">System prompt (optional)</summary>
-            <div className="border-t border-bdr-soft p-3">
+          {showSettings ? (
+            <div className="mt-3 rounded-xl bg-surface-base-faint p-3">
+              <label className="mb-1.5 block text-[11px] uppercase tracking-[0.18em] text-content-soft">System prompt</label>
               <textarea
                 value={system}
                 onChange={(e) => setSystem(e.target.value)}
                 rows={2}
-                className="w-full rounded-md border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
+                className="w-full resize-none rounded-lg bg-card px-3 py-2 font-mono text-xs text-content-primary outline-none ring-1 ring-transparent focus:ring-primary/50"
               />
             </div>
-          </details>
+          ) : null}
+          {walletNetwork === "testnet" ? (
+            <p className="mt-3 rounded-md bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-content-default">
+              <strong>Heads up:</strong> the LightChain testnet dispatcher is currently returning 409 selection_mismatch on every prepareSession call. Mainnet works on the same code. If you hit it, switch to mainnet.
+            </p>
+          ) : null}
 
           {/* Chat thread */}
           {turns.length > 0 ? (
@@ -3631,6 +3664,28 @@ console.log("full transcript:", chat.messages());`;
                           {busyStage || "Thinking…"}
                         </div>
                       )}
+                      {t.sources && t.sources.length > 0 ? (
+                        <div className="mt-1 border-t border-bdr-soft/70 pt-3">
+                          <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-content-soft">Sources</div>
+                          <div className="grid gap-2">
+                            {t.sources.map((s) => (
+                              <a
+                                key={`${s.position}-${s.url}`}
+                                href={s.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group/src grid grid-cols-[1.5rem_1fr] gap-2 rounded-lg bg-surface-base-faint px-2.5 py-2 transition-colors hover:bg-surface-base-light"
+                              >
+                                <span className="flex size-5 items-center justify-center rounded-md bg-surface-base-subtle text-[11px] font-medium text-content-soft">{s.position}</span>
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-medium text-content-primary group-hover/src:underline">{s.title || s.url}</span>
+                                  <span className="block truncate text-xs text-content-soft">{s.description || s.url}</span>
+                                </span>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                       {(t.worker || t.submitTx) ? (
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-content-soft opacity-0 transition-opacity group-hover:opacity-100">
                           <ChatCopyButton text={t.text} />
@@ -3670,8 +3725,8 @@ console.log("full transcript:", chat.messages());`;
             </div>
           )}
 
-          {/* Input + send */}
-          <div className="mt-4">
+          {/* Input + send (one clean container, no inner borders) */}
+          <div className="mt-4 rounded-2xl bg-surface-base-faint p-3 ring-1 ring-transparent transition focus-within:ring-primary/40">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -3681,20 +3736,36 @@ console.log("full transcript:", chat.messages());`;
               rows={2}
               maxLength={500}
               placeholder={turns.length === 0 ? "Ask anything… (cmd+enter to send)" : "Reply…"}
-              className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-xs text-content-primary outline-none focus:border-primary/60"
+              className="max-h-40 w-full resize-none bg-transparent px-1 py-1 text-sm text-content-primary outline-none placeholder:text-content-soft"
             />
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <select
                   value={model}
                   onChange={(e) => setModel(e.target.value as "llama3-8b" | "llama3-70b")}
                   disabled={busy}
                   title="Model (both live on mainnet)"
-                  className="rounded-lg border border-bdr-soft bg-surface-base-faint px-2 py-1.5 font-mono text-xs text-content-primary outline-none focus:border-primary/60 disabled:opacity-50"
+                  className="rounded-lg bg-card px-2 py-1.5 font-mono text-xs text-content-primary outline-none disabled:opacity-50"
                 >
                   <option value="llama3-8b">llama3-8b - 0.02 LCAI</option>
                   <option value="llama3-70b">llama3-70b - 0.15 LCAI</option>
                 </select>
+                <div
+                  className="flex items-center gap-2"
+                  title={searchCapable ? "Let the worker search the web for this turn" : "No web-search-capable worker is online for this model right now."}
+                >
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={searchEnabled && searchCapable}
+                    disabled={!searchCapable || busy}
+                    onClick={() => setSearchEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${searchEnabled && searchCapable ? "bg-primary" : "bg-content-soft/30"}`}
+                  >
+                    <span className={`inline-block size-4 transform rounded-full bg-white shadow transition-transform ${searchEnabled && searchCapable ? "translate-x-4" : "translate-x-0.5"}`} />
+                  </button>
+                  <span className="text-xs text-content-soft">Web Search</span>
+                </div>
                 {turns.length > 0 ? (
                   <button
                     type="button"
@@ -3712,7 +3783,7 @@ console.log("full transcript:", chat.messages());`;
                   run();
                 }}
                 disabled={busy || !input.trim() || !connectedAddress || !walletNetwork}
-                className="flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex shrink-0 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all duration-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ background: "linear-gradient(94deg, #dd00ac 10.66%, #7130c3 53.03%, #410093 96.34%)" }}
               >
                 {busy ? (
@@ -3728,9 +3799,6 @@ console.log("full transcript:", chat.messages());`;
             <p className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-content-default">{err}</p>
           ) : null}
         </div>
-        )}
-      </div>
-    </div>
   );
 }
 
