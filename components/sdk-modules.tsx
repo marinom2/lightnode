@@ -3580,7 +3580,7 @@ console.log("full transcript:", chat.messages());`;
     <UseItStep
       onBack={() => setShowCode(false)}
       title="Conversation SDK"
-      hint={`Targets ${model} on mainnet. PRIVATE_KEY must be funded with the per-turn fee (${model === "llama3-70b" ? "0.15" : "0.02"} LCAI).`}
+      hint={`The server-paid version (your funded PRIVATE_KEY pays each turn, ${model === "llama3-70b" ? "0.15" : "0.02"} LCAI on mainnet) - drop into a Node/Next backend. For the wallet, user-pays flow you just tried, scaffold it in one command: npx lightnode-sdk@latest add chat-web3`}
       snippet={snippet}
       needsKey={true}
     />
@@ -3727,7 +3727,7 @@ console.log("full transcript:", chat.messages());`;
           )}
 
           {/* Input + send (one clean container, no inner borders) */}
-          <div className="mt-4 rounded-2xl bg-surface-base-faint p-3 ring-1 ring-transparent transition focus-within:ring-primary/40">
+          <div className="mt-4 rounded-2xl bg-surface-base-faint p-3 shadow-sm ring-1 ring-bdr-soft transition focus-within:ring-primary/50">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -3736,7 +3736,7 @@ console.log("full transcript:", chat.messages());`;
               }}
               rows={2}
               maxLength={500}
-              placeholder={turns.length === 0 ? "Ask anything… (cmd+enter to send)" : "Reply…"}
+              placeholder={turns.length === 0 ? "Ask anything…" : "Reply…"}
               className="max-h-40 w-full resize-none bg-transparent px-1 py-1 text-sm text-content-primary outline-none placeholder:text-content-soft"
             />
             <div className="mt-2 flex items-center justify-between gap-3">
@@ -3746,7 +3746,7 @@ console.log("full transcript:", chat.messages());`;
                   onChange={(e) => setModel(e.target.value as "llama3-8b" | "llama3-70b")}
                   disabled={busy}
                   title="Model (both live on mainnet)"
-                  className="rounded-lg bg-card px-2 py-1.5 font-mono text-xs text-content-primary outline-none disabled:opacity-50"
+                  className="cursor-pointer rounded-lg bg-content-soft/10 px-2 py-1.5 font-mono text-xs text-content-default outline-none transition-colors hover:bg-content-soft/15 focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
                 >
                   <option value="llama3-8b">llama3-8b - 0.02 LCAI</option>
                   <option value="llama3-70b">llama3-70b - 0.15 LCAI</option>
