@@ -318,6 +318,8 @@ export interface RunInferenceArgs {
   network: NetworkConfig;
   /** Inference model tag. Default: `"llama3-8b"`. */
   model?: string;
+  /** Opt into worker-side web search (needs a search-capable worker). */
+  searchEnabled?: boolean;
   /**
    * Streaming callback invoked once per decrypted relay chunk. Use for live
    * stdout / UI updates. Optional - the final `answer` is returned either way.
@@ -775,12 +777,14 @@ async function runOneAttempt(args: RunInferenceArgs, attempt: number): Promise<R
     publicClient: args.publicClient,
     network: args.network,
     model: args.model,
+    ...(args.searchEnabled ? { requiredCapabilities: ["search"] } : {}),
   });
   return runJobOnSession(
     session,
     args.prompt,
     {
       onChunk: args.onChunk,
+      searchEnabled: args.searchEnabled,
       jobCompletedTimeoutMs: args.jobCompletedTimeoutMs,
       WebSocket: args.WebSocket,
       relayUrl: args.relayUrl,
@@ -908,6 +912,8 @@ export interface RunInferenceWithKeyArgs {
   prompt: string;
   /** Inference model tag. Default: `"llama3-8b"`. */
   model?: string;
+  /** Opt into worker-side web search (needs a search-capable worker). */
+  searchEnabled?: boolean;
   /**
    * Streaming callback invoked once per decrypted relay chunk. Use for live
    * stdout / UI updates. Optional - the final `answer` is returned either way.
@@ -1072,6 +1078,7 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
     publicClient: publicClient as unknown as MinimalPublicClient,
     network,
     model: args.model,
+    searchEnabled: args.searchEnabled,
     onChunk: args.onChunk,
     maxRetries: args.maxRetries,
     jobCompletedTimeoutMs: args.jobCompletedTimeoutMs,
