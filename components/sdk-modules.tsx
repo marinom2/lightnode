@@ -3393,7 +3393,6 @@ function ChatCopyButton({ text }: { text: string }) {
 }
 
 function ChatRecipe() {
-  const [showCode, setShowCode] = useState(false);
   const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
   const [system, setSystem] = useState<string>("You are a concise assistant. Reply in one or two short sentences.");
   const [input, setInput] = useState<string>("");
@@ -3556,35 +3555,7 @@ function ChatRecipe() {
     }
   }
 
-  const useSearch = searchEnabled && searchCapable;
-  const snippet = `import { Conversation } from "lightnode-sdk";
-
-const chat = new Conversation({
-  network: "${walletNetwork ?? "mainnet"}",
-  privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
-  model: "${model}",
-  system: ${JSON.stringify(system)},${useSearch ? "\n  searchEnabled: true,   // worker runs web search each turn" : ""}
-  maxHistoryTurns: 20,
-});
-
-// Multi-turn: each .send() carries the prior history forward.
-const r1 = await chat.send(${JSON.stringify(turns[0]?.text ?? "Who wrote The Great Gatsby?")});
-console.log("answer 1:", r1.answer);${useSearch ? "\nconsole.log(\"sources:\", r1.sources);   // web-search citations" : ""}
-
-const r2 = await chat.send("In what year?");   // sees the prior turn
-console.log("answer 2:", r2.answer);
-
-console.log("full transcript:", chat.messages());`;
-
-  return showCode ? (
-    <UseItStep
-      onBack={() => setShowCode(false)}
-      title="Conversation SDK"
-      hint={`The server-paid version (your funded PRIVATE_KEY pays each turn, ${model === "llama3-70b" ? "0.15" : "0.02"} LCAI on mainnet) - drop into a Node/Next backend. For the wallet, user-pays flow you just tried, scaffold it in one command: npx lightnode-sdk@latest add chat-web3`}
-      snippet={snippet}
-      needsKey={true}
-    />
-  ) : !connectedAddress || !walletNetwork ? (
+  return !connectedAddress || !walletNetwork ? (
           // Not connected (or wrong chain): the connect happens in the nav bar.
           <div className="flex flex-col items-center justify-center gap-5 py-12 text-center">
             <LcaiMark className="size-14" />
@@ -3600,7 +3571,7 @@ console.log("full transcript:", chat.messages());`;
           </div>
         ) : (
         <div>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center">
             <button
               type="button"
               onClick={() => setShowSettings((v) => !v)}
@@ -3609,14 +3580,6 @@ console.log("full transcript:", chat.messages());`;
               className={`inline-flex size-8 items-center justify-center rounded-lg text-content-soft transition-colors hover:bg-surface-base-faint hover:text-content-primary ${showSettings ? "bg-surface-base-faint text-content-primary" : ""}`}
             >
               <Settings2 className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCode(true)}
-              className="group inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-            >
-              Get the code
-              <ArrowRight className="size-4 transition-transform duration-200 ease-out group-hover:translate-x-1" />
             </button>
           </div>
           {showSettings ? (
