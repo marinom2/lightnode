@@ -148,9 +148,22 @@ export class GatewayClient {
     return this.req("GET", "/api/models");
   }
 
-  /** Protected: dispatcher picks a worker for a session and returns its pubkey. */
-  selectSession(modelId: `0x${string}`): Promise<SelectSessionResult> {
-    return this.req("POST", "/api/sessions/select", { modelId });
+  /** Protected: dispatcher picks a worker for a session and returns its pubkey.
+   *  Pass requiredCapabilities (e.g. ["search"]) to bind only to a worker that
+   *  advertises them. */
+  selectSession(modelId: `0x${string}`, opts?: { requiredCapabilities?: string[] }): Promise<SelectSessionResult> {
+    const body: Record<string, unknown> = { modelId };
+    if (opts?.requiredCapabilities && opts.requiredCapabilities.length > 0) {
+      body.requiredCapabilities = opts.requiredCapabilities;
+    }
+    return this.req("POST", "/api/sessions/select", body);
+  }
+
+  /** Public: union of capabilities advertised by active workers for a model
+   *  (e.g. ["search"]). Used to gate UI before a session binds. Note: this
+   *  endpoint may 404 on networks where consumer-api hasn't deployed it yet. */
+  getModelCapabilities(modelIdHex: `0x${string}`): Promise<{ modelId: string; capabilities: string[] }> {
+    return this.req("GET", `/api/models/${modelIdHex}/capabilities`);
   }
 
   /**
@@ -178,9 +191,12 @@ export class GatewayClient {
     return this.req("POST", "/api/sessions/prepare", input);
   }
 
-  /** Protected: upload an encrypted prompt blob; returns the EIP-4844 blob hash. */
-  uploadBlob(base64Data: string): Promise<UploadBlobResult> {
-    return this.req("POST", "/api/blobs", { data: base64Data });
+  /** Protected: upload an encrypted prompt blob; returns the EIP-4844 blob hash.
+   *  Pass { searchEnabled: true } to opt this job into worker-side web search. */
+  uploadBlob(base64Data: string, opts?: { searchEnabled?: boolean }): Promise<UploadBlobResult> {
+    const body: Record<string, unknown> = { data: base64Data };
+    if (opts?.searchEnabled === true) body.searchEnabled = true;
+    return this.req("POST", "/api/blobs", body);
   }
 
   /** Protected: fetch the relay JWT for an active session (202 = pending). */

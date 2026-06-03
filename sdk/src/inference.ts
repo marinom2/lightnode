@@ -127,6 +127,8 @@ export interface SessionPreparation {
     expiry: bigint;
   };
   nonce: number;
+  /** Capabilities the bound worker advertises (e.g. ["search"]). */
+  workerCapabilities?: string[];
 }
 
 /**
@@ -137,8 +139,9 @@ export interface SessionPreparation {
  * After this returns, the caller submits the on-chain `createSession` tx with
  * `createSessionArgs` and remembers `sessionKey` for the rest of the session.
  */
-export async function prepareSession(gateway: GatewayClient, modelTag: string): Promise<SessionPreparation> {
+export async function prepareSession(gateway: GatewayClient, modelTag: string, opts?: { requiredCapabilities?: string[] }): Promise<SessionPreparation> {
   const id = modelId(modelTag);
+  const requiredCapabilities = opts?.requiredCapabilities;
   // The gateway returns 409 selection_mismatch when a NEWER selectSession()
   // for the same wallet supersedes ours between the select and the prepare.
   // The error message is literally "re-run POST /api/sessions/select", so we
@@ -161,7 +164,7 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
       // call has already superseded ours by the time the gateway processes
       // it. prepareSession 409s when the same happens between select and
       // prepare. The whole select -> prepare flow is one atomic unit.
-      const selected = await gateway.selectSession(id);
+      const selected = await gateway.selectSession(id, requiredCapabilities ? { requiredCapabilities } : undefined);
       const sessionKey = await generateSessionKey();
 
       // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
@@ -184,10 +187,12 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
         encWorkerKey: bytesToBase64(encWorker),
         encDisputerKey: bytesToBase64(encDisputer),
         ...(selected.selectionId ? { selectionId: selected.selectionId } : {}),
+        ...(requiredCapabilities ? { requiredCapabilities } : {}),
       });
       return {
         sessionKey,
         nonce: prepared.nonce,
+        workerCapabilities: selected.workerCapabilities ?? [],
         createSessionArgs: {
           paramsHash: id,
           worker: prepared.worker,
@@ -212,9 +217,9 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string): 
  * Encrypt a UTF-8 prompt with the session key, upload as a blob, and return
  * the EIP-4844 blob hash to pass to `submitJob(sessionId, blobHash)`.
  */
-export async function submitPrompt(gateway: GatewayClient, sessionKey: Uint8Array, prompt: string): Promise<`0x${string}`> {
+export async function submitPrompt(gateway: GatewayClient, sessionKey: Uint8Array, prompt: string, opts?: { searchEnabled?: boolean }): Promise<`0x${string}`> {
   const ct = await encrypt(sessionKey, utf8ToBytes(prompt));
-  const res = await gateway.uploadBlob(bytesToBase64(ct));
+  const res = await gateway.uploadBlob(bytesToBase64(ct), opts?.searchEnabled ? { searchEnabled: true } : undefined);
   const first = res.blobHashes?.[0];
   if (!first) throw new Error("gateway returned no blob hashes");
   return first;
@@ -361,6 +366,8 @@ export interface RunInferenceResult {
   attempts: number;
   /** Any prior attempts whose workers stalled (their fees are refunded by the protocol). */
   stalled: Array<{ jobId: bigint; worker: `0x${string}`; submitTx: `0x${string}` }>;
+  /** Web-search citations, when searchEnabled and the worker returned them. */
+  sources?: WebSearchSource[];
 }
 
 const JOB_REGISTRY_ABI_PARSED = [
@@ -413,6 +420,33 @@ function topicAsUint(hex: `0x${string}`): bigint {
   return BigInt(hex);
 }
 
+/** Parse a decrypted "metadata" relay frame into web-search citations. Mirrors
+ *  lcai-chat-v2's parseWebSearchSources: requires type === "webSearchSources"
+ *  and an array of { position:number, url:string, title?, snippet? }. */
+function parseWebSearchSources(payload: string): WebSearchSource[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object") return [];
+  const obj = parsed as { type?: unknown; sources?: unknown };
+  if (obj.type !== "webSearchSources" || !Array.isArray(obj.sources)) return [];
+  const out: WebSearchSource[] = [];
+  for (const s of obj.sources) {
+    if (!s || typeof s !== "object") continue;
+    const src = s as { position?: unknown; title?: unknown; url?: unknown; snippet?: unknown };
+    const position = typeof src.position === "number" ? src.position : undefined;
+    const url = typeof src.url === "string" ? src.url : "";
+    const title = typeof src.title === "string" ? src.title : "";
+    const snippet = typeof src.snippet === "string" ? src.snippet : "";
+    if (!position || !url) continue;
+    out.push({ position, title: title || url, url, description: snippet });
+  }
+  return out;
+}
+
 /** A live, on-chain session. Open once, then run many jobs through it - each
  *  follow-up turn skips SIWE + createSession, leaving just the submitJob tx. */
 export interface OpenSession {
@@ -428,6 +462,8 @@ export interface OpenSession {
   readonly createTx: `0x${string}`;
   /** Unix seconds when the on-chain session window closes. */
   readonly expirySec: number;
+  /** Capabilities the bound worker advertises (e.g. ["search"]). */
+  readonly capabilities: string[];
 }
 
 export interface OpenSessionArgs {
@@ -436,6 +472,8 @@ export interface OpenSessionArgs {
   publicClient: MinimalPublicClient;
   network: NetworkConfig;
   model?: string;
+  /** Bind only to a worker advertising these (e.g. ["search"]). */
+  requiredCapabilities?: string[];
 }
 
 /**
@@ -445,7 +483,7 @@ export interface OpenSessionArgs {
  */
 export async function openSession(args: OpenSessionArgs): Promise<OpenSession> {
   const { gateway, wallet, publicClient, network, model = "llama3-8b" } = args;
-  const prepared = await prepareSession(gateway, model);
+  const prepared = await prepareSession(gateway, model, args.requiredCapabilities ? { requiredCapabilities: args.requiredCapabilities } : undefined);
   const fee = await estimateJobFee(network, model);
   const createTx = await wallet.writeContract({
     address: network.jobRegistry as `0x${string}`,
@@ -479,11 +517,23 @@ export async function openSession(args: OpenSessionArgs): Promise<OpenSession> {
     worker: prepared.createSessionArgs.worker,
     createTx,
     expirySec: Number(prepared.createSessionArgs.expiry),
+    capabilities: prepared.workerCapabilities ?? [],
   };
+}
+
+/** A web-search citation returned alongside an answer (from the worker's
+ *  "metadata" relay frame when searchEnabled was set). */
+export interface WebSearchSource {
+  position: number;
+  title: string;
+  url: string;
+  description: string;
 }
 
 export interface RunJobOpts {
   onChunk?: (chunk: string, totalSoFar: string) => void;
+  /** Opt this job into worker-side web search (requires a search-capable worker). */
+  searchEnabled?: boolean;
   /** Human-readable progress, e.g. "Uploading prompt to chain..." then "Thinking...". */
   onStage?: (stage: string) => void;
   jobCompletedTimeoutMs?: number;
@@ -503,7 +553,7 @@ export async function runJobOnSession(
   attempt = 1,
 ): Promise<RunInferenceResult> {
   const { gateway, wallet, publicClient, network, sessionId, sessionKey, worker, fee, createTx } = session;
-  const { onChunk, onStage, jobCompletedTimeoutMs = 120_000 } = opts;
+  const { onChunk, onStage, searchEnabled, jobCompletedTimeoutMs = 120_000 } = opts;
   const WS = pickWebSocket(opts.WebSocket);
   const relayUrl = opts.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
   // Shim so the job body below can keep referencing prepared.* unchanged.
@@ -551,6 +601,7 @@ export async function runJobOnSession(
   });
 
   const chunks: string[] = [];
+  const sources: WebSearchSource[] = [];
   let streamDone = false;
   let streamDoneAt: number | null = null;
   const handleMessage = async (rawData: unknown) => {
@@ -566,6 +617,16 @@ export async function runJobOnSession(
     try {
       frame = JSON.parse(raw);
     } catch {
+      return;
+    }
+    // "metadata" carries web-search citations (sent before the answer stream).
+    if (frame.type === "metadata" && frame.payload) {
+      try {
+        const decoded = await decryptResponse(prepared.sessionKey, frame.payload);
+        for (const s of parseWebSearchSources(decoded)) sources.push(s);
+      } catch {
+        /* ignore malformed metadata */
+      }
       return;
     }
     // "complete" marks end-of-stream (it may or may not carry a payload).
@@ -602,8 +663,8 @@ export async function runJobOnSession(
   }
 
   // 4. encrypt + upload prompt
-  onStage?.("Uploading prompt to chain...");
-  const promptHash = await submitPrompt(gateway, prepared.sessionKey, prompt);
+  onStage?.(searchEnabled ? "Searching the web + uploading prompt..." : "Uploading prompt to chain...");
+  const promptHash = await submitPrompt(gateway, prepared.sessionKey, prompt, searchEnabled ? { searchEnabled: true } : undefined);
 
   // 5. submitJob on-chain
   const submitTx = await wallet.writeContract({
@@ -702,6 +763,7 @@ export async function runJobOnSession(
     jobId,
     attempts: attempt,
     stalled: [],
+    ...(sources.length > 0 ? { sources } : {}),
   };
 }
 
@@ -750,6 +812,8 @@ export class LightChatSession {
   get sessionId(): bigint { return this.session.sessionId; }
   get worker(): `0x${string}` { return this.session.worker; }
   get model(): string { return this.session.model; }
+  /** Capabilities the bound worker advertises (e.g. ["search"]). */
+  get capabilities(): string[] { return this.session.capabilities; }
   /** true once the on-chain session window has closed; re-open before sending. */
   get expired(): boolean { return Date.now() / 1000 >= this.session.expirySec; }
   send(prompt: string, opts: RunJobOpts = {}): Promise<RunInferenceResult> {

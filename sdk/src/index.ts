@@ -452,7 +452,7 @@ export {
   isWorkerOpError,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
-export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult } from "./inference.js";
+export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult, OpenSession, OpenSessionArgs, RunJobOpts, WebSearchSource } from "./inference.js";
 export type { ChatRole, ChatMessage, ConversationOptions, ConversationSendResult } from "./chat.js";
 export type { BatchPrompt, BatchResult, RunInferenceBatchArgs } from "./batch.js";
 export type { AgentTool, AgentStep, AgentOptions, AgentRunResult } from "./agent.js";
