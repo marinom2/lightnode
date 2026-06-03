@@ -1318,7 +1318,7 @@ export default function ChatWeb3() {
               onChange={(e) => setModel(e.target.value as ModelId)}
               disabled={busy}
               title="Model (both live on LightChain mainnet)"
-              className="rounded-lg border border-border bg-background px-2 py-1 text-xs font-medium text-muted-foreground outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+              className="cursor-pointer rounded-lg bg-muted-foreground/10 px-2 py-1 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted-foreground/15 focus:ring-1 focus:ring-primary disabled:opacity-50"
             >
               {MODELS.map((m) => (
                 <option key={m} value={m}>{m}</option>
