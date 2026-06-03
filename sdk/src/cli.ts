@@ -605,7 +605,7 @@ async function main() {
       // scaffold one first so the generated page renders instead of throwing
       // "Cannot find module 'react'". Opt out with --no-scaffold.
       const didScaffold =
-        NEXT_PAGE_TARGETS.has(sub ?? "") && !existsSync(join(cwd, "package.json")) && !noScaffold
+        (NEXT_PAGE_TARGETS.has(sub ?? "") || sub === "chat") && !existsSync(join(cwd, "package.json")) && !noScaffold
           ? scaffoldNextApp(cwd, sub ?? "")
           : false;
 
@@ -641,7 +641,7 @@ async function main() {
       // the LightChain theme so localhost:3000 lands on the chat, not the
       // create-next-app starter. Skipped in an existing app (nothing to clobber).
       let wiring: ScaffoldWiring | null = null;
-      if (didScaffold && isWeb3Page) {
+      if (didScaffold && (isWeb3Page || sub === "chat")) {
         wiring = wireFreshScaffold(sub as string, { cwd });
         printWritten(wiring.written);
         if (wiring.homepageRoute) console.log(`  ✓ app/page.tsx (chat is now the homepage at /)`);
@@ -687,10 +687,8 @@ async function main() {
           } else if (sub === "agent") {
             console.log(`  3. AGENT_INTERVAL_MS=3600000 npx tsx agent.ts   # or run under pm2/systemd`);
           } else if (sub === "chat" && result.template === "nextjs-api") {
-            console.log(`  3. Pick one:`);
-            console.log(`     a) docker compose up --build         # run the whole stack yourself, no timeout`);
-            console.log(`     b) npm run dev                       # local dev only`);
-            console.log(`     Open http://localhost:3000/chat`);
+            console.log(`  3. npm run dev   # then open http://localhost:3000${wiring ? "" : "/chat"}`);
+            console.log(`     (or: docker compose up --build  to run the whole stack with no function timeout)`);
           } else if (sub === "chat") {
             console.log(`  3. npx tsx chat-repl.ts  (interactive terminal chat)`);
           } else if (sub === "judge" && result.template === "nextjs-api") {
