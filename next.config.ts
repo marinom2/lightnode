@@ -18,6 +18,10 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Pin the file-tracing root to this repo. Without it, Next.js walks up the
+  // tree, finds an unrelated package-lock.json in a parent directory, and warns
+  // "inferred your workspace root, but it may not be correct" on every build.
+  outputFileTracingRoot: process.cwd(),
   // Bake the deploy's commit SHA into the client so it can detect when a newer
   // build is live and self-reload (the desktop WebView otherwise keeps the
   // loaded page in memory across window close/reopen).

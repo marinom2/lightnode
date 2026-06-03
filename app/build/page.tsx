@@ -27,7 +27,7 @@ const EXAMPLE_REPO_URL = `https://github.com/${EXAMPLES_REPO}/tree/main/quicksta
 export const metadata = {
   title: "Build with LightChain AI",
   description:
-    "Run encrypted LightChain AI inference from your own dApp with lightnode-sdk. Five-line API, read-only network client, bridge, DAO, worker preflight, multi-turn chat, refund queries, models on-chain.",
+    "Run encrypted LightChain AI inference from your own dApp with lightnode-sdk. Five-line API, optional web search with cited sources, read-only network client, bridge, DAO, worker preflight, multi-turn chat, refund queries, models on-chain.",
 };
 
 const QUICKSTART = `// 5 lines, key in, answer out. Works in Node, Next.js, anywhere.
@@ -47,7 +47,7 @@ const ROUTES = [
     href: "/build/sdks",
     icon: Boxes,
     title: "SDK modules",
-    desc: "Six interactive cards. Bridge live quotes, real DAO proposals, multi-turn chat, worker preflight, dispute lookup, models. Plus the three API tiers and server-vs-user-pays patterns.",
+    desc: "Six interactive cards. Bridge live quotes, real DAO proposals, multi-turn chat with web search, worker preflight, dispute lookup, models. Plus the three API tiers and server-vs-user-pays patterns.",
     cta: "Try each module inline",
   },
   {

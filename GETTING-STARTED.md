@@ -91,6 +91,11 @@ What just happened: the CLI created an on-chain session, submitted your prompt a
 a transaction, and decrypted the worker's reply locally. The fees came out of
 your free testnet LCAI.
 
+> **Want the AI to search the web?** From code, add `searchEnabled: true` to an
+> inference call and the answer comes back with a list of cited `sources`. It
+> routes your prompt to a worker that supports search. See the
+> [Web search section in the SDK README](sdk/README.md#web-search-new-in-090).
+
 ## Two ways to build (don't mix them up)
 
 This is the most common source of confusion for new users, so read it carefully.

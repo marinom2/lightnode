@@ -14,6 +14,7 @@ import {
   PackageOpen,
   PlayCircle,
   Rocket,
+  Search,
   ShieldCheck,
   Terminal,
   Wallet2,
@@ -36,10 +37,11 @@ import { HideOnDesktop } from "@/components/hide-on-desktop";
 import { ShowOnDesktop } from "@/components/show-on-desktop";
 import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 
-// What the builder track gives you. Eight high-level SDKs in one package.
+// What the builder track gives you. Nine high-level capabilities in one package.
 const BUILDER_SDKS = [
   { icon: Zap, name: "Encrypted inference", line: "5-line API. Wallet signs, SDK encrypts + streams the answer." },
-  { icon: Workflow, name: "Multi-turn Conversation", line: "Conversation class with history + system prompt." },
+  { icon: Search, name: "Web search inference (0.10)", line: "searchEnabled routes to a search-capable worker; result carries cited sources." },
+  { icon: Workflow, name: "Multi-turn Conversation", line: "History + system prompt. Reuses one session, one tx per turn." },
   { icon: Database, name: "Read-only network client", line: "14 methods for workers, jobs, models, stats. No key needed." },
   { icon: Coins, name: "Bridge SDK", line: "Move LCAI Ethereum <-> LightChain. Quote, approve, transfer." },
   { icon: ShieldCheck, name: "DAO SDK", line: "Read + vote on both governors (Ethereum + LightChain)." },
