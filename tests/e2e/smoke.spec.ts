@@ -3,12 +3,11 @@ import { test, expect } from "@playwright/test";
 // Smoke tests assert static, network-independent content so they stay reliable
 // even if the live subgraph is slow/unreachable in CI.
 
-test("landing renders hero, preview, and CTAs", async ({ page }) => {
+test("landing renders the dual-track hero and CTAs", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Run a LightChain AI worker/i })).toBeVisible();
-  await expect(page.getByText(/lightnode\/(mainnet|testnet)/)).toBeVisible(); // hero product preview
-  await expect(page.getByRole("link", { name: /Start onboarding/i }).first()).toBeVisible();
-  await expect(page.getByText(/What you'll serve/i)).toBeVisible(); // models section
+  await expect(page.getByRole("heading", { name: /Build with, and run for/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Builder hub/i }).first()).toBeVisible(); // build track CTA
+  await expect(page.getByRole("button", { name: /Get the app/i })).toBeVisible(); // worker track CTA
 });
 
 test("nav: connect button + network toggle present", async ({ page }) => {
@@ -61,16 +60,13 @@ test("network page renders leaderboard + per-model analytics", async ({ page }) 
   await expect(page.getByRole("button", { name: /CSV/i })).toBeVisible();
 });
 
-test("build hub renders hero, install, quickstart, and the live tx proofs", async ({ page }) => {
+test("build hub renders hero, install, scaffolders, and CTAs", async ({ page }) => {
   await page.goto("/build");
   await expect(page.getByRole("heading", { name: /Build with LightChain AI/i })).toBeVisible();
-  await expect(page.getByText("npm install lightnode-sdk viem ws")).toBeVisible();
-  // Both verified networks should be shown
+  await expect(page.getByText("npm install lightnode-sdk viem")).toBeVisible();
+  await expect(page.getByText("npm create lightnode-app my-app")).toBeVisible(); // scaffolder
   await expect(page.getByRole("link", { name: /View on npm/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Source on GitHub/i })).toBeVisible();
-  // Live-verified section with both networks
-  await expect(page.getByText(/Live-verified end to end/i)).toBeVisible();
-  // Open-the-playground CTA appears
   await expect(page.getByRole("link", { name: /Open the playground/i }).first()).toBeVisible();
 });
 
@@ -78,8 +74,6 @@ test("playground renders prompt UI and connect-wallet gating", async ({ page }) 
   await page.goto("/playground");
   await expect(page.getByRole("heading", { name: /one real encrypted inference/i })).toBeVisible();
   await expect(page.getByLabel(/Prompt/i)).toBeVisible();
-  // The page-level network toggle (distinct from the global nav toggle aria-labelled "Switch to Testnet")
-  await expect(page.getByRole("button", { name: "Testnet", exact: true })).toBeVisible();
   // Without a wallet the Run button reads "Connect a wallet to run"
   await expect(page.getByRole("button", { name: /Connect a wallet to run/i })).toBeVisible();
 });
@@ -89,9 +83,10 @@ test("network page shows the SDK code-snippet CTA under model performance", asyn
   await expect(page.getByText(/Use this in your app/i).first()).toBeVisible();
 });
 
-test("nav links surface Build", async ({ page }) => {
+test("nav surfaces the Build menu", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Build", exact: true }).first()).toBeVisible();
+  // Build is a dropdown trigger (button), not a plain link.
+  await expect(page.getByRole("button", { name: "Build" }).first()).toBeVisible();
 });
 
 test("theme toggle switches to light mode", async ({ page }) => {
