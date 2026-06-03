@@ -3394,7 +3394,9 @@ function ChatCopyButton({ text }: { text: string }) {
 
 function ChatRecipe() {
   const [model, setModel] = useState<"llama3-8b" | "llama3-70b">("llama3-8b");
-  const [system, setSystem] = useState<string>("You are a concise assistant. Reply in one or two short sentences.");
+  const [system, setSystem] = useState<string>(
+    "You are the assistant for Lightchain AI, a decentralized AI inference network: open models run across independent worker nodes and every request is paid for on-chain with the network's native token, LCAI. \"Lightchain\" / \"Lightchain AI\" always refers to THIS project, never Litecoin and never an IoT blockchain. If you are not certain of a fact, say so rather than inventing details. Keep answers concise.",
+  );
   const [input, setInput] = useState<string>("");
   const [turns, setTurns] = useState<WalletChatTurn[]>([]);
   const [busy, setBusy] = useState(false);
