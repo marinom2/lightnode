@@ -3556,19 +3556,20 @@ function ChatRecipe() {
     }
   }
 
+  const useSearch = searchEnabled && searchCapable;
   const snippet = `import { Conversation } from "lightnode-sdk";
 
 const chat = new Conversation({
   network: "${walletNetwork ?? "mainnet"}",
   privateKey: process.env.PRIVATE_KEY as \`0x\${string}\`,
   model: "${model}",
-  system: ${JSON.stringify(system)},
+  system: ${JSON.stringify(system)},${useSearch ? "\n  searchEnabled: true,   // worker runs web search each turn" : ""}
   maxHistoryTurns: 20,
 });
 
 // Multi-turn: each .send() carries the prior history forward.
 const r1 = await chat.send(${JSON.stringify(turns[0]?.text ?? "Who wrote The Great Gatsby?")});
-console.log("answer 1:", r1.answer);
+console.log("answer 1:", r1.answer);${useSearch ? "\nconsole.log(\"sources:\", r1.sources);   // web-search citations" : ""}
 
 const r2 = await chat.send("In what year?");   // sees the prior turn
 console.log("answer 2:", r2.answer);
