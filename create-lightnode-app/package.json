@@ -1,6 +1,6 @@
 {
   "name": "create-lightnode-app",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Scaffold a new project with end-to-end encrypted LightChain AI inference. Like create-next-app, for LightChain dApps. Run: npm create lightnode-app my-app",
   "type": "module",
   "main": "./dist/index.js",

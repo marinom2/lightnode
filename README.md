@@ -50,6 +50,19 @@ one of them.
 
 ## Recently shipped
 
+- `lightnode-sdk@0.10.x`. **Web search inference and a streaming UX pass.** Set
+  `searchEnabled: true` on `runInference` / `runInferenceWithKey` /
+  `Conversation` to route a prompt to a search-capable worker; the decrypted
+  result carries `sources` (a typed `WebSearchSource[]` of citations). An
+  `onStage` progress hook surfaces the live phase ("Searching the web...",
+  "Uploading prompt to chain...", "Thinking..."), and **session reuse** opens a
+  session once and runs many turns on it, skipping `createSession` on follow-ups
+  so multi-turn chat costs one transaction per turn instead of two.
+- `lightnode-sdk@0.8.x`. **One-command `*-web3` scaffolders.** `npx lightnode add
+  chat-web3` (and `inference-web3` / `judge-web3`) now go end to end in an empty
+  folder: scaffold a themed Next.js app, write the page with a wired Connect
+  button, bundle the wagmi config + providers, wrap the layout, and `npm install`
+  the deps. Run inside an existing Next.js app and they add only what is missing.
 - `lightnode-sdk@0.7.x`. The **worker-operator** surface: run a worker's full
   on-chain lifecycle from code, the part that previously needed the worker
   Docker image or reverse-engineering unverified contracts. `WorkerOperator`
@@ -59,10 +72,8 @@ one of them.
   `unstickAndDeregister`) that clears acknowledged-but-unfinished jobs which
   otherwise block deregistration, plus `decodeWorkerError` for plain-English
   reverts. New CLI: `lightnode worker status | can-deregister | settle |
-  clearstuck | withdraw | deregister`. The latest 0.7.x sends
-  `deregisterWorker()` directly with a gas-correct limit, so a worker can exit
-  and recover its stake with no toolkit clone, no Docker, and no running
-  container, even after a half-finished install.
+  clearstuck | withdraw | deregister`, all gas-correct so a worker can exit and
+  recover its stake with no toolkit clone, no Docker, and no running container.
 - `lightnode-sdk@0.6.x`. Higher-level abstractions on top of the encrypted
   inference layer: **`runInferenceBatch`** (parallel inference with capped
   concurrency, stable result order, per-slot errors), the **`Agent`** class
@@ -157,8 +168,8 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.7.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, `AbortSignal` everywhere, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (`LightNode` methods + CSV exporters), Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + five `add` scaffolders. |
-| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins `lightnode-sdk ^0.7.0` so new projects get the full ecosystem out of the box. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.10.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, optional web search via `searchEnabled` + `sources`, `onStage` progress + session reuse, `AbortSignal` everywhere, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (`LightNode` methods + CSV exporters), Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + ten `add` scaffolders. |
+| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins `lightnode-sdk ^0.10.0` so new projects get the full ecosystem out of the box. |
 | `lightnode add` (inside `lightnode-sdk`) | n/a | Patch an existing project. Auto-detects the framework, writes the right files. Safe to re-run. |
 
 ### The `add` catalog
@@ -210,6 +221,9 @@ get an answer back, pay per call in LCAI.
 | --- | --- |
 | Run one prompt in five lines. No wallet wiring. | `runInferenceWithKey({ network, privateKey, prompt })` |
 | Same flow, but you already have viem clients and a SIWE JWT in your app. | `runInference({ gateway, wallet, publicClient, network, prompt })` |
+| Let the worker search the web and return citations. | Any of the above with `searchEnabled: true`; read `result.sources`. |
+| Show live progress in a UI ("Searching the web...", "Thinking..."). | Pass `onStage: (stage) => ...` to the inference call. |
+| Hold a multi-turn chat that pays one tx per turn. | `Conversation` / `chat({ network, privateKey })` (reuses the session). |
 | Drive each step yourself (custom retry, custom streaming, multi-turn). | `prepareSession`, `submitPrompt`, `decryptResponse`, plus your own viem calls. |
 
 **2. Read-only chain client (free).** All the data the network exposes, without
