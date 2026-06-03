@@ -1000,7 +1000,7 @@ const NEXTJS_CHAT_WEB3_PAGE = `// app/chat-web3/page.tsx
 
 import { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
-import { siweSignIn, GatewayClient, LightChatSession, estimateJobFee, NETWORKS } from "lightnode-sdk";
+import { siweSignIn, GatewayClient, LightChatSession, estimateJobFee, modelId, NETWORKS } from "lightnode-sdk";
 import { Streamdown } from "streamdown";
 import { ConnectButton } from "@/components/connect-button";
 import { LcaiMark } from "@/components/lcai-mark";
@@ -1013,6 +1013,7 @@ type Turn = {
   jobId?: string | null;
   submitTx?: \`0x\${string}\` | null;
   jobCompletedTx?: \`0x\${string}\` | null;
+  sources?: { position: number; title: string; url: string; description: string }[];
 };
 
 // Models live on LightChain mainnet. The visitor picks one per the dropdown.
@@ -1037,6 +1038,10 @@ export default function ChatWeb3() {
   // Reused across turns so follow-ups skip SIWE + createSession.
   const sessionRef = useRef<LightChatSession | null>(null);
   const sessionKeyRef = useRef<string>("");
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const [searchCapable, setSearchCapable] = useState(false);
+  const searchEnabledRef = useRef(false);
+  searchEnabledRef.current = searchEnabled && searchCapable;
 
   // Read the on-chain fee for the connected network so we can show the
   // visitor the real cost per turn before they click Send.
@@ -1047,6 +1052,23 @@ export default function ChatWeb3() {
       (fee) => { if (!cancelled) setFeeLcai(fee); },
       () => { if (!cancelled) setFeeLcai(null); },
     );
+    return () => { cancelled = true; };
+  }, [network, model]);
+
+  // Gate the Web Search toggle on the model advertising the "search" capability.
+  // (On networks where the capabilities endpoint isn't deployed this 404s and the
+  // toggle stays locked - the honest state until a search-capable worker is up.)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const gw = new GatewayClient({ network: network ?? "mainnet" });
+        const caps = await gw.getModelCapabilities(modelId(model));
+        if (!cancelled) setSearchCapable(Array.isArray(caps?.capabilities) && caps.capabilities.includes("search"));
+      } catch {
+        if (!cancelled) setSearchCapable(false);
+      }
+    })();
     return () => { cancelled = true; };
   }, [network, model]);
 
@@ -1083,7 +1105,9 @@ export default function ChatWeb3() {
    */
   async function ensureSession(): Promise<LightChatSession> {
     if (!walletClient || !publicClient || !address || !network) throw new Error("connect a wallet first");
-    const key = \`\${address}:\${network}:\${model}\`;
+    // A search session must bind to a search-capable worker, so it keys separately.
+    const wantSearch = searchEnabledRef.current;
+    const key = \`\${address}:\${network}:\${model}:\${wantSearch}\`;
     const existing = sessionRef.current;
     if (existing && !existing.expired && sessionKeyRef.current === key) return existing;
     setBusyStage("Sign in with your wallet (SIWE)...");
@@ -1096,6 +1120,7 @@ export default function ChatWeb3() {
       publicClient: publicClient as unknown as Parameters<typeof LightChatSession.open>[0]["publicClient"],
       network: NETWORKS[network],
       model,
+      ...(wantSearch ? { requiredCapabilities: ["search"] } : {}),
     });
     sessionRef.current = chat;
     sessionKeyRef.current = key;
@@ -1123,7 +1148,7 @@ export default function ChatWeb3() {
         patchLastAssistant({ text: totalSoFar });
       };
       const onStage = (s: string) => setBusyStage(s);
-      const sendOpts = { onChunk, onStage };
+      const sendOpts = { onChunk, onStage, searchEnabled: searchEnabledRef.current };
 
       const chat = await ensureSession();
       const result = await chat.send(prompt, sendOpts).catch(async () => {
@@ -1142,6 +1167,7 @@ export default function ChatWeb3() {
         jobId: result.jobId?.toString() ?? null,
         submitTx: result.txs?.submitJob ?? null,
         jobCompletedTx: result.txs?.jobCompleted ?? null,
+        sources: result.sources,
       });
     } catch (e) {
       // Roll back the optimistic user bubble so the visitor can retry.
@@ -1221,6 +1247,22 @@ export default function ChatWeb3() {
                       {busyStage || "Thinking..."}
                     </div>
                   )}
+                  {t.sources && t.sources.length > 0 && (
+                    <div className="mt-1 border-t border-border pt-3">
+                      <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Sources</div>
+                      <div className="grid gap-2">
+                        {t.sources.map((s) => (
+                          <a key={s.position + "-" + s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="grid grid-cols-[1.5rem_1fr] gap-2 rounded-lg bg-surface-base-faint px-2.5 py-2 transition-colors hover:bg-card">
+                            <span className="flex size-5 items-center justify-center rounded-md bg-card text-[11px] font-medium text-muted-foreground">{s.position}</span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-foreground hover:underline">{s.title || s.url}</span>
+                              <span className="block truncate text-xs text-muted-foreground">{s.description || s.url}</span>
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {t.submitTx && (
                     <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                       <button
@@ -1270,17 +1312,35 @@ export default function ChatWeb3() {
           />
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value as ModelId)}
-            disabled={busy}
-            title="Model (both live on LightChain mainnet)"
-            className="rounded-lg border border-border bg-background px-2 py-1 text-xs font-medium text-muted-foreground outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-          >
-            {MODELS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-3">
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value as ModelId)}
+              disabled={busy}
+              title="Model (both live on LightChain mainnet)"
+              className="rounded-lg border border-border bg-background px-2 py-1 text-xs font-medium text-muted-foreground outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+            >
+              {MODELS.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <div
+              className="flex items-center gap-2"
+              title={searchCapable ? "Let the worker search the web for this turn" : "No web-search-capable worker is online for this model right now."}
+            >
+              <button
+                type="button"
+                role="switch"
+                aria-checked={searchEnabled && searchCapable}
+                disabled={!searchCapable || busy}
+                onClick={() => setSearchEnabled((v) => !v)}
+                className={"relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 " + (searchEnabled && searchCapable ? "bg-primary" : "bg-muted-foreground/30")}
+              >
+                <span className={"inline-block size-4 rounded-full bg-white shadow transition-transform " + (searchEnabled && searchCapable ? "translate-x-4" : "translate-x-0.5")} />
+              </button>
+              <span className="text-xs text-muted-foreground">Web Search</span>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => send()}
