@@ -50,16 +50,47 @@ so you don't need to pass a WebSocket explicitly.
 | **`runInferenceWithKey({ network, privateKey, prompt, ... })`** | One call from a wallet. The SDK builds viem clients, runs SIWE, encrypts, signs, decrypts. ~5 lines total. |
 | **`runInference({ gateway, wallet, publicClient, network, prompt, ... })`** | You already have viem clients + a SIWE JWT. Same internals, no setup duplication. The /playground uses this with a Reown wallet. |
 | **`runInferenceStream({ network, privateKey, prompt, ... })`** | Modern `AsyncIterable<string>` of chunks plus a `done` promise for the final receipt. `for await (const chunk of stream) ...` |
-| **`Conversation` / `chat({ network, privateKey })`** | Multi-turn chat helper. Keeps history client-side; one encrypted inference per `.send()`. Optional `system` prompt, `maxHistoryTurns` cap. |
+| **`Conversation` / `chat({ network, privateKey })`** | Multi-turn chat helper. Keeps history client-side and **reuses one session across turns** (opens once, skips `createSession` on follow-ups, so a turn costs one tx not two). Optional `system` prompt, `maxHistoryTurns` cap. |
 | **`prepareSession`, `submitPrompt`, `decryptResponse`** | Lowest-level: drive the protocol step by step. Build custom retry, batching, multi-turn-with-session-reuse on top. |
 
 All four high-level entry points share:
 - Auto-retry on `StalledWorkerError` (default 2 retries, configurable).
 - Auto-resolve `globalThis.WebSocket` in browsers, dynamic-import `ws` in Node.
 - Streaming via `onChunk(piece, totalSoFar)` callback.
+- Live phase reporting via `onStage(stage)` (`"Uploading prompt to chain..."`,
+  `"Thinking..."`, and when search is on, `"Searching the web + uploading prompt..."`).
+- Optional **web search**: pass `searchEnabled: true` to route the job to a
+  search-capable worker and get `sources` (a `WebSearchSource[]` of citations)
+  back on the result. See [Web search](#web-search-new-in-090) below.
 - Byte-perfect crypto vs LightChain's reference client (ECDH P-256 + raw
   32-byte shared secret + AES-256-GCM, `@noble/curves` and `@noble/ciphers`
   under the hood).
+
+### Web search (new in 0.9.0)
+
+Opt a paid inference into worker-side web search. The job is routed to a worker
+that advertises the `search` capability; the decrypted result carries `sources`,
+a typed list of citations the worker used.
+
+```ts
+import { runInferenceWithKey } from "lightnode-sdk";
+
+const { answer, sources } = await runInferenceWithKey({
+  network: "mainnet",
+  privateKey: process.env.PRIVATE_KEY as `0x${string}`,
+  prompt: "What shipped in the latest LightChain release? Cite sources.",
+  searchEnabled: true,
+  onStage: (stage) => console.log(stage),   // "Searching the web + uploading prompt..."
+});
+
+console.log(answer);
+for (const s of sources ?? []) console.log(s.title, s.url);
+```
+
+`searchEnabled` is available on `runInference`, `runInferenceWithKey`,
+`runInferenceStream`, and `Conversation`. When no search-capable worker is
+available the call surfaces a normal stalled/failed error instead of silently
+dropping the search. `sources` is `undefined` when the worker returns none.
 
 ### Read-only `LightNode` client (free, no key)
 

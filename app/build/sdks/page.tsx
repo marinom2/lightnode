@@ -69,7 +69,7 @@ export default function BuildSdksPage() {
       {/* Hero with isometric SDK illustration as the visual CTA. */}
       <div className="relative mb-16 grid items-center gap-10 lg:grid-cols-[1fr_minmax(0,420px)]">
         <div>
-          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">lightnode-sdk 0.7.x</p>
+          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">lightnode-sdk 0.10.x</p>
           <h1 className="text-balance text-4xl font-semibold tracking-tight text-content-primary sm:text-5xl lg:text-6xl">
             Nine modules. One install.
           </h1>
