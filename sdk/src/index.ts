@@ -378,7 +378,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.7.21";
+export const SDK_VERSION = "0.11.0";
 
 export {
   NETWORKS,
@@ -478,7 +478,7 @@ export {
   decodeWorkerError,
   WorkerOpError,
   isWorkerOpError,
-  // v0.7.21 read-only worker liveness + stuck-job diagnostic: flags a staked
+  // v0.11.0 read-only worker liveness + stuck-job diagnostic: flags a staked
   // worker that has gone offline and is no longer acknowledging assigned jobs
   // (the silent pre-slash failure) - including the Submitted-past-ack-deadline
   // case the plain job buckets miss. See LightNode.getWorkerLiveness.

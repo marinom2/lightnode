@@ -111,12 +111,39 @@ await ln.getEarningsLcai("0x...");       // settled earnings in LCAI
 await ln.estimateFee("llama3-8b");       // live per-job fee from AIConfig
 await ln.modelId("llama3-8b");           // keccak256 of the model tag
 await ln.getJobStatus(1234n);            // category + refundable flag (new in 0.5.0)
+await ln.getWorkerLiveness("0x...");     // stuck-job + slash-risk diagnostic (new in 0.11.0)
 ln.gateway({ bearer });                  // pre-configured GatewayClient
 ```
 
 Plus the bare-metal aggregators (`aggregateModelStats`, `aggregateWorkerStats`,
 `networkAnalytics`) and CSV exporters (`modelStatsCsv`, `workerStatsCsv`,
 `workerJobsCsv`) for reporting / dashboards.
+
+### Worker liveness / stuck-job diagnostic (new in 0.11.0)
+
+Surfaces the failure that is otherwise invisible until the stake is slashed: a
+worker that is registered and staked but has gone offline and is no longer
+acknowledging the jobs the chain assigns it. `getWorkerLiveness` classifies the
+worker's recent jobs against the LIVE protocol timeouts (read from AIConfig) and
+flags two stuck states - **unacked** (Submitted, past the ack deadline; the case
+plain job buckets miss, so an offline worker reads as merely idle) and
+**incomplete** (Acknowledged, past the completion deadline) - with the slash
+exposure and suspension risk. Read-only; no key.
+
+```ts
+import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("mainnet");
+const r = await ln.getWorkerLiveness("0x...");
+if (r.liveness === "stalled") {
+  console.log(r.summary);            // "3 assigned but never acknowledged (worker offline), up to ~3000 LCAI at risk..."
+  console.log(r.unackedCount, r.incompleteCount, r.slashExposureLcai, r.suspensionRisk);
+  for (const j of r.stuckJobs) console.log(j.id, j.kind, j.pastDeadlineSec);
+}
+```
+
+`analyzeWorkerLiveness({ worker, jobs, config })` is the pure classifier behind it
+if you already hold the subgraph rows and `WorkerOperator.config()`.
 
 ### Bridge SDK (new in 0.5.0)
 

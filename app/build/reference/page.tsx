@@ -27,6 +27,7 @@ const READONLY_METHODS = [
   { sig: "estimateFee(modelTag)", returns: "number (LCAI)", desc: "On-chain inference fee. What submitJob will charge." },
   { sig: "gateway({ bearer })", returns: "GatewayClient", desc: "Authenticated GatewayClient for this network." },
   { sig: "getJobStatus(jobId)", returns: "JobStatus | null", desc: "Job category (completed / stalled / disputed / ...) + refundable flag." },
+  { sig: "getWorkerLiveness(address)", returns: "WorkerLivenessReport", desc: "Stuck-job + slash-risk diagnostic: flags a staked-but-offline worker not acknowledging assigned jobs, with slash exposure and suspension risk." },
 ] as const;
 
 const READONLY_SNIPPET = `import { LightNode } from "lightnode-sdk";
@@ -89,6 +90,7 @@ const FRAMEWORK_EXAMPLES = [
 const EXAMPLES_REPO = "marinom2/lightnode-examples";
 
 const CHANGELOG = [
+  { v: "0.11.0", date: "June 2026", line: "Worker liveness / stuck-job diagnostic: getWorkerLiveness(address) classifies a worker's recent jobs against the live protocol timeouts to flag a staked-but-offline worker that is no longer acknowledging assigned jobs (the silent pre-slash failure), including the Submitted-past-ack-deadline case the plain job buckets miss, with slash exposure and suspension risk. analyzeWorkerLiveness is the pure classifier behind it." },
   { v: "0.10.x", date: "June 2026", line: "Web search inference (searchEnabled routes to a search-capable worker; the result carries a typed sources[] of citations), an onStage progress hook (Searching the web... / Uploading prompt to chain... / Thinking...), and session reuse so multi-turn chat pays one tx per turn instead of two. Faster relay-token polling and earlier stream completion." },
   { v: "0.8.x", date: "June 2026", line: "One-command *-web3 scaffolders: npx lightnode add chat-web3 (and inference-web3 / judge-web3) scaffold a themed Next.js app end to end in an empty folder, bundling the wagmi config, providers, connect button, and deps." },
   { v: "0.7.7", date: "June 2026", line: "Docker-free, gas-correct deregister: deregisterWorker() is sent directly with an estimated gas limit, so a stuck or half-finished worker can exit and recover its stake with no toolkit clone and no worker image. WorkerOperator.workerAddress is now optional on read-only paths." },
