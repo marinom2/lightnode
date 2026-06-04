@@ -7,7 +7,7 @@
  * present, preferring internals. On the web both are absent → no-ops/null.
  */
 
-import { parseWorkerHealth, WORKER_HEALTH_CMD, type WorkerHealth } from "./worker-health";
+import { parseWorkerHealth, WORKER_HEALTH_CMD, WORKER_HEALTH_CMD_WIN, type WorkerHealth } from "./worker-health";
 
 export type { WorkerHealth };
 
@@ -51,6 +51,18 @@ function getInvoke(): Invoke | null {
 
 export function isDesktop(): boolean {
   return getInvoke() !== null;
+}
+
+/**
+ * Whether the desktop shell is running on Windows - decides which shell dialect
+ * the native docker read commands must use. The native runner executes commands
+ * through PowerShell on Windows and bash everywhere else (see run_command_streamed
+ * in src-tauri/src/main.rs), so a bash-only command silently fails on Windows. The
+ * webview UA reliably carries the platform (WebView2 -> "Windows NT", WKWebView ->
+ * "Macintosh", WebKitGTK -> "Linux"), the same signal openExternal already uses.
+ */
+function isWindowsHost(): boolean {
+  return typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
 }
 
 /**
@@ -221,10 +233,17 @@ export async function localContainerStatus(): Promise<LocalContainerStatus> {
   const invoke = getInvoke();
   const events = win()?.__TAURI__?.event;
   if (!invoke || !events || streamBusy) return "unknown"; // never share the channel with another reader/command
-  const cmd =
+  // PowerShell on Windows, bash elsewhere - the native runner picks the shell per
+  // OS, so the bash form (export/>/dev/null/`||`) is a parse error on Windows and
+  // the worker would always read as "missing" -> "Stopped". Same docker calls.
+  const winCmd =
+    'docker info *> $null; if ($LASTEXITCODE -ne 0) { Write-Output "__NODOCKER__"; exit 0 }\n' +
+    'docker ps -a --filter name=lightchain-worker --format "{{.Status}}" 2>$null';
+  const unixCmd =
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"; ' +
     'docker info >/dev/null 2>&1 || { echo "__NODOCKER__"; exit 0; }; ' +
     "docker ps -a --filter name=lightchain-worker --format '{{.Status}}' 2>/dev/null";
+  const cmd = isWindowsHost() ? winCmd : unixCmd;
   streamBusy = true;
   return new Promise<LocalContainerStatus>((resolve) => {
     let out = "";
@@ -271,11 +290,20 @@ export async function localWorkerInfo(): Promise<LocalWorkerInfo> {
   const invoke = getInvoke();
   const events = win()?.__TAURI__?.event;
   if (!invoke || !events || streamBusy) return { status: "unknown", chainId: null };
-  const cmd =
+  // PowerShell on Windows, bash elsewhere (see localContainerStatus). Same STATUS:
+  // / CHAIN: markers so the classify() parser below works for both.
+  const winCmd = [
+    'docker info *> $null; if ($LASTEXITCODE -ne 0) { Write-Output "__NODOCKER__"; exit 0 }',
+    `Write-Output "STATUS:$(docker ps -a --filter name=lightchain-worker --format '{{.Status}}' 2>$null)"`,
+    '$LcEnv = (docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null)',
+    `Write-Output "CHAIN:$(($LcEnv | Select-String '^CHAIN_ID=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value)"`,
+  ].join("\n");
+  const unixCmd =
     'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"; ' +
     'docker info >/dev/null 2>&1 || { echo "__NODOCKER__"; exit 0; }; ' +
     'echo "STATUS:$(docker ps -a --filter name=lightchain-worker --format \'{{.Status}}\' 2>/dev/null)"; ' +
     'echo "CHAIN:$(docker inspect lightchain-worker --format \'{{range .Config.Env}}{{println .}}{{end}}\' 2>/dev/null | grep \'^CHAIN_ID=\' | head -1 | cut -d= -f2)"';
+  const cmd = isWindowsHost() ? winCmd : unixCmd;
   streamBusy = true;
   return new Promise<LocalWorkerInfo>((resolve) => {
     let out = "";
@@ -343,7 +371,8 @@ export async function fetchWorkerHealth(): Promise<WorkerHealth | null> {
       events.listen("setup-exit", () => finish(parseWorkerHealth(out))),
     ]).then((u) => {
       unsubs.push(...u);
-      invoke("run_command_streamed", { command: WORKER_HEALTH_CMD, env: {} }).catch(() => finish(null));
+      const cmd = isWindowsHost() ? WORKER_HEALTH_CMD_WIN : WORKER_HEALTH_CMD;
+      invoke("run_command_streamed", { command: cmd, env: {} }).catch(() => finish(null));
     });
     setTimeout(() => finish(out ? parseWorkerHealth(out) : null), 12000);
   });
