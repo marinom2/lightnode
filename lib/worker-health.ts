@@ -107,7 +107,7 @@ export function parseWorkerHealth(raw: string): WorkerHealth | null {
   };
 }
 
-/** The combined read command (unix shell). Windows uses the same docker calls. */
+/** The combined read command (unix shell, bash). */
 export const WORKER_HEALTH_CMD = [
   'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:$PATH"',
   'docker info >/dev/null 2>&1 || { echo "===NODOCKER==="; exit 0; }',
@@ -120,4 +120,25 @@ export const WORKER_HEALTH_CMD = [
   'echo "===CHAIN==="; printf "%s" "$ENV" | grep "^CHAIN_ID=" | head -1 | cut -d= -f2',
   'echo "===SERVED==="; printf "%s" "$ENV" | grep "^SUPPORTED_MODELS=" | head -1 | cut -d= -f2',
   'echo "===END==="',
+].join("\n");
+
+// Windows variant. The desktop app runs every native command through PowerShell
+// (see run_command_streamed), NOT bash - so the unix command above (export,
+// >/dev/null, `||`, `{ ...; }`) is a parse error on the default Windows shell
+// (Windows PowerShell 5.1, where `||` doesn't exist), the worker never reads as
+// running, and the dashboard is stuck on "Stopped". The docker SUBcommands are
+// identical cross-platform; only the shell wrapper needs translating. Output uses
+// the same ===SECTION=== markers so parseWorkerHealth() handles both verbatim.
+// curl.exe (not the `curl` alias for Invoke-WebRequest) gives raw JSON for Ollama.
+export const WORKER_HEALTH_CMD_WIN = [
+  'docker info *> $null; if ($LASTEXITCODE -ne 0) { Write-Output "===NODOCKER==="; exit 0 }',
+  'Write-Output "===PS==="; docker ps -a --filter name=lightchain-worker --format "{{.Status}}" 2>$null',
+  'Write-Output "===STATS==="; docker stats --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}" lightchain-worker 2>$null',
+  'Write-Output "===METRICS==="; docker exec lightchain-worker sh -c "command -v curl >/dev/null && curl -s http://127.0.0.1:9101/metrics || wget -qO- http://127.0.0.1:9101/metrics" 2>$null',
+  'Write-Output "===LOGS==="; docker logs --tail 10 lightchain-worker 2>&1',
+  'Write-Output "===OLLAMA==="; curl.exe -s -m 4 http://127.0.0.1:11434/api/ps 2>$null',
+  '$LcEnv = (docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null)',
+  `Write-Output "===CHAIN==="; ($LcEnv | Select-String '^CHAIN_ID=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value`,
+  `Write-Output "===SERVED==="; ($LcEnv | Select-String '^SUPPORTED_MODELS=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value`,
+  'Write-Output "===END==="',
 ].join("\n");

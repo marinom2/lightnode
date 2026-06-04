@@ -24,6 +24,7 @@ import { fromWei, fmt, compact, timeAgo, shortAddr, stakeBelowFloor, cn } from "
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
+import type { WorkerLivenessReport } from "lightnode-sdk";
 import { openExternal } from "@/lib/tauri";
 import type { LocalContainerStatus } from "@/lib/tauri";
 
@@ -247,6 +248,7 @@ export function WorkerView({
   onchainRegistered = null,
   deadlineSec = 120,
   localRunning = null,
+  liveness = null,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -272,6 +274,10 @@ export function WorkerView({
   // false we show a clear "stopped, Restart" state and hide the stale active-job
   // count - a registered-but-stopped worker is not processing anything.
   localRunning?: boolean | null;
+  // Read-only liveness diagnostic (from the SDK, via /api/worker): flags jobs the
+  // chain assigned this worker that are past their deadline and never answered -
+  // the silent "staked but offline" failure. Null when unavailable; banner hidden.
+  liveness?: WorkerLivenessReport | null;
 }) {
   const [showWhy, setShowWhy] = useState(false);
   const h = healthOf(worker);
@@ -401,6 +407,33 @@ export function WorkerView({
           </p>
         ) : null}
       </Card>
+
+      {liveness && liveness.stuckJobs.length > 0 && (
+        <Card className="border-danger/40 bg-danger/5 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-content-primary">
+                {liveness.unackedCount > 0
+                  ? "Worker offline - assigned jobs are going unanswered"
+                  : "Jobs stuck past their on-chain deadline"}
+              </p>
+              <p className="text-content-soft">
+                {liveness.stuckJobs.length} job{liveness.stuckJobs.length > 1 ? "s" : ""} the chain assigned this worker{" "}
+                {liveness.stuckJobs.length > 1 ? "are" : "is"} past the deadline and {liveness.stuckJobs.length > 1 ? "were" : "was"} never answered
+                {liveness.slashExposureLcai > 0 && (
+                  <> - up to ~{fmt(liveness.slashExposureLcai, 0)} LCAI at risk of a timeout slash
+                    {liveness.suspensionRisk ? " and worker suspension" : ""}</>
+                )}
+                . They will not complete on their own.{" "}
+                {offlineHere
+                  ? "Use Operations → Restart to bring the worker back online, then clear them in Operations."
+                  : "Bring the worker back online and clear them from Operations."}
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <EarningsPanel worker={worker} jobs={jobs} />
 

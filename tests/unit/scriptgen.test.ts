@@ -656,3 +656,53 @@ describe("preflight (check before staking)", () => {
     });
   }
 });
+
+// Regression: the Windows install emits PowerShell here-strings inside a JS
+// template literal, so a single backslash before a letter (e.g. `\k`, `\m`, `\L`)
+// is silently stripped by JS - turning `.lightnode\keep-online.paused` into
+// `.lightnodekeep-online.paused` and breaking the watchdog's pause check, model
+// warm, and sleep-prevention mutex. These must survive across every network and
+// model set (one model today, several now and more later - all read from env).
+describe("Windows watchdog + sleep prevention (generated PowerShell)", () => {
+  const networks = ["mainnet", "testnet"] as const;
+  const modelSets = [["llama3-8b"], ["llama3-8b", "llama3-70b"], ["qwen2-7b", "llama3-8b", "mixtral-8x7b"]];
+  for (const net of networks) {
+    for (const models of modelSets) {
+      const out = desktopInstallCommand("windows", net, models);
+      const label = `${net} / ${models.join("+")}`;
+      it(`${label}: backslash paths survive JS template escaping`, () => {
+        expect(out).toContain(String.raw`".lightnode\keep-online.paused"`);
+        expect(out).toContain(String.raw`".lightnode\keep-awake.ps1"`);
+        expect(out).toContain(String.raw`".lightnode\model"`);
+        expect(out).toContain(String.raw`"Global\LightChainWorkerAwake"`);
+        expect(out).toContain(String.raw`"Docker\Docker\Docker Desktop.exe"`);
+        // The stripped-backslash corruptions must NOT appear.
+        for (const bad of [".lightnodekeep-online", ".lightnodemodel", "GlobalLightChainWorkerAwake", "DockerDockerDocker"]) {
+          expect(out).not.toContain(bad);
+        }
+      });
+      it(`${label}: installs sleep prevention + the keep-online watchdog`, () => {
+        expect(out).toContain("SetThreadExecutionState"); // holds the machine awake
+        expect(out).toContain('schtasks /Create /TN "LightChainWorkerAwake"');
+        expect(out).toContain('schtasks /Create /TN "LightChainWorkerWatchdog"');
+        // Robust Docker start by full path, not the fragile start-by-name.
+        expect(out).toContain("if (Test-Path $dd) { Start-Process $dd }");
+        // Gateway-stale recovery: restart a running-but-disconnected worker.
+        expect(out).toContain("docker restart lightchain-worker");
+      });
+      it(`${label}: serves exactly the selected set from env (network-agnostic)`, () => {
+        expect(out).toContain(`$env:SUPPORTED_MODELS = "${models.join(",")}"`);
+        for (const m of models) expect(out).toContain(m);
+      });
+    }
+  }
+  it("tears the awake task down on deregister and uninstall", () => {
+    expect(deregisterCommand("windows", "mainnet", [])).toContain('schtasks /Delete /TN "LightChainWorkerAwake"');
+    expect(uninstallCommand("windows", "testnet")).toContain('schtasks /Delete /TN "LightChainWorkerAwake"');
+  });
+  it("restart (repair) lifts the pause and re-arms sleep prevention", () => {
+    const rep = repairWorkerCommand("windows");
+    expect(rep).toContain(String.raw`".lightnode\keep-online.paused"`);
+    expect(rep).toContain(String.raw`".lightnode\keep-awake.ps1"`);
+  });
+});

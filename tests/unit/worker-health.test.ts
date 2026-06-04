@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWorkerHealth } from "@/lib/worker-health";
+import { parseWorkerHealth, WORKER_HEALTH_CMD, WORKER_HEALTH_CMD_WIN } from "@/lib/worker-health";
 
 const RAW = `===PS===
 Up 30 minutes
@@ -59,5 +59,33 @@ describe("parseWorkerHealth", () => {
   it("handles a stopped container", () => {
     const h = parseWorkerHealth("===PS===\nExited (0) 2 minutes ago\n===STATS===\n===METRICS===\n===LOGS===\n===END===")!;
     expect(h.running).toBe(false);
+  });
+});
+
+// The desktop app runs every native command through PowerShell on Windows and
+// bash elsewhere (run_command_streamed). The Windows health command therefore
+// must be valid PowerShell - the old bash-only form (export / >/dev/null / `||`)
+// is a parse error there, which left every Windows worker stuck on "Stopped".
+describe("WORKER_HEALTH_CMD_WIN (PowerShell health read)", () => {
+  it("emits the same ===SECTION=== markers parseWorkerHealth expects", () => {
+    for (const m of ["===NODOCKER===", "===PS===", "===STATS===", "===METRICS===", "===LOGS===", "===OLLAMA===", "===CHAIN===", "===SERVED===", "===END==="]) {
+      expect(WORKER_HEALTH_CMD_WIN).toContain(m);
+    }
+  });
+  it("uses PowerShell idioms, not bash ones that fail on Windows PowerShell 5.1", () => {
+    expect(WORKER_HEALTH_CMD_WIN).not.toContain("export PATH");
+    // Bash redirects / operators are only allowed INSIDE the container's
+    // `sh -c "..."` string (that runs in the container, not PowerShell). The
+    // PowerShell layer itself must contain none of them (5.1 has no `||`/`&&`).
+    const psLayer = WORKER_HEALTH_CMD_WIN.split("sh -c")[0];
+    expect(psLayer).not.toContain(">/dev/null");
+    expect(psLayer).not.toMatch(/\|\||&&/);
+  });
+  it("reads the served set from container env dynamically (any/future model)", () => {
+    expect(WORKER_HEALTH_CMD_WIN).toContain("SUPPORTED_MODELS");
+    expect(WORKER_HEALTH_CMD_WIN).toContain("CHAIN_ID"); // network-agnostic, read live
+  });
+  it("keeps the unix command as bash (unchanged)", () => {
+    expect(WORKER_HEALTH_CMD.startsWith("export PATH")).toBe(true);
   });
 });

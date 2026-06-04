@@ -1,3 +1,4 @@
+import { createPublicClient, http } from "viem";
 import { NETWORKS, WORKER_REGISTRY, REGISTRY_TOPICS } from "./networks.js";
 import {
   fetchWorker,
@@ -51,6 +52,8 @@ import {
   WorkerOpError,
   isWorkerOpError,
 } from "./worker-operator.js";
+import { analyzeWorkerLiveness, type WorkerLivenessReport } from "./liveness.js";
+import type { MinimalPublicClient } from "./worker-operator.js";
 import {
   Bridge,
   BRIDGE_ROUTE,
@@ -132,6 +135,31 @@ export class LightNode {
   /** Recent jobs for one worker, newest first. */
   getWorkerJobs(address: string, first = 20): Promise<Job[]> {
     return fetchWorkerJobs(this.network, address, first);
+  }
+
+  /**
+   * Worker liveness + stuck-job diagnostic. Classifies the worker's recent jobs
+   * against the LIVE protocol timeouts (read from AIConfig) to surface a worker
+   * that is registered and staked but has gone offline and is no longer
+   * acknowledging the jobs the chain assigns it - the failure that is otherwise
+   * invisible until the stake is slashed. Catches both the "Submitted but never
+   * acknowledged, past the ack deadline" case (which plain job buckets miss, so
+   * an offline worker reads as merely idle) and the "Acknowledged but never
+   * completed" case, and reports the slash exposure + suspension risk. Read-only;
+   * no key needed. `opts.jobs` caps how many recent jobs to inspect (default 50).
+   */
+  async getWorkerLiveness(address: string, opts: { jobs?: number } = {}): Promise<WorkerLivenessReport> {
+    // viem's PublicClient is structurally wider than MinimalPublicClient (its
+    // simulateContract generics don't unify), so narrow it explicitly - the same
+    // read-only client the SDK's CLI uses for WorkerOperator.
+    const publicClient = createPublicClient({ transport: http(this.network.rpc) }) as unknown as MinimalPublicClient;
+    const op = new WorkerOperator(this.network, { publicClient });
+    const [worker, jobs, config] = await Promise.all([
+      fetchWorker(this.network, address),
+      fetchWorkerJobs(this.network, address, opts.jobs ?? 50),
+      op.config(),
+    ]);
+    return analyzeWorkerLiveness({ worker, jobs, config });
   }
 
   /**
@@ -350,7 +378,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.7.20";
+export const SDK_VERSION = "0.11.0";
 
 export {
   NETWORKS,
@@ -450,6 +478,11 @@ export {
   decodeWorkerError,
   WorkerOpError,
   isWorkerOpError,
+  // v0.11.0 read-only worker liveness + stuck-job diagnostic: flags a staked
+  // worker that has gone offline and is no longer acknowledging assigned jobs
+  // (the silent pre-slash failure) - including the Submitted-past-ack-deadline
+  // case the plain job buckets miss. See LightNode.getWorkerLiveness.
+  analyzeWorkerLiveness,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
 export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult, OpenSession, OpenSessionArgs, RunJobOpts, WebSearchSource } from "./inference.js";
@@ -473,5 +506,6 @@ export type {
   JobState,
   DecodedWorkerError,
 } from "./worker-operator.js";
+export type { WorkerLivenessReport, StuckJobReport, StuckKind, Liveness, LivenessConfig } from "./liveness.js";
 export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
 export type { SiweWalletClient, SiweChallenge, SiweVerifyResult, SiweSession } from "./auth.js";

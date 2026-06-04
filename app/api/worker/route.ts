@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { LightNode } from "lightnode-sdk";
 import { fetchWorker, fetchWorkerJobs, fetchWorkerModels, isLive } from "@/lib/subgraph";
 import { fetchOnchainRegistered, fetchOnchainEligibleModels } from "@/lib/onchain-status";
 import type { NetworkId } from "@/lib/network";
@@ -21,7 +22,15 @@ export async function GET(req: NextRequest) {
     ]);
     if (!worker) return NextResponse.json({ ok: true, worker: null, jobs: [], onchainRegistered });
     // first=50 so Operations can see all completed (unreleased) jobs to settle.
-    const [jobs, models] = await Promise.all([fetchWorkerJobs(net, address, 50), fetchWorkerModels(net, address)]);
+    // liveness: read-only SDK diagnostic that flags a staked-but-offline worker
+    // with jobs stuck past their deadline (the silent pre-slash failure). It reads
+    // live protocol config from the chain, so it never blocks the response - null
+    // on any error and the UI simply omits the banner.
+    const [jobs, models, liveness] = await Promise.all([
+      fetchWorkerJobs(net, address, 50),
+      fetchWorkerModels(net, address),
+      new LightNode(net).getWorkerLiveness(address).catch(() => null),
+    ]);
     // Reconcile the subgraph's served-models list (which goes stale after a
     // deregister/re-register - it never indexes removals) against on-chain
     // isEligible. Tag each model with onchainEligible so the UI can hide/flag the
@@ -30,7 +39,7 @@ export async function GET(req: NextRequest) {
     const reconciledModels = eligible
       ? models.map((m) => ({ ...m, onchainEligible: eligible.get(m.modelId.toLowerCase()) ?? null }))
       : models.map((m) => ({ ...m, onchainEligible: null }));
-    return NextResponse.json({ ok: true, worker, live: isLive(worker), jobs, models: reconciledModels, onchainRegistered });
+    return NextResponse.json({ ok: true, worker, live: isLive(worker), jobs, models: reconciledModels, onchainRegistered, liveness });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }

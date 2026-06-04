@@ -19,6 +19,7 @@ import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { getWorkerAddr, resolveManagedWorkerAddr } from "@/lib/secrets";
 import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus, type WorkerHealth } from "@/lib/tauri";
+import type { WorkerLivenessReport } from "lightnode-sdk";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
 
@@ -45,6 +46,8 @@ export default function DashboardPage() {
   // Registration read straight from the chain by /api/worker (works for ANY worker).
   // Corrects the public index when it's stuck on a stale "deregistered".
   const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
+  // Read-only liveness/stuck-job diagnostic from /api/worker (SDK-computed).
+  const [liveness, setLiveness] = useState<WorkerLivenessReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [localStatus, setLocalStatus] = useState<LocalContainerStatus | null>(null);
@@ -72,6 +75,7 @@ export default function DashboardPage() {
         setJobs(Array.isArray(r.jobs) ? r.jobs : []);
         setModels(Array.isArray(r.models) ? r.models : []);
         setOnchainRegistered(typeof r.onchainRegistered === "boolean" ? r.onchainRegistered : null);
+        setLiveness(r.liveness ?? null);
         // NOTE: viewing a worker here does NOT make it "My worker". The managed
         // worker is the one the app holds the key for (resolved above); viewing
         // any watchlisted worker is read-only, so it can't clobber the address
@@ -81,6 +85,7 @@ export default function DashboardPage() {
         setWorker(undefined);
         setJobs([]);
         setOnchainRegistered(null);
+        setLiveness(null);
       } finally {
         setLoading(false);
       }
@@ -233,6 +238,7 @@ export default function DashboardPage() {
             liveConfirmed={liveHere}
             onchainRegistered={onchainRegistered}
             localRunning={localRunning}
+            liveness={liveness}
           />
           {isMine && desktop && (
             <div className="mt-4">

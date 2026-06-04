@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-06-01.1";
+export const INSTALLER_REV = "2026-06-04.1";
 
 export interface ScriptBundle {
   os: OS;
@@ -138,6 +138,14 @@ const AWAKE_ON_UNIX =
   'if [ "$(uname -s)" = "Darwin" ]; then launchctl load -w "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; elif command -v systemd-inhibit >/dev/null 2>&1; then pgrep -f "systemd-inhibit.*lightnode-awake" >/dev/null 2>&1 || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & ); fi';
 const AWAKE_OFF_UNIX =
   'if [ "$(uname -s)" = "Darwin" ]; then launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; fi; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true; echo "✓ sleep prevention off - the machine can sleep again"';
+
+// Robustly start Docker Desktop on Windows. The install knows the exact path, but
+// the watchdog/ops historically used `Start-Process "Docker Desktop"` by NAME,
+// which often fails to resolve - so after a reboot the engine never came up and
+// the worker (and the keep-online restart) stayed down: jobs sat "Submitted".
+// Prefer the real exe under %ProgramFiles%, fall back to the name.
+const WIN_START_DOCKER =
+  '$dd = Join-Path $env:ProgramFiles "Docker\\Docker\\Docker Desktop.exe"; if (Test-Path $dd) { Start-Process $dd } else { Start-Process "Docker Desktop" -ErrorAction SilentlyContinue }';
 
 // AppImage library-pollution guard (unix). An AppImage exports LD_LIBRARY_PATH
 // (and friends) pointing at its OWN bundled libs; the system curl/git/docker we
@@ -606,20 +614,41 @@ $old = (Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorActio
 foreach ($om in $old) { if ($om -and ($newSet -notcontains $om)) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 10 -Body "{\`"model\`":\`"$om\`",\`"keep_alive\`":0}" | Out-Null; Write-Host "unloaded $om (no longer served)" } catch {} } }
 # Record the served set (one model per line) so the watchdog warms each.
 Set-Content -Path (Join-Path $env:USERPROFILE ".lightnode\\model") -Value $newSet
+# Sleep-prevention holder (mirrors macOS caffeinate / Linux systemd-inhibit). A
+# worker that's acked a job and then sleeps times out = slash, and the Windows
+# build previously had NO sleep guard at all, so a laptop nap dropped the worker
+# and any jobs that arrived meanwhile sat "Submitted". This holds the system awake
+# (SetThreadExecutionState) while the worker should run; a global mutex makes it a
+# singleton, and it releases the moment the pause marker (Stop/Deregister) appears.
+$ka = Join-Path $env:USERPROFILE ".lightnode\\keep-awake.ps1"
+@'
+$mtx = New-Object System.Threading.Mutex($false, "Global\\LightChainWorkerAwake")
+if (-not $mtx.WaitOne(0)) { exit 0 }
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public static class LcPower{[DllImport("kernel32.dll")]public static extern uint SetThreadExecutionState(uint f);}'
+$CONT = [uint32]2147483648; $SYS = [uint32]1   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+$pause = Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused"
+while (-not (Test-Path $pause)) { [LcPower]::SetThreadExecutionState($CONT -bor $SYS) | Out-Null; Start-Sleep -Seconds 50 }
+[LcPower]::SetThreadExecutionState($CONT) | Out-Null
+'@ | Set-Content -Path $ka -Encoding ASCII
 # Keep-online watchdog: auto-start Docker + the worker on a schedule (survives reboot).
 try {
   $ko = Join-Path $env:USERPROFILE ".lightnode\\keep-online.ps1"
 @'
-if (Test-Path (Join-Path $env:USERPROFILE ".lightnode\keep-online.paused")) { exit 0 }
+if (Test-Path (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused")) { exit 0 }
 docker info *> $null
-if (-not $?) { Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0;$i -lt 45;$i++){ docker info *> $null; if($?){break}; Start-Sleep 2 } }
+if (-not $?) { ${WIN_START_DOCKER}; for ($i=0;$i -lt 45;$i++){ docker info *> $null; if($?){break}; Start-Sleep 2 } }
 docker info *> $null; if (-not $?) { exit 0 }
-if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null } }
-$ms = Get-Content (Join-Path $env:USERPROFILE ".lightnode\model") -ErrorAction SilentlyContinue
+if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null; Start-Sleep 5 } elseif (-not ((docker logs --since 70m lightchain-worker 2>&1) -match "authenticated with worker-gateway|websocket connected")) { docker restart lightchain-worker | Out-Null } }
+Start-Process powershell -WindowStyle Hidden -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",(Join-Path $env:USERPROFILE ".lightnode\\keep-awake.ps1")) -ErrorAction SilentlyContinue
+$ms = Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue
 foreach ($m in $ms) { if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 5 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} } }
 '@ | Set-Content -Path $ko -Encoding ASCII
   schtasks /Create /TN "LightChainWorkerWatchdog" /TR "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$ko\`"" /SC MINUTE /MO 10 /F | Out-Null
+  # Run the awake holder at every logon, and start it now so it guards immediately.
+  schtasks /Create /TN "LightChainWorkerAwake" /TR "powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File \`"$ka\`"" /SC ONLOGON /F | Out-Null
+  Start-Process powershell -WindowStyle Hidden -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$ka) -ErrorAction SilentlyContinue
   Write-Host "✓ keep-online watchdog active (Scheduled Task, every 10 min)"
+  Write-Host "✓ sleep prevention active (machine stays awake while the worker runs)"
 } catch { Write-Host "(keep-online watchdog skipped)" }
 if (Test-Path lightchain-worker-toolkit) { Write-Host "✓ toolkit present - updating"; Push-Location lightchain-worker-toolkit; git pull --ff-only; Pop-Location } else { git clone ${TOOLKIT}.git }
 Set-Location lightchain-worker-toolkit\\scripts\\powershell
@@ -1280,6 +1309,9 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
       'if ($reg2 -match "true") { Write-Host "the deregister tx landed but the chain still shows the worker registered (it likely reverted). Your stake is SAFE. Clear stuck jobs, then retry."; exit 1 }',
       'New-Item -ItemType File -Force -Path "$env:USERPROFILE\\.lightnode\\keep-online.paused" | Out-Null',
       'schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
+      // Tear down sleep prevention too - the worker is gone, let the machine sleep
+      // (the pause marker also makes any running holder release within ~50s).
+      'schtasks /Delete /TN "LightChainWorkerAwake" /F *> $null',
       'docker stop lightchain-worker *> $null',
       'Write-Host "deregistered on-chain - your staked LCAI is back in the worker wallet ($env:WORKER_ADDR). Use Withdraw Funds to send it out; you can now install on another network directly."',
     ].join("\n");
@@ -1481,6 +1513,7 @@ export function uninstallCommand(os: OS, network: NetworkId): string {
       'docker rm -f lightchain-worker *> $null; Write-Host "OK - removed the worker container"',
       `docker rmi "${net.workerImage}" *> $null; Write-Host "OK - removed the worker Docker image"`,
       'schtasks /Delete /TN "LightChainWorkerWatchdog" /F *> $null',
+      'schtasks /Delete /TN "LightChainWorkerAwake" /F *> $null',
       'Remove-Item -Recurse -Force "$env:USERPROFILE\\.lightnode" -ErrorAction SilentlyContinue; Write-Host "OK - removed the watchdog + working files"',
       'Remove-Item -Recurse -Force "$env:USERPROFILE\\lightchain-worker-toolkit" -ErrorAction SilentlyContinue',
       'Write-Host "• kept your worker keys at ~/lightchain-worker (tiny; they control any returned stake/funds)"',
@@ -1650,7 +1683,7 @@ export function dockerOpCommand(inner: string, os: OS): string {
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
-      'docker info *> $null; if (-not $?) { Write-Host "> starting Docker Desktop..."; Start-Process "Docker Desktop" -ErrorAction SilentlyContinue; for ($i=0; $i -lt 45; $i++) { docker info *> $null; if ($?) { break }; Start-Sleep 2 } }',
+      `docker info *> $null; if (-not $?) { Write-Host "> starting Docker Desktop..."; ${WIN_START_DOCKER}; for ($i=0; $i -lt 45; $i++) { docker info *> $null; if ($?) { break }; Start-Sleep 2 } }`,
       'docker info *> $null; if (-not $?) { Write-Host "Cannot reach Docker. Open Docker Desktop once, then try again."; exit 1 }',
       inner,
     ].join("\n");
@@ -1667,6 +1700,11 @@ export function repairWorkerCommand(os: OS): string {
   if (os === "windows") {
     return `$ErrorActionPreference = "Stop"
 Write-Host "▶ repairing lightchain-worker"
+# Restart = the user wants it running, so lift any pause from a prior Stop and
+# re-arm sleep prevention (the machine must stay awake while it serves jobs).
+Remove-Item (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused") -ErrorAction SilentlyContinue
+$ka = Join-Path $env:USERPROFILE ".lightnode\\keep-awake.ps1"
+if (Test-Path $ka) { Start-Process powershell -WindowStyle Hidden -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",$ka) -ErrorAction SilentlyContinue }
 if (-not ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$")) { Write-Host "⛔ No worker container exists on this machine yet - Restart only recovers an existing one. Click Install to create and start it. If your worker is already registered + staked on-chain, Install detects that and skips re-staking; it just builds the container and brings it online."; exit 1 }
 docker stop lightchain-worker *> $null
 $sess = Join-Path $env:USERPROFILE "lightchain-worker\\keys\\session-keys.enc"
