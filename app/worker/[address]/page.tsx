@@ -13,6 +13,7 @@ import { useSavedWorkers } from "@/lib/saved-workers";
 import { shortAddr } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
 import type { WorkerLivenessReport } from "lightnode-sdk";
+import { DEMO_LIVENESS, useLivenessDemo } from "@/lib/liveness-demo";
 
 export default function WorkerPage() {
   const params = useParams<{ address: string }>();
@@ -27,6 +28,8 @@ export default function WorkerPage() {
   // so this shareable page shows the right status even when the index is stale.
   const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
   const [liveness, setLiveness] = useState<WorkerLivenessReport | null>(null);
+  // ?demo=liveness renders the stuck-job banner over any worker for previewing.
+  const livenessDemo = useLivenessDemo();
   const [error, setError] = useState("");
 
   const valid = /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -97,7 +100,7 @@ export default function WorkerPage() {
             watched={has(worker.id)}
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
             onchainRegistered={onchainRegistered}
-            liveness={liveness}
+            liveness={livenessDemo ? DEMO_LIVENESS : liveness}
           />
         </div>
       )}
