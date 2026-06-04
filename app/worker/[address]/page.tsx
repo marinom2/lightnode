@@ -12,6 +12,7 @@ import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
 import { shortAddr } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
+import type { WorkerLivenessReport } from "lightnode-sdk";
 
 export default function WorkerPage() {
   const params = useParams<{ address: string }>();
@@ -25,6 +26,7 @@ export default function WorkerPage() {
   // Registration read straight from the chain (works for any worker a visitor opens),
   // so this shareable page shows the right status even when the index is stale.
   const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
+  const [liveness, setLiveness] = useState<WorkerLivenessReport | null>(null);
   const [error, setError] = useState("");
 
   const valid = /^0x[a-fA-F0-9]{40}$/.test(address);
@@ -40,6 +42,7 @@ export default function WorkerPage() {
       setWorker(r.worker);
       setJobs(Array.isArray(r.jobs) ? r.jobs : []);
       setOnchainRegistered(typeof r.onchainRegistered === "boolean" ? r.onchainRegistered : null);
+      setLiveness(r.liveness ?? null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -94,6 +97,7 @@ export default function WorkerPage() {
             watched={has(worker.id)}
             onToggleWatch={() => (has(worker.id) ? remove(worker.id) : add(worker.id))}
             onchainRegistered={onchainRegistered}
+            liveness={liveness}
           />
         </div>
       )}
