@@ -11,7 +11,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-06-04.1";
+export const INSTALLER_REV = "2026-06-07.1";
 
 export interface ScriptBundle {
   os: OS;
@@ -829,7 +829,7 @@ function Add-SelectedModelOnchain {
   $gas = if ($est -match '^[0-9]+$') { [int]([long]$est * 3 / 2) } else { 300000 }
   Write-Host "▶ adding the selected model on-chain with proper gas (gas-limit $gas) - the daemon under-gasses this step"
   cast send "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --private-key $env:WORKER_PRIVKEY --rpc-url "${rpc}" --gas-limit $gas *> $null
-  if ($?) { Write-Host "model added on-chain (worker now serving it)"; return $true } else { Write-Host "model add failed even with estimated gas"; return $false }
+  if ($LASTEXITCODE -eq 0) { Write-Host "model added on-chain (worker now serving it)"; return $true } else { Write-Host "model add failed even with estimated gas"; return $false }
 }
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; if (-not (Add-SelectedModelOnchain)) { exit 1 }; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ }; $nowReg = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); if ($nowReg -notmatch 'true') { throw "worker not registered on-chain after the attempt" }; if (-not (Add-SelectedModelOnchain)) { throw "model add failed" } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
@@ -1129,14 +1129,22 @@ function releaseJobsUnix(network: NetworkId, jobIds: number[]): string[] {
 function releaseJobsWin(network: NetworkId, jobIds: number[]): string[] {
   const net = NETWORKS[network];
   if (!jobIds.length) return ['Write-Host "no completed jobs to settle"'];
+  // Judge cast by its EXIT CODE ($LASTEXITCODE), never by $?. On Windows
+  // PowerShell 5.1, $? for a native command is driven by whether it wrote to
+  // stderr, NOT by its exit code - and cast writes routinely to stderr. With the
+  // `2>&1` capture below, a REVERTED release (non-zero exit, no real stderr) left
+  // $? = $true, so the script printed "settled job X" while the tx had actually
+  // failed for no gas and the job stayed Completed on-chain. $LASTEXITCODE is the
+  // real exit code and is unaffected by stderr.
   return [
     `$RPC_URL = "${net.rpc}"; $JOBREG = "${net.jobRegistry}"`,
     `foreach ($j in @(${jobIds.join(",")})) {`,
     '  cast call $JOBREG "releaseJob(uint256)" $j --rpc-url $RPC_URL *> $null',
-    '  if (-not $?) { Write-Host "job $j still in its release window (try again later)"; continue }',
+    '  if ($LASTEXITCODE -ne 0) { Write-Host "job $j still in its release window (try again later)"; continue }',
     '  if (-not $env:WORKER_PRIVKEY) { Write-Host "job $j is ready but there is no worker key to sign with"; continue }',
     '  $e = (cast send $JOBREG "releaseJob(uint256)" $j --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL 2>&1)',
-    '  if ($?) { Write-Host "settled job $j" } else { Write-Host "job $j is ready but the release tx failed: $e" }',
+    // if/elseif/else MUST stay on one line - PowerShell rejects a newline before else/elseif.
+    `  if ($LASTEXITCODE -eq 0) { Write-Host "settled job $j" } elseif ("$e" -match "insufficient funds|gas required") { Write-Host "job $j NOT settled: your worker wallet ($env:WORKER_ADDR) has no LCAI to pay gas. Send a little LCAI to it (see ${net.explorer}/address/$env:WORKER_ADDR), then settle again." } else { Write-Host "job $j is ready but the release tx failed: $e" }`,
     "}",
   ];
 }
@@ -1153,8 +1161,12 @@ function claimEarningsUnix(network: NetworkId): string[] {
     'EARNED_DEC="$(cast to-dec "${EARNED:-0x0}" 2>/dev/null || echo 0)"',
     'if [ -n "$EARNED_DEC" ] && [ "$EARNED_DEC" != "0" ]; then',
     '  if [ -z "${WORKER_PRIVKEY:-}" ]; then echo "  ⛔ $(cast from-wei "$EARNED_DEC") LCAI of earnings are claimable but there is no worker key to sign with"; ',
-    '  elif cast send "$JOBREG" "withdraw()" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" >/dev/null 2>&1; then echo "  ✓ claimed $(cast from-wei "$EARNED_DEC") LCAI of earnings into your worker wallet"; ',
-    '  else echo "  ⛔ earnings claim tx failed - try again"; fi',
+    '  elif CLAIM_ERR="$(cast send "$JOBREG" "withdraw()" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" 2>&1 >/dev/null)"; then echo "  ✓ claimed $(cast from-wei "$EARNED_DEC") LCAI of earnings into your worker wallet"; ',
+    // The most common claim failure is an empty gas tank in the worker wallet
+    // (every settle/claim/deregister tx is paid from it). Say that plainly with
+    // the address to fund, instead of an unhelpful "try again".
+    `  elif printf %s "$CLAIM_ERR" | grep -qiE "insufficient funds|gas required"; then echo "  ⛔ $(cast from-wei "$EARNED_DEC") LCAI is claimable, but your worker wallet ($WORKER_ADDR) has no LCAI to pay the claim gas. Send a little LCAI to it (see ${net.explorer}/address/$WORKER_ADDR), then settle again."; `,
+    '  else echo "  ⛔ earnings claim tx failed: $(printf %s "$CLAIM_ERR" | tr "\\n" " " | cut -c1-140)"; fi',
     'else echo "  • no unclaimed earnings sitting in the job registry"; fi',
   ];
 }
@@ -1166,11 +1178,16 @@ function claimEarningsWin(network: NetworkId): string[] {
     'if ($env:WORKER_ADDR) {',
     '  $earned = (cast call $JOBREG ("0x78904a35000000000000000000000000" + $env:WORKER_ADDR.Substring(2).ToLower()) --rpc-url $RPC_URL 2>$null)',
     '  $earnedDec = (cast to-dec $earned 2>$null)',
-    '  if ($earnedDec -and $earnedDec -ne "0") {',
-    '    if (-not $env:WORKER_PRIVKEY) { Write-Host "earnings claimable but no worker key to sign with" }',
-    '    elseif ((cast send $JOBREG "withdraw()" --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL *> $null) -or $?) { Write-Host "claimed $(cast from-wei $earnedDec) LCAI of earnings into your worker wallet" }',
-    '    else { Write-Host "earnings claim tx failed - try again" }',
-    '  } else { Write-Host "no unclaimed earnings sitting in the job registry" }',
+    // Judge by $LASTEXITCODE, not $?/`-or $?`: on PowerShell 5.1 the old
+    // `(cast send *> $null) -or $?` could not tell a real revert from cast's
+    // stderr, so a failed withdraw read as "claimed" or an opaque "try again".
+    // Capture the error and, on the common case (no gas), say exactly what to do.
+    // The whole if/elseif/else stays on one line - PowerShell rejects a newline
+    // before else/elseif.
+    '  if (-not ($earnedDec -and $earnedDec -ne "0")) { Write-Host "no unclaimed earnings sitting in the job registry" } elseif (-not $env:WORKER_PRIVKEY) { Write-Host "earnings claimable but no worker key to sign with" } else {',
+    '    $e = (cast send $JOBREG "withdraw()" --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL 2>&1)',
+    `    if ($LASTEXITCODE -eq 0) { Write-Host "claimed $(cast from-wei $earnedDec) LCAI of earnings into your worker wallet" } elseif ("$e" -match "insufficient funds|gas required") { Write-Host "$(cast from-wei $earnedDec) LCAI is claimable, but your worker wallet ($env:WORKER_ADDR) has no LCAI to pay the claim gas. Send a little LCAI to it (see ${net.explorer}/address/$env:WORKER_ADDR), then settle again." } else { Write-Host "earnings claim tx failed: $e" }`,
+    '  }',
     '}',
   ];
 }
@@ -1181,11 +1198,32 @@ function claimEarningsWin(network: NetworkId): string[] {
  * `withdraw()` moves it to the wallet - so we always do both. `jobIds` are the
  * worker's Completed (unreleased) jobs, looked up from the subgraph by the app.
  */
+// Up-front gas check. Every settle / claim / deregister tx is signed by the
+// worker key and paid from the worker WALLET (not the locked stake, not the
+// claimable JobRegistry balance). An empty wallet is the most common reason these
+// silently fail, so surface it before the per-job output rather than after. A
+// warning, not a block - gas is tiny, so a borderline wallet may still go through.
+function gasPreflightWin(network: NetworkId): string[] {
+  const net = NETWORKS[network];
+  return [
+    `$pfBal = (cast balance $env:WORKER_ADDR --ether --rpc-url "${net.rpc}" 2>$null)`,
+    `if ($pfBal -and ([double]$pfBal -lt 0.001)) { Write-Host "WARN - your worker wallet ($env:WORKER_ADDR) holds ~$pfBal LCAI, almost nothing for gas. Settle/claim/deregister are paid from it, so they may fail. If so, send a little LCAI to that address (see ${net.explorer}/address/$env:WORKER_ADDR) and try again." }`,
+  ];
+}
+function gasPreflightUnix(network: NetworkId): string[] {
+  const net = NETWORKS[network];
+  return [
+    `PF_BAL="$(cast balance "$WORKER_ADDR" --ether --rpc-url "${net.rpc}" 2>/dev/null || echo 0)"`,
+    `if awk -v b="$PF_BAL" 'BEGIN{exit !(b+0 < 0.001)}'; then echo "⚠ your worker wallet ($WORKER_ADDR) holds ~$PF_BAL LCAI, almost nothing for gas. Settle/claim/deregister are paid from it, so they may fail. If so, send a little LCAI to that address (see ${net.explorer}/address/$WORKER_ADDR) and try again."; fi`,
+  ];
+}
+
 export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]): string {
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
       ...keystoreDeriveWin(),
+      ...gasPreflightWin(network),
       'Write-Host "settling completed jobs + claiming your rewards"',
       ...releaseJobsWin(network, jobIds),
       ...claimEarningsWin(network),
@@ -1194,6 +1232,7 @@ export function settleJobsCommand(os: OS, network: NetworkId, jobIds: number[]):
   return [
     "exec 2>&1",
     ...keystoreDeriveUnix(),
+    ...gasPreflightUnix(network),
     'echo "▶ settling completed jobs + claiming your rewards"',
     ...releaseJobsUnix(network, jobIds),
     ...claimEarningsUnix(network),
@@ -1237,10 +1276,11 @@ function clearStuckJobsWin(network: NetworkId, jobIds: number[]): string[] {
     `$RPC_URL = "${net.rpc}"; $JOBREG = "${net.jobRegistry}"`,
     `foreach ($j in @(${jobIds.join(",")})) {`,
     '  cast call $JOBREG "claimTimeout(uint256)" $j --rpc-url $RPC_URL *> $null',
-    '  if (-not $?) { Write-Host "job $j not yet past its deadline (skipping)"; continue }',
+    '  if ($LASTEXITCODE -ne 0) { Write-Host "job $j not yet past its deadline (skipping)"; continue }',
     '  if (-not $env:WORKER_PRIVKEY) { Write-Host "job $j is clearable but there is no worker key to sign with"; continue }',
     '  $e = (cast send $JOBREG "claimTimeout(uint256)" $j --private-key $env:WORKER_PRIVKEY --rpc-url $RPC_URL 2>&1)',
-    '  if ($?) { Write-Host "cleared stuck job $j" } else { Write-Host "job $j clear tx failed: $e" }',
+    // $LASTEXITCODE, not $? (see releaseJobsWin); if/elseif/else on one line for PowerShell.
+    `  if ($LASTEXITCODE -eq 0) { Write-Host "cleared stuck job $j" } elseif ("$e" -match "insufficient funds|gas required") { Write-Host "job $j NOT cleared: your worker wallet ($env:WORKER_ADDR) has no LCAI to pay gas. Send a little LCAI to it (see ${net.explorer}/address/$env:WORKER_ADDR), then try again." } else { Write-Host "job $j clear tx failed: $e" }`,
     "}",
   ];
 }
@@ -1296,13 +1336,16 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
       // Preflight: simulate the exact call. A revert here is almost always
       // in-flight (acknowledged-but-unfinished) jobs - point at Clear stuck jobs.
       'cast call $WREG "deregisterWorker()" --from $env:WORKER_ADDR --rpc-url $RPC *> $null',
-      'if (-not $?) { Write-Host "deregister is blocked - the worker still has in-flight (acknowledged) job(s) on-chain. Click `"Clear stuck jobs`" first (it times them out), then deregister. Your stake stays safe meanwhile."; exit 1 }',
+      // $LASTEXITCODE, not $? - on PowerShell 5.1 cast's stderr flips $? even on a
+      // clean simulate, which would falsely report deregister as blocked.
+      'if ($LASTEXITCODE -ne 0) { Write-Host "deregister is blocked - the worker still has in-flight (acknowledged) job(s) on-chain. Click `"Clear stuck jobs`" first (it times them out), then deregister. Your stake stays safe meanwhile."; exit 1 }',
       // Gas-correct send: estimate x1.5 (the daemon under-sets it and OutOfGas-reverts).
       '$est = (cast estimate --from $env:WORKER_ADDR $WREG "deregisterWorker()" --rpc-url $RPC 2>$null)',
       '$gas = if ($est -match "^[0-9]+$") { [int]([long]$est * 3 / 2) } else { 300000 }',
       'Write-Host "sending deregister (gas limit $gas)..."',
-      'cast send $WREG "deregisterWorker()" --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas *> $null',
-      'if (-not $?) { Write-Host "deregister tx failed to send. Your stake is SAFE and the worker is still registered. Try again in a minute."; exit 1 }',
+      '$dehReg = (cast send $WREG "deregisterWorker()" --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas 2>&1)',
+      // $LASTEXITCODE, not $? - else a clean send that wrote to stderr reads as failed.
+      `if ($LASTEXITCODE -ne 0) { if ("$dehReg" -match "insufficient funds|gas required") { Write-Host "deregister NOT sent: your worker wallet ($env:WORKER_ADDR) has no LCAI to pay gas. Send a little LCAI to it (see ${net.explorer}/address/$env:WORKER_ADDR), then try again. Your stake is SAFE and the worker is still registered." } else { Write-Host "deregister tx failed to send. Your stake is SAFE and the worker is still registered. Try again in a minute." }; exit 1 }`,
       // Verify on-chain truth - never claim success off a tx that landed but reverted.
       'Start-Sleep -Seconds 2',
       '$reg2 = (cast call $WREG "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url $RPC 2>$null)',
@@ -1390,7 +1433,7 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
       `  $est = (cast estimate --from $env:WORKER_ADDR $WREG "addSupportedModel(bytes32)" $MID --rpc-url $RPC 2>$null)`,
       `  $gas = if ($est -match '^[0-9]+$') { [int]([long]$est * 3 / 2) } else { 300000 }`,
       `  cast send $WREG "addSupportedModel(bytes32)" $MID --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas *> $null`,
-      `  if ($?) { Write-Host "  added $M (gas limit $gas)" } else { Write-Host "  failed to add $M"; $addFail = 1 }`,
+      `  if ($LASTEXITCODE -eq 0) { Write-Host "  added $M (gas limit $gas)" } else { Write-Host "  failed to add $M"; $addFail = 1 }`,
       `}`,
       `if ($addFail -ne 0) { Write-Host "one or more models failed to add - see above"; exit 1 }`,
       // Stop the container so the follow-up reinstall recreates it with the new

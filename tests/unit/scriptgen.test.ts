@@ -706,3 +706,52 @@ describe("Windows watchdog + sleep prevention (generated PowerShell)", () => {
     expect(rep).toContain(String.raw`".lightnode\keep-awake.ps1"`);
   });
 });
+
+// Regression: on Windows PowerShell 5.1, $? for a native command reflects whether
+// it wrote to stderr, NOT its exit code - and cast writes to stderr routinely. So
+// judging cast send/call by $? (or `(... *> $null) -or $?`) misreported results:
+// a reverted release printed "settled job X" (the job stayed Completed on-chain),
+// and a no-gas withdraw said "try again". The ops must judge by $LASTEXITCODE and,
+// on the common no-gas failure, tell the operator to fund the worker wallet.
+describe("Windows settle/claim success detection ($LASTEXITCODE, not $?)", () => {
+  const settleWin = settleJobsCommand("windows", "mainnet", [101, 202]);
+  const clearWin = clearStuckJobsCommand("windows", "mainnet", [5, 6]);
+  const deregWin = deregisterCommand("windows", "mainnet", [7]);
+
+  it("settle judges cast by $LASTEXITCODE and never by bare $?", () => {
+    expect(settleWin).toContain("$LASTEXITCODE -eq 0"); // release + claim success
+    expect(settleWin).not.toMatch(/\$\?/); // no $? anywhere in the windows settle
+    expect(settleWin).not.toContain("-or $?"); // the old withdraw check is gone
+    expect(settleWin).not.toContain("claim tx failed - try again"); // the old unhelpful claim message is gone
+  });
+  it("settle warns up front when the worker wallet can't pay gas", () => {
+    expect(settleWin).toContain("cast balance $env:WORKER_ADDR --ether");
+    expect(settleWin).toContain("almost nothing for gas");
+  });
+  it("settle turns a no-gas failure into a fund-this-address instruction", () => {
+    expect(settleWin).toMatch(/insufficient funds\|gas required/); // detects the revert reason
+    expect(settleWin).toContain("has no LCAI to pay"); // and explains it
+    expect(settleWin).toContain("mainnet.lightscan.app/address/$env:WORKER_ADDR"); // with the explorer link
+  });
+  it("clear-stuck judges cast by $LASTEXITCODE, not $?", () => {
+    expect(clearWin).toContain("$LASTEXITCODE -eq 0");
+    expect(clearWin).not.toMatch(/\$\?/);
+  });
+  it("deregister judges its send by $LASTEXITCODE and explains a no-gas failure", () => {
+    expect(deregWin).toContain("$LASTEXITCODE -ne 0");
+    expect(deregWin).toContain("has no LCAI to pay gas");
+  });
+});
+
+describe("Unix settle/claim gas guidance", () => {
+  const settleUnix = settleJobsCommand("macos", "mainnet", [9]);
+  it("preflights the worker wallet's gas balance", () => {
+    expect(settleUnix).toContain('cast balance "$WORKER_ADDR" --ether');
+    expect(settleUnix).toContain("almost nothing for gas");
+  });
+  it("replaces 'try again' with a fund-the-wallet instruction on a no-gas claim", () => {
+    expect(settleUnix).not.toContain("earnings claim tx failed - try again");
+    expect(settleUnix).toMatch(/insufficient funds\|gas required/);
+    expect(settleUnix).toContain("no LCAI to pay the claim gas");
+  });
+});
