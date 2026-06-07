@@ -53,6 +53,7 @@ import {
   isWorkerOpError,
 } from "./worker-operator.js";
 import { analyzeWorkerLiveness, type WorkerLivenessReport } from "./liveness.js";
+import { analyzeWorkerActions, analyzeSettlement, type WorkerActionCenter } from "./actions.js";
 import type { MinimalPublicClient } from "./worker-operator.js";
 import {
   Bridge,
@@ -160,6 +161,30 @@ export class LightNode {
       op.config(),
     ]);
     return analyzeWorkerLiveness({ worker, jobs, config });
+  }
+
+  /**
+   * Worker "action center": one read-only rollup of what to do right now -
+   * claimable earnings, the worker WALLET's gas balance (and an outOfGas flag, the
+   * thing that silently blocks every settle/claim/deregister when it is empty),
+   * which completed jobs are settleable now vs still in their dispute window, the
+   * liveness / stuck-job picture, and a prioritized to-do list. Read-only; no key.
+   * Powers the desktop Action Center, the pre-action gas guard, and diagnostics.
+   */
+  async getWorkerActions(address: string, opts: { jobs?: number } = {}): Promise<WorkerActionCenter> {
+    const client = createPublicClient({ transport: http(this.network.rpc) });
+    const op = new WorkerOperator(this.network, {
+      publicClient: client as unknown as MinimalPublicClient,
+      workerAddress: address as `0x${string}`,
+    });
+    const [worker, jobs, config, status, walletGasWei] = await Promise.all([
+      fetchWorker(this.network, address),
+      fetchWorkerJobs(this.network, address, opts.jobs ?? 50),
+      op.config(),
+      op.status(),
+      client.getBalance({ address: address as `0x${string}` }),
+    ]);
+    return analyzeWorkerActions({ worker, jobs, status, walletGasWei, config });
   }
 
   /**
@@ -378,7 +403,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.11.0";
+export const SDK_VERSION = "0.12.0";
 
 export {
   NETWORKS,
@@ -483,6 +508,12 @@ export {
   // (the silent pre-slash failure) - including the Submitted-past-ack-deadline
   // case the plain job buckets miss. See LightNode.getWorkerLiveness.
   analyzeWorkerLiveness,
+  // v0.12.0 worker "action center": claimable earnings + worker-wallet gas
+  // (outOfGas) + settle-now vs in-window jobs + liveness + a prioritized to-do
+  // list. The gas read explains the silent settle/claim failures. See
+  // LightNode.getWorkerActions; analyzeSettlement is the pure window classifier.
+  analyzeWorkerActions,
+  analyzeSettlement,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
 export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult, OpenSession, OpenSessionArgs, RunJobOpts, WebSearchSource } from "./inference.js";
@@ -507,5 +538,6 @@ export type {
   DecodedWorkerError,
 } from "./worker-operator.js";
 export type { WorkerLivenessReport, StuckJobReport, StuckKind, Liveness, LivenessConfig } from "./liveness.js";
+export type { WorkerActionCenter, WorkerAction, ActionKind, ActionUrgency, SettlementSummary, SettlementConfig } from "./actions.js";
 export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
 export type { SiweWalletClient, SiweChallenge, SiweVerifyResult, SiweSession } from "./auth.js";

@@ -112,6 +112,7 @@ await ln.estimateFee("llama3-8b");       // live per-job fee from AIConfig
 await ln.modelId("llama3-8b");           // keccak256 of the model tag
 await ln.getJobStatus(1234n);            // category + refundable flag (new in 0.5.0)
 await ln.getWorkerLiveness("0x...");     // stuck-job + slash-risk diagnostic (new in 0.11.0)
+await ln.getWorkerActions("0x...");      // action center: gas, claimable, settle, to-do (new in 0.12.0)
 ln.gateway({ bearer });                  // pre-configured GatewayClient
 ```
 
@@ -144,6 +145,30 @@ if (r.liveness === "stalled") {
 
 `analyzeWorkerLiveness({ worker, jobs, config })` is the pure classifier behind it
 if you already hold the subgraph rows and `WorkerOperator.config()`.
+
+### Worker action center (new in 0.12.0)
+
+One read-only rollup of what an operator should do right now: claimable earnings,
+the worker WALLET's gas balance (and an `outOfGas` flag - the thing that silently
+blocks every settle / claim / deregister when the wallet is empty), which
+completed jobs are settleable now vs still in their dispute window, the liveness /
+stuck-job picture, and a prioritized to-do list. `getWorkerActions` reads the
+balances and live config from chain. Read-only; no key.
+
+```ts
+import { LightNode } from "lightnode-sdk";
+
+const ln = new LightNode("mainnet");
+const a = await ln.getWorkerActions("0x...");
+console.log(a.summary);                       // e.g. "Fund the worker wallet to pay gas (+3 more)"
+console.log(a.outOfGas, a.walletGasLcai, a.claimableLcai);
+console.log(a.settlement.releasableNowCount, a.settlement.inWindowCount);
+for (const todo of a.actions) console.log(todo.urgency, todo.kind, todo.title);
+```
+
+`analyzeWorkerActions({ worker, jobs, status, walletGasWei, config })` is the pure
+composer, and `analyzeSettlement(jobs, config)` classifies completed jobs into
+settle-now vs still-in-dispute-window on their own.
 
 ### Bridge SDK (new in 0.5.0)
 
