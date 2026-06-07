@@ -13,9 +13,10 @@ import { AlertTriangle, Coins, Clock, CheckCircle2, Activity, Copy, Check, ListC
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { fmt, cn, timeAgo } from "@/lib/utils";
+import { fmt, cn } from "@/lib/utils";
 import { classifyJobs } from "@/lib/analytics";
-import type { Job, Worker } from "@/lib/subgraph";
+import { buildDiagnosticsReport } from "@/lib/diagnostics";
+import type { Job } from "@/lib/subgraph";
 import type { WorkerActionCenter, WorkerAction } from "lightnode-sdk";
 
 const URGENCY_TONE: Record<WorkerAction["urgency"], "danger" | "warning" | "brand"> = {
@@ -37,26 +38,6 @@ function ActionRow({ action }: { action: WorkerAction }) {
       </div>
     </li>
   );
-}
-
-/** Plain-text diagnostics report for copy-paste into support / an issue. */
-function buildDiagnosticsReport(a: WorkerActionCenter, jobs: Job[]): string {
-  const b = classifyJobs(jobs, Math.floor(Date.now() / 1000));
-  const lv = a.liveness;
-  const lines = [
-    "LightChain worker diagnostics",
-    `address:     ${a.address}`,
-    `registered:  ${a.registered}   stake: ${fmt(a.stakeLcai, 0)} LCAI`,
-    `wallet gas:  ${a.walletGasLcai} LCAI${a.outOfGas ? "   ** OUT OF GAS - settle/claim/deregister cannot be sent **" : ""}`,
-    `claimable:   ${fmt(a.claimableLcai, 3)} LCAI (released, not yet withdrawn)`,
-    `liveness:    ${lv.liveness}   last on-chain activity ${lv.lastSeenAgoSec == null ? "unknown" : `${Math.round(lv.lastSeenAgoSec / 3600)}h ago`}`,
-    `stuck jobs:  ${lv.stuckJobs.length} (unacked ${lv.unackedCount}, incomplete ${lv.incompleteCount})${lv.slashExposureLcai > 0 ? `, ~${fmt(lv.slashExposureLcai, 0)} LCAI slash risk${lv.suspensionRisk ? " + suspension" : ""}` : ""}`,
-    `settlement:  ${a.settlement.releasableNowCount} releasable now, ${a.settlement.inWindowCount} in dispute window, ${a.settlement.pendingReleaseCount} pending release`,
-    `job history: ${b.total} jobs, ${b.success} settled, ${b.timedOut} timed out, ${b.stuck} stuck; completion ${b.completionRate == null ? "n/a" : `${Math.round(b.completionRate * 100)}%`}; p50 ${b.p50 ?? "n/a"}s, p95 ${b.p95 ?? "n/a"}s`,
-    "actions:",
-    ...(a.actions.length ? a.actions.map((x, i) => `  ${i + 1}. [${x.urgency}] ${x.title} - ${x.detail}`) : ["  (none)"]),
-  ];
-  return lines.join("\n");
 }
 
 function StatTile({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -138,6 +119,48 @@ function meter(value: number, total: number): string {
 }
 
 /**
+ * Per-job processing time (acknowledged -> completed) against the on-chain
+ * deadline, newest jobs on the right. The dashed line is the deadline; bars are
+ * green/amber/red by how close each job ran to it - the at-a-glance "am I going
+ * to start timing out" signal. Pure SVG, no chart dependency.
+ */
+function ProcessingTimeChart({ jobs, deadlineSec }: { jobs: Job[]; deadlineSec: number }) {
+  const points = jobs
+    .filter((j) => j.ack_at != null && j.completed_at != null && j.completed_at > j.ack_at)
+    .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0))
+    .slice(-30)
+    .map((j) => ({ id: j.id, sec: (j.completed_at as number) - (j.ack_at as number) }));
+  if (points.length < 3) return null;
+
+  const w = 600;
+  const h = 120;
+  const pad = 6;
+  const maxScale = Math.max(deadlineSec, ...points.map((p) => p.sec)) * 1.1;
+  const slot = w / points.length;
+  const barW = Math.max(2, Math.min(18, slot * 0.6));
+  const deadlineY = h - pad - (deadlineSec / maxScale) * (h - 2 * pad);
+  const barColor = (sec: number) =>
+    sec > deadlineSec ? "#ef4444" : sec > deadlineSec * 0.7 ? "#f59e0b" : "#22c55e";
+
+  return (
+    <div className="mt-5 border-t border-bdr-light pt-4">
+      <div className="mb-2 flex items-center justify-between text-xs text-content-soft">
+        <span>Processing time per job (acknowledged → completed)</span>
+        <span>deadline {deadlineSec}s</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-28 w-full">
+        <line x1="0" y1={deadlineY} x2={w} y2={deadlineY} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" opacity="0.7" />
+        {points.map((p, i) => {
+          const bh = Math.max(1, (p.sec / maxScale) * (h - 2 * pad));
+          const x = i * slot + (slot - barW) / 2;
+          return <rect key={p.id} x={x.toFixed(1)} y={(h - pad - bh).toFixed(1)} width={barW.toFixed(1)} height={bh.toFixed(1)} rx="1.5" fill={barColor(p.sec)} opacity="0.9" />;
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/**
  * Earnings & settlement analytics from the worker's job history: reliability
  * (completion / timed-out / stuck), processing-time percentiles against the ~120s
  * deadline, and a settled / pending-release / timed-out breakdown bar. Pure read
@@ -205,6 +228,8 @@ export function EarningsAnalyticsPanel({ jobs, deadlineSec = 120 }: { jobs: Job[
           </div>
         </div>
       )}
+
+      <ProcessingTimeChart jobs={jobs} deadlineSec={deadlineSec} />
 
       {b.p95 != null && b.p95 > deadlineSec && (
         <p className="mt-4 flex items-start gap-2 text-xs text-warning">
