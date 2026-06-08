@@ -11,8 +11,9 @@ import {
   summarize,
   fromWei,
   resolveJobTransactions,
+  DEFAULT_SUBGRAPH_TIMEOUT_MS,
 } from "./subgraph.js";
-import { isRegistered, fetchOnchainEligibleModels } from "./onchain.js";
+import { isRegistered, fetchOnchainEligibleModels, DEFAULT_ONCHAIN_TIMEOUT_MS } from "./onchain.js";
 import {
   aggregateModelStats,
   aggregateWorkerStats,
@@ -130,17 +131,30 @@ export interface LightNodeOptions {
    * (behaviour identical to before). Per-worker/per-job reads are never cached.
    */
   cacheTtlMs?: number;
+  /**
+   * Per-request timeout (ms) for the subgraph and raw on-chain reads. A slow or
+   * congested indexer can blow past the built-in defaults (subgraph 12s, RPC 8s);
+   * raise it on a flaky endpoint, or pass a small value to fail fast in a UI.
+   * `<= 0` disables the deadline entirely (run unbounded). Omit to keep the
+   * built-in defaults. Does NOT apply to the viem-backed reads (getJobOnchain,
+   * getWorkerLiveness/getWorkerActions config), whose timeout is set on the
+   * transport you build.
+   */
+  timeoutMs?: number;
 }
 
 export class LightNode {
   readonly network: NetworkConfig;
   private readonly cacheTtlMs: number;
+  private readonly timeoutMs: number | undefined;
   private readonly cache = new Map<string, { value: unknown; expires: number }>();
 
   constructor(network: NetworkId | NetworkConfig = "mainnet", opts: LightNodeOptions = {}) {
     this.network = typeof network === "string" ? NETWORKS[network] : network;
     if (!this.network) throw new Error(`unknown network: ${String(network)}`);
     this.cacheTtlMs = Math.max(0, opts.cacheTtlMs ?? 0);
+    // undefined => the underlying reader keeps its built-in default timeout.
+    this.timeoutMs = opts.timeoutMs;
   }
 
   /** TTL-memoize a network read by key. No-op (passthrough) when caching is off. */
@@ -162,12 +176,12 @@ export class LightNode {
 
   /** The full record for one worker (null if the indexer has never seen it). */
   getWorker(address: string): Promise<Worker | null> {
-    return fetchWorker(this.network, address);
+    return fetchWorker(this.network, address, this.timeoutMs);
   }
 
   /** Recent jobs for one worker, newest first. */
   getWorkerJobs(address: string, first = 20): Promise<Job[]> {
-    return fetchWorkerJobs(this.network, address, first);
+    return fetchWorkerJobs(this.network, address, first, this.timeoutMs);
   }
 
   /**
@@ -188,8 +202,8 @@ export class LightNode {
     const publicClient = createPublicClient({ transport: http(this.network.rpc) }) as unknown as MinimalPublicClient;
     const op = new WorkerOperator(this.network, { publicClient });
     const [worker, jobs, config] = await Promise.all([
-      fetchWorker(this.network, address),
-      fetchWorkerJobs(this.network, address, opts.jobs ?? 50),
+      fetchWorker(this.network, address, this.timeoutMs),
+      fetchWorkerJobs(this.network, address, opts.jobs ?? 50, this.timeoutMs),
       op.config(),
     ]);
     return analyzeWorkerLiveness({ worker, jobs, config });
@@ -210,8 +224,8 @@ export class LightNode {
       workerAddress: address as `0x${string}`,
     });
     const [worker, jobs, config, status, walletGasWei] = await Promise.all([
-      fetchWorker(this.network, address),
-      fetchWorkerJobs(this.network, address, opts.jobs ?? 50),
+      fetchWorker(this.network, address, this.timeoutMs),
+      fetchWorkerJobs(this.network, address, opts.jobs ?? 50, this.timeoutMs),
       op.config(),
       op.status(),
       client.getBalance({ address: address as `0x${string}` }),
@@ -228,7 +242,7 @@ export class LightNode {
    * whether the worker is currently serving them.
    */
   getWorkerModels(address: string): Promise<WorkerModel[]> {
-    return fetchWorkerModels(this.network, address);
+    return fetchWorkerModels(this.network, address, this.timeoutMs);
   }
 
   /**
@@ -243,8 +257,8 @@ export class LightNode {
    */
   async getServedModels(address: string): Promise<ServedModel[]> {
     const [rows, registry] = await Promise.all([
-      fetchWorkerModels(this.network, address),
-      fetchModels(this.network),
+      fetchWorkerModels(this.network, address, this.timeoutMs),
+      fetchModels(this.network, this.timeoutMs),
     ]);
     if (rows.length === 0) return [];
     const byId = new Map(registry.map((m) => [m.id.toLowerCase(), m]));
@@ -252,6 +266,7 @@ export class LightNode {
       this.network,
       address,
       rows.map((r) => r.model_id),
+      this.timeoutMs,
     ).catch(() => null);
     return rows.map((r) => {
       const info = byId.get(r.model_id.toLowerCase());
@@ -268,18 +283,21 @@ export class LightNode {
 
   /** The network's registered models (name, fee, output limit, whitelist flags). */
   getModels(): Promise<ModelInfo[]> {
-    return this.cached("models", () => fetchModels(this.network));
+    return this.cached("models", () => fetchModels(this.network, this.timeoutMs));
   }
 
   /** Registered workers (default top 200). */
   getWorkers(first = 200): Promise<Worker[]> {
-    return fetchWorkers(this.network, first);
+    return fetchWorkers(this.network, first, this.timeoutMs);
   }
 
   /** A one-shot summary: totals, active count, jobs completed, earnings, model count. */
   getNetworkStats(): Promise<NetworkStats> {
     return this.cached("networkStats", async () => {
-      const [workers, models] = await Promise.all([fetchWorkers(this.network), fetchModels(this.network)]);
+      const [workers, models] = await Promise.all([
+        fetchWorkers(this.network, 200, this.timeoutMs),
+        fetchModels(this.network, this.timeoutMs),
+      ]);
       return summarize(workers, models);
     });
   }
@@ -287,7 +305,10 @@ export class LightNode {
   /** Per-model performance over the last `sample` jobs (completion, p50/p95, incomplete, disputes, earnings). */
   getModelStats(sample = 1000): Promise<ModelStat[]> {
     return this.cached(`modelStats:${sample}`, async () => {
-      const [jobs, models] = await Promise.all([fetchRecentJobs(this.network, sample), fetchModels(this.network)]);
+      const [jobs, models] = await Promise.all([
+        fetchRecentJobs(this.network, sample, this.timeoutMs),
+        fetchModels(this.network, this.timeoutMs),
+      ]);
       return aggregateModelStats(jobs, models);
     });
   }
@@ -300,7 +321,7 @@ export class LightNode {
   /** Per-worker reliability (completion, p50/p95, incomplete) over the last `sample` jobs, busiest first. */
   getWorkerStats(sample = 1000, limit = 25): Promise<WorkerStat[]> {
     return this.cached(`workerStats:${sample}:${limit}`, async () => {
-      const jobs = await fetchRecentJobs(this.network, sample);
+      const jobs = await fetchRecentJobs(this.network, sample, this.timeoutMs);
       return aggregateWorkerStats(jobs, Math.floor(Date.now() / 1000), limit);
     });
   }
@@ -311,12 +332,12 @@ export class LightNode {
    * when you need certainty: the indexer can lag a deregister -> re-register cycle.
    */
   isRegistered(address: string): Promise<boolean | null> {
-    return isRegistered(this.network, address);
+    return isRegistered(this.network, address, this.timeoutMs);
   }
 
   /** Settled worker earnings in whole LCAI (from total_earned wei). */
   async getEarningsLcai(address: string): Promise<number> {
-    const w = await fetchWorker(this.network, address);
+    const w = await fetchWorker(this.network, address, this.timeoutMs);
     return w ? fromWei(w.total_earned) : 0;
   }
 
@@ -351,7 +372,7 @@ export class LightNode {
     submitTx: `0x${string}` | null;
     completionTx: `0x${string}` | null;
   } | null> {
-    const j = await fetchJob(this.network, jobId);
+    const j = await fetchJob(this.network, jobId, this.timeoutMs);
     if (!j) return null;
     const state = (j.state ?? "").trim();
     const stateLow = state.toLowerCase();
@@ -377,7 +398,7 @@ export class LightNode {
     // Tx hashes need a second RPC roundtrip. Opt in only - the historical
     // shape of getJobStatus stays pure-subgraph for callers who don't ask.
     const txs = opts.withTransactions
-      ? await resolveJobTransactions(this.network, j.id, { job: j })
+      ? await resolveJobTransactions(this.network, j.id, { job: j, timeoutMs: this.timeoutMs })
       : { submit: null as `0x${string}` | null, completion: null as `0x${string}` | null };
     return {
       id: j.id,
@@ -479,7 +500,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.14.0";
+export const SDK_VERSION = "0.15.0";
 
 export {
   NETWORKS,
@@ -495,6 +516,9 @@ export {
   // v0.7.3 per-job transaction-hash resolver (lifts the upstream
   // subgraph's "block-only" Job entity to a deep-linkable Job + tx pair).
   resolveJobTransactions,
+  // v0.15.0 built-in read-timeout defaults (override per LightNode via opts.timeoutMs).
+  DEFAULT_SUBGRAPH_TIMEOUT_MS,
+  DEFAULT_ONCHAIN_TIMEOUT_MS,
   // v0.7.10 SIWE sign-in against the consumer-api: returns a JWT bearer
   // the worker-gateway accepts. End-to-end wallet-signed inference with
   // no shared demo-wallet state.
@@ -615,6 +639,7 @@ export type {
   WorkerStatus,
   DeregisterReadiness,
   StuckJob,
+  BatchJobOpResult,
   EarningsBreakdown,
   OnchainJob,
   JobState,
