@@ -581,6 +581,17 @@ export async function runJobOnSession(
 ): Promise<RunInferenceResult> {
   const { gateway, wallet, publicClient, network, sessionId, sessionKey, worker, fee, createTx } = session;
   const { onChunk, onStage, searchEnabled, jobCompletedTimeoutMs = 120_000, signal } = opts;
+  // Invoke the consumer's onChunk in its OWN guard so a throwing callback can't
+  // be mistaken for a decrypt failure by the surrounding try/catch (and can't
+  // break the inference lifecycle). The chunk is already recorded by the caller.
+  const emitChunk = (piece: string, total: string): void => {
+    if (!onChunk) return;
+    try {
+      onChunk(piece, total);
+    } catch {
+      /* a faulty consumer callback must not affect the stream */
+    }
+  };
   const WS = pickWebSocket(opts.WebSocket);
   const relayUrl = opts.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
   // Shim so the job body below can keep referencing prepared.* unchanged.
@@ -699,7 +710,7 @@ export async function runJobOnSession(
         try {
           const piece = await decryptResponse(prepared.sessionKey, frame.payload);
           chunks.push(piece);
-          if (onChunk) onChunk(piece, chunks.join(""));
+          emitChunk(piece, chunks.join(""));
         } catch {
           /* ignore */
         }
@@ -710,7 +721,7 @@ export async function runJobOnSession(
       try {
         const piece = await decryptResponse(prepared.sessionKey, frame.payload);
         chunks.push(piece);
-        if (onChunk) onChunk(piece, chunks.join(""));
+        emitChunk(piece, chunks.join(""));
       } catch {
         /* control frame */
       }
@@ -1053,7 +1064,10 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   // "mainnet", which would route a custom testnet config to the mainnet gateway.
   const networkId: NetworkId = typeof args.network === "string" ? args.network : args.network.id;
   const key = args.privateKey?.trim();
-  if (!key || !key.startsWith("0x") || key.length !== 66) {
+  // Validate the FULL shape, including that the 64 chars are hex - otherwise a
+  // 0x + 64 non-hex string passes here and fails deeper in viem with a less
+  // actionable message.
+  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) {
     throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
   }
   if (args.signal?.aborted) {

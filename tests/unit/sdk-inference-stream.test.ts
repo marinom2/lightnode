@@ -25,6 +25,21 @@ describe("runInferenceStream error propagation", () => {
   });
 });
 
+describe("runInferenceWithKey key validation", () => {
+  it("rejects a 0x-prefixed, right-length key with non-hex chars before any network call", async () => {
+    const badKey = "0x" + "z".repeat(64); // right shape, wrong alphabet
+    await expect(
+      runInferenceWithKey({ network: "testnet", privateKey: badKey, prompt: "hi" }),
+    ).rejects.toThrow(/0x-prefixed 32-byte hex/);
+  });
+
+  it("rejects a key of the wrong length", async () => {
+    await expect(
+      runInferenceWithKey({ network: "testnet", privateKey: "0xabc", prompt: "hi" }),
+    ).rejects.toThrow(/0x-prefixed 32-byte hex/);
+  });
+});
+
 describe("runInferenceWithKey network resolution", () => {
   afterEach(() => vi.unstubAllGlobals());
 

@@ -275,12 +275,20 @@ export class LightNode {
     ]);
     if (rows.length === 0) return [];
     const byId = new Map(registry.map((m) => [m.id.toLowerCase(), m]));
+    // fetchOnchainEligibleModels already returns null on an RPC failure; this
+    // catch is for an UNEXPECTED throw. Surface it (without leaking internals)
+    // so a transient on-chain read failure isn't indistinguishable from "feature
+    // unavailable" - callers still get the indexer-only result (onchainEligible:
+    // null), but the degrade is now observable instead of silent.
     const eligible = await fetchOnchainEligibleModels(
       this.network,
       address,
       rows.map((r) => r.model_id),
       this.timeoutMs,
-    ).catch(() => null);
+    ).catch((e: unknown) => {
+      console.warn(`LightNode.getServedModels: on-chain eligibility read failed, falling back to the indexer (onchainEligible=null): ${(e as Error)?.message ?? e}`);
+      return null;
+    });
     return rows.map((r) => {
       const info = byId.get(r.model_id.toLowerCase());
       return {
@@ -513,7 +521,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.18.1";
+export const SDK_VERSION = "0.18.2";
 
 export {
   NETWORKS,
