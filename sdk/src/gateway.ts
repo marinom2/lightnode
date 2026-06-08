@@ -65,13 +65,39 @@ async function resolveBearer(src: BearerSource): Promise<string> {
 export class GatewayHttpError extends Error {
   readonly status: number;
   readonly body: string;
-  constructor(status: number, body: string) {
+  /** The server's Retry-After (ms), when it sent one on a 429/503. */
+  readonly retryAfterMs?: number;
+  constructor(status: number, body: string, retryAfterMs?: number) {
     super(`gateway ${status}: ${body.slice(0, 200)}`);
     this.name = "GatewayHttpError";
     this.status = status;
     this.body = body;
+    this.retryAfterMs = retryAfterMs;
+  }
+  /** 429 - the caller is being rate-limited; back off (respect retryAfterMs). */
+  get isRateLimited(): boolean {
+    return this.status === 429;
+  }
+  /** 401/403 - the bearer is missing/expired/insufficient; re-auth, don't retry. */
+  get isAuthError(): boolean {
+    return this.status === 401 || this.status === 403;
+  }
+  /** 5xx - a transient server fault; safe to retry with backoff. */
+  get isServerError(): boolean {
+    return this.status >= 500;
   }
 }
+
+/** Parse an HTTP Retry-After header (delta-seconds or an HTTP date) to ms. */
+function parseRetryAfterMs(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const secs = Number(header);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export interface SelectSessionResult {
   worker: `0x${string}`;
@@ -125,6 +151,14 @@ export interface GatewayClientOptions {
   bearer?: BearerSource;
   /** Fetch override (testing). */
   fetch?: typeof fetch;
+  /**
+   * Auto-retry with exponential backoff, honoring a Retry-After header when
+   * present. A 429 is retried for any method (the request was rejected before
+   * any work); a 5xx is retried only for GETs (replaying a POST could duplicate
+   * a side-effect). Defaults: maxRetries 2, baseDelayMs 500. Set maxRetries 0 to
+   * disable.
+   */
+  retry?: { maxRetries?: number; baseDelayMs?: number };
 }
 
 /**
@@ -135,12 +169,16 @@ export class GatewayClient {
   readonly baseUrl: string;
   private readonly bearer?: BearerSource;
   private readonly fetchImpl: typeof fetch;
+  private readonly maxRetries: number;
+  private readonly baseDelayMs: number;
 
   constructor(opts: GatewayClientOptions) {
     const net = typeof opts.network === "string" ? opts.network : opts.network.id;
     this.baseUrl = (opts.baseUrl ?? consumerGatewayUrl(net)).replace(/\/+$/, "");
     this.bearer = opts.bearer;
     this.fetchImpl = opts.fetch ?? fetch.bind(globalThis);
+    this.maxRetries = opts.retry?.maxRetries ?? 2;
+    this.baseDelayMs = opts.retry?.baseDelayMs ?? 500;
   }
 
   /** Public: registered models the gateway will accept. */
@@ -205,21 +243,41 @@ export class GatewayClient {
   }
 
   private async req<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.bearer != null) headers["Authorization"] = `Bearer ${await resolveBearer(this.bearer)}`;
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (res.status === 202) {
-      // The session-token endpoint returns 202 while pending; surface as JSON.
-      return (await res.json()) as T;
-    }
-    if (!res.ok) {
+    // Retry policy by failure type:
+    //  - 429 (rate-limited): the request was rejected BEFORE any work, so it's
+    //    safe to retry for any method.
+    //  - 5xx (transient server fault): only retry GETs. A 5xx on a POST may mean
+    //    the upstream DID process it but the response was lost - re-sending a POST
+    //    selectSession would make a SECOND wallet-scoped selection (the exact
+    //    duplicate-select race the SDK avoids with selectionId). Better to surface
+    //    the error than risk a double side-effect.
+    // Auth (401/403) and other 4xx are never retried - they won't fix themselves.
+    for (let attempt = 0; ; attempt++) {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (this.bearer != null) headers["Authorization"] = `Bearer ${await resolveBearer(this.bearer)}`;
+      const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      // 202 = the session-token endpoint is still pending; surface its body as JSON.
+      // Tolerate an empty 2xx/202 body (some "Accepted, nothing yet" responses send
+      // none) - res.json() would throw SyntaxError and abort the poll otherwise.
+      if (res.status === 202 || res.ok) {
+        const t = await res.text();
+        return (t ? JSON.parse(t) : {}) as T;
+      }
+
       const text = await res.text().catch(() => "");
-      throw new GatewayHttpError(res.status, text);
+      const retryAfterMs = parseRetryAfterMs(res.headers?.get?.("retry-after") ?? null);
+      const retryable = res.status === 429 || (res.status >= 500 && method === "GET");
+      if (retryable && attempt < this.maxRetries) {
+        // A non-positive Retry-After is not a useful hint; fall back to backoff.
+        const waitMs = retryAfterMs && retryAfterMs > 0 ? retryAfterMs : this.baseDelayMs * 2 ** attempt;
+        await sleep(waitMs);
+        continue;
+      }
+      throw new GatewayHttpError(res.status, text, retryAfterMs);
     }
-    return (await res.json()) as T;
   }
 }

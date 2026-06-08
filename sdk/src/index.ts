@@ -121,12 +121,43 @@ import type {
  * const perModel = await ln.getModelStats();
  * ```
  */
+/** Optional construction-time tuning for the read client. */
+export interface LightNodeOptions {
+  /**
+   * Cache the network-wide reads (getModels / getNetworkStats / getModelStats /
+   * getNetworkAnalytics / getWorkerStats) for this many ms, so a dashboard that
+   * polls them doesn't re-hit the indexer every render. Default 0 = disabled
+   * (behaviour identical to before). Per-worker/per-job reads are never cached.
+   */
+  cacheTtlMs?: number;
+}
+
 export class LightNode {
   readonly network: NetworkConfig;
+  private readonly cacheTtlMs: number;
+  private readonly cache = new Map<string, { value: unknown; expires: number }>();
 
-  constructor(network: NetworkId | NetworkConfig = "mainnet") {
+  constructor(network: NetworkId | NetworkConfig = "mainnet", opts: LightNodeOptions = {}) {
     this.network = typeof network === "string" ? NETWORKS[network] : network;
     if (!this.network) throw new Error(`unknown network: ${String(network)}`);
+    this.cacheTtlMs = Math.max(0, opts.cacheTtlMs ?? 0);
+  }
+
+  /** TTL-memoize a network read by key. No-op (passthrough) when caching is off. */
+  private cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    if (this.cacheTtlMs <= 0) return fn();
+    const now = Date.now();
+    const hit = this.cache.get(key);
+    if (hit && hit.expires > now) return Promise.resolve(hit.value as T);
+    return fn().then((value) => {
+      this.cache.set(key, { value, expires: now + this.cacheTtlMs });
+      return value;
+    });
+  }
+
+  /** Drop all cached network reads, forcing the next call to refetch. */
+  clearCache(): void {
+    this.cache.clear();
   }
 
   /** The full record for one worker (null if the indexer has never seen it). */
@@ -237,7 +268,7 @@ export class LightNode {
 
   /** The network's registered models (name, fee, output limit, whitelist flags). */
   getModels(): Promise<ModelInfo[]> {
-    return fetchModels(this.network);
+    return this.cached("models", () => fetchModels(this.network));
   }
 
   /** Registered workers (default top 200). */
@@ -246,26 +277,32 @@ export class LightNode {
   }
 
   /** A one-shot summary: totals, active count, jobs completed, earnings, model count. */
-  async getNetworkStats(): Promise<NetworkStats> {
-    const [workers, models] = await Promise.all([fetchWorkers(this.network), fetchModels(this.network)]);
-    return summarize(workers, models);
+  getNetworkStats(): Promise<NetworkStats> {
+    return this.cached("networkStats", async () => {
+      const [workers, models] = await Promise.all([fetchWorkers(this.network), fetchModels(this.network)]);
+      return summarize(workers, models);
+    });
   }
 
   /** Per-model performance over the last `sample` jobs (completion, p50/p95, incomplete, disputes, earnings). */
-  async getModelStats(sample = 1000): Promise<ModelStat[]> {
-    const [jobs, models] = await Promise.all([fetchRecentJobs(this.network, sample), fetchModels(this.network)]);
-    return aggregateModelStats(jobs, models);
+  getModelStats(sample = 1000): Promise<ModelStat[]> {
+    return this.cached(`modelStats:${sample}`, async () => {
+      const [jobs, models] = await Promise.all([fetchRecentJobs(this.network, sample), fetchModels(this.network)]);
+      return aggregateModelStats(jobs, models);
+    });
   }
 
   /** Network-wide rollup across all models over the last `sample` jobs. */
-  async getNetworkAnalytics(sample = 1000): Promise<NetworkAnalytics> {
-    return networkAnalytics(await this.getModelStats(sample));
+  getNetworkAnalytics(sample = 1000): Promise<NetworkAnalytics> {
+    return this.cached(`networkAnalytics:${sample}`, async () => networkAnalytics(await this.getModelStats(sample)));
   }
 
   /** Per-worker reliability (completion, p50/p95, incomplete) over the last `sample` jobs, busiest first. */
-  async getWorkerStats(sample = 1000, limit = 25): Promise<WorkerStat[]> {
-    const jobs = await fetchRecentJobs(this.network, sample);
-    return aggregateWorkerStats(jobs, Math.floor(Date.now() / 1000), limit);
+  getWorkerStats(sample = 1000, limit = 25): Promise<WorkerStat[]> {
+    return this.cached(`workerStats:${sample}:${limit}`, async () => {
+      const jobs = await fetchRecentJobs(this.network, sample);
+      return aggregateWorkerStats(jobs, Math.floor(Date.now() / 1000), limit);
+    });
   }
 
   /**
@@ -442,7 +479,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.13.0";
+export const SDK_VERSION = "0.14.0";
 
 export {
   NETWORKS,
