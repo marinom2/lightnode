@@ -1049,7 +1049,9 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   // mistyped key fails BEFORE we touch the RPC or the gateway.
   const network: NetworkConfig = typeof args.network === "string" ? NETWORKS[args.network] : args.network;
   if (!network) throw new Error(`unknown network: ${String(args.network)}`);
-  const networkId: NetworkId = (typeof args.network === "string" ? args.network : "mainnet") as NetworkId;
+  // Use the config's own id when a NetworkConfig is passed - NOT a hardcoded
+  // "mainnet", which would route a custom testnet config to the mainnet gateway.
+  const networkId: NetworkId = typeof args.network === "string" ? args.network : args.network.id;
   const key = args.privateKey?.trim();
   if (!key || !key.startsWith("0x") || key.length !== 66) {
     throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
@@ -1216,19 +1218,23 @@ export interface RunInferenceStreamResult {
  * ```
  */
 export function runInferenceStream(args: RunInferenceWithKeyArgs): RunInferenceStreamResult {
-  // Bounded queue of pending chunks; consumed in order by the iterator. We
-  // can't use an unbounded array because the inference may produce chunks
-  // faster than the consumer reads them - bounding at 1024 is enough to absorb
-  // model-output bursts without unbounded memory growth.
+  // Buffer of decrypted chunks the consumer hasn't pulled yet, drained in order
+  // by the iterator. A concurrently-iterating consumer keeps this near-empty
+  // (each chunk hands straight to a waiting `next()`); it only grows if the
+  // caller awaits `done` WITHOUT iterating (which the docs warn against). Its
+  // worst case is bounded by the response length, which the protocol caps via
+  // the worker's max output tokens - there is no fixed cap here, and we
+  // deliberately never DROP a chunk (that would corrupt the assembled answer).
   const queue: string[] = [];
-  const waiters: Array<(v: IteratorResult<string>) => void> = [];
+  // Parked next() calls, each holding both resolve and reject so a mid-stream
+  // error/abort can be THROWN into a waiting `for await` (not silently ended).
+  const waiters: Array<{ resolve: (v: IteratorResult<string>) => void; reject: (e: unknown) => void }> = [];
   let finished = false;
   let error: Error | null = null;
 
   const push = (chunk: string) => {
     if (waiters.length > 0) {
-      const resolve = waiters.shift();
-      if (resolve) resolve({ value: chunk, done: false });
+      waiters.shift()!.resolve({ value: chunk, done: false });
     } else {
       queue.push(chunk);
     }
@@ -1236,11 +1242,12 @@ export function runInferenceStream(args: RunInferenceWithKeyArgs): RunInferenceS
   const finish = (err: Error | null = null) => {
     finished = true;
     error = err;
+    // Wake every pending next(): reject with the error so the consumer's
+    // `for await` throws (matching async-iterator semantics), else signal done.
     while (waiters.length > 0) {
-      const resolve = waiters.shift();
-      if (!resolve) continue;
-      if (err) resolve({ value: undefined, done: true });
-      else resolve({ value: undefined, done: true });
+      const w = waiters.shift()!;
+      if (err) w.reject(err);
+      else w.resolve({ value: undefined, done: true });
     }
   };
 
@@ -1268,7 +1275,7 @@ export function runInferenceStream(args: RunInferenceWithKeyArgs): RunInferenceS
             if (error) throw error;
             return { value: undefined, done: true };
           }
-          return new Promise<IteratorResult<string>>((resolve) => waiters.push(resolve));
+          return new Promise<IteratorResult<string>>((resolve, reject) => waiters.push({ resolve, reject }));
         },
       };
     },
