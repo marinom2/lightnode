@@ -127,6 +127,13 @@ Plus the bare-metal aggregators (`aggregateModelStats`, `aggregateWorkerStats`,
 `isValidAddress`, `truncateAddress`, `mapWithConcurrency`) for reporting,
 dashboards, and scripts (new in 0.13.0).
 
+**Reliability (new in 0.14.0).** `new LightNode("mainnet", { cacheTtlMs: 30_000 })`
+TTL-memoizes the network-wide reads so a polling dashboard stops re-hitting the
+indexer every render (`ln.clearCache()` to force a refetch). The `GatewayClient`
+auto-retries `429` and `5xx` with exponential backoff (honoring `Retry-After`),
+configurable via `{ retry: { maxRetries, baseDelayMs } }`; `GatewayHttpError`
+carries `isRateLimited` / `isAuthError` / `isServerError` + `retryAfterMs`.
+
 ### Worker liveness / stuck-job diagnostic (new in 0.11.0)
 
 Surfaces the failure that is otherwise invisible until the stake is slashed: a
