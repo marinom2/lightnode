@@ -13,6 +13,8 @@
     "allow-secret-set",
     "allow-secret-get",
     "allow-secret-delete",
-    "allow-generate-worker-key"
+    "allow-generate-worker-key",
+    "allow-notify",
+    "notification:default"
   ]
 }

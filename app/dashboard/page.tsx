@@ -20,6 +20,7 @@ import { useSavedWorkers } from "@/lib/saved-workers";
 import { getWorkerAddr, resolveManagedWorkerAddr } from "@/lib/secrets";
 import { isDesktop, localContainerStatus, isStreamBusy, type LocalContainerStatus, type WorkerHealth } from "@/lib/tauri";
 import type { WorkerLivenessReport, WorkerActionCenter } from "lightnode-sdk";
+import type { WorkerProfitability } from "@/components/action-center";
 import { DEMO_LIVENESS, useLivenessDemo } from "@/lib/liveness-demo";
 import { shortAddr, cn } from "@/lib/utils";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
@@ -50,6 +51,7 @@ export default function DashboardPage() {
   // Read-only liveness/stuck-job diagnostic from /api/worker (SDK-computed).
   const [liveness, setLiveness] = useState<WorkerLivenessReport | null>(null);
   const [actions, setActions] = useState<WorkerActionCenter | null>(null);
+  const [profitability, setProfitability] = useState<WorkerProfitability | null>(null);
   // ?demo=liveness renders the stuck-job banner over any worker for previewing.
   const livenessDemo = useLivenessDemo();
   const [loading, setLoading] = useState(false);
@@ -81,6 +83,7 @@ export default function DashboardPage() {
         setOnchainRegistered(typeof r.onchainRegistered === "boolean" ? r.onchainRegistered : null);
         setLiveness(r.liveness ?? null);
         setActions(r.actions ?? null);
+        setProfitability(r.profitability ?? null);
         // NOTE: viewing a worker here does NOT make it "My worker". The managed
         // worker is the one the app holds the key for (resolved above); viewing
         // any watchlisted worker is read-only, so it can't clobber the address
@@ -92,6 +95,7 @@ export default function DashboardPage() {
         setOnchainRegistered(null);
         setLiveness(null);
         setActions(null);
+        setProfitability(null);
       } finally {
         setLoading(false);
       }
@@ -246,6 +250,7 @@ export default function DashboardPage() {
             localRunning={localRunning}
             liveness={livenessDemo ? DEMO_LIVENESS : liveness}
             actions={actions}
+            profitability={profitability}
           />
           {isMine && desktop && (
             <div className="mt-4">
@@ -268,7 +273,7 @@ export default function DashboardPage() {
             <OperationsPanel />
           </Card>
           <div className="mt-4">
-            <WorkerAlerts />
+            <WorkerAlerts network={network} />
           </div>
           <div className="mt-4">
             <WithdrawWorker />

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 
 /// OS keychain namespace for LightNode secrets (the worker key + keystore
 /// password). Stored natively so the remote web UI never has to persist them.
@@ -356,15 +357,31 @@ fn run_command_streamed(
     Ok(())
 }
 
+/// Show a native OS notification (Notification Center / Action Center / libnotify).
+/// Used to alert the operator about stuck jobs / claimable rewards / out-of-gas
+/// while the app is open but not focused - the same conditions the Action Center
+/// surfaces. Best-effort: a failed notification never breaks the caller.
+#[tauri::command]
+fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             detect_hardware,
             run_command_streamed,
             secret_set,
             secret_get,
             secret_delete,
-            generate_worker_key
+            generate_worker_key,
+            notify
         ])
         .run(tauri::generate_context!())
         .expect("error while running LightNode");

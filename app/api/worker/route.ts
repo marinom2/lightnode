@@ -1,8 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LightNode } from "lightnode-sdk";
-import { fetchWorker, fetchWorkerJobs, fetchWorkerModels, isLive } from "@/lib/subgraph";
+import { createPublicClient, http } from "viem";
+import { LightNode, WorkerOperator, type MinimalPublicClient } from "lightnode-sdk";
+import { fetchWorker, fetchWorkerJobs, fetchWorkerModels, fetchModels, isLive } from "@/lib/subgraph";
 import { fetchOnchainRegistered, fetchOnchainEligibleModels } from "@/lib/onchain-status";
-import type { NetworkId } from "@/lib/network";
+import { NETWORKS, type NetworkId } from "@/lib/network";
+
+/**
+ * Read-only profitability for the worker's primary served model: worker fee per
+ * job (its share of the model fee), gas per job, net, and a projection at the
+ * worker's observed throughput. Best-effort - null on any error.
+ */
+async function computeProfitability(
+  net: NetworkId,
+  address: string,
+  primaryModelId: string | undefined,
+  jobsCompleted: number,
+  createdAt: number | undefined,
+) {
+  if (!primaryModelId) return null;
+  try {
+    const registry = await fetchModels(net);
+    const info = registry.find((r) => r.id.toLowerCase() === primaryModelId.toLowerCase());
+    if (!info || !/^[0-9]+$/.test(String(info.fee))) return null; // need an integer-wei fee
+    const pc = createPublicClient({ transport: http(NETWORKS[net].rpc) }) as unknown as MinimalPublicClient;
+    const op = new WorkerOperator(net, { publicClient: pc, workerAddress: address as `0x${string}` });
+    const days = createdAt ? Math.max(1, (Date.now() / 1000 - createdAt) / 86400) : 1;
+    const jobsPerDay = jobsCompleted / days;
+    const p = await op.profitability({ modelFeeWei: BigInt(info.fee), jobsPerDay });
+    return { ...p, modelName: info.name, jobsPerDay: Math.round(jobsPerDay * 10) / 10 };
+  } catch {
+    return null;
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +71,9 @@ export async function GET(req: NextRequest) {
     const reconciledModels = eligible
       ? models.map((m) => ({ ...m, onchainEligible: eligible.get(m.modelId.toLowerCase()) ?? null }))
       : models.map((m) => ({ ...m, onchainEligible: null }));
-    return NextResponse.json({ ok: true, worker, live: isLive(worker), jobs, models: reconciledModels, onchainRegistered, liveness, actions });
+    const primary = reconciledModels.find((m) => m.onchainEligible) ?? reconciledModels[0];
+    const profitability = await computeProfitability(net, address, primary?.modelId, worker.jobs_completed ?? 0, worker.created_at);
+    return NextResponse.json({ ok: true, worker, live: isLive(worker), jobs, models: reconciledModels, onchainRegistered, liveness, actions, profitability });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }

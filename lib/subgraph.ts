@@ -118,7 +118,7 @@ export async function fetchRecentJobs(network: NetworkId, first = 1000): Promise
   try {
     const data = await gql<{ jobs: Job[] }>(
       network,
-      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id worker ack_at completed_at worker_share } }`,
+      `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id worker submitted_at ack_at completed_at worker_share } }`,
     );
     return data.jobs ?? [];
   } catch {

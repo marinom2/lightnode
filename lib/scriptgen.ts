@@ -55,6 +55,28 @@ log(){ echo "$(date -u +%FT%TZ) $*"; }
 # it on STATE CHANGES only (no spam) - worker down / Docker down / recovered.
 # Discord-compatible JSON body; a plain webhook receives the same {"content":...}.
 alert_state(){ local W; W="$(cat "$HOME/.lightnode/alerts.webhook" 2>/dev/null)"; [ -z "$W" ] && return 0; local C="$1"; local L; L="$(cat "$HOME/.lightnode/alerts.last" 2>/dev/null)"; [ "$C" = "$L" ] && return 0; printf '%s' "$C" > "$HOME/.lightnode/alerts.last"; local HN; HN="$(hostname 2>/dev/null || echo worker)"; local M=""; case "$C" in down) M="LightChain worker is DOWN on $HN and could not be restarted.";; docker_down) M="LightChain worker host $HN: Docker is not running.";; stale) M="LightChain worker on $HN is running but not connected to the gateway (stale) - it is not taking jobs.";; ok) case "$L" in down|docker_down|stale) M="LightChain worker is back online on $HN.";; esac;; esac; [ -n "$M" ] && curl -s -m 8 -H "content-type: application/json" -d "{\\"content\\":\\"$M\\"}" "$W" >/dev/null 2>&1; return 0; }
+# Economic alerts (stuck jobs / settle-now / out-of-gas) - the on-chain conditions
+# the operator must NOT miss, posted even when the desktop app is closed. Each
+# category dedups via its own marker (alert_key) so it pings once per change. The
+# worker address + deployed base URL come from ~/.lightnode/alerts.conf (written by
+# the app's Downtime alerts card); the heavy lifting runs server-side in the public
+# /api/worker-alert (the same checks the dashboard shows), so the watchdog only
+# curls + greps - no cast / subgraph parsing in bash.
+alert_key(){ local W; W="$(cat "$HOME/.lightnode/alerts.webhook" 2>/dev/null)"; [ -z "$W" ] && return 0; local LF="$HOME/.lightnode/alerts.$1"; local P; P="$(cat "$LF" 2>/dev/null)"; [ "$2" = "$P" ] && return 0; printf '%s' "$2" > "$LF"; [ -n "$2" ] && curl -s -m 8 -H "content-type: application/json" -d "{\\"content\\":\\"$2\\"}" "$W" >/dev/null 2>&1; return 0; }
+econ_alerts(){
+  [ -s "$HOME/.lightnode/alerts.webhook" ] || return 0
+  [ -s "$HOME/.lightnode/alerts.conf" ] || return 0
+  local A N B; A="$(sed -nE 's/^WORKER_ADDR=//p' "$HOME/.lightnode/alerts.conf" | head -1)"; N="$(sed -nE 's/^NET=//p' "$HOME/.lightnode/alerts.conf" | head -1)"; B="$(sed -nE 's/^BASE=//p' "$HOME/.lightnode/alerts.conf" | head -1)"
+  [ -z "$A" ] && return 0; [ -z "$B" ] && return 0; [ -z "$N" ] && N="mainnet"
+  local J; J="$(curl -s -m 12 "$B/api/worker-alert?net=$N&address=$A" 2>/dev/null)"
+  printf '%s' "$J" | grep -q '"ok":true' || return 0
+  local HN; HN="$(hostname 2>/dev/null || echo worker)"
+  if printf '%s' "$J" | grep -q '"outOfGas":true'; then alert_key gas "LightChain worker on $HN is OUT OF GAS - its wallet ($A) cannot pay to acknowledge jobs, settle, or claim. Send it a little LCAI."; else alert_key gas ""; fi
+  local S; S="$(printf '%s' "$J" | sed -nE 's/.*"stuck":[[:space:]]*([0-9]+).*/\\1/p')"
+  if [ -n "$S" ] && [ "$S" -gt 0 ] 2>/dev/null; then alert_key stuck "LightChain worker on $HN has $S job(s) past their deadline (stuck) - clear them in the app to avoid a timeout slash."; else alert_key stuck ""; fi
+  local R; R="$(printf '%s' "$J" | sed -nE 's/.*"settleNow":[[:space:]]*([0-9]+).*/\\1/p')"
+  if [ -n "$R" ] && [ "$R" -gt 0 ] 2>/dev/null; then alert_key settle "LightChain worker on $HN has $R completed job(s) ready to settle - open the app and Settle to collect your earnings."; else alert_key settle ""; fi
+}
 # Respect an intentional Stop/Deregister: while this marker exists, leave the
 # worker alone (Install or Restart clears it to re-arm).
 AWAKE="$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist"
@@ -89,6 +111,8 @@ if docker ps --format '{{.Names}}' | grep -q '^lightchain-worker$'; then
 else
   alert_state down
 fi
+# On-chain economic alerts (best-effort), regardless of the local run-state.
+econ_alerts
 # Keep every served model pinned in Ollama (keep_alive:-1) so none cold-loads
 # mid-job. Reads the set from a file (one per line) so a model change is picked up.
 while IFS= read -r M; do [ -n "$M" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 & done < "$HOME/.lightnode/model" 2>/dev/null || true
@@ -634,11 +658,40 @@ while (-not (Test-Path $pause)) { [LcPower]::SetThreadExecutionState($CONT -bor 
 try {
   $ko = Join-Path $env:USERPROFILE ".lightnode\\keep-online.ps1"
 @'
-if (Test-Path (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused")) { exit 0 }
+# Downtime + economic alerts (Windows parity with the unix watchdog, which the
+# Windows build was missing entirely). Send-State posts run-state transitions
+# (down/docker_down/stale/ok) via a single marker; Send-Alert posts each economic
+# category (gas/stuck/settle) via its own marker so it pings once per change.
+function Send-State($state){ $wf = Join-Path $env:USERPROFILE ".lightnode\\alerts.webhook"; if (-not (Test-Path $wf)) { return }; $W = (Get-Content $wf -ErrorAction SilentlyContinue | Select-Object -First 1); if (-not $W) { return }; $lf = Join-Path $env:USERPROFILE ".lightnode\\alerts.last"; $prev = ((Get-Content $lf -ErrorAction SilentlyContinue) -join "").Trim(); if ($state -eq $prev) { return }; Set-Content -Path $lf -Value $state; $hn = $env:COMPUTERNAME; $m = ""; switch ($state) { "down" { $m = "LightChain worker is DOWN on $hn and could not be restarted." } "docker_down" { $m = "LightChain worker host $hn: Docker is not running." } "stale" { $m = "LightChain worker on $hn is running but not connected to the gateway (stale) - it is not taking jobs." } "ok" { if ($prev -in @("down","docker_down","stale")) { $m = "LightChain worker is back online on $hn." } } }; if ($m) { try { Invoke-RestMethod -Uri $W -Method Post -ContentType 'application/json' -Body (@{content=$m} | ConvertTo-Json) -TimeoutSec 8 | Out-Null } catch {} } }
+function Send-Alert($key,$msg){ $wf = Join-Path $env:USERPROFILE ".lightnode\\alerts.webhook"; if (-not (Test-Path $wf)) { return }; $W = (Get-Content $wf -ErrorAction SilentlyContinue | Select-Object -First 1); if (-not $W) { return }; $lf = Join-Path $env:USERPROFILE ".lightnode\\alerts.$key"; $prev = ((Get-Content $lf -ErrorAction SilentlyContinue) -join "").Trim(); $cur = ("" + $msg).Trim(); if ($cur -eq $prev) { return }; Set-Content -Path $lf -Value $cur; if ($cur) { try { Invoke-RestMethod -Uri $W -Method Post -ContentType 'application/json' -Body (@{content=$cur} | ConvertTo-Json) -TimeoutSec 8 | Out-Null } catch {} } }
+if (Test-Path (Join-Path $env:USERPROFILE ".lightnode\\keep-online.paused")) { Send-State "paused"; exit 0 }
 docker info *> $null
 if (-not $?) { ${WIN_START_DOCKER}; for ($i=0;$i -lt 45;$i++){ docker info *> $null; if($?){break}; Start-Sleep 2 } }
-docker info *> $null; if (-not $?) { exit 0 }
-if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null; Start-Sleep 5 } elseif (-not ((docker logs --since 70m lightchain-worker 2>&1) -match "authenticated with worker-gateway|websocket connected")) { docker restart lightchain-worker | Out-Null } }
+docker info *> $null; if (-not $?) { Send-State "docker_down"; exit 0 }
+$running = $false
+if ((docker ps -a --format "{{.Names}}") -match "^lightchain-worker$") { if (-not ((docker ps --format "{{.Names}}") -match "^lightchain-worker$")) { docker start lightchain-worker | Out-Null; Start-Sleep 5 }; if ((docker ps --format "{{.Names}}") -match "^lightchain-worker$") { $running = $true } }
+# Stale = running but no gateway-auth line in 70m. ALERT only, never auto-restart:
+# a busy worker on a long job (or whose auth line scrolled past the window) would
+# otherwise be killed mid-job (timeout = slash) every tick, in a restart loop.
+# Matches the unix watchdog, which only alerts on stale. (The user Restarts.)
+if ($running) { if ((docker logs --since 70m lightchain-worker 2>&1) -match "authenticated with worker-gateway|websocket connected") { Send-State "ok" } else { Send-State "stale" } } else { Send-State "down" }
+# On-chain economic alerts via the public /api/worker-alert (same checks the dashboard runs).
+$conf = Join-Path $env:USERPROFILE ".lightnode\\alerts.conf"
+if ((Test-Path (Join-Path $env:USERPROFILE ".lightnode\\alerts.webhook")) -and (Test-Path $conf)) {
+  $c = @{}; foreach ($ln in (Get-Content $conf -ErrorAction SilentlyContinue)) { if ($ln -match "^([^=]+)=(.*)$") { $c[$matches[1]] = $matches[2] } }
+  if ($c.WORKER_ADDR -and $c.BASE) {
+    $net = if ($c.NET) { $c.NET } else { "mainnet" }
+    try {
+      $r = Invoke-RestMethod -Uri ("{0}/api/worker-alert?net={1}&address={2}" -f $c.BASE, $net, $c.WORKER_ADDR) -TimeoutSec 12
+      if ($r.ok) {
+        $hn = $env:COMPUTERNAME
+        if ($r.outOfGas) { Send-Alert gas "LightChain worker on $hn is OUT OF GAS - its wallet ($($c.WORKER_ADDR)) cannot pay to acknowledge jobs, settle, or claim. Send it a little LCAI." } else { Send-Alert gas "" }
+        if ([int]$r.stuck -gt 0) { Send-Alert stuck "LightChain worker on $hn has $($r.stuck) job(s) past their deadline (stuck) - clear them in the app to avoid a timeout slash." } else { Send-Alert stuck "" }
+        if ([int]$r.settleNow -gt 0) { Send-Alert settle "LightChain worker on $hn has $($r.settleNow) completed job(s) ready to settle - open the app and Settle to collect your earnings." } else { Send-Alert settle "" }
+      }
+    } catch {}
+  }
+}
 Start-Process powershell -WindowStyle Hidden -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-File",(Join-Path $env:USERPROFILE ".lightnode\\keep-awake.ps1")) -ErrorAction SilentlyContinue
 $ms = Get-Content (Join-Path $env:USERPROFILE ".lightnode\\model") -ErrorAction SilentlyContinue
 foreach ($m in $ms) { if ($m) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 5 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} } }

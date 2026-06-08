@@ -7,6 +7,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LiveStats } from "@/components/live-stats";
 import { NetworkPulse } from "@/components/network-pulse";
+import { ReliabilityLeaderboard } from "@/components/reliability-leaderboard";
+import { JobActivityStream } from "@/components/job-activity-stream";
+import { ModelDemand } from "@/components/model-demand";
 import { ModelsPanel } from "@/components/models-panel";
 import { ModelAnalytics } from "@/components/model-analytics";
 import { useNetwork } from "@/lib/network-context";
@@ -63,6 +66,10 @@ export default function NetworkPage() {
         <NetworkPulse />
       </div>
 
+      <div className="mb-8">
+        <JobActivityStream />
+      </div>
+
       <Card className="overflow-hidden">
         <div className="flex items-center gap-2 border-b border-bdr-soft px-5 py-4">
           <Trophy className="size-4 text-warning" />
@@ -112,6 +119,14 @@ export default function NetworkPage() {
         <Badge tone="success">online</Badge> active &amp; staked
         <Badge tone="danger">offline</Badge> deregistered / inactive
         <span className="text-content-soft">- open a worker for its live heartbeat &amp; earnings.</span>
+      </div>
+
+      <div className="mt-8">
+        <ReliabilityLeaderboard />
+      </div>
+
+      <div className="mt-8">
+        <ModelDemand />
       </div>
 
       <div className="mt-8">
