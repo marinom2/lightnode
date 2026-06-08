@@ -419,9 +419,11 @@ export function WorkerView({
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />
             <div className="space-y-1 text-sm">
               <p className="font-medium text-content-primary">
-                {liveness.unackedCount > 0
-                  ? "Worker offline - assigned jobs are going unanswered"
-                  : "Jobs stuck past their on-chain deadline"}
+                {actions?.outOfGas
+                  ? "Worker can't answer jobs - wallet is out of gas"
+                  : liveness.unackedCount > 0
+                    ? "Assigned jobs are going unanswered"
+                    : "Jobs stuck past their on-chain deadline"}
               </p>
               <p className="text-content-soft">
                 {liveness.stuckJobs.length} job{liveness.stuckJobs.length > 1 ? "s" : ""} the chain assigned this worker{" "}
@@ -431,9 +433,18 @@ export function WorkerView({
                     {liveness.suspensionRisk ? " and worker suspension" : ""}</>
                 )}
                 . They will not complete on their own.{" "}
-                {offlineHere
-                  ? "Use Operations → Restart to bring the worker back online, then clear them in Operations."
-                  : "Bring the worker back online and clear them from Operations."}
+                {actions?.outOfGas ? (
+                  <>
+                    The worker is registered, but its wallet (
+                    <span className="font-mono text-xs">{worker.id}</span>) has no LCAI to pay the gas to acknowledge a job
+                    (or to settle). Send it a little LCAI, then the jobs process and you can clear any leftovers in
+                    Operations.
+                  </>
+                ) : offlineHere ? (
+                  "Use Operations → Restart to bring the worker back online, then clear them in Operations."
+                ) : (
+                  "Check the worker is online and connected (Operations → Restart / Status), then clear them from Operations."
+                )}
               </p>
             </div>
           </div>
