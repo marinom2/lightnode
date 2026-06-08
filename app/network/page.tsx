@@ -6,6 +6,7 @@ import { Trophy, Activity, ExternalLink, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LiveStats } from "@/components/live-stats";
+import { NetworkPulse } from "@/components/network-pulse";
 import { ModelsPanel } from "@/components/models-panel";
 import { ModelAnalytics } from "@/components/model-analytics";
 import { useNetwork } from "@/lib/network-context";
@@ -56,6 +57,10 @@ export default function NetworkPage() {
 
       <div className="mb-8">
         <LiveStats />
+      </div>
+
+      <div className="mb-8">
+        <NetworkPulse />
       </div>
 
       <Card className="overflow-hidden">
