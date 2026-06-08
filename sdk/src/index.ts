@@ -54,7 +54,8 @@ import {
 } from "./worker-operator.js";
 import { analyzeWorkerLiveness, type WorkerLivenessReport } from "./liveness.js";
 import { analyzeWorkerActions, analyzeSettlement, type WorkerActionCenter } from "./actions.js";
-import type { MinimalPublicClient } from "./worker-operator.js";
+import { toWei, checksum, isValidAddress, truncateAddress, mapWithConcurrency } from "./utils.js";
+import type { MinimalPublicClient, OnchainJob } from "./worker-operator.js";
 import {
   Bridge,
   BRIDGE_ROUTE,
@@ -359,6 +360,44 @@ export class LightNode {
   }
 
   /**
+   * The authoritative on-chain job struct (typed) - the chain's view, not the
+   * indexer's. Reads JobRegistry.getJob directly. Null if the read fails. Use
+   * this when you need ground truth (exact state index, deadlineAt, escrow) that
+   * the subgraph may lag. Read-only; no key.
+   */
+  async getJobOnchain(jobId: bigint | number): Promise<OnchainJob | null> {
+    const publicClient = createPublicClient({ transport: http(this.network.rpc) }) as unknown as MinimalPublicClient;
+    const op = new WorkerOperator(this.network, { publicClient });
+    try {
+      return await op.getJob(jobId);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch many workers at once with bounded concurrency (default 8 in-flight), in
+   * input order - so a dashboard can load a watchlist without firing N indexer
+   * calls at once. A failed/absent worker is `null` in its slot, never throws.
+   */
+  getWorkersBatch(addresses: string[], opts: { parallel?: number } = {}): Promise<(Worker | null)[]> {
+    return mapWithConcurrency(addresses, opts.parallel ?? 8, (a) => this.getWorker(a).catch(() => null));
+  }
+
+  /**
+   * Classify many jobs at once with bounded concurrency, in input order. Each slot
+   * is the same shape as getJobStatus (or `null` if that job read failed).
+   */
+  getJobStatusesBatch(
+    jobIds: Array<string | bigint>,
+    opts: { parallel?: number; withTransactions?: boolean } = {},
+  ): Promise<Array<Awaited<ReturnType<LightNode["getJobStatus"]>>>> {
+    return mapWithConcurrency(jobIds, opts.parallel ?? 8, (id) =>
+      this.getJobStatus(id, { withTransactions: opts.withTransactions }).catch(() => null),
+    );
+  }
+
+  /**
    * Build a Lightscan URL for an arbitrary address or tx hash on this
    * network. Useful for surfacing deep-links in builder UIs without
    * each consumer needing to know which explorer corresponds to which
@@ -403,7 +442,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.12.1";
+export const SDK_VERSION = "0.13.0";
 
 export {
   NETWORKS,
@@ -433,6 +472,13 @@ export {
   JOB_REGISTRY_CONSUMER_ABI,
   consumerGatewayUrl,
   consumerGatewayHost,
+  // v0.13.0 unit + address utility helpers (builders kept re-implementing these),
+  // and the bounded-concurrency map behind the batch reads.
+  toWei,
+  checksum,
+  isValidAddress,
+  truncateAddress,
+  mapWithConcurrency,
   // v0.3 inference-submit surface (BETA - see README "Submitting inference").
   GatewayClient,
   GatewayHttpError,

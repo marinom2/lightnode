@@ -15,6 +15,10 @@ const positionals = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const cmd = positionals[0];
 const net = (flag("--net") as NetworkId) || "mainnet";
 const csv = process.argv.includes("--csv");
+// --json makes the table-style read commands emit machine-readable JSON instead,
+// so they compose with jq and scripts. (Commands that are already JSON ignore it.)
+const wantJson = process.argv.includes("--json");
+const printJson = (data: unknown) => console.log(JSON.stringify(data, null, 2));
 
 function die(msg: string): never {
   console.error(msg);
@@ -92,7 +96,11 @@ function installDeps(installLine: string, cwd: string): boolean {
   return false;
 }
 
-const HELP = `lightnode <command> [--net mainnet|testnet]
+const HELP = `lightnode <command> [--net mainnet|testnet] [--json] [--help]
+
+  --json on read commands (models, jobs, analytics, reliability) emits JSON.
+  --help after any command prints just that command's usage.
+
 
 Run one inference (needs PRIVATE_KEY in env):
   chat <prompt>            stream one encrypted inference answer to stdout
@@ -124,6 +132,9 @@ Worker operator (needs PRIVATE_KEY in env; signs as the worker key):
   worker preflight         run one real test inference, print verdict + timings
                            ([--key 0x...] [--model llama3-8b] [--deadline 60])
   worker status [addr]     registration, stake, claimable, live protocol config
+  worker doctor [addr]     action center: gas, claimable, stuck, settle, to-do (JSON)
+  worker liveness <addr>   stuck-job + slash-risk + activity diagnostic (JSON)
+  worker profitability [addr]  fee/gas/net per job + projected daily ([--model])
   worker models <addr>     models served, reconciled vs chain (servingNow truth)
   worker can-deregister    check what blocks the exit (in-flight jobs), no spend
   worker settle            release completed jobs past their window + withdraw
@@ -158,6 +169,16 @@ Diagnostics:
   version                  print this CLI's version (also: --version, -v)
                            (a missing 'add' target usually means an old install -
                             update with: npm install -g lightnode-sdk@latest)`;
+
+/** The HELP lines relevant to one command (so `lightnode <cmd> --help` is focused),
+ *  derived from the single HELP source so it can't drift. Falls back to full HELP. */
+function commandHelp(c: string): string {
+  const lines = HELP.split("\n").filter((l) => {
+    const t = l.trim();
+    return t === c || t.startsWith(c + " ") || t.startsWith(c + "\t") || t.startsWith("add " + c + " ");
+  });
+  return lines.length ? `lightnode ${c}:\n${lines.join("\n")}` : HELP;
+}
 
 function pickKey(): `0x${string}` {
   const k = flag("--key") ?? process.env.PRIVATE_KEY;
@@ -212,6 +233,12 @@ async function main() {
   // "doesn't exist" - an old global install is the common cause.
   if (cmd === "version" || process.argv.includes("--version") || process.argv.includes("-v")) {
     console.log(SDK_VERSION);
+    return;
+  }
+  // `lightnode <cmd> --help` prints just that command's usage; bare `--help` (or no
+  // command) prints the full reference.
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    console.log(cmd ? commandHelp(cmd) : HELP);
     return;
   }
   const ln = new LightNode(net);
@@ -294,7 +321,12 @@ async function main() {
       break;
     }
     case "models": {
-      for (const m of await ln.getModels()) {
+      const models = await ln.getModels();
+      if (wantJson) {
+        printJson(models);
+        break;
+      }
+      for (const m of models) {
         console.log(`${m.name}\t${lcai(m.fee)} LCAI\t${m.max_output_tokens} tok\t${m.is_whitelisted && m.is_enabled ? "live" : "off"}`);
       }
       break;
@@ -353,6 +385,26 @@ async function main() {
         const op = readOperator(ln, addr);
         const [st, cfg] = await Promise.all([op.status(), op.config()]);
         console.log(JSON.stringify({ ...st, stakeWei: st.stakeWei.toString(), minStakeWei: st.minStakeWei.toString(), claimableWei: st.claimableWei.toString(), config: { minStakeLcai: cfg.minStakeLcai, completionTimeoutSec: cfg.completionTimeoutSec, slashBps: cfg.slashBps } }, null, 2));
+        break;
+      }
+      // Read-only diagnostics (no key): the action center, liveness, profitability -
+      // the same rollups the desktop dashboard shows, for scripting/monitoring.
+      if (sub === "doctor" || sub === "actions") {
+        const addr = positionals[2] ?? (flag("--key") || process.env.PRIVATE_KEY ? privateKeyToAccount(pickKey()).address : die("usage: lightnode worker doctor <address>   (or set PRIVATE_KEY)"));
+        printJson(await ln.getWorkerActions(addr));
+        break;
+      }
+      if (sub === "liveness") {
+        const addr = positionals[2] ?? die("usage: lightnode worker liveness <address> [--net testnet]");
+        printJson(await ln.getWorkerLiveness(addr));
+        break;
+      }
+      if (sub === "profitability") {
+        const addr = positionals[2] ?? (flag("--key") || process.env.PRIVATE_KEY ? privateKeyToAccount(pickKey()).address : die("usage: lightnode worker profitability <address> [--model llama3-8b]"));
+        const served = await ln.getServedModels(addr);
+        const modelTag = flag("--model") ?? served.find((s) => s.onchainEligible)?.name ?? served[0]?.name ?? "llama3-8b";
+        const op = readOperator(ln, addr);
+        printJson({ model: modelTag, ...(await op.profitability({ modelTag })) });
         break;
       }
       if (sub === "can-deregister") {
@@ -472,6 +524,10 @@ async function main() {
     case "jobs": {
       const addr = positionals[1] ?? die("usage: lightnode jobs <address> [--csv] [--net testnet]");
       const jobs = await ln.getWorkerJobs(addr, 100);
+      if (wantJson) {
+        printJson(jobs);
+        break;
+      }
       if (csv) {
         console.log(workerJobsCsv(jobs));
       } else {
@@ -494,6 +550,10 @@ async function main() {
     }
     case "analytics": {
       const stats = await ln.getModelStats();
+      if (wantJson) {
+        printJson(stats);
+        break;
+      }
       if (csv) {
         console.log(modelStatsCsv(stats));
       } else {
@@ -503,6 +563,10 @@ async function main() {
     }
     case "reliability": {
       const workers = await ln.getWorkerStats(1000, 20);
+      if (wantJson) {
+        printJson(workers);
+        break;
+      }
       if (csv) {
         console.log(workerStatsCsv(workers));
       } else {
