@@ -625,6 +625,19 @@ npx lightnode add analytics-dashboard          # read-only network + worker anal
 npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
 ```
 
+For worker operators (a runnable Node console over the on-chain operator surface):
+
+```bash
+npx lightnode add worker-operator              # worker-ops.ts: status / settle / clearstuck / withdraw / deregister / profitability
+```
+
+`add worker-operator` writes a standalone `worker-ops.ts` (plus `.env.example`
+and a README) that drives `WorkerOperator` from code - no Docker, no worker
+image. `npx tsx worker-ops.ts status` prints registration, stake-vs-floor,
+claimable, gas, and a prioritized to-do list as JSON; the write commands settle,
+withdraw, clear stuck jobs, and deregister (the mainnet-slashing ones gated
+behind `--yes`). Drop `status` in cron and alert when the to-do is non-empty.
+
 User-paid (no backend; each visitor signs + pays from their own wallet):
 
 ```bash
