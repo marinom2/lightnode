@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, SDK_VERSION, type NetworkId, type AgentTool } from "./index.js";
-import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup, patchLayoutWithProviders, wireFreshScaffold, type LayoutPatch, type ScaffoldWiring } from "./add.js";
+import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addJudge, addWagmiSetup, addWorkerOperator, patchLayoutWithProviders, wireFreshScaffold, type LayoutPatch, type ScaffoldWiring } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { existsSync, readdirSync, renameSync, rmSync } from "node:fs";
@@ -639,7 +639,7 @@ async function main() {
       const template = (flag("--template") as "auto" | "nextjs-api" | "hono" | "node" | undefined) ?? "auto";
       const force = process.argv.includes("--force");
       const network = (net === "mainnet" ? "mainnet" : "testnet") as "mainnet" | "testnet";
-      const known = ["inference", "inference-web3", "chat", "chat-web3", "judge", "judge-web3", "wagmi-setup", "agent", "analytics-dashboard", "nft-mint-with-inference"];
+      const known = ["inference", "inference-web3", "chat", "chat-web3", "judge", "judge-web3", "wagmi-setup", "agent", "analytics-dashboard", "nft-mint-with-inference", "worker-operator"];
       if (!known.includes(sub ?? "")) {
         const lines = [
           `usage: lightnode add <${known.join("|")}> [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force]`,
@@ -684,6 +684,7 @@ async function main() {
         : sub === "chat" ? addChat({ template, network, force })
         : sub === "agent" ? addAgent({ template, network, force })
         : sub === "judge" ? addJudge({ template, network, force })
+        : sub === "worker-operator" ? addWorkerOperator({ template, network, force })
         : addInference({ template, network, force });
       console.log(`▶ add ${sub} (${result.template} template, default network ${result.network})`);
       printWritten(result.written);
@@ -778,6 +779,11 @@ async function main() {
           } else {
             console.log(`  3. npx tsx lightchain-inference.ts "your prompt"`);
           }
+        } else if (sub === "worker-operator") {
+          console.log(`  2. cp .env.example .env  (put the WORKER's own funded ${result.network} key in PRIVATE_KEY)`);
+          console.log(`  3. npx tsx worker-ops.ts status   # registration, stake, claimable, gas, prioritized to-do`);
+          console.log(`     then: settle | clearstuck | withdraw | deregister | profitability  (see WORKER-OPS-README.md)`);
+          console.log(`     status prints JSON (todo[] + outOfGas) - drop it in cron to never sit on stuck jobs.`);
         } else {
           // analytics-dashboard - read-only, no private key needed.
           if (result.template === "nextjs-api") {

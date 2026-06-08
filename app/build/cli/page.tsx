@@ -23,6 +23,7 @@ const CLI_ADD = [
   { cmd: "lightnode add chat-web3", desc: "User-paid. Chat UI, wallet-signed (mainnet + testnet aware). Scaffolds Next.js, bundles wagmi + Connect button, wires the layout, installs deps - one command. Each turn is one SIWE sig + one tx." },
   { cmd: "lightnode add judge-web3", desc: "User-paid. Evaluator UI, wallet-signed. Scaffolds Next.js, bundles wagmi + Connect button, and installs deps - one command. Criteria + evidence in, PASSED/FAILED + on-chain receipt out." },
   { cmd: "lightnode add wagmi-setup", desc: "Wallet wiring on its own: lib/wagmi + app/providers + a connect button, and it wraps your layout with <Providers>. Bundled automatically by the web3 scaffolders. Add --no-install / --no-scaffold to opt out." },
+  { cmd: "lightnode add worker-operator", desc: "Worker-operator. A runnable Node console (worker-ops.ts) over the WorkerOperator surface - status / settle / clearstuck / withdraw / deregister / profitability, no Docker or worker image. status prints JSON (todo[] + outOfGas) for cron." },
 ] as const;
 
 export default function BuildCliPage() {
@@ -33,8 +34,9 @@ export default function BuildCliPage() {
           lightnode CLI
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-content-soft">
-          Bundled in lightnode-sdk. Read-only commands run inline below; the rest run from your terminal. Ten add
-          scaffolders patch an existing project - six server-paid, plus the user-paid web3 trio and wagmi-setup.
+          Bundled in lightnode-sdk. Read-only commands run inline below; the rest run from your terminal. Eleven add
+          scaffolders patch an existing project - six server-paid, the user-paid web3 trio, wagmi-setup, and the
+          code-first worker-operator console.
         </p>
       </div>
 
