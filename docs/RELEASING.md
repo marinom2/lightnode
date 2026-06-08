@@ -13,23 +13,32 @@ The SDK builds from `sdk/` to `sdk/dist` (gitignored, rebuilt on publish). The
 single source of version truth is `sdk/package.json`; keep `SDK_VERSION` in
 `sdk/src/index.ts` in lockstep (a unit test guards against drift).
 
+Publishing is automated by **`.github/workflows/publish-sdk.yml`**: pushing a
+`sdk-v*` tag re-runs the gate, checks the tag matches `sdk/package.json`, then
+`npm publish`es with provenance and opens a GitHub Release. You just bump + tag.
+
 ```bash
 # 1. Bump the version in BOTH sdk/package.json and the SDK_VERSION constant
 #    in sdk/src/index.ts (patch for fixes, minor for features - it's 0.x).
+#    A unit test guards that the two stay in lockstep.
 # 2. Add a changelog entry (app/build/reference/page.tsx CHANGELOG) + the
-#    sdk/README.md notes for the new version.
-# 3. Verify from the repo root:
-npx tsc --noEmit && npx vitest run && (cd sdk && npm run build) && npx next build
-# 4. Publish:
-cd sdk && npm publish        # 'latest' dist-tag; add --tag beta for prereleases
-# 5. Tag + push so the release is traceable:
+#    sdk/README.md notes for the new version. Merge to main.
+# 3. Tag main at the new version and push - CI does the rest:
 git tag sdk-v0.18.1 && git push origin sdk-v0.18.1
 ```
 
-Use the `beta` dist-tag (`npm publish --tag beta`) for anything you don't want
-`npm install lightnode-sdk` (which resolves `latest`) to pick up. `create-lightnode-app`
-pins `^0.18.0`, so a new minor reaches freshly-scaffolded projects automatically;
-bump that pin (`create-lightnode-app/src/templates.ts`) on a new MAJOR.
+The workflow refuses to publish if the tag (`sdk-v0.18.1`) does not match the
+package version (`0.18.1`), so a forgotten bump fails loudly instead of shipping
+the wrong version. A **prerelease** version (e.g. `0.18.2-beta.0`) is published to
+the `beta` dist-tag automatically, so a plain `npm install lightnode-sdk` (which
+resolves `latest`) is unaffected. `create-lightnode-app` pins `^0.18.0`, so a new
+minor reaches freshly-scaffolded projects automatically; bump that pin
+(`create-lightnode-app/src/templates.ts`) on a new MAJOR.
+
+**One-time setup:** add an automation npm token as the `NPM_TOKEN` repo secret
+(Settings -> Secrets and variables -> Actions). **Manual fallback** (if CI is
+unavailable): verify locally, then `cd sdk && npm publish` after a
+`npx tsc --noEmit && npx vitest run && (cd sdk && npm run build)`.
 
 ## Releasing the desktop app
 
