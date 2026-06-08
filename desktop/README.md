@@ -44,7 +44,7 @@ cd desktop/src-tauri && cargo check
 ```
 
 ## Native commands
-The full bridge is six commands (declared in `build.rs`, granted to the hosted
+The full bridge is seven commands (declared in `build.rs`, granted to the hosted
 origin in `capabilities/default.json`):
 
 | Command | Purpose |
@@ -53,6 +53,7 @@ origin in `capabilities/default.json`):
 | `run_command_streamed(command, env)` | runs the generated setup, emits `setup-log` / `setup-exit` events |
 | `secret_set` / `secret_get` / `secret_delete` | store/read worker secrets in the OS keychain |
 | `generate_worker_key(name)` | generate a worker key natively, return only its address |
+| `notify(title, body)` | show a native OS notification (stuck jobs, claimable rewards, wallet gas alerts) while the window is backgrounded |
 
 The local container's state and live worker health have no dedicated command -
 they're read by running short `docker` commands through `run_command_streamed`.

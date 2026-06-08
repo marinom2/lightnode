@@ -406,6 +406,20 @@ Full method reference (`jobIds` are the worker's IDs from
 | `deregister()` | yes | exit and release stake, gas-correct (reverts if in-flight jobs remain) |
 | `unstickAndDeregister(jobIds)` | yes | clear stuck + release + withdraw + deregister, in one call |
 
+**Result shape.** `clearStuck` and `releaseAll` return the same exported
+`BatchJobOpResult`, so you don't special-case per method:
+
+```ts
+interface BatchJobOpResult {
+  done: Array<{ jobId: bigint; tx: `0x${string}` }>;     // acted on, with the tx
+  skipped: Array<{ jobId: bigint; reason: string }>;      // left alone, and why
+}
+```
+
+`done` lists the jobs the op settled/cleared on-chain (with tx hashes); `skipped`
+lists the ones it deliberately left alone, each with a plain-English `reason`
+(e.g. "still inside the dispute window", "not yet past the completion deadline").
+
 > **Mainnet slashing.** `claimTimeout` / `clearStuck` / `unstickAndDeregister`
 > finalize a stuck job as `TimedOut`, which **realizes the completion-timeout
 > slash** on mainnet (`config().slashBps.completionTimeout`, 5% of stake per job
@@ -559,6 +573,24 @@ try {
 | `RelayTokenTimeoutError` | Gateway dispatcher never issued the relay JWT (transient). |
 | `GatewayAuthError` | SIWE handshake or JWT issue. Re-auth and retry. |
 | `InferenceAbortedError` | Cancelled via an `AbortSignal`. `name` is `"AbortError"`; detect with `isAbortError(e)`. |
+| `GatewayHttpError` | Non-2xx from the `GatewayClient`. Classified: `isRateLimited` / `isAuthError` / `isServerError` + `retryAfterMs`. |
+
+Direct `GatewayClient` calls throw `GatewayHttpError`; branch on the classifier
+instead of the raw status:
+
+```ts
+import { GatewayHttpError } from "lightnode-sdk";
+
+try {
+  await gw.selectSession(modelId);
+} catch (e) {
+  if (e instanceof GatewayHttpError) {
+    if (e.isRateLimited) await sleep(e.retryAfterMs ?? 1000); // respect Retry-After
+    else if (e.isAuthError) await reauth();                   // 401/403
+    else if (e.isServerError) { /* transient 5xx - the client already retried GETs */ }
+  } else throw e;
+}
+```
 
 ## CLI
 

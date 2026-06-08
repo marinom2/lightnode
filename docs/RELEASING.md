@@ -1,9 +1,42 @@
-# Releasing the desktop app
+# Releasing
+
+This repo ships two independently-versioned artifacts:
+
+- **`lightnode-sdk`** (npm) - the published SDK + CLI. Currently `0.18.x`.
+- **The desktop worker app** (Tauri installers on a GitHub Release). Currently `0.1.x`.
+
+Their versions are unrelated; release them separately.
+
+## Releasing the SDK (npm)
+
+The SDK builds from `sdk/` to `sdk/dist` (gitignored, rebuilt on publish). The
+single source of version truth is `sdk/package.json`; keep `SDK_VERSION` in
+`sdk/src/index.ts` in lockstep (a unit test guards against drift).
+
+```bash
+# 1. Bump the version in BOTH sdk/package.json and the SDK_VERSION constant
+#    in sdk/src/index.ts (patch for fixes, minor for features - it's 0.x).
+# 2. Add a changelog entry (app/build/reference/page.tsx CHANGELOG) + the
+#    sdk/README.md notes for the new version.
+# 3. Verify from the repo root:
+npx tsc --noEmit && npx vitest run && (cd sdk && npm run build) && npx next build
+# 4. Publish:
+cd sdk && npm publish        # 'latest' dist-tag; add --tag beta for prereleases
+# 5. Tag + push so the release is traceable:
+git tag sdk-v0.18.1 && git push origin sdk-v0.18.1
+```
+
+Use the `beta` dist-tag (`npm publish --tag beta`) for anything you don't want
+`npm install lightnode-sdk` (which resolves `latest`) to pick up. `create-lightnode-app`
+pins `^0.18.0`, so a new minor reaches freshly-scaffolded projects automatically;
+bump that pin (`create-lightnode-app/src/templates.ts`) on a new MAJOR.
+
+## Releasing the desktop app
 
 The desktop installers are built in CI (`.github/workflows/release.yml`) for
 **macOS (universal), Linux, and Windows** and attached to a GitHub Release.
 
-## Cut a release
+### Cut a release
 ```bash
 # bump desktop/src-tauri/tauri.conf.json "version" + desktop/package.json, then:
 git tag v0.1.1

@@ -107,11 +107,11 @@ lightnode wallet new`}
             </li>
             <li>
               <code className="block break-all font-mono text-content-default">lightnode batch &lt;prompts.json&gt;</code>
-              <span className="text-content-soft">Parallel inference. Reads JSON array or {"{prompts, system?, model?}"}; one JSON line per result to stdout. Supports <code className="font-mono">-</code> for stdin and <code className="font-mono">--concurrency 4</code>. <span className="text-primary">(0.6.x)</span></span>
+              <span className="text-content-soft">Parallel inference. Reads JSON array or {"{prompts, system?, model?}"}; one JSON line per result to stdout. Supports <code className="font-mono">-</code> for stdin and <code className="font-mono">--concurrency 4</code>.</span>
             </li>
             <li>
               <code className="block break-all font-mono text-content-default">lightnode agent &lt;task&gt;</code>
-              <span className="text-content-soft">ReAct-style agent with built-in <code className="font-mono">add</code> + <code className="font-mono">now</code> tools. Streams the step trace to stderr, final answer to stdout. Cap with <code className="font-mono">--max-iter 4</code>. <span className="text-primary">(0.6.x)</span></span>
+              <span className="text-content-soft">ReAct-style agent with built-in <code className="font-mono">add</code> + <code className="font-mono">now</code> tools. Streams the step trace to stderr, final answer to stdout. Cap with <code className="font-mono">--max-iter 4</code>.</span>
             </li>
             <li>
               <code className="block break-all font-mono text-content-default">lightnode wallet new|address|balance</code>
@@ -127,7 +127,7 @@ lightnode wallet new`}
             </li>
             <li>
               <code className="block break-all font-mono text-content-default">lightnode worker status|can-deregister|settle|clearstuck|withdraw|deregister</code>
-              <span className="text-content-soft">The worker-operator lifecycle from the terminal. <code className="font-mono">status</code> and <code className="font-mono">can-deregister</code> are read-only; the rest sign with your key. <code className="font-mono">clearstuck</code> times out acked, past-deadline jobs that block the exit (mainnet realizes a slash, so it needs <code className="font-mono">--yes</code>). <span className="text-primary">(0.7.x)</span></span>
+              <span className="text-content-soft">The worker-operator lifecycle from the terminal. <code className="font-mono">status</code> and <code className="font-mono">can-deregister</code> are read-only; the rest sign with your key. <code className="font-mono">clearstuck</code> times out acked, past-deadline jobs that block the exit (mainnet realizes a slash, so it needs <code className="font-mono">--yes</code>).</span>
             </li>
             <li>
               <code className="block break-all font-mono text-content-default">lightnode bridge addresses</code>

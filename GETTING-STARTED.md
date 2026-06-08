@@ -140,6 +140,7 @@ npx lightnode add judge                       # pass/fail evaluator (criteria + 
 npx lightnode add agent                       # scheduled / loop inference
 npx lightnode add analytics-dashboard         # read-only network + worker stats page
 npx lightnode add nft-mint-with-inference     # generate NFT metadata with AI
+npx lightnode add worker-operator             # worker ops console: status, settle, clearstuck, withdraw, deregister, profitability
 ```
 
 **User-paid** (no backend, each visitor signs + pays from their own wallet).
@@ -209,7 +210,9 @@ must replace it with your real funded key.
 ## Where to go next
 
 - [sdk/README.md](sdk/README.md): every SDK function and CLI command (the full
-  reference). Has a 5-line "hello world".
+  reference). Has a 5-line "hello world", and covers the advanced knobs this
+  intro skips - read caching (`{ cacheTtlMs }`) and timeouts (`{ timeoutMs }`),
+  gateway retry + token refresh, and `AbortSignal` cancellation.
 - [create-lightnode-app/README.md](create-lightnode-app/README.md): all the
   project templates.
 - Playground (no install, runs in your browser): <https://lightnode.app/playground>

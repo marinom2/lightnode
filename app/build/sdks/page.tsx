@@ -57,6 +57,8 @@ const TYPED_ERRORS = [
   { name: "OnChainRevertError", when: "createSession or submitJob reverted on-chain (wrong network, insufficient gas, expired session).", recover: "Surfaces which tx reverted plus the tx hash so you can read the exact revert reason from the explorer." },
   { name: "RelayTokenTimeoutError", when: "The dispatcher never issued a relay-streaming token (gateway-side issue).", recover: "Almost always transient. Retry with a fresh prepareSession. Indicates the gateway, not your wallet or the worker." },
   { name: "GatewayAuthError", when: "SIWE challenge failed, verify rejected, or the JWT expired mid-flight.", recover: "Re-run the SIWE handshake. Cache the JWT in sessionStorage with the issued expiry minus a 30s safety margin to avoid this in long-lived UIs (see /playground source for the pattern)." },
+  { name: "InferenceAbortedError", when: "The caller's AbortSignal fired during an inference - the relay-token poll, WebSocket connect, or the wait for JobCompleted.", recover: "Expected on a user cancel. Detect with isAbortError(e); its name is 'AbortError' (the fetch() convention) and it carries the stage. Any submitJob already broadcast still settles on-chain; the SDK just stops awaiting." },
+  { name: "GatewayHttpError", when: "The relay gateway returned a non-2xx - 401/403 auth, 429 rate limit, or 5xx.", recover: "Branch on e.isRateLimited / e.isAuthError / e.isServerError and respect e.retryAfterMs for backoff. The client already auto-retries 429 (any method) and 5xx (GETs); pass a function bearer to get { forceRefresh: true } 401 re-auth for free." },
 ] as const;
 
 export default function BuildSdksPage() {
@@ -69,7 +71,7 @@ export default function BuildSdksPage() {
       {/* Hero with isometric SDK illustration as the visual CTA. */}
       <div className="relative mb-16 grid items-center gap-10 lg:grid-cols-[1fr_minmax(0,420px)]">
         <div>
-          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">lightnode-sdk 0.10.x</p>
+          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-content-soft">lightnode-sdk 0.18.x</p>
           <h1 className="text-balance text-4xl font-semibold tracking-tight text-content-primary sm:text-5xl lg:text-6xl">
             Nine modules. One install.
           </h1>
