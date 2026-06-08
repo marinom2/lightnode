@@ -418,12 +418,11 @@ export function WorkerView({
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />
             <div className="space-y-1 text-sm">
+              {/* Headline is the on-chain SYMPTOM only - never a claim about
+                  online/offline (that is the Live/Stopped pill above, a separate
+                  signal) and never tied to gas. The cause goes in the body. */}
               <p className="font-medium text-content-primary">
-                {actions?.outOfGas
-                  ? "Worker can't answer jobs - wallet is out of gas"
-                  : liveness.unackedCount > 0
-                    ? "Assigned jobs are going unanswered"
-                    : "Jobs stuck past their on-chain deadline"}
+                {liveness.unackedCount > 0 ? "Assigned jobs are going unanswered" : "Jobs stuck past their on-chain deadline"}
               </p>
               <p className="text-content-soft">
                 {liveness.stuckJobs.length} job{liveness.stuckJobs.length > 1 ? "s" : ""} the chain assigned this worker{" "}
@@ -433,17 +432,20 @@ export function WorkerView({
                     {liveness.suspensionRisk ? " and worker suspension" : ""}</>
                 )}
                 . They will not complete on their own.{" "}
+                {/* The CAUSE. Out-of-gas is independent of run-state: a live,
+                    connected worker still can't acknowledge a job with an empty
+                    wallet. Only mention offline when we actually know it (the
+                    local container is stopped), never inferred from stuck jobs. */}
                 {actions?.outOfGas ? (
                   <>
-                    The worker is registered, but its wallet (
-                    <span className="font-mono text-xs">{worker.id}</span>) has no LCAI to pay the gas to acknowledge a job
-                    (or to settle). Send it a little LCAI, then the jobs process and you can clear any leftovers in
-                    Operations.
+                    Likely cause: the worker wallet (<span className="font-mono text-xs">{worker.id}</span>) is out of gas,
+                    so it can&apos;t pay to acknowledge jobs or settle - whether or not the worker is online. Send it a
+                    little LCAI, then clear any leftovers in Operations.
                   </>
                 ) : offlineHere ? (
-                  "Use Operations → Restart to bring the worker back online, then clear them in Operations."
+                  "The container is stopped on this machine. Use Operations → Restart, then clear them in Operations."
                 ) : (
-                  "Check the worker is online and connected (Operations → Restart / Status), then clear them from Operations."
+                  "Check the worker on two fronts: is it online and connected (the status above / Operations → Status), and does its wallet have gas? Fix whichever applies, then clear them in Operations."
                 )}
               </p>
             </div>
