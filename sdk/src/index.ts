@@ -134,13 +134,14 @@ export interface LightNodeOptions {
    */
   cacheTtlMs?: number;
   /**
-   * Per-request timeout (ms) for the subgraph and raw on-chain reads. A slow or
-   * congested indexer can blow past the built-in defaults (subgraph 12s, RPC 8s);
+   * Per-request timeout (ms) for every network read. A slow or congested
+   * indexer/RPC can blow past the built-in defaults (subgraph 12s, raw RPC 8s);
    * raise it on a flaky endpoint, or pass a small value to fail fast in a UI.
-   * `<= 0` disables the deadline entirely (run unbounded). Omit to keep the
-   * built-in defaults. Does NOT apply to the viem-backed reads (getJobOnchain,
-   * getWorkerLiveness/getWorkerActions config), whose timeout is set on the
-   * transport you build.
+   * Applies to the subgraph + raw on-chain reads AND, when > 0, to the viem
+   * transport behind the viem-backed reads (getJobOnchain, getWorkerLiveness /
+   * getWorkerActions). `<= 0` disables the deadline on the subgraph/raw reads
+   * (run unbounded); the viem reads then fall back to viem's own default.
+   * Omit to keep the built-in defaults everywhere.
    */
   timeoutMs?: number;
 }
@@ -176,6 +177,16 @@ export class LightNode {
     this.cache.clear();
   }
 
+  /**
+   * A viem `http` transport for this network's RPC, honoring the configured
+   * read timeout. When `timeoutMs` is unset or `<= 0`, viem's own default
+   * applies (the raw-fetch reads treat `<= 0` as unbounded, but viem has no
+   * unbounded mode, so the viem-backed reads fall back to viem's default).
+   */
+  private rpcHttp(): ReturnType<typeof http> {
+    return http(this.network.rpc, this.timeoutMs && this.timeoutMs > 0 ? { timeout: this.timeoutMs } : {});
+  }
+
   /** The full record for one worker (null if the indexer has never seen it). */
   getWorker(address: string): Promise<Worker | null> {
     return fetchWorker(this.network, address, this.timeoutMs);
@@ -201,7 +212,7 @@ export class LightNode {
     // viem's PublicClient is structurally wider than MinimalPublicClient (its
     // simulateContract generics don't unify), so narrow it explicitly - the same
     // read-only client the SDK's CLI uses for WorkerOperator.
-    const publicClient = createPublicClient({ transport: http(this.network.rpc) }) as unknown as MinimalPublicClient;
+    const publicClient = createPublicClient({ transport: this.rpcHttp() }) as unknown as MinimalPublicClient;
     const op = new WorkerOperator(this.network, { publicClient });
     const [worker, jobs, config] = await Promise.all([
       fetchWorker(this.network, address, this.timeoutMs),
@@ -220,7 +231,7 @@ export class LightNode {
    * Powers the desktop Action Center, the pre-action gas guard, and diagnostics.
    */
   async getWorkerActions(address: string, opts: { jobs?: number } = {}): Promise<WorkerActionCenter> {
-    const client = createPublicClient({ transport: http(this.network.rpc) });
+    const client = createPublicClient({ transport: this.rpcHttp() });
     const op = new WorkerOperator(this.network, {
       publicClient: client as unknown as MinimalPublicClient,
       workerAddress: address as `0x${string}`,
@@ -426,7 +437,7 @@ export class LightNode {
    * the subgraph may lag. Read-only; no key.
    */
   async getJobOnchain(jobId: bigint | number): Promise<OnchainJob | null> {
-    const publicClient = createPublicClient({ transport: http(this.network.rpc) }) as unknown as MinimalPublicClient;
+    const publicClient = createPublicClient({ transport: this.rpcHttp() }) as unknown as MinimalPublicClient;
     const op = new WorkerOperator(this.network, { publicClient });
     try {
       return await op.getJob(jobId);
@@ -502,7 +513,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.17.0";
+export const SDK_VERSION = "0.18.0";
 
 export {
   NETWORKS,
