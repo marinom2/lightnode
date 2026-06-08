@@ -104,7 +104,10 @@ function buildSummary(r: Omit<WorkerLivenessReport, "summary">): string {
   if (r.status === null) return "Worker not found on the indexer yet.";
   if (r.stuckJobs.length === 0) return "No stuck jobs - the worker is keeping up with its assigned work.";
   const parts: string[] = [];
-  if (r.unackedCount > 0) parts.push(`${r.unackedCount} assigned but never acknowledged (worker offline)`);
+  // Don't assert WHY here - "never acknowledged" can be offline, disconnected, OR
+  // out of gas. The caller that knows the wallet balance (the action center)
+  // attributes the cause; this stays neutral.
+  if (r.unackedCount > 0) parts.push(`${r.unackedCount} assigned but never acknowledged`);
   if (r.incompleteCount > 0) parts.push(`${r.incompleteCount} acknowledged but never completed`);
   const exposure = r.slashExposureLcai > 0 ? `, up to ~${r.slashExposureLcai.toFixed(0)} LCAI at risk if timed out` : "";
   const susp = r.suspensionRisk ? "; reaching the suspension threshold" : "";
