@@ -24,7 +24,8 @@ import { fromWei, fmt, compact, timeAgo, shortAddr, stakeBelowFloor, cn } from "
 import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
-import type { WorkerLivenessReport } from "lightnode-sdk";
+import type { WorkerLivenessReport, WorkerActionCenter } from "lightnode-sdk";
+import { ActionCenterPanel, EarningsAnalyticsPanel } from "@/components/action-center";
 import { openExternal } from "@/lib/tauri";
 import type { LocalContainerStatus } from "@/lib/tauri";
 
@@ -249,6 +250,7 @@ export function WorkerView({
   deadlineSec = 120,
   localRunning = null,
   liveness = null,
+  actions = null,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -278,6 +280,9 @@ export function WorkerView({
   // chain assigned this worker that are past their deadline and never answered -
   // the silent "staked but offline" failure. Null when unavailable; banner hidden.
   liveness?: WorkerLivenessReport | null;
+  // SDK action center (via /api/worker): claimable earnings, worker-wallet gas
+  // (outOfGas), settle-now vs in-window jobs, and a prioritized to-do list.
+  actions?: WorkerActionCenter | null;
 }) {
   const [showWhy, setShowWhy] = useState(false);
   const h = healthOf(worker);
@@ -435,7 +440,11 @@ export function WorkerView({
         </Card>
       )}
 
+      <ActionCenterPanel actions={actions} jobs={jobs} />
+
       <EarningsPanel worker={worker} jobs={jobs} />
+
+      <EarningsAnalyticsPanel jobs={jobs} deadlineSec={deadlineSec} />
 
       <Card className="overflow-hidden p-0">
         <div className="grid grid-cols-2 sm:grid-cols-4">

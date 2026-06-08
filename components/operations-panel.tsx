@@ -16,6 +16,7 @@ import {
   Terminal,
   Loader2,
   ShieldAlert,
+  AlertTriangle,
   Copy,
   Check,
   CheckCircle2,
@@ -28,6 +29,9 @@ import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
 import { isDesktop, runSetupStreamed } from "@/lib/tauri";
 import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, clearStuckJobsCommand, benchmarkCommand, freeMemoryCommand, uninstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
+import { buildDiagnosticsReport } from "@/lib/diagnostics";
+import type { WorkerActionCenter } from "lightnode-sdk";
+import type { Job } from "@/lib/subgraph";
 import { appendCleanLog } from "@/lib/install-log";
 import { detectClientOS } from "@/lib/os-detect";
 import { fetchInferenceBudgetSec } from "@/lib/budget";
@@ -175,6 +179,16 @@ export function OperationsPanel() {
     nextClaimableAt: number;
     allClaimableAt: number;
   } | null>(null);
+  // Worker-wallet gas, from the SDK action center. Every settle/claim/deregister
+  // tx is paid from this wallet, so an empty one silently blocks them - we warn
+  // before the user commits, with the address to fund.
+  const [gas, setGas] = useState<{ outOfGas: boolean; walletGasLcai: number } | null>(null);
+  const GAS_OPS = new Set(["settle", "clearstuck", "dereg"]);
+  // Full action center + job history, kept so the DIAG row can copy a complete
+  // diagnostics report (the same one the Action Center panel produces).
+  const [fullActions, setFullActions] = useState<WorkerActionCenter | null>(null);
+  const [jobsFull, setJobsFull] = useState<Job[]>([]);
+  const [diagCopied, setDiagCopied] = useState(false);
   const stopRef = useRef<(() => void) | null>(null);
   const runId = useRef(0);
   const logBox = useRef<HTMLDivElement>(null);
@@ -225,6 +239,9 @@ export function OperationsPanel() {
           // onchainRegistered is chain truth and present even when the indexer has
           // no worker row yet; capture it regardless of j.worker.
           if (typeof j.onchainRegistered === "boolean") setOnchainRegistered(j.onchainRegistered);
+          if (j.actions) setGas({ outOfGas: !!j.actions.outOfGas, walletGasLcai: j.actions.walletGasLcai ?? 0 });
+          if (j.actions) setFullActions(j.actions);
+          if (Array.isArray(j.jobs)) setJobsFull(j.jobs);
           if (!j.worker) return;
           setActiveJobs(j.worker.active_job_count ?? 0);
           // Completed (unreleased) jobs - what Settle/Deregister will release.
@@ -521,6 +538,25 @@ export function OperationsPanel() {
           <span>completed:{settlement ? settlement.total : "?"}</span>
           <span aria-hidden className="h-3 w-px bg-bdr-soft" />
           <span>ui:{(process.env.NEXT_PUBLIC_BUILD_ID ?? "dev").slice(0, 7)}</span>
+          {fullActions && (
+            <button
+              type="button"
+              className="ml-auto inline-flex items-center gap-1 rounded border border-bdr-soft px-1.5 py-0.5 text-[10px] font-medium normal-case text-content-default transition-colors hover:bg-content-soft/10"
+              title="Copy a full diagnostics report (gas, claimable, settlement, liveness, job stats)"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(buildDiagnosticsReport(fullActions, jobsFull));
+                  setDiagCopied(true);
+                  setTimeout(() => setDiagCopied(false), 2000);
+                } catch {
+                  /* clipboard blocked - ignore */
+                }
+              }}
+            >
+              {diagCopied ? <Check className="size-3 text-success" /> : <Copy className="size-3" />}
+              {diagCopied ? "copied" : "copy diagnostics"}
+            </button>
+          )}
         </div>
       )}
 
@@ -733,6 +769,16 @@ export function OperationsPanel() {
               <h3 className="text-base font-semibold text-content-primary">Confirm {confirmOp.label.toLowerCase()}</h3>
             </div>
             <p className="text-sm leading-relaxed text-content-default">{confirmBody(confirmOp) || "Are you sure?"}</p>
+            {gas?.outOfGas && GAS_OPS.has(confirmOp.key) && (
+              <p className="mt-3 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm text-content-soft">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />
+                <span>
+                  <span className="font-medium text-content-primary">Worker wallet is out of gas (~{gas.walletGasLcai} LCAI).</span>{" "}
+                  This is paid from it, so the transaction will fail to send. Send a little LCAI to{" "}
+                  <span className="font-mono text-xs">{workerAddr}</span> first, then retry.
+                </span>
+              </p>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setConfirmOp(null)}>
                 Cancel
