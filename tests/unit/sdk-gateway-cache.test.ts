@@ -58,6 +58,32 @@ describe("GatewayClient retry", () => {
     expect(f.calls.n).toBe(1);
   });
 
+  // maxRetries: 0 so the far-future date doesn't make the retry loop sleep for years;
+  // we only need to confirm the HTTP-date branch of parseRetryAfterMs via the error.
+  it("parses an HTTP-date Retry-After into a positive retryAfterMs", async () => {
+    const f = mockFetch([{ status: 429, headers: { "retry-after": "Wed, 01 Jan 2031 00:00:00 GMT" } }]);
+    const gw = new GatewayClient({ network: "mainnet", fetch: f as unknown as typeof fetch, retry: { maxRetries: 0 } });
+    let caught: GatewayHttpError | undefined;
+    try {
+      await gw.getModels();
+    } catch (e) {
+      caught = e as GatewayHttpError;
+    }
+    expect(caught?.retryAfterMs).toBeGreaterThan(0);
+  });
+
+  it("treats a malformed Retry-After as no hint (retryAfterMs undefined)", async () => {
+    const f = mockFetch([{ status: 429, headers: { "retry-after": "soon-ish" } }]);
+    const gw = new GatewayClient({ network: "mainnet", fetch: f as unknown as typeof fetch, retry: { maxRetries: 0 } });
+    let caught: GatewayHttpError | undefined;
+    try {
+      await gw.getModels();
+    } catch (e) {
+      caught = e as GatewayHttpError;
+    }
+    expect(caught?.retryAfterMs).toBeUndefined();
+  });
+
   it("does NOT retry a POST on 5xx (avoids duplicate wallet-scoped selectSession)", async () => {
     const f = mockFetch([{ status: 500 }]);
     const gw = new GatewayClient({ network: "mainnet", bearer: "tok", fetch: f as unknown as typeof fetch, retry: { maxRetries: 3, baseDelayMs: 1 } });

@@ -136,13 +136,16 @@ so a `selectSession` can't double-select) with exponential backoff (honoring
 `GatewayHttpError` carries `isRateLimited` / `isAuthError` / `isServerError` +
 `retryAfterMs`.
 
-**Tuning (new in 0.15.0).** `new LightNode("mainnet", { timeoutMs: 30_000 })`
-bounds every subgraph + raw on-chain read with your own deadline (the built-in
-defaults are `DEFAULT_SUBGRAPH_TIMEOUT_MS` = 12s and `DEFAULT_ONCHAIN_TIMEOUT_MS`
-= 8s, both exported). Raise it for a slow/congested indexer, pass a small value
-to fail fast in a UI, or `<= 0` to disable the deadline entirely. (The viem-backed
-reads - `getJobOnchain`, the config read inside `getWorkerLiveness` /
-`getWorkerActions` - take their timeout from the transport you build instead.)
+**Tuning (new in 0.15.0; viem reads honored in 0.18.0).**
+`new LightNode("mainnet", { timeoutMs: 30_000 })` bounds every network read with
+your own deadline (the built-in defaults are `DEFAULT_SUBGRAPH_TIMEOUT_MS` = 12s
+and `DEFAULT_ONCHAIN_TIMEOUT_MS` = 8s, both exported). Raise it for a
+slow/congested indexer, pass a small value to fail fast in a UI, or `<= 0` to
+disable the deadline on the subgraph + raw on-chain reads. As of 0.18.0 a
+positive `timeoutMs` is also applied to the viem transport behind the
+viem-backed reads (`getJobOnchain`, `getWorkerLiveness` / `getWorkerActions`), so
+the whole call honors one timeout; with `<= 0` those reads fall back to viem's
+own default (viem has no unbounded mode).
 
 ### Worker liveness / stuck-job diagnostic (new in 0.11.0)
 
@@ -555,6 +558,7 @@ try {
 | `OnChainRevertError` | `createSession` or `submitJob` reverted. Includes the tx hash. |
 | `RelayTokenTimeoutError` | Gateway dispatcher never issued the relay JWT (transient). |
 | `GatewayAuthError` | SIWE handshake or JWT issue. Re-auth and retry. |
+| `InferenceAbortedError` | Cancelled via an `AbortSignal`. `name` is `"AbortError"`; detect with `isAbortError(e)`. |
 
 ## CLI
 

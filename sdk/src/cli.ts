@@ -98,7 +98,8 @@ function installDeps(installLine: string, cwd: string): boolean {
 
 const HELP = `lightnode <command> [--net mainnet|testnet] [--json] [--help]
 
-  --json on read commands (models, jobs, analytics, reliability) emits JSON.
+  --json on any read command (network, models, jobs, job, analytics,
+         reliability, worker doctor/liveness/profitability) emits JSON.
   --help after any command prints just that command's usage.
 
 
@@ -161,6 +162,8 @@ Scaffold templates into the current project (run inside a Next.js app):
     add chat-web3                 chat UI, wallet-signed (mainnet + testnet aware)
     add judge-web3                evaluator UI, wallet-signed
     add wagmi-setup               wallet wiring: lib/wagmi + providers + connect button
+  Worker operator (Docker-free ops console, run with npx tsx):
+    add worker-operator           worker-ops.ts: status/settle/clearstuck/withdraw/deregister/profitability
                                   (all add commands: [--template auto|nextjs-api|hono|node] [--net testnet|mainnet] [--force])
 
 To scaffold a new project instead, run: npm create lightnode-app my-app
@@ -422,7 +425,7 @@ async function main() {
         const rel = await op.releaseAll(ids);
         let withdrawTx: string | undefined;
         if ((await op.status()).claimableWei > 0n) withdrawTx = await op.withdraw();
-        console.log(JSON.stringify({ settled: rel.done.map((r) => ({ jobId: r.jobId.toString(), tx: r.tx })), notReady: rel.skipped.map((s) => ({ jobId: s.jobId.toString(), reason: s.reason })), withdrawTx: withdrawTx ?? null }, null, 2));
+        console.log(JSON.stringify({ settled: rel.done.map((r) => ({ jobId: r.jobId.toString(), tx: r.tx })), skipped: rel.skipped.map((s) => ({ jobId: s.jobId.toString(), reason: s.reason })), withdrawTx: withdrawTx ?? null }, null, 2));
         break;
       }
       if (sub === "clearstuck") {
@@ -490,7 +493,7 @@ async function main() {
       // from the chain (isRegistered); served models are reconciled against the
       // chain via getServedModels (onchainEligible), so a stale index row can't
       // misreport what the worker actually serves.
-      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight|status|models|can-deregister|settle|clearstuck|withdraw|deregister> [...]");
+      const addr = sub ?? die("usage: lightnode worker <address|watch|preflight|status|doctor|liveness|profitability|models|can-deregister|settle|clearstuck|withdraw|deregister> [...]");
       const [w, registered, jobs, served] = await Promise.all([
         ln.getWorker(addr),
         ln.isRegistered(addr),
