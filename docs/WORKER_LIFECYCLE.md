@@ -91,6 +91,12 @@ worker can clear its own stuck jobs. In the desktop app this is the **Clear stuc
 jobs** operation; from the SDK it is `clearStuck()` / `unstickAndDeregister()`;
 from the CLI it is `lightnode worker clearstuck`.
 
+> `clearStuck()` and `unstickAndDeregister()` are methods of the `WorkerOperator`
+> class in the published `lightnode-sdk` package - the Docker-free operator
+> surface. See [sdk/README.md](../sdk/README.md) for the full method reference,
+> the `BatchJobOpResult` shape they return, and runnable examples (or scaffold a
+> ready-to-run console with `npx lightnode add worker-operator`).
+
 Important: clearing a stuck job finalizes it as `TimedOut`, which on **mainnet**
 realizes the completion-timeout slash (a percentage of stake per job; testnet has
 slashing disabled). It is the deliberate price of unblocking an exit that a stuck

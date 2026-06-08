@@ -56,8 +56,9 @@ commands over IPC, declared in `build.rs` and granted to the hosted origin in
 | `detect_hardware` | Read CPU / memory / GPU for the machine-check. |
 | `secret_set` / `secret_get` / `secret_delete` | Store worker secrets in the OS keychain. |
 | `generate_worker_key` | Generate a worker key natively and return only its address. |
+| `notify` | Show a native OS notification (stuck jobs, claimable rewards, out-of-gas) even when the window is in the background. |
 
-That's the whole bridge - six commands. Anything else the UI needs from the
+That's the whole bridge - seven commands. Anything else the UI needs from the
 machine (the local container's running/stopped/missing state, live worker health,
 the served-model set) is read by running short `docker` commands through
 `run_command_streamed` and parsing the output, so there is no dedicated command for
@@ -167,6 +168,14 @@ server-side `/api/*` routes, which avoids client CORS issues and lets responses 
 cached briefly at the CDN. Subgraph calls have a timeout and degrade gracefully so a
 slow upstream does not hang the UI.
 
+The same read paths are available to anyone via the published `lightnode-sdk`
+(see `sdk/` below), which adds the reliability and tuning layer the dashboards
+lean on: opt-in TTL caching (`{ cacheTtlMs }` + `clearCache()`), per-request read
+deadlines (`{ timeoutMs }`, applied to the subgraph AND the viem on-chain reads),
+and a `GatewayClient` that auto-retries `429`/`5xx` with `Retry-After`-aware
+backoff, classifies errors, and auto-refreshes a function bearer on `401`.
+Inference calls accept an `AbortSignal` that cancels mid-stream.
+
 ---
 
 ## Where things live
@@ -190,10 +199,23 @@ lib/
   install-log.ts    cleans/condenses the streamed install log
   budget.ts         reads the real on-chain inference deadline
 desktop/src-tauri/  Rust commands, build.rs, capabilities, tauri.conf.json
-tests/unit/         Vitest (scriptgen, hardware, subgraph, utils)
+sdk/                the published lightnode-sdk package: the LightNode read
+                    client, encrypted-inference helpers, the GatewayClient, the
+                    WorkerOperator write surface (register / stake / settle /
+                    stuck-job recovery / Docker-free exit), worker preflight +
+                    watch + the liveness/action-center analyzers, Bridge / DAO /
+                    OnchainModelRegistry, and the bundled `lightnode` CLI with
+                    its `add` scaffolders (incl. `add worker-operator`)
+tests/unit/         Vitest (scriptgen, hardware, subgraph, utils, and the SDK:
+                    gateway retry/cache, batch-op shapes, read timeouts,
+                    inference cancellation, worker-operator scaffolder)
 tests/e2e/          Playwright smoke tests
 ```
 
 The center of gravity is `lib/scriptgen.ts`. If you want to understand or change
 what the app actually does to a machine, read that file - it is pure functions that
 return shell strings, covered by unit tests, with no side effects of their own.
+For the SDK + CLI, the entry point is `sdk/src/index.ts`; the full method
+reference and examples live in `sdk/README.md`. The worker operational reads
+(`workerPreflight`, `workerWatch`, `getWorkerLiveness`, `getWorkerActions`) are
+what power the desktop Action Center and the stuck-job / out-of-gas alerts.

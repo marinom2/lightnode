@@ -30,6 +30,10 @@ your current folder and does not create a subfolder.
 | `nextjs-api` | A Next.js 15 app with `app/api/inference/route.ts` wired up + a minimal page UI that calls it. | `npm run dev` |
 | `hono` | A standalone Hono server exposing `POST /inference`. Deploys to Bun / Railway / Fly / any Node host. | `npm start` |
 
+Not sure which? Pick **`node`** to get to a first inference fastest (just a
+script + a key), **`nextjs-api`** if you want a web UI, or **`hono`** for a
+standalone API server you can host anywhere Node runs.
+
 ## Non-interactive
 
 ```bash
@@ -50,6 +54,12 @@ The scaffolded `package.json` already includes:
 
 Plus framework deps for `nextjs-api` (`next`, `react`, `react-dom`) or `hono`
 (`hono`, `@hono/node-server`).
+
+The project is **SDK-ready the moment it scaffolds**: `lightnode-sdk` (pinned to
+the current `0.18.x` line), `viem`, and `ws` are already in `package.json`, so
+you just `import { ... } from "lightnode-sdk"` and start building. See the
+[SDK README](https://www.npmjs.com/package/lightnode-sdk) for the full API
+surface (read client, inference, the `WorkerOperator`, the CLI).
 
 ## After scaffolding
 

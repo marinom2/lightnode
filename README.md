@@ -50,6 +50,31 @@ one of them.
 
 ## Recently shipped
 
+- `lightnode-sdk@0.18.x`. **Consistency pass.** `LightNode`'s `timeoutMs` deadline
+  now also applies to the viem-backed reads (`getJobOnchain`,
+  `getWorkerLiveness`, `getWorkerActions`), so the whole call honors one timeout;
+  plus CLI output-field and help/docs alignment.
+- `lightnode-sdk@0.17.x`. **A code-first worker-operator console.** `npx lightnode
+  add worker-operator` scaffolds a runnable `worker-ops.ts` over the
+  `WorkerOperator` surface (`status` / `settle` / `clearstuck` / `withdraw` /
+  `deregister` / `profitability`) - no Docker, no worker image. `status` prints
+  JSON (a prioritized to-do list + an `outOfGas` flag) for cron.
+- `lightnode-sdk@0.16.x`. **Mid-stream cancellation + auth resilience.** An
+  `AbortSignal` is honored at every await of an inference (relay-token poll,
+  WebSocket connect, the wait for `JobCompleted`), surfaced as
+  `InferenceAbortedError` (detect with `isAbortError`); and a function-type
+  `bearer` on `GatewayClient` is re-minted with `{ forceRefresh: true }` on a
+  `401`, so a revoked/expired token self-heals.
+- `lightnode-sdk@0.15.x`. **Read tuning + a unified batch-op shape.** `new
+  LightNode("mainnet", { timeoutMs })` bounds every subgraph + on-chain read
+  (`DEFAULT_SUBGRAPH_TIMEOUT_MS` / `DEFAULT_ONCHAIN_TIMEOUT_MS` exported), and
+  `WorkerOperator.clearStuck` / `releaseAll` now return one shape,
+  `BatchJobOpResult { done, skipped }`, where each skip carries a reason.
+- `lightnode-sdk@0.14.x`. **Gateway reliability + a read cache.** `GatewayClient`
+  auto-retries `429` (any method) and `5xx` (GETs only) with `Retry-After`-aware
+  backoff and classifies errors (`isRateLimited` / `isAuthError` /
+  `isServerError` + `retryAfterMs`); `new LightNode("mainnet", { cacheTtlMs })`
+  TTL-memoizes the network-wide reads (with `clearCache()`).
 - `lightnode-sdk@0.10.x`. **Web search inference and a streaming UX pass.** Set
   `searchEnabled: true` on `runInference` / `runInferenceWithKey` /
   `Conversation` to route a prompt to a search-capable worker; the decrypted
@@ -168,8 +193,8 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.10.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, optional web search via `searchEnabled` + `sources`, `onStage` progress + session reuse, `AbortSignal` everywhere, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (`LightNode` methods + CSV exporters), Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + ten `add` scaffolders. |
-| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins `lightnode-sdk ^0.10.0` so new projects get the full ecosystem out of the box. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.18.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, optional web search via `searchEnabled` + `sources`, `onStage` progress + session reuse, `AbortSignal` mid-stream cancellation with `InferenceAbortedError` / `isAbortError`, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (`LightNode` methods + CSV exporters, with `{ cacheTtlMs }` TTL caching + `{ timeoutMs }` read deadlines), a `GatewayClient` with auto-retry + error classification + 401 token auto-refresh, Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister, returning `BatchJobOpResult`), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + eleven `add` scaffolders (incl. the worker-operator console). |
+| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins `lightnode-sdk ^0.18.0` so new projects get the full ecosystem out of the box. |
 | `lightnode add` (inside `lightnode-sdk`) | n/a | Patch an existing project. Auto-detects the framework, writes the right files. Safe to re-run. |
 
 ### The `add` catalog
@@ -183,6 +208,12 @@ npx lightnode add judge                        # pass/fail evaluator route (crit
 npx lightnode add agent                        # scheduled inference (Vercel Cron or setInterval)
 npx lightnode add analytics-dashboard          # read-only network + worker analytics page
 npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
+```
+
+For worker operators (a runnable, Docker-free ops console):
+
+```bash
+npx lightnode add worker-operator              # worker-ops.ts: status/settle/clearstuck/withdraw/deregister/profitability
 ```
 
 User-paid (no backend; each visitor signs + pays from their own wallet):
