@@ -90,7 +90,9 @@ import {
   OnChainRevertError,
   RelayTokenTimeoutError,
   GatewayAuthError,
+  InferenceAbortedError,
   isStalledWorker,
+  isAbortError,
 } from "./errors.js";
 import { GatewayClient, GatewayHttpError } from "./gateway.js";
 import { siweSignIn, siweChallenge, siweVerify } from "./auth.js";
@@ -500,7 +502,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.15.0";
+export const SDK_VERSION = "0.16.0";
 
 export {
   NETWORKS,
@@ -598,7 +600,9 @@ export {
   OnChainRevertError,
   RelayTokenTimeoutError,
   GatewayAuthError,
+  InferenceAbortedError,
   isStalledWorker,
+  isAbortError,
   // v0.7.0 worker-OPERATOR surface: the write/ops side (stuck-job recovery,
   // Docker-free settle/exit, revert decoding, live config). Complements the
   // read-only worker preflight/watch above; does not duplicate it.

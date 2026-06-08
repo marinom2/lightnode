@@ -80,6 +80,57 @@ describe("GatewayClient retry", () => {
   });
 });
 
+describe("GatewayClient bearer auto-refresh on 401", () => {
+  // A fetch that records the Authorization header of each call and replays a seq.
+  function authCapturingFetch(seq: MockRes[]) {
+    const auths: string[] = [];
+    const calls = { n: 0 };
+    const fn = async (_url: string, init?: { headers?: Record<string, string> }) => {
+      auths.push(init?.headers?.["Authorization"] ?? "");
+      const r = seq[Math.min(calls.n++, seq.length - 1)];
+      return {
+        ok: r.status >= 200 && r.status < 300,
+        status: r.status,
+        headers: { get: () => null },
+        text: async () => (typeof r.body === "string" ? r.body : JSON.stringify(r.body ?? "")),
+      } as unknown as Response;
+    };
+    return Object.assign(fn, { auths, calls });
+  }
+
+  it("refreshes a function bearer once on 401, then replays with the fresh token", async () => {
+    const f = authCapturingFetch([{ status: 401 }, { status: 200, body: { models: [] } }]);
+    let forced = 0;
+    const bearer = (opts?: { forceRefresh?: boolean }) => {
+      if (opts?.forceRefresh) {
+        forced++;
+        return "fresh";
+      }
+      return "stale";
+    };
+    const gw = new GatewayClient({ network: "mainnet", bearer, fetch: f as unknown as typeof fetch });
+    await expect(gw.getModels()).resolves.toEqual({ models: [] });
+    expect(f.calls.n).toBe(2);
+    expect(forced).toBe(1);
+    expect(f.auths[0]).toBe("Bearer stale");
+    expect(f.auths[1]).toBe("Bearer fresh");
+  });
+
+  it("does NOT loop forever when the refreshed token is still rejected", async () => {
+    const f = authCapturingFetch([{ status: 401 }, { status: 401 }, { status: 401 }]);
+    const gw = new GatewayClient({ network: "mainnet", bearer: () => "x", fetch: f as unknown as typeof fetch });
+    await expect(gw.getModels()).rejects.toMatchObject({ status: 401 });
+    expect(f.calls.n).toBe(2); // original + exactly one refresh retry
+  });
+
+  it("does NOT retry a 401 against a static-string bearer (can't refresh)", async () => {
+    const f = authCapturingFetch([{ status: 401 }]);
+    const gw = new GatewayClient({ network: "mainnet", bearer: "static", fetch: f as unknown as typeof fetch });
+    await expect(gw.getModels()).rejects.toMatchObject({ status: 401 });
+    expect(f.calls.n).toBe(1);
+  });
+});
+
 describe("LightNode TTL cache", () => {
   afterEach(() => vi.unstubAllGlobals());
 

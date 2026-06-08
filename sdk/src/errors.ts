@@ -72,7 +72,31 @@ export class GatewayAuthError extends Error {
   }
 }
 
+/**
+ * The caller's `AbortSignal` fired, so the SDK stopped awaiting the relay /
+ * on-chain proof and bailed out. Any `submitJob` already broadcast still settles
+ * on chain (the protocol is the source of truth); the SDK just stops listening.
+ *
+ * `name` is the web-standard `"AbortError"`, so code that already branches on
+ * `e.name === "AbortError"` (the same convention `fetch` uses) keeps working,
+ * while `instanceof InferenceAbortedError` / `isAbortError(e)` give a typed path.
+ */
+export class InferenceAbortedError extends Error {
+  /** Where in the flow the abort was observed (e.g. "relay-token", "job-completed"). */
+  readonly stage: string;
+  constructor(stage: string) {
+    super(`inference aborted (${stage})`);
+    this.name = "AbortError";
+    this.stage = stage;
+  }
+}
+
 /** Convenience predicate so callers don't need `instanceof` if they don't want it. */
 export function isStalledWorker(e: unknown): e is StalledWorkerError {
   return e instanceof StalledWorkerError;
+}
+
+/** True for an abort raised by a fired `AbortSignal` (matches `name === "AbortError"`). */
+export function isAbortError(e: unknown): e is Error {
+  return e instanceof InferenceAbortedError || (e instanceof Error && e.name === "AbortError");
 }
