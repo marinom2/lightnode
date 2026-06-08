@@ -9,7 +9,7 @@
  * from the worker's job history.
  */
 import { useState } from "react";
-import { AlertTriangle, Coins, Clock, CheckCircle2, Activity, Copy, Check, ListChecks } from "lucide-react";
+import { AlertTriangle, Coins, Clock, CheckCircle2, Activity, Copy, Check, ListChecks, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,17 @@ import { classifyJobs } from "@/lib/analytics";
 import { buildDiagnosticsReport } from "@/lib/diagnostics";
 import type { Job } from "@/lib/subgraph";
 import type { WorkerActionCenter, WorkerAction } from "lightnode-sdk";
+
+/** Read-only profitability for the worker's primary served model (from /api/worker). */
+export interface WorkerProfitability {
+  workerFeeLcaiPerJob: number;
+  gasLcaiPerJob: number;
+  netLcaiPerJob: number;
+  breakEvenJobsPerDay: number | null;
+  projectedDailyLcai: number | null;
+  modelName: string;
+  jobsPerDay: number;
+}
 
 const URGENCY_TONE: Record<WorkerAction["urgency"], "danger" | "warning" | "brand"> = {
   critical: "danger",
@@ -236,6 +247,56 @@ export function EarningsAnalyticsPanel({ jobs, deadlineSec = 120 }: { jobs: Job[
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           Your p95 processing time exceeds the {deadlineSec}s deadline - some jobs risk timing out (a slash). A faster GPU
           or a lighter model would help.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Operator profitability for the primary served model: the worker's fee share per
+ * job, the gas it costs, the net, and a projection at the worker's observed
+ * throughput. Makes "is this actually paying off" a glance, not a spreadsheet.
+ */
+export function ProfitabilityCard({ profitability: p }: { profitability: WorkerProfitability }) {
+  const profitable = p.netLcaiPerJob > 0;
+  const projected = p.projectedDailyLcai ?? p.netLcaiPerJob * p.jobsPerDay;
+  return (
+    <Card className="p-6">
+      <div className="mb-4 flex items-center gap-2">
+        <TrendingUp className="size-4 text-content-soft" />
+        <h3 className="text-sm font-semibold text-content-primary">Profitability</h3>
+        <span className="text-xs text-content-soft">{p.modelName} · ~{fmt(p.jobsPerDay, 1)} jobs/day</span>
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-content-soft">Fee / job</div>
+          <div className="mt-0.5 text-xl font-semibold text-content-primary">{fmt(p.workerFeeLcaiPerJob, 4)}</div>
+        </div>
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-content-soft">Gas / job</div>
+          <div className="mt-0.5 text-xl font-semibold text-content-primary">{fmt(p.gasLcaiPerJob, 4)}</div>
+        </div>
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-content-soft">Net / job</div>
+          <div className={cn("mt-0.5 text-xl font-semibold", profitable ? "text-success" : "text-danger")}>
+            {p.netLcaiPerJob >= 0 ? "+" : ""}
+            {fmt(p.netLcaiPerJob, 4)}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-content-soft">Projected / day</div>
+          <div className={cn("mt-0.5 text-xl font-semibold", projected >= 0 ? "text-success" : "text-danger")}>
+            {projected >= 0 ? "+" : ""}
+            {fmt(projected, 3)}
+          </div>
+        </div>
+      </div>
+      {!profitable && (
+        <p className="mt-4 flex items-start gap-2 text-xs text-warning">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          At the current model fee, gas per job exceeds the worker share - more volume or a higher-fee model would help.
+          The fee is set on-chain per model.
         </p>
       )}
     </Card>

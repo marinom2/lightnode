@@ -25,7 +25,7 @@ import { DEFAULT_MODEL } from "@/lib/network";
 import { workerSharePerJob } from "@/lib/hardware";
 import type { Worker, Job, ServedModel } from "@/lib/subgraph";
 import type { WorkerLivenessReport, WorkerActionCenter } from "lightnode-sdk";
-import { ActionCenterPanel, EarningsAnalyticsPanel } from "@/components/action-center";
+import { ActionCenterPanel, EarningsAnalyticsPanel, ProfitabilityCard, type WorkerProfitability } from "@/components/action-center";
 import { openExternal } from "@/lib/tauri";
 import type { LocalContainerStatus } from "@/lib/tauri";
 
@@ -251,6 +251,7 @@ export function WorkerView({
   localRunning = null,
   liveness = null,
   actions = null,
+  profitability = null,
 }: {
   worker: Worker;
   jobs: Job[];
@@ -283,6 +284,8 @@ export function WorkerView({
   // SDK action center (via /api/worker): claimable earnings, worker-wallet gas
   // (outOfGas), settle-now vs in-window jobs, and a prioritized to-do list.
   actions?: WorkerActionCenter | null;
+  // Read-only profitability for the worker's primary served model (via /api/worker).
+  profitability?: WorkerProfitability | null;
 }) {
   const [showWhy, setShowWhy] = useState(false);
   const h = healthOf(worker);
@@ -476,6 +479,8 @@ export function WorkerView({
       <EarningsPanel worker={worker} jobs={jobs} />
 
       <EarningsAnalyticsPanel jobs={jobs} deadlineSec={deadlineSec} />
+
+      {profitability && <ProfitabilityCard profitability={profitability} />}
 
       <Card className="overflow-hidden p-0">
         <div className="grid grid-cols-2 sm:grid-cols-4">

@@ -11,6 +11,7 @@ fn main() {
                 "secret_get",
                 "secret_delete",
                 "generate_worker_key",
+                "notify",
             ]),
         ),
     )

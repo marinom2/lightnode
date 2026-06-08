@@ -13,6 +13,7 @@ import { useSavedWorkers } from "@/lib/saved-workers";
 import { shortAddr } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
 import type { WorkerLivenessReport, WorkerActionCenter } from "lightnode-sdk";
+import type { WorkerProfitability } from "@/components/action-center";
 import { DEMO_LIVENESS, useLivenessDemo } from "@/lib/liveness-demo";
 
 export default function WorkerPage() {
@@ -29,6 +30,7 @@ export default function WorkerPage() {
   const [onchainRegistered, setOnchainRegistered] = useState<boolean | null>(null);
   const [liveness, setLiveness] = useState<WorkerLivenessReport | null>(null);
   const [actions, setActions] = useState<WorkerActionCenter | null>(null);
+  const [profitability, setProfitability] = useState<WorkerProfitability | null>(null);
   // ?demo=liveness renders the stuck-job banner over any worker for previewing.
   const livenessDemo = useLivenessDemo();
   const [error, setError] = useState("");
@@ -48,6 +50,7 @@ export default function WorkerPage() {
       setOnchainRegistered(typeof r.onchainRegistered === "boolean" ? r.onchainRegistered : null);
       setLiveness(r.liveness ?? null);
       setActions(r.actions ?? null);
+      setProfitability(r.profitability ?? null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -104,6 +107,7 @@ export default function WorkerPage() {
             onchainRegistered={onchainRegistered}
             liveness={livenessDemo ? DEMO_LIVENESS : liveness}
             actions={actions}
+            profitability={profitability}
           />
         </div>
       )}

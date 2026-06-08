@@ -91,6 +91,45 @@ export async function openExternal(url: string): Promise<void> {
   }
 }
 
+/**
+ * Fire a native OS notification (Notification Center / Action Center / libnotify)
+ * so the operator hears about stuck jobs / claimable rewards / out-of-gas while
+ * the app is open but unfocused. Prefers the native `notify` command (Tauri
+ * notification plugin, on a current binary); falls back to shelling the OS tool
+ * via run_command_streamed so it still works on older binaries that lack the
+ * command. No-op on the web. Title/body are sanitized (no quotes/backslashes/
+ * newlines) and the shell path passes them via env, never the command string.
+ */
+export async function notifyDesktop(title: string, body: string): Promise<void> {
+  const invoke = getInvoke();
+  if (!invoke) return;
+  const clean = (s: string) => s.replace(/["'`\\\r\n]/g, " ").slice(0, 240);
+  const t = clean(title);
+  const b = clean(body);
+  try {
+    await invoke("notify", { title: t, body: b }); // native plugin (newer binary)
+    return;
+  } catch {
+    /* old binary without the command - shell out below */
+  }
+  // The shell-out shares the global setup-log/setup-exit channel, so if a real
+  // streamed op (settle/deregister/install) is in flight, the notifier's exit
+  // would prematurely end it. Notifications are best-effort - skip rather than
+  // corrupt the op. (The native `notify` path above never touches the channel.)
+  if (isStreamBusy()) return;
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const cmd = /Windows/i.test(ua)
+    ? '$ErrorActionPreference="SilentlyContinue"; Add-Type -AssemblyName System.Windows.Forms; $n=New-Object System.Windows.Forms.NotifyIcon; $n.Icon=[System.Drawing.SystemIcons]::Information; $n.Visible=$true; $n.ShowBalloonTip(9000, $env:NOTIFY_TITLE, $env:NOTIFY_BODY, [System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -Seconds 10; $n.Dispose()'
+    : /Mac|Macintosh/i.test(ua)
+      ? 'osascript -e "display notification \\"$NOTIFY_BODY\\" with title \\"$NOTIFY_TITLE\\""'
+      : 'notify-send "$NOTIFY_TITLE" "$NOTIFY_BODY" 2>/dev/null || true';
+  try {
+    await invoke("run_command_streamed", { command: cmd, env: { NOTIFY_TITLE: t, NOTIFY_BODY: b } });
+  } catch {
+    /* notifications are best-effort */
+  }
+}
+
 export interface BridgeInfo {
   inDesktop: boolean;
   hasInternals: boolean;

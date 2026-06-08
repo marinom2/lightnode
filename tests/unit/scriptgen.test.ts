@@ -687,8 +687,10 @@ describe("Windows watchdog + sleep prevention (generated PowerShell)", () => {
         expect(out).toContain('schtasks /Create /TN "LightChainWorkerWatchdog"');
         // Robust Docker start by full path, not the fragile start-by-name.
         expect(out).toContain("if (Test-Path $dd) { Start-Process $dd }");
-        // Gateway-stale recovery: restart a running-but-disconnected worker.
-        expect(out).toContain("docker restart lightchain-worker");
+        // Stale is ALERT-ONLY (matches unix): never auto-restart a running worker,
+        // which would kill a busy one mid-job (slash) in a restart loop.
+        expect(out).toContain('Send-State "stale"');
+        expect(out).not.toContain("docker restart lightchain-worker");
       });
       it(`${label}: serves exactly the selected set from env (network-agnostic)`, () => {
         expect(out).toContain(`$env:SUPPORTED_MODELS = "${models.join(",")}"`);
@@ -753,5 +755,33 @@ describe("Unix settle/claim gas guidance", () => {
     expect(settleUnix).not.toContain("earnings claim tx failed - try again");
     expect(settleUnix).toMatch(/insufficient funds\|gas required/);
     expect(settleUnix).toContain("no LCAI to pay the claim gas");
+  });
+});
+
+// Worker alerts in the keep-online watchdog: downtime + economic (gas/stuck/
+// settle), posted even when the app is closed. Unix had downtime alerts only;
+// Windows had none. Both now curl the public /api/worker-alert for the on-chain
+// conditions and alert per-category on change.
+describe("Watchdog worker alerts (downtime + economic, all OSes)", () => {
+  const unix = desktopInstallCommand("macos", "mainnet", ["llama3-8b"]);
+  const win = desktopInstallCommand("windows", "mainnet", ["llama3-8b"]);
+
+  it("unix watchdog adds economic alerts via /api/worker-alert (gas/stuck/settle)", () => {
+    expect(unix).toContain("econ_alerts()");
+    expect(unix).toContain("/api/worker-alert?net=");
+    expect(unix).toContain("alert_key gas");
+    expect(unix).toContain("alert_key stuck");
+    expect(unix).toContain("alert_key settle");
+    expect(unix).toContain('grep -q \'"outOfGas":true\''); // matches the flat API JSON
+  });
+
+  it("windows watchdog gains BOTH downtime AND economic alerts (it had none)", () => {
+    expect(win).toContain("function Send-State");
+    expect(win).toContain("function Send-Alert");
+    expect(win).toContain("/api/worker-alert?net=");
+    expect(win).toContain("Send-Alert gas");
+    expect(win).toContain("$r.outOfGas");
+    // The intentional Stop is recorded so a resume doesn't post a spurious recovery.
+    expect(win).toContain('Send-State "paused"');
   });
 });

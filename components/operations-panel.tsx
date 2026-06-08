@@ -27,7 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IconChip } from "@/components/ui/icon-chip";
-import { isDesktop, runSetupStreamed } from "@/lib/tauri";
+import { isDesktop, runSetupStreamed, notifyDesktop } from "@/lib/tauri";
 import { repairWorkerCommand, dockerOpCommand, stopWorkerCommand, deregisterCommand, settleJobsCommand, clearStuckJobsCommand, benchmarkCommand, freeMemoryCommand, uninstallCommand, preflightCommand, type OS } from "@/lib/scriptgen";
 import { buildDiagnosticsReport } from "@/lib/diagnostics";
 import type { WorkerActionCenter } from "lightnode-sdk";
@@ -277,6 +277,29 @@ export function OperationsPanel() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [network, desktop, saved.join(",")]);
+
+  // Native OS notification on a NEW critical condition (app open but unfocused),
+  // so the operator hears about out-of-gas / stuck / settleable without staring at
+  // the dashboard. Fires once per transition into the condition (the app-closed
+  // case is covered separately by the keep-online watchdog's webhook alerts).
+  const notifiedRef = useRef({ gas: false, stuck: 0, settle: 0 });
+  useEffect(() => {
+    if (!desktop || !fullActions) return;
+    const a = fullActions;
+    const prev = notifiedRef.current;
+    const stuck = a.liveness.stuckJobs.length;
+    const settle = a.settlement.releasableNowCount;
+    if (a.outOfGas && !prev.gas) {
+      void notifyDesktop("LightChain worker", "Worker wallet is out of gas - fund it to keep acknowledging jobs and to settle/claim.");
+    }
+    if (stuck > prev.stuck) {
+      void notifyDesktop("LightChain worker", `${stuck} job${stuck > 1 ? "s" : ""} past the deadline (stuck) - clear them to avoid a timeout slash.`);
+    }
+    if (settle > 0 && prev.settle === 0) {
+      void notifyDesktop("LightChain worker", `${settle} completed job${settle > 1 ? "s" : ""} ready to settle - collect your earnings.`);
+    }
+    notifiedRef.current = { gas: a.outOfGas, stuck, settle };
+  }, [fullActions, desktop]);
 
   const etaText = (ts: number): string => {
     const s = ts - Math.floor(Date.now() / 1000);
