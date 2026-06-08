@@ -7,11 +7,15 @@ const JOB_SUBMITTED_TOPIC: `0x${string}` = "0xfb47370368875d7490803c5653d9496d0a
 // keccak256("JobCompleted(uint256,address,bytes32,bytes32)")
 const JOB_COMPLETED_TOPIC: `0x${string}` = "0xdb545db74bae046337ed01971cf61569fd1a1460ff8ed511ab19ceaac1326377";
 
-const TIMEOUT_MS = 12_000;
+/** Default subgraph request timeout. Override per-call via the `timeoutMs` arg. */
+export const DEFAULT_SUBGRAPH_TIMEOUT_MS = 12_000;
 
-async function gql<T>(url: string, query: string): Promise<T> {
+async function gql<T>(url: string, query: string, timeoutMs: number = DEFAULT_SUBGRAPH_TIMEOUT_MS): Promise<T> {
+  // A non-positive timeout means "no deadline" - let the request run unbounded
+  // (useful on a slow indexer where the default abort is too aggressive).
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const ms = timeoutMs > 0 ? timeoutMs : 0;
+  const timer = ms > 0 ? setTimeout(() => ctrl.abort(), ms) : undefined;
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -24,10 +28,10 @@ async function gql<T>(url: string, query: string): Promise<T> {
     if (json.errors) throw new Error(json.errors[0]?.message ?? "subgraph error");
     return json.data as T;
   } catch (e) {
-    if ((e as Error).name === "AbortError") throw new Error(`subgraph timeout after ${TIMEOUT_MS}ms`);
+    if ((e as Error).name === "AbortError") throw new Error(`subgraph timeout after ${ms}ms`);
     throw e;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -49,11 +53,12 @@ export function fromWei(wei?: string): number {
   }
 }
 
-export async function fetchWorker(cfg: NetworkConfig, address: string): Promise<Worker | null> {
+export async function fetchWorker(cfg: NetworkConfig, address: string, timeoutMs?: number): Promise<Worker | null> {
   try {
     const data = await gql<{ worker: Worker | null }>(
       cfg.subgraph,
       `{ worker(id:"${checksum(address)}") { id status stake active_job_count jobs_completed jobs_timed_out total_earned last_seen_at created_at } }`,
+      timeoutMs,
     );
     return data.worker ?? null;
   } catch (e) {
@@ -63,28 +68,31 @@ export async function fetchWorker(cfg: NetworkConfig, address: string): Promise<
 }
 
 /** Fetch one job by its on-chain id. Null when the indexer has never seen it. */
-export async function fetchJob(cfg: NetworkConfig, jobId: string | bigint): Promise<Job | null> {
+export async function fetchJob(cfg: NetworkConfig, jobId: string | bigint, timeoutMs?: number): Promise<Job | null> {
   const id = typeof jobId === "bigint" ? jobId.toString() : jobId;
   const data = await gql<{ job: Job | null }>(
     cfg.subgraph,
     `{ job(id:"${id}") { id state model_id worker submitted_at ack_at completed_at worker_share submit_block_number completion_block_number } }`,
+    timeoutMs,
   );
   return data.job ?? null;
 }
 
-export async function fetchWorkerJobs(cfg: NetworkConfig, address: string, first = 20): Promise<Job[]> {
+export async function fetchWorkerJobs(cfg: NetworkConfig, address: string, first = 20, timeoutMs?: number): Promise<Job[]> {
   const data = await gql<{ jobs: Job[] }>(
     cfg.subgraph,
     `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc, where:{worker:"${checksum(address)}"}) { id state model_id submitted_at ack_at completed_at worker_share submit_block_number completion_block_number } }`,
+    timeoutMs,
   );
   return data.jobs ?? [];
 }
 
 /** Recent jobs across the whole network (not one worker), for analytics. */
-export async function fetchRecentJobs(cfg: NetworkConfig, first = 1000): Promise<Job[]> {
+export async function fetchRecentJobs(cfg: NetworkConfig, first = 1000, timeoutMs?: number): Promise<Job[]> {
   const data = await gql<{ jobs: Job[] }>(
     cfg.subgraph,
     `{ jobs(first:${first}, orderBy:submitted_at, orderDirection:desc) { id state model_id worker ack_at completed_at worker_share submit_block_number completion_block_number } }`,
+    timeoutMs,
   );
   return data.jobs ?? [];
 }
@@ -108,10 +116,10 @@ export async function fetchRecentJobs(cfg: NetworkConfig, first = 1000): Promise
 export async function resolveJobTransactions(
   cfg: NetworkConfig,
   jobId: string | bigint,
-  opts: { publicClient?: PublicClient; job?: Job | null } = {},
+  opts: { publicClient?: PublicClient; job?: Job | null; timeoutMs?: number } = {},
 ): Promise<JobTransactions> {
   const id = typeof jobId === "bigint" ? jobId : BigInt(jobId);
-  const job = opts.job !== undefined ? opts.job : await fetchJob(cfg, id);
+  const job = opts.job !== undefined ? opts.job : await fetchJob(cfg, id, opts.timeoutMs);
   if (!job) return { submit: null, completion: null };
   const client =
     opts.publicClient ??
@@ -176,26 +184,29 @@ async function fetchTxHashForJobEvent(
  * removes a registration. Independent of `Worker.status`: a deregistered
  * worker can still have rows here from when it was live.
  */
-export async function fetchWorkerModels(cfg: NetworkConfig, address: string): Promise<WorkerModel[]> {
+export async function fetchWorkerModels(cfg: NetworkConfig, address: string, timeoutMs?: number): Promise<WorkerModel[]> {
   const data = await gql<{ workermodels: WorkerModel[] }>(
     cfg.subgraph,
     `{ workermodels(where:{worker:"${checksum(address)}"}) { id worker model_id is_active created_at updated_at } }`,
+    timeoutMs,
   );
   return data.workermodels ?? [];
 }
 
-export async function fetchModels(cfg: NetworkConfig): Promise<ModelInfo[]> {
+export async function fetchModels(cfg: NetworkConfig, timeoutMs?: number): Promise<ModelInfo[]> {
   const data = await gql<{ modelinfos: ModelInfo[] }>(
     cfg.subgraph,
     `{ modelinfos { id name fee max_output_tokens is_whitelisted is_enabled } }`,
+    timeoutMs,
   );
   return data.modelinfos ?? [];
 }
 
-export async function fetchWorkers(cfg: NetworkConfig, first = 200): Promise<Worker[]> {
+export async function fetchWorkers(cfg: NetworkConfig, first = 200, timeoutMs?: number): Promise<Worker[]> {
   const data = await gql<{ workers: Worker[] }>(
     cfg.subgraph,
     `{ workers(first:${first}) { id status stake active_job_count jobs_completed jobs_timed_out total_earned last_seen_at created_at } }`,
+    timeoutMs,
   );
   return data.workers ?? [];
 }

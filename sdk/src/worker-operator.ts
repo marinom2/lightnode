@@ -408,6 +408,19 @@ export interface StuckJob {
   escrowedFeeWei: bigint;
 }
 
+/**
+ * Uniform result for a per-job batch operation (clearStuck / releaseAll). One
+ * shape for both so callers don't special-case `cleared`/`released` vs
+ * `skipped`/`notReady`: `done` is what the op acted on (with tx hashes),
+ * `skipped` is what it deliberately left alone, each with a plain-English reason.
+ */
+export interface BatchJobOpResult {
+  /** Jobs the operation completed on-chain, each with its tx hash. */
+  done: Array<{ jobId: bigint; tx: `0x${string}` }>;
+  /** Jobs intentionally left untouched (not eligible), each with why. */
+  skipped: Array<{ jobId: bigint; reason: string }>;
+}
+
 export interface EarningsBreakdown {
   /** Already withdrawn-able now (in the JobRegistry workerBalance). */
   claimableLcai: number;
@@ -675,24 +688,31 @@ export class WorkerOperator {
   }
 
   /**
-   * Clear every past-deadline acked job in `candidateJobIds`. Returns the txs and
-   * the IDs it skipped (not stuck / not past deadline). Each cleared job realizes
-   * its completion-timeout slash - see slashBps.completionTimeout in config().
+   * Clear every past-deadline acked job in `candidateJobIds`. Returns the unified
+   * {@link BatchJobOpResult}: `done` are the jobs cleared (with tx), `skipped` are
+   * acknowledged jobs not yet past their completion deadline. Each cleared job
+   * realizes its completion-timeout slash - see slashBps.completionTimeout in
+   * config(). (Candidate IDs that aren't acknowledged-and-stuck are not eligible
+   * for claimTimeout and don't appear in either list.)
    */
-  async clearStuck(candidateJobIds: Array<bigint | number>): Promise<{ cleared: Array<{ jobId: bigint; tx: `0x${string}` }>; skipped: bigint[] }> {
+  async clearStuck(candidateJobIds: Array<bigint | number>): Promise<BatchJobOpResult> {
     const stuck = await this.stuckJobs(candidateJobIds);
-    const cleared: Array<{ jobId: bigint; tx: `0x${string}` }> = [];
-    const skipped: bigint[] = [];
+    const done: BatchJobOpResult["done"] = [];
+    const skipped: BatchJobOpResult["skipped"] = [];
     for (const s of stuck) {
       if (s.pastDeadlineSec <= 0) {
-        skipped.push(s.lookupId);
+        const inSec = Math.abs(s.pastDeadlineSec);
+        skipped.push({
+          jobId: s.lookupId,
+          reason: `acknowledged but not yet past the completion deadline (~${Math.ceil(inSec / 60)} min to go); claimTimeout would revert`,
+        });
         continue;
       }
       // Use lookupId (the getJob/claimTimeout key), NOT the struct's jobId field.
       const tx = await this.claimTimeout(s.lookupId);
-      cleared.push({ jobId: s.lookupId, tx });
+      done.push({ jobId: s.lookupId, tx });
     }
-    return { cleared, skipped };
+    return { done, skipped };
   }
 
   // ---- 3) Pre-flight gating ----------------------------------------------
@@ -725,13 +745,16 @@ export class WorkerOperator {
   }
 
   /**
-   * Settle every releasable completed job in `candidateJobIds`. Skips jobs still
-   * inside the dispute window (DisputeWindowNotElapsed) rather than failing the
-   * batch - uses per-job calls so one not-ready job can't revert the rest.
+   * Settle every releasable completed job in `candidateJobIds`. Returns the
+   * unified {@link BatchJobOpResult}: `done` are the jobs settled (with tx),
+   * `skipped` are completed jobs still inside their dispute window (not yet
+   * releasable). Uses per-job calls so one not-ready job can't revert the rest.
+   * (Candidate IDs that aren't in the Completed state are not settleable and
+   * don't appear in either list.)
    */
-  async releaseAll(candidateJobIds: Array<bigint | number>): Promise<{ released: Array<{ jobId: bigint; tx: `0x${string}` }>; notReady: bigint[] }> {
-    const released: Array<{ jobId: bigint; tx: `0x${string}` }> = [];
-    const notReady: bigint[] = [];
+  async releaseAll(candidateJobIds: Array<bigint | number>): Promise<BatchJobOpResult> {
+    const done: BatchJobOpResult["done"] = [];
+    const skipped: BatchJobOpResult["skipped"] = [];
     for (const id of candidateJobIds) {
       const j = await this.getJob(id);
       if (j.state !== "Completed") continue;
@@ -739,16 +762,16 @@ export class WorkerOperator {
       const lookupId = BigInt(id);
       try {
         const tx = await this.releaseJob(lookupId);
-        released.push({ jobId: lookupId, tx });
+        done.push({ jobId: lookupId, tx });
       } catch (e) {
         if (isWorkerOpError(e) && e.decoded?.name === "DisputeWindowNotElapsed") {
-          notReady.push(lookupId);
+          skipped.push({ jobId: lookupId, reason: "completed but still inside the dispute window; retry after it elapses" });
           continue;
         }
         throw e;
       }
     }
-    return { released, notReady };
+    return { done, skipped };
   }
 
   /** Pull the worker's earned balance from the JobRegistry into the wallet. */
@@ -791,8 +814,8 @@ export class WorkerOperator {
     withdrawTx?: `0x${string}`;
     deregisterTx: `0x${string}`;
   }> {
-    const cleared = (await this.clearStuck(candidateJobIds)).cleared;
-    const released = (await this.releaseAll(candidateJobIds)).released;
+    const cleared = (await this.clearStuck(candidateJobIds)).done;
+    const released = (await this.releaseAll(candidateJobIds)).done;
     let withdrawTx: `0x${string}` | undefined;
     const st = await this.status();
     if (st.claimableWei > 0n) withdrawTx = await this.withdraw();

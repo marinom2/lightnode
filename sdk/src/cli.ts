@@ -422,7 +422,7 @@ async function main() {
         const rel = await op.releaseAll(ids);
         let withdrawTx: string | undefined;
         if ((await op.status()).claimableWei > 0n) withdrawTx = await op.withdraw();
-        console.log(JSON.stringify({ released: rel.released.map((r) => ({ jobId: r.jobId.toString(), tx: r.tx })), notReady: rel.notReady.map(String), withdrawTx: withdrawTx ?? null }, null, 2));
+        console.log(JSON.stringify({ settled: rel.done.map((r) => ({ jobId: r.jobId.toString(), tx: r.tx })), notReady: rel.skipped.map((s) => ({ jobId: s.jobId.toString(), reason: s.reason })), withdrawTx: withdrawTx ?? null }, null, 2));
         break;
       }
       if (sub === "clearstuck") {
@@ -435,7 +435,7 @@ async function main() {
         }
         console.error(`> clearing stuck (acknowledged, past-deadline) jobs on ${net}...`);
         const r = await op.clearStuck(ids);
-        console.log(JSON.stringify({ cleared: r.cleared.map((c) => ({ jobId: c.jobId.toString(), tx: c.tx })), skipped: r.skipped.map(String) }, null, 2));
+        console.log(JSON.stringify({ cleared: r.done.map((c) => ({ jobId: c.jobId.toString(), tx: c.tx })), skipped: r.skipped.map((s) => ({ jobId: s.jobId.toString(), reason: s.reason })) }, null, 2));
         break;
       }
       if (sub === "withdraw") {

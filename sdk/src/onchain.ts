@@ -1,6 +1,16 @@
 import type { NetworkConfig } from "./types.js";
 import { REGISTRY_TOPICS } from "./networks.js";
 
+/** Default RPC read timeout for the raw eth_call/eth_getLogs reads here. */
+export const DEFAULT_ONCHAIN_TIMEOUT_MS = 8_000;
+
+/** A timeout (ms) plus the AbortController/timer wired to it; <=0 disables the deadline. */
+function makeDeadline(timeoutMs: number): { ctrl: AbortController; clear: () => void } {
+  const ctrl = new AbortController();
+  const timer = timeoutMs > 0 ? setTimeout(() => ctrl.abort(), timeoutMs) : undefined;
+  return { ctrl, clear: () => timer && clearTimeout(timer) };
+}
+
 function addressTopic(address: string): string {
   return "0x" + address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
 }
@@ -18,17 +28,16 @@ const IS_WORKER_REGISTERED_SELECTOR = "0xe798a7da";
  * independent of the public indexer, which can lag a deregister -> re-register
  * cycle. Returns true/false, or null when the chain can't answer.
  */
-export async function isRegistered(cfg: NetworkConfig, address: string): Promise<boolean | null> {
+export async function isRegistered(cfg: NetworkConfig, address: string, timeoutMs: number = DEFAULT_ONCHAIN_TIMEOUT_MS): Promise<boolean | null> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return null;
-  const direct = await isRegisteredDirect(cfg, address);
+  const direct = await isRegisteredDirect(cfg, address, timeoutMs);
   if (direct !== null) return direct;
-  return isRegisteredFromEvents(cfg, address);
+  return isRegisteredFromEvents(cfg, address, timeoutMs);
 }
 
 /** Direct contract read - the preferred, lag-free path. null on any failure. */
-async function isRegisteredDirect(cfg: NetworkConfig, address: string): Promise<boolean | null> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+async function isRegisteredDirect(cfg: NetworkConfig, address: string, timeoutMs: number = DEFAULT_ONCHAIN_TIMEOUT_MS): Promise<boolean | null> {
+  const { ctrl, clear } = makeDeadline(timeoutMs);
   try {
     const data = `${IS_WORKER_REGISTERED_SELECTOR}${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
     const res = await fetch(cfg.rpc, {
@@ -49,7 +58,7 @@ async function isRegisteredDirect(cfg: NetworkConfig, address: string): Promise<
   } catch {
     return null;
   } finally {
-    clearTimeout(timer);
+    clear();
   }
 }
 
@@ -58,10 +67,9 @@ async function isRegisteredDirect(cfg: NetworkConfig, address: string): Promise<
  * the direct read is unavailable. Takes the latest of the worker's join/exit
  * events; null when the chain can't answer or there are no events for it.
  */
-export async function isRegisteredFromEvents(cfg: NetworkConfig, address: string): Promise<boolean | null> {
+export async function isRegisteredFromEvents(cfg: NetworkConfig, address: string, timeoutMs: number = DEFAULT_ONCHAIN_TIMEOUT_MS): Promise<boolean | null> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const { ctrl, clear } = makeDeadline(timeoutMs);
   try {
     const res = await fetch(cfg.rpc, {
       method: "POST",
@@ -97,7 +105,7 @@ export async function isRegisteredFromEvents(cfg: NetworkConfig, address: string
   } catch {
     return null;
   } finally {
-    clearTimeout(timer);
+    clear();
   }
 }
 
@@ -119,11 +127,11 @@ export async function fetchOnchainEligibleModels(
   cfg: NetworkConfig,
   address: string,
   modelIds: string[],
+  timeoutMs: number = DEFAULT_ONCHAIN_TIMEOUT_MS,
 ): Promise<Map<string, boolean> | null> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address) || modelIds.length === 0) return null;
   const addrArg = address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const { ctrl, clear } = makeDeadline(timeoutMs);
   try {
     const entries = await Promise.all(
       modelIds.map(async (id) => {
@@ -151,6 +159,6 @@ export async function fetchOnchainEligibleModels(
   } catch {
     return null;
   } finally {
-    clearTimeout(timer);
+    clear();
   }
 }
