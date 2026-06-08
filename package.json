@@ -19,7 +19,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "prebuild": "npm --prefix sdk install --no-audit --no-fund && npm --prefix sdk run build"
+    "prebuild": "npm --prefix sdk install --no-audit --no-fund && npm --prefix sdk run build",
+    "test:coverage": "vitest run --coverage",
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.1",
@@ -48,8 +50,10 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.5.18",
+    "husky": "^9.1.7",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.9"
