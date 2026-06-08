@@ -451,7 +451,20 @@ export function OperationsPanel() {
         const reg = await fetchOnchainRegistered(network, addr);
         const isSettle = op.key === "settle";
         const completedIds = isSettle ? await fetchCompletedJobIds() : [];
-        const settleHasNothing = isSettle && completedIds.length === 0 && reg === false;
+        // Settle is the ONLY path that calls JobRegistry.withdraw() to claim the
+        // worker's earned balance (the dashboard Withdraw only sweeps the wallet's
+        // native LCAI, not the earned JobRegistry balance). So we must NOT
+        // short-circuit Settle while there is a claimable balance to pull, or the
+        // earnings are stranded with no other way to reach them. Only skip when
+        // there are also no completed jobs to release AND nothing claimable. When
+        // claimable is still unknown (actions not loaded yet), do not skip - let
+        // Settle run, which is always safe (it no-ops if there is nothing to do).
+        const claimableLcai = fullActions?.claimableLcai ?? 0;
+        // Only short-circuit when we KNOW the claimable balance is zero. When
+        // fullActions hasn't loaded yet, treat it as possibly-claimable and let
+        // Settle run rather than risk stranding earnings on an assumed-empty read.
+        const claimableKnownZero = fullActions != null && fullActions.claimableLcai <= 0;
+        const settleHasNothing = isSettle && completedIds.length === 0 && reg === false && claimableKnownZero;
         if (reg === false && (op.key === "dereg" || settleHasNothing)) {
           if (runId.current === myRun) {
             const lines = isSettle
@@ -463,7 +476,12 @@ export function OperationsPanel() {
               : [
                   "✓ this worker is already deregistered on-chain - nothing to do.",
                   "  Stake (minus any slashing) was returned to the worker wallet on deregister.",
-                  "  To move LCAI out of the worker wallet, use Withdraw on the dashboard.",
+                  ...(claimableLcai > 0
+                    ? [
+                        `  You still have ~${claimableLcai.toFixed(4)} LCAI of unclaimed earnings in the JobRegistry.`,
+                        "  Run Settle to claim them into the worker wallet, then Withdraw to move it out.",
+                      ]
+                    : ["  To move LCAI out of the worker wallet, use Withdraw on the dashboard."]),
                 ];
             setLog((l) => [...l, ...lines]);
             setActive(null);
