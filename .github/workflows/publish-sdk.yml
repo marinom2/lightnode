@@ -1,0 +1,108 @@
+name: Publish SDK
+
+# Publishes `lightnode-sdk` to npm from a `sdk-v*` tag (distinct from the
+# desktop app's `v*` tags). The job re-runs the SDK gate, refuses to publish if
+# the tag does not match sdk/package.json's version (the #1 way a hand-publish
+# drifts), then `npm publish`es with provenance and opens a GitHub Release.
+#
+# One-time setup: add an automation npm token as the `NPM_TOKEN` repo secret
+# (npmjs.com -> Access Tokens -> Granular/Automation, write access to
+# lightnode-sdk) under Settings -> Secrets and variables -> Actions.
+#
+# Cut a release:
+#   1. bump sdk/package.json "version" AND SDK_VERSION in sdk/src/index.ts
+#   2. git tag sdk-v0.18.1 && git push origin sdk-v0.18.1
+# or run this workflow manually (Actions -> Publish SDK -> Run workflow) with the tag.
+
+on:
+  push:
+    tags: ["sdk-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. sdk-v0.18.1). Must already exist and match sdk/package.json."
+        required: true
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # npm provenance (public repo)
+
+jobs:
+  publish:
+    name: Verify · Publish · Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For workflow_dispatch, check out the supplied tag; for a tag push,
+          # the default ref is already the tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: "https://registry.npmjs.org" # sets up NODE_AUTH_TOKEN-based auth
+
+      - run: npm ci
+
+      # The standalone SDK builds to sdk/dist (gitignored). Build it before the
+      # root typecheck, which imports `lightnode-sdk` types from there.
+      - name: Build local SDK
+        run: npm --prefix sdk install --no-audit --no-fund && npm --prefix sdk run build
+
+      - name: Typecheck (root)
+        run: npm run typecheck
+
+      - name: Typecheck (standalone SDK)
+        run: npx tsc --noEmit -p sdk/tsconfig.json
+
+      - name: Unit tests
+        run: npm test
+
+      # Refuse to publish a tag whose version does not match the package, and
+      # keep the SDK_VERSION constant honest with package.json.
+      - name: Verify tag matches package version
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          TAG_VERSION="${TAG#sdk-v}"
+          PKG_VERSION="$(node -p "require('./sdk/package.json').version")"
+          CONST_VERSION="$(node -p "require('fs').readFileSync('sdk/src/index.ts','utf8').match(/SDK_VERSION = \"([^\"]+)\"/)[1]")"
+          echo "tag=$TAG_VERSION package=$PKG_VERSION constant=$CONST_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG ($TAG_VERSION) does not match sdk/package.json ($PKG_VERSION)."
+            exit 1
+          fi
+          if [ "$CONST_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::SDK_VERSION ($CONST_VERSION) in sdk/src/index.ts does not match package.json ($PKG_VERSION)."
+            exit 1
+          fi
+
+      # Prereleases (0.18.1-beta.0) go to the `beta` dist-tag so a plain
+      # `npm install lightnode-sdk` (which resolves `latest`) is unaffected.
+      - name: Choose npm dist-tag
+        id: disttag
+        run: |
+          PKG_VERSION="$(node -p "require('./sdk/package.json').version")"
+          if echo "$PKG_VERSION" | grep -q '-'; then echo "tag=beta" >> "$GITHUB_OUTPUT"; else echo "tag=latest" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Publish to npm
+        working-directory: sdk
+        run: npm publish --provenance --access public --tag ${{ steps.disttag.outputs.tag }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          PKG_VERSION="$(node -p "require('./sdk/package.json').version")"
+          gh release create "$TAG" \
+            --title "lightnode-sdk $PKG_VERSION" \
+            --notes "Published \`lightnode-sdk@$PKG_VERSION\` to npm (dist-tag: ${{ steps.disttag.outputs.tag }}).
+
+          Install: \`npm install lightnode-sdk@$PKG_VERSION\`
+
+          See the changelog at https://lightnode.app/build/reference and sdk/README.md." \
+            --verify-tag
