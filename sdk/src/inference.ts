@@ -255,7 +255,32 @@ export { generateEcdhKeyPair };
 // reuse a session across multiple prompts, custom retry policy).
 // ----------------------------------------------------------------------------
 
-import { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError } from "./errors.js";
+import { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, InferenceAbortedError } from "./errors.js";
+
+/** Throw an `InferenceAbortedError` if the caller's signal has already fired. */
+function throwIfAborted(signal: AbortSignal | undefined, stage: string): void {
+  if (signal?.aborted) throw new InferenceAbortedError(stage);
+}
+
+/**
+ * `setTimeout` that also settles early if `signal` fires - rejecting with an
+ * `InferenceAbortedError` so a long poll loop stops awaiting the moment the
+ * caller cancels, instead of running out its full backoff first.
+ */
+function abortableSleep(ms: number, signal: AbortSignal | undefined, stage: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(new InferenceAbortedError(stage));
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new InferenceAbortedError(stage));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 // Structurally typed minimum so we don't pull viem's WalletClient/PublicClient
 // generic surface into this file. Anything that walks like a viem client passes.
@@ -555,11 +580,13 @@ export async function runJobOnSession(
   attempt = 1,
 ): Promise<RunInferenceResult> {
   const { gateway, wallet, publicClient, network, sessionId, sessionKey, worker, fee, createTx } = session;
-  const { onChunk, onStage, searchEnabled, jobCompletedTimeoutMs = 120_000 } = opts;
+  const { onChunk, onStage, searchEnabled, jobCompletedTimeoutMs = 120_000, signal } = opts;
   const WS = pickWebSocket(opts.WebSocket);
   const relayUrl = opts.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
   // Shim so the job body below can keep referencing prepared.* unchanged.
   const prepared = { sessionKey, createSessionArgs: { worker } };
+  // Bail before doing any work if the caller already cancelled.
+  throwIfAborted(signal, "start");
 
   // 3. relay token + WebSocket
   // Poll the gateway for the relay token with a fast backoff (it's usually ready
@@ -569,38 +596,69 @@ export async function runJobOnSession(
   const tokenDeadline = Date.now() + 20_000;
   let tokenDelay = 250;
   while (!relayToken) {
+    throwIfAborted(signal, "relay-token");
     const r = await gateway.getSessionToken(Number(sessionId));
     if ("token" in r && r.token) {
       relayToken = r.token;
       break;
     }
     if (Date.now() >= tokenDeadline) break;
-    await new Promise((res) => setTimeout(res, tokenDelay));
+    await abortableSleep(tokenDelay, signal, "relay-token");
     tokenDelay = Math.min(tokenDelay * 2, 2000);
   }
   if (!relayToken) throw new RelayTokenTimeoutError();
 
   const ws = new WS(`${relayUrl}?token=${encodeURIComponent(relayToken)}`);
+  // Close the relay socket without throwing, from any cleanup/abort path.
+  const closeWs = (): void => {
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+  };
   try {
     ws.binaryType = "arraybuffer";
   } catch {
     /* not a browser-style WS; ignore */
   }
   // Wait for open, supporting both browser (addEventListener) and Node ws (once).
-  await new Promise<void>((resolve, reject) => {
-    const onOpen = () => resolve();
-    const onError = (e?: unknown) => reject(e instanceof Error ? e : new Error("WebSocket open failed"));
-    if (ws.once) {
-      ws.once("open", onOpen);
-      ws.once("error", onError);
-    } else if (ws.addEventListener) {
-      ws.addEventListener("open", onOpen, { once: true });
-      ws.addEventListener("error", onError, { once: true });
-    } else {
-      reject(new Error("WebSocket has neither once nor addEventListener"));
-    }
-    setTimeout(() => reject(new Error("relay WebSocket open timeout")), 20_000);
-  });
+  // A fired signal rejects here too, so a cancel during connect doesn't hang for
+  // the full 20s open timeout. Any failure closes the half-open socket. Every
+  // settle path tears down BOTH the abort listener and the open-timeout timer -
+  // otherwise the listener would dangle on a reused signal (e.g. a chat session)
+  // for the whole job and fire reject() on an already-settled promise.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = (): void => settle(() => reject(new InferenceAbortedError("relay-connect")));
+      const cleanup = (): void => {
+        if (timer) clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const settle = (fn: () => void): void => {
+        cleanup();
+        fn();
+      };
+      const onOpen = () => settle(resolve);
+      const onError = (e?: unknown) => settle(() => reject(e instanceof Error ? e : new Error("WebSocket open failed")));
+      if (signal?.aborted) return reject(new InferenceAbortedError("relay-connect"));
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (ws.once) {
+        ws.once("open", onOpen);
+        ws.once("error", onError);
+      } else if (ws.addEventListener) {
+        ws.addEventListener("open", onOpen, { once: true });
+        ws.addEventListener("error", onError, { once: true });
+      } else {
+        return settle(() => reject(new Error("WebSocket has neither once nor addEventListener")));
+      }
+      timer = setTimeout(() => settle(() => reject(new Error("relay WebSocket open timeout"))), 20_000);
+    });
+  } catch (e) {
+    closeWs();
+    throw e;
+  }
 
   const chunks: string[] = [];
   const sources: WebSearchSource[] = [];
@@ -712,6 +770,12 @@ export async function runJobOnSession(
   const jobIdTopic = (`0x${jobId.toString(16).padStart(64, "0")}`) as `0x${string}`;
   let completed: { transactionHash: `0x${string}` } | null = null;
   while (!completed) {
+    // Cancel mid-stream: stop awaiting the proof, close the relay socket, and
+    // surface an AbortError. The submitJob tx already broadcast still settles.
+    if (signal?.aborted) {
+      closeWs();
+      throw new InferenceAbortedError("job-completed");
+    }
     const now = Date.now();
     if (now >= deadline) break;
     // Answer fully received (relay sent 'complete'): wait only briefly for the
@@ -719,8 +783,19 @@ export async function runJobOnSession(
     // callers get txs.jobCompleted=null and can poll the proof later if needed.
     if (streamDone && now - (streamDoneAt ?? now) >= POST_DONE_GRACE_MS) break;
     if (firstChunkAt != null && now - firstChunkAt >= POST_CHUNKS_GRACE_MS) break;
-    await new Promise((res) => setTimeout(res, 1500));
+    try {
+      await abortableSleep(1500, signal, "job-completed");
+    } catch (e) {
+      closeWs();
+      throw e;
+    }
     if (firstChunkAt == null && chunks.length > 0) firstChunkAt = Date.now();
+    // Re-check after the sleep so an abort that fired during it skips the getLogs
+    // RPC instead of paying one more round-trip before the top-of-loop catches it.
+    if (signal?.aborted) {
+      closeWs();
+      throw new InferenceAbortedError("job-completed");
+    }
     const logs = await publicClient.getLogs({
       address: network.jobRegistry as `0x${string}`,
       fromBlock: submitReceipt.blockNumber,
@@ -856,7 +931,7 @@ export async function runInference(args: RunInferenceArgs): Promise<RunInference
   const maxRetries = args.maxRetries ?? 2;
   const stalled: RunInferenceResult["stalled"] = [];
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
-    if (args.signal?.aborted) throw new Error("runInference: aborted");
+    if (args.signal?.aborted) throw new InferenceAbortedError("between-attempts");
     try {
       const result = await runOneAttempt(args, attempt);
       return { ...result, stalled };
@@ -873,7 +948,7 @@ export async function runInference(args: RunInferenceArgs): Promise<RunInference
 }
 
 /** Re-export the typed errors at this layer so a single import covers everything. */
-export { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError, isStalledWorker } from "./errors.js";
+export { StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError, InferenceAbortedError, isStalledWorker, isAbortError } from "./errors.js";
 
 // =============================================================================
 // runInferenceWithKey - the actual 5-line API.
@@ -937,10 +1012,13 @@ export interface RunInferenceWithKeyArgs {
    */
   gatewayUrl?: string;
   /**
-   * Cancellation signal. Aborts the SIWE handshake and stops awaiting the
-   * relay; in-flight submitJob transactions still settle on chain (the SDK
-   * just stops listening). Throws `Error("aborted")` synchronously if the
-   * signal is already fired when the call starts.
+   * Cancellation signal. Cancels at every await: the SIWE handshake, the
+   * relay-token poll, the WebSocket connect, AND the mid-stream wait for
+   * JobCompleted - so a cancel stops the work promptly instead of running the
+   * poll loops out to their deadlines. In-flight submitJob transactions still
+   * settle on chain (the protocol is the source of truth; the SDK just stops
+   * listening and closes the relay socket). Rejects with an
+   * `InferenceAbortedError` (`name === "AbortError"`); use `isAbortError(e)`.
    */
   signal?: AbortSignal;
 }
@@ -977,7 +1055,7 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
     throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
   }
   if (args.signal?.aborted) {
-    throw new Error("runInferenceWithKey: aborted before start");
+    throw new InferenceAbortedError("before-start");
   }
 
   const account = viemPrivateKeyToAccount(key as `0x${string}`);
@@ -1005,6 +1083,10 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
     try {
       return await fetch(url, { ...init, signal: args.signal });
     } catch (err) {
+      // A cancel during the SIWE round-trip surfaces here as a fetch AbortError.
+      // Re-raise it as the SDK's typed abort (NOT the "host unreachable" wrap
+      // below) so isAbortError(e) / e.name === "AbortError" hold, as documented.
+      if (args.signal?.aborted || (err as Error)?.name === "AbortError") throw new InferenceAbortedError("siwe");
       const cause = (err as { cause?: { code?: string; message?: string } }).cause;
       const code = cause?.code ?? "";
       const msg = (err as Error).message ?? "fetch failed";

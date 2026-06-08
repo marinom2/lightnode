@@ -55,11 +55,19 @@ export function consumerGatewayHost(net: "mainnet" | "testnet"): string {
   return GATEWAY_HOSTS[net];
 }
 
-/** Either a fixed token, or a function that produces (or refreshes) one. */
-export type BearerSource = string | (() => string | Promise<string>);
+/**
+ * Either a fixed token, or a function that produces one. The function form is
+ * called fresh on every request, so a thunk that caches-and-rotates handles
+ * proactive expiry. It also receives `{ forceRefresh: true }` when the gateway
+ * rejected the previous token with a 401 - return a newly-minted token in that
+ * case (re-run SIWE) to recover from a server-side revocation or clock skew
+ * without the caller catching the error. A static-string bearer cannot refresh,
+ * so a 401 against it surfaces immediately.
+ */
+export type BearerSource = string | ((opts?: { forceRefresh?: boolean }) => string | Promise<string>);
 
-async function resolveBearer(src: BearerSource): Promise<string> {
-  return typeof src === "function" ? await src() : src;
+async function resolveBearer(src: BearerSource, forceRefresh = false): Promise<string> {
+  return typeof src === "function" ? await src({ forceRefresh }) : src;
 }
 
 export class GatewayHttpError extends Error {
@@ -251,10 +259,16 @@ export class GatewayClient {
     //    selectSession would make a SECOND wallet-scoped selection (the exact
     //    duplicate-select race the SDK avoids with selectionId). Better to surface
     //    the error than risk a double side-effect.
-    // Auth (401/403) and other 4xx are never retried - they won't fix themselves.
+    // Auth: a 401 against a FUNCTION bearer triggers one force-refresh retry
+    // (the token may have been revoked server-side before its local expiry); a
+    // static-string bearer can't refresh, so its 401 surfaces immediately. Other
+    // 4xx (403 included) are never retried - they won't fix themselves.
+    let authRefreshed = false;
+    let forceRefresh = false;
     for (let attempt = 0; ; attempt++) {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (this.bearer != null) headers["Authorization"] = `Bearer ${await resolveBearer(this.bearer)}`;
+      if (this.bearer != null) headers["Authorization"] = `Bearer ${await resolveBearer(this.bearer, forceRefresh)}`;
+      forceRefresh = false; // consumed by this request
       const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method,
         headers,
@@ -270,6 +284,13 @@ export class GatewayClient {
 
       const text = await res.text().catch(() => "");
       const retryAfterMs = parseRetryAfterMs(res.headers?.get?.("retry-after") ?? null);
+      // Reactive token refresh: ask the bearer thunk for a fresh token exactly
+      // once, then replay. Independent of the backoff budget below.
+      if (res.status === 401 && typeof this.bearer === "function" && !authRefreshed) {
+        authRefreshed = true;
+        forceRefresh = true;
+        continue;
+      }
       const retryable = res.status === 429 || (res.status >= 500 && method === "GET");
       if (retryable && attempt < this.maxRetries) {
         // A non-positive Retry-After is not a useful hint; fall back to backoff.

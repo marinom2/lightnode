@@ -488,26 +488,58 @@ console.log(steps);    // [{ kind: "tool_call", ... }, { kind: "answer", text: "
 
 Each iteration is one inference (one on-chain `submitJob`); cap `maxIterations` to keep wall-clock + cost bounded. Tool handlers are plain functions that may be async; return JSON-serializable data so the model can read the observation.
 
-### Cancellation (new in 0.6.0)
+### Cancellation (new in 0.6.0; mid-stream in 0.16.0)
 
-`runInference` and `runInferenceWithKey` accept an `AbortSignal`. In-flight on-chain transactions still settle (the protocol is the source of truth); the SDK just stops awaiting and rejects with `Error("aborted")`.
+`runInference` and `runInferenceWithKey` accept an `AbortSignal`. As of **0.16.0**
+the signal is honored at **every** await - the SIWE handshake, the relay-token
+poll, the WebSocket connect, and the **mid-stream wait for `JobCompleted`** - so a
+cancel stops the work promptly (and closes the relay socket) instead of running
+the poll loops out to their deadlines. In-flight on-chain transactions still
+settle (the protocol is the source of truth); the SDK just stops awaiting. It
+rejects with an `InferenceAbortedError` whose `name` is the web-standard
+`"AbortError"`, so `isAbortError(e)` (or `e.name === "AbortError"`) detects it.
 
 ```ts
+import { runInferenceWithKey, isAbortError } from "lightnode-sdk";
+
 const controller = new AbortController();
 setTimeout(() => controller.abort(), 15_000);
 
-await runInferenceWithKey({
-  network: "testnet",
-  privateKey: process.env.PRIVATE_KEY!,
-  prompt: "short answer please",
-  signal: controller.signal,
-});
+try {
+  await runInferenceWithKey({
+    network: "testnet",
+    privateKey: process.env.PRIVATE_KEY!,
+    prompt: "short answer please",
+    signal: controller.signal,
+  });
+} catch (e) {
+  if (isAbortError(e)) console.log("cancelled by the caller");
+  else throw e;
+}
+```
+
+### Reactive token refresh (new in 0.16.0)
+
+Pass a **function** `bearer` to `GatewayClient` (or `ln.gateway({ bearer })`) and
+the SDK calls it fresh per request. If the gateway rejects a token with `401`,
+the SDK calls the thunk once more with `{ forceRefresh: true }` and replays the
+request - so a server-side revocation or clock-skew expiry recovers without the
+caller catching the error. A static-string bearer can't refresh, so its `401`
+surfaces immediately.
+
+```ts
+let cached: string | null = null;
+const bearer = async ({ forceRefresh } = {}) => {
+  if (forceRefresh || !cached) cached = await siweSignIn(/* ... */).then((s) => s.token);
+  return cached;
+};
+const gw = ln.gateway({ bearer });
 ```
 
 ### Typed errors
 
 ```ts
-import { isStalledWorker, StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError } from "lightnode-sdk";
+import { isStalledWorker, isAbortError, StalledWorkerError, OnChainRevertError, RelayTokenTimeoutError, GatewayAuthError, InferenceAbortedError } from "lightnode-sdk";
 
 try {
   await runInferenceWithKey({ ... });
