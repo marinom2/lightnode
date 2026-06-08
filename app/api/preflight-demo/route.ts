@@ -16,6 +16,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { workerPreflight, isStalledWorker } from "lightnode-sdk";
 import { preflightMutex } from "@/lib/demo-wallet-mutex";
+import { createInMemoryRateLimiter, getClientIp } from "@/lib/demo-rate-limit";
 
 // Budget: maxDuration is 60s. Reserve up to ~45s for the actual SDK
 // retry, leave ~10s for the mutex acquire. Fail fast on queueing so a
@@ -28,27 +29,10 @@ export const maxDuration = 60;
 
 const DEMO_KEY = (process.env.LIGHTNODE_DEMO_PRIVATE_KEY ?? "").trim() as `0x${string}` | "";
 
-const HITS: Map<string, { count: number; firstAt: number }> = new Map();
-const WINDOW_MS = 60 * 60 * 1000; // 1h
+// Per-IP throttle (shared limiter, prunes expired entries) so a single visitor
+// cannot drain the demo wallet. Memory-only; resets on cold start.
 const MAX_PER_WINDOW = 2;
-
-function getClientIp(req: NextRequest): string {
-  const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
-}
-
-function rateLimit(ip: string): { ok: boolean; remaining: number } {
-  const now = Date.now();
-  const entry = HITS.get(ip);
-  if (!entry || now - entry.firstAt > WINDOW_MS) {
-    HITS.set(ip, { count: 1, firstAt: now });
-    return { ok: true, remaining: MAX_PER_WINDOW - 1 };
-  }
-  if (entry.count >= MAX_PER_WINDOW) return { ok: false, remaining: 0 };
-  entry.count++;
-  return { ok: true, remaining: MAX_PER_WINDOW - entry.count };
-}
+const rateLimit = createInMemoryRateLimiter({ windowMs: 60 * 60 * 1000, max: MAX_PER_WINDOW });
 
 export async function POST(req: NextRequest) {
   if (!DEMO_KEY || !DEMO_KEY.startsWith("0x") || DEMO_KEY.length !== 66) {
