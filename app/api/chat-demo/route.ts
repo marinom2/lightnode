@@ -111,9 +111,16 @@ export async function POST(req: NextRequest) {
       system: "You are a concise assistant. Reply in one or two short sentences.",
       maxHistoryTurns: 10,
     });
+    // Validate each history entry. Role alone is not enough: m.content is
+    // attacker-controlled and would otherwise bypass the 500-char cap above on
+    // this shared, faucet-funded demo wallet. Require a string, cap its length,
+    // and skip anything malformed (history is auxiliary, so drop > reject).
+    const MAX_HISTORY_CHARS = 2000;
     for (const m of (body.history ?? []).slice(-10)) {
-      if (m.role === "user" || m.role === "assistant") {
-        (chat as unknown as { history: ChatMessage[] }).history.push(m);
+      const okRole = m.role === "user" || m.role === "assistant";
+      const okContent = typeof m.content === "string" && m.content.length <= MAX_HISTORY_CHARS;
+      if (okRole && okContent) {
+        (chat as unknown as { history: ChatMessage[] }).history.push({ role: m.role, content: m.content });
       }
     }
     const result = await chat.send(message);
