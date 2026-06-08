@@ -52,6 +52,21 @@ function deriveTitle(description: string): string {
   return cleaned.length ? cleaned.slice(0, 120) : "Untitled proposal";
 }
 
+// Bound each RPC attempt so a slow-but-not-failing endpoint can't eat the whole
+// Vercel 10s budget before the loop tries the next one. 4s leaves room for a
+// second (and third) RPC within the cap.
+const RPC_ATTEMPT_TIMEOUT_MS = 4000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function findEventsAcrossRpcs(
   addresses: { governor: `0x${string}` },
   chain: "ethereum" | "lightchain",
@@ -65,26 +80,34 @@ async function findEventsAcrossRpcs(
   const CHUNK = 50_000n;
   for (const rpc of RPCS_BY_CHAIN[chain]) {
     try {
-      const pub = createPublicClient({ transport: http(rpc) });
-      const head = await pub.getBlockNumber();
-      const fromBlock = head > WINDOW_BLOCKS ? head - WINDOW_BLOCKS : 0n;
-      const windows: Array<{ from: bigint; to: bigint }> = [];
-      for (let start = fromBlock; start <= head; start += CHUNK) {
-        const end = start + CHUNK - 1n > head ? head : start + CHUNK - 1n;
-        windows.push({ from: start, to: end });
-      }
-      const chunks = await Promise.all(
-        windows.map((w) =>
-          pub.getLogs({
-            address: addresses.governor,
-            event: PROPOSAL_CREATED,
-            fromBlock: w.from,
-            toBlock: w.to,
-          }),
-        ),
+      // Wrap the whole per-RPC attempt (head read + chunked getLogs) in one
+      // deadline so a single stalled socket fails fast and the loop moves on.
+      const result = await withTimeout(
+        (async () => {
+          const pub = createPublicClient({ transport: http(rpc) });
+          const head = await pub.getBlockNumber();
+          const fromBlock = head > WINDOW_BLOCKS ? head - WINDOW_BLOCKS : 0n;
+          const windows: Array<{ from: bigint; to: bigint }> = [];
+          for (let start = fromBlock; start <= head; start += CHUNK) {
+            const end = start + CHUNK - 1n > head ? head : start + CHUNK - 1n;
+            windows.push({ from: start, to: end });
+          }
+          const chunks = await Promise.all(
+            windows.map((w) =>
+              pub.getLogs({
+                address: addresses.governor,
+                event: PROPOSAL_CREATED,
+                fromBlock: w.from,
+                toBlock: w.to,
+              }),
+            ),
+          );
+          return { pub, events: chunks.flat() };
+        })(),
+        RPC_ATTEMPT_TIMEOUT_MS,
+        `${chain} RPC ${rpc.replace(/^https?:\/\//, "").slice(0, 24)}`,
       );
-      const all = chunks.flat();
-      return { pub, events: all };
+      return result;
     } catch (e) {
       errors.push(`${rpc.replace(/^https?:\/\//, "").slice(0, 24)}: ${(e as Error).message?.split("\n")[0]?.slice(0, 80)}`);
       continue;
