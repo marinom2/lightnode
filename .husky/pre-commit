@@ -1,0 +1,5 @@
+# Fast local gate before every commit: the unit suite (~2s). It imports the SDK
+# from source, so it works on a fresh clone with no build step. CI runs the full
+# lint + typecheck + build + e2e on every push/PR. The project convention is to
+# keep this green rather than skip it with --no-verify.
+npm test

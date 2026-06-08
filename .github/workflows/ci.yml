@@ -35,7 +35,8 @@ jobs:
         run: npm --prefix sdk install --no-audit --no-fund && npm --prefix sdk run build
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
+      # Runs the unit suite AND enforces the coverage floors in vitest.config.ts.
+      - run: npm run test:coverage
       - run: npm run build
       # Keep the standalone SDK compiling (it's excluded from the app tsconfig).
       - run: npx tsc --noEmit -p sdk/tsconfig.json
