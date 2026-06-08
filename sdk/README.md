@@ -130,9 +130,19 @@ dashboards, and scripts (new in 0.13.0).
 **Reliability (new in 0.14.0).** `new LightNode("mainnet", { cacheTtlMs: 30_000 })`
 TTL-memoizes the network-wide reads so a polling dashboard stops re-hitting the
 indexer every render (`ln.clearCache()` to force a refetch). The `GatewayClient`
-auto-retries `429` and `5xx` with exponential backoff (honoring `Retry-After`),
-configurable via `{ retry: { maxRetries, baseDelayMs } }`; `GatewayHttpError`
-carries `isRateLimited` / `isAuthError` / `isServerError` + `retryAfterMs`.
+auto-retries `429` (any method) and `5xx` (GETs only - a POST is never replayed,
+so a `selectSession` can't double-select) with exponential backoff (honoring
+`Retry-After`), configurable via `{ retry: { maxRetries, baseDelayMs } }`;
+`GatewayHttpError` carries `isRateLimited` / `isAuthError` / `isServerError` +
+`retryAfterMs`.
+
+**Tuning (new in 0.15.0).** `new LightNode("mainnet", { timeoutMs: 30_000 })`
+bounds every subgraph + raw on-chain read with your own deadline (the built-in
+defaults are `DEFAULT_SUBGRAPH_TIMEOUT_MS` = 12s and `DEFAULT_ONCHAIN_TIMEOUT_MS`
+= 8s, both exported). Raise it for a slow/congested indexer, pass a small value
+to fail fast in a UI, or `<= 0` to disable the deadline entirely. (The viem-backed
+reads - `getJobOnchain`, the config read inside `getWorkerLiveness` /
+`getWorkerActions` - take their timeout from the transport you build instead.)
 
 ### Worker liveness / stuck-job diagnostic (new in 0.11.0)
 
@@ -358,8 +368,11 @@ await op.getJob(974);           // typed Job { state, worker, escrowedFeeWei, ti
 // (from LightNode.getWorkerJobs / the subgraph).
 await op.canDeregister([974, 976, 978, 979]);   // { ok, blockedBy: [974, 976], reason }
 
-// Settlement + exit, Docker-free:
-await op.releaseAll([978, 979]); // settle completed jobs past their dispute window
+// Settlement + exit, Docker-free. clearStuck/releaseAll share one result shape:
+//   { done: [{ jobId, tx }], skipped: [{ jobId, reason }] }
+const { done, skipped } = await op.releaseAll([978, 979]); // settle completed jobs past their window
+//   done    -> the jobs settled, with tx hashes
+//   skipped -> completed jobs still inside the dispute window (each with the reason)
 await op.withdraw();             // pull earned balance into the worker wallet
 
 // The rescue: clear stuck acked jobs, then deregister + withdraw, in one call.
@@ -379,9 +392,9 @@ Full method reference (`jobIds` are the worker's IDs from
 | `earnings({ ... })` | no | claimable now vs lifetime vs pending-release |
 | `profitability({ ... })` | no | per-job worker fee net of gas, from the live fee split |
 | `claimTimeout(id)` | yes | time out one stuck job (mainnet: realizes a slash) |
-| `clearStuck(jobIds)` | yes | claimTimeout every past-deadline acked job; returns cleared + skipped |
+| `clearStuck(jobIds)` | yes | claimTimeout every past-deadline acked job; `{ done, skipped }` (skipped = acked but not yet past deadline) |
 | `releaseJob(id)` | yes | settle one completed job past its window |
-| `releaseAll(jobIds)` | yes | settle all releasable completed jobs; skips not-ready ones |
+| `releaseAll(jobIds)` | yes | settle all releasable completed jobs; `{ done, skipped }` (skipped = still in the dispute window) |
 | `withdraw()` | yes | pull the earned balance into the worker wallet |
 | `topUpStake(lcai)` | yes | add stake |
 | `withdrawStake(lcai)` | yes | remove stake above the floor |
