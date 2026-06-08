@@ -113,12 +113,19 @@ await ln.modelId("llama3-8b");           // keccak256 of the model tag
 await ln.getJobStatus(1234n);            // category + refundable flag (new in 0.5.0)
 await ln.getWorkerLiveness("0x...");     // stuck-job + slash-risk diagnostic (new in 0.11.0)
 await ln.getWorkerActions("0x...");      // action center: gas, claimable, settle, to-do (new in 0.12.0)
+await ln.getServedModels("0x...");       // models served, reconciled vs chain (onchainEligible)
+await ln.getWorkerModels("0x...");       // raw on-chain model whitelist rows
+await ln.getJobOnchain(1234n);           // authoritative on-chain job struct (new in 0.13.0)
+await ln.getWorkersBatch(["0x..","0x.."]); // many workers, bounded concurrency (new in 0.13.0)
+await ln.getJobStatusesBatch([1, 2, 3]); // many job statuses at once (new in 0.13.0)
 ln.gateway({ bearer });                  // pre-configured GatewayClient
 ```
 
 Plus the bare-metal aggregators (`aggregateModelStats`, `aggregateWorkerStats`,
-`networkAnalytics`) and CSV exporters (`modelStatsCsv`, `workerStatsCsv`,
-`workerJobsCsv`) for reporting / dashboards.
+`networkAnalytics`), CSV exporters (`modelStatsCsv`, `workerStatsCsv`,
+`workerJobsCsv`), and utility helpers (`toWei` / `fromWei`, `checksum`,
+`isValidAddress`, `truncateAddress`, `mapWithConcurrency`) for reporting,
+dashboards, and scripts (new in 0.13.0).
 
 ### Worker liveness / stuck-job diagnostic (new in 0.11.0)
 
@@ -505,15 +512,19 @@ try {
 
 ```bash
 npx lightnode network                    # network summary JSON
-npx lightnode models                     # registered models + fees
+npx lightnode models [--json]            # registered models + fees (table, or JSON)
 npx lightnode worker 0x...               # one worker + 5 recent jobs
-npx lightnode jobs 0x... --csv           # job history
+npx lightnode worker doctor 0x...        # action center: gas, claimable, stuck, settle, to-do
+npx lightnode worker liveness 0x...      # stuck-job + slash-risk + activity diagnostic
+npx lightnode worker profitability 0x... # fee/gas/net per job + projected daily
+npx lightnode jobs 0x... --csv           # job history (also --json)
 npx lightnode registered 0x...           # true | false | null (chain truth)
 npx lightnode fee llama3-8b              # per-job LCAI fee
-npx lightnode analytics --csv            # per-model performance
-npx lightnode reliability --csv          # per-worker reliability
+npx lightnode analytics --json           # per-model performance (--csv or --json)
+npx lightnode reliability --json         # per-worker reliability (--csv or --json)
 npx lightnode job 1234                   # job status + refundable flag
 npx lightnode worker watch 0x... --interval 30   # JSON event per state change
+npx lightnode <cmd> --help               # usage for just that command
 npx lightnode bridge addresses           # bridge route
 npx lightnode dao addresses              # LCAI Governor addresses
 npx lightnode dao config                 # live voting delay / period / threshold

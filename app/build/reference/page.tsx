@@ -29,6 +29,20 @@ const READONLY_METHODS = [
   { sig: "getJobStatus(jobId)", returns: "JobStatus | null", desc: "Job category (completed / stalled / disputed / ...) + refundable flag." },
   { sig: "getWorkerLiveness(address)", returns: "WorkerLivenessReport", desc: "Stuck-job + slash-risk diagnostic: flags a staked-but-offline worker not acknowledging assigned jobs, with slash exposure and suspension risk." },
   { sig: "getWorkerActions(address)", returns: "WorkerActionCenter", desc: "Action center: claimable earnings, worker-wallet gas (outOfGas), settle-now vs in-window jobs, liveness, and a prioritized to-do list." },
+  { sig: "getWorkerModels(address)", returns: "WorkerModel[]", desc: "On-chain model whitelist for a worker (raw WorkerRegistry rows; can go stale after deregister)." },
+  { sig: "getServedModels(address)", returns: "ServedModel[]", desc: "Models a worker serves, reconciled against the chain (onchainEligible is the truth, indexedActive the subgraph)." },
+  { sig: "getJobOnchain(jobId)", returns: "OnchainJob | null", desc: "Authoritative on-chain job struct (state, deadlineAt, escrow) - ground truth the indexer may lag." },
+  { sig: "getWorkersBatch(addresses, { parallel })", returns: "(Worker | null)[]", desc: "Many workers at once, bounded concurrency, in input order. Null per missing slot, never throws." },
+  { sig: "getJobStatusesBatch(jobIds, { parallel })", returns: "(JobStatus | null)[]", desc: "Many job statuses at once, bounded concurrency, in input order." },
+] as const;
+
+// Standalone utility helpers exported alongside the LightNode client.
+const UTIL_HELPERS = [
+  { sig: "toWei(lcai) / fromWei(wei)", returns: "bigint / number", desc: "Exact LCAI<->wei conversions (toWei is precise; fromWei is Number-based)." },
+  { sig: "checksum(address)", returns: "string", desc: "EIP-55 checksum an address (input unchanged if invalid)." },
+  { sig: "isValidAddress(address)", returns: "boolean", desc: "Syntactic 0x-address check." },
+  { sig: "truncateAddress(address, chars = 4)", returns: "string", desc: "0x1234…abcd short form for UIs/logs." },
+  { sig: "mapWithConcurrency(items, limit, fn)", returns: "Promise<R[]>", desc: "Bounded-concurrency map preserving input order - the basis for the batch reads." },
 ] as const;
 
 const READONLY_SNIPPET = `import { LightNode } from "lightnode-sdk";
@@ -91,6 +105,7 @@ const FRAMEWORK_EXAMPLES = [
 const EXAMPLES_REPO = "marinom2/lightnode-examples";
 
 const CHANGELOG = [
+  { v: "0.13.0", date: "June 2026", line: "Ecosystem polish: batch reads (getWorkersBatch, getJobStatusesBatch) with bounded concurrency in input order; getJobOnchain for the authoritative on-chain job struct; exported utility helpers (toWei/fromWei, checksum, isValidAddress, truncateAddress, mapWithConcurrency). CLI gains a --json mode on the read commands, per-command --help, and worker doctor / liveness / profitability diagnostics (the same rollups the dashboard shows, for scripting)." },
   { v: "0.12.1", date: "June 2026", line: "Worker activity signal: WorkerLivenessReport now carries activity (active | processing | stalled | idle | unknown) and lastCompletedAgoSec, derived from the on-chain job flow - an honest, gateway-free read of whether a worker is processing jobs (a recent completion = active; an acked job in flight = processing), useful for remote workers where there is no container status." },
   { v: "0.12.0", date: "June 2026", line: "Worker action center: getWorkerActions(address) rolls up claimable earnings, the worker-wallet gas balance (an outOfGas flag that explains the silent settle/claim/deregister failures), settle-now vs still-in-dispute-window jobs, the liveness/stuck-job picture, and a prioritized to-do list. analyzeWorkerActions and analyzeSettlement are the pure analyzers behind it." },
   { v: "0.11.0", date: "June 2026", line: "Worker liveness / stuck-job diagnostic: getWorkerLiveness(address) classifies a worker's recent jobs against the live protocol timeouts to flag a staked-but-offline worker that is no longer acknowledging assigned jobs (the silent pre-slash failure), including the Submitted-past-ack-deadline case the plain job buckets miss, with slash exposure and suspension risk. analyzeWorkerLiveness is the pure classifier behind it." },
@@ -157,6 +172,17 @@ export default function BuildReferencePage() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="mt-6 border-t border-bdr-soft/60 pt-4">
+          <h3 className="mb-2 text-sm font-semibold text-content-primary">Utility helpers</h3>
+          <ul className="space-y-1.5 text-xs">
+            {UTIL_HELPERS.map((u) => (
+              <li key={u.sig}>
+                <code className="font-mono text-content-default">{u.sig}</code>
+                <span className="text-content-soft"> → {u.returns} — {u.desc}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </Card>
 
