@@ -42,11 +42,29 @@ export interface StuckJobReport {
  */
 export type Liveness = "fresh" | "stalled" | "unknown";
 
+/**
+ * Observed job-processing activity, derived from the job flow (NOT a socket ping -
+ * the gateway exposes no per-worker status). Honest about what the chain shows:
+ * - "active":     completed a job in the last few minutes (definitely working).
+ * - "processing": has an acknowledged job in flight, inside its deadline.
+ * - "stalled":    assigned jobs are past their deadline, unanswered (not working).
+ * - "idle":       registered, but no recent jobs to judge by (could be waiting).
+ * - "unknown":    the indexer has never seen this worker.
+ */
+export type WorkerActivity = "active" | "processing" | "stalled" | "idle" | "unknown";
+
+/** A completion newer than this counts as "actively working". */
+export const RECENT_WORK_SEC = 600;
+
 export interface WorkerLivenessReport {
   address: string;
   /** Subgraph status string (active | deactivated | deregistered), or null if unseen. */
   status: string | null;
   liveness: Liveness;
+  /** Observed job-processing activity (derived from job flow, not a heartbeat). */
+  activity: WorkerActivity;
+  /** Seconds since the worker last COMPLETED a job, or null if it never has. */
+  lastCompletedAgoSec: number | null;
   /** Seconds since the worker's last ON-CHAIN activity (not a heartbeat), or null. */
   lastSeenAgoSec: number | null;
   /** active_job_count from the subgraph (includes the stuck jobs blocking capacity). */
@@ -150,10 +168,33 @@ export function analyzeWorkerLiveness(input: {
   // read old without being broken. A job past its deadline is the hard signal.
   const liveness: Liveness = worker === null ? "unknown" : stuckJobs.length > 0 ? "stalled" : "fresh";
 
+  // Observed activity from the job flow (the honest stand-in for "online", since
+  // the gateway exposes no per-worker status). A recent COMPLETION proves it was
+  // working; an in-flight acked job within deadline means it is processing.
+  const completedTimes = jobs.map((j) => j.completed_at).filter((t): t is number => typeof t === "number" && t > 0);
+  const lastCompletedAt = completedTimes.length ? Math.max(...completedTimes) : null;
+  const lastCompletedAgoSec = lastCompletedAt ? Math.max(0, nowSec - lastCompletedAt) : null;
+  const recentlyWorked = lastCompletedAgoSec != null && lastCompletedAgoSec < RECENT_WORK_SEC;
+  const hasInflight = jobs.some(
+    (j) => /ack/i.test(j.state ?? "") && j.ack_at != null && nowSec <= j.ack_at + config.completionTimeoutSec,
+  );
+  const activity: WorkerActivity =
+    worker === null
+      ? "unknown"
+      : recentlyWorked
+        ? "active"
+        : stuckJobs.length > 0
+          ? "stalled"
+          : hasInflight
+            ? "processing"
+            : "idle";
+
   const base: Omit<WorkerLivenessReport, "summary"> = {
     address: worker?.id ?? "",
     status: worker?.status ?? null,
     liveness,
+    activity,
+    lastCompletedAgoSec,
     lastSeenAgoSec,
     activeJobCount: worker?.active_job_count ?? 0,
     stuckJobs,

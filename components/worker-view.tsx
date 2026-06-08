@@ -362,6 +362,24 @@ export function WorkerView({
             <Badge tone={statusPill.tone}>{statusPill.label}</Badge>
             {/* A stopped worker can't be working, so don't show its stale acked-job count. */}
             {!offlineHere && (worker.active_job_count ?? 0) > 0 && <Badge tone="brand">{worker.active_job_count} active job(s)</Badge>}
+            {/* Observed job-processing activity from the chain (complements the
+                local Live/Stopped pill; it is the useful signal for a remote
+                worker, where there is no container status). */}
+            {liveness && liveness.activity !== "unknown" && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-content-soft" title="Observed job-processing activity (from on-chain job flow)">
+                <span
+                  className={cn(
+                    "dot",
+                    liveness.activity === "active" || liveness.activity === "processing"
+                      ? "dot-live"
+                      : liveness.activity === "stalled"
+                        ? "dot-warn"
+                        : "dot-idle",
+                  )}
+                />
+                {liveness.activity}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={onToggleWatch}>

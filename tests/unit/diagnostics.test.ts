@@ -17,6 +17,8 @@ const ACTIONS: WorkerActionCenter = {
     address: "0xdf58",
     status: "active",
     liveness: "stalled",
+    activity: "stalled",
+    lastCompletedAgoSec: 600_000,
     lastSeenAgoSec: 166_000,
     activeJobCount: 3,
     stuckJobs: [{ id: "981", kind: "unacked", state: "Submitted", deadlineAtSec: 0, pastDeadlineSec: 166_000, slashBps: 200 }],

@@ -403,7 +403,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.12.0";
+export const SDK_VERSION = "0.12.1";
 
 export {
   NETWORKS,
@@ -537,7 +537,7 @@ export type {
   JobState,
   DecodedWorkerError,
 } from "./worker-operator.js";
-export type { WorkerLivenessReport, StuckJobReport, StuckKind, Liveness, LivenessConfig } from "./liveness.js";
+export type { WorkerLivenessReport, StuckJobReport, StuckKind, Liveness, WorkerActivity, LivenessConfig } from "./liveness.js";
 export type { WorkerActionCenter, WorkerAction, ActionKind, ActionUrgency, SettlementSummary, SettlementConfig } from "./actions.js";
 export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
 export type { SiweWalletClient, SiweChallenge, SiweVerifyResult, SiweSession } from "./auth.js";

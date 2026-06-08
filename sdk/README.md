@@ -144,7 +144,11 @@ if (r.liveness === "stalled") {
 ```
 
 `analyzeWorkerLiveness({ worker, jobs, config })` is the pure classifier behind it
-if you already hold the subgraph rows and `WorkerOperator.config()`.
+if you already hold the subgraph rows and `WorkerOperator.config()`. The report
+also carries an `activity` signal (`active | processing | stalled | idle |
+unknown`) derived from the job flow - an honest, gateway-free read of whether a
+worker is processing jobs (a recent completion = active; an acked job in flight =
+processing), useful for remote workers where there is no container status.
 
 ### Worker action center (new in 0.12.0)
 

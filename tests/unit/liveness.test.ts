@@ -42,6 +42,23 @@ describe("analyzeWorkerLiveness", () => {
     expect(r.suspensionRisk).toBe(true); // 3 >= threshold of 3
     expect(r.activeJobCount).toBe(3);
     expect(r.summary).toMatch(/never acknowledged/);
+    expect(r.activity).toBe("stalled"); // no recent completions + stuck jobs
+  });
+
+  it("derives the activity signal from the job flow", () => {
+    const base = { config: CFG, nowSec: NOW, status: "active" as const };
+    // A completion in the last few minutes = actively working.
+    const active = analyzeWorkerLiveness({ worker: worker(), jobs: [job("1", "Completed", { ack_at: NOW - 320, completed_at: NOW - 300 })], ...base });
+    expect(active.activity).toBe("active");
+    expect(active.lastCompletedAgoSec).toBe(300);
+    // An acked job in flight, inside the deadline = processing.
+    const processing = analyzeWorkerLiveness({ worker: worker(), jobs: [job("2", "Acknowledged", { ack_at: NOW - 30 })], ...base });
+    expect(processing.activity).toBe("processing");
+    // Registered, no recent jobs = idle (not a claim of offline).
+    const idle = analyzeWorkerLiveness({ worker: worker(), jobs: [job("3", "Released", { completed_at: NOW - 100_000 })], ...base });
+    expect(idle.activity).toBe("idle");
+    // Never seen = unknown.
+    expect(analyzeWorkerLiveness({ worker: null, jobs: [], ...base }).activity).toBe("unknown");
   });
 
   it("does NOT flag a Submitted job still inside the ack window", () => {

@@ -3,10 +3,25 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Coins, Star } from "lucide-react";
 import { fromWei, fmt, compact, timeAgo, shortAddr, cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import type { NetworkId } from "@/lib/network";
 import type { Worker } from "@/lib/subgraph";
+import type { WorkerActionCenter } from "lightnode-sdk";
 
-type Loaded = { worker: Worker | null; live: boolean };
+type Loaded = { worker: Worker | null; live: boolean; actions: WorkerActionCenter | null };
+
+/** The at-a-glance alert chips for one worker, most urgent first. Empty when the
+ *  worker is healthy with nothing pending - so a clean watchlist stays quiet. */
+function workerChips(a: WorkerActionCenter | null): Array<{ tone: "danger" | "warning" | "success" | "brand"; label: string }> {
+  if (!a) return [];
+  const chips: Array<{ tone: "danger" | "warning" | "success" | "brand"; label: string }> = [];
+  if (a.outOfGas && a.actions.some((x) => x.kind === "fund-gas")) chips.push({ tone: "danger", label: "no gas" });
+  const stuck = a.liveness.stuckJobs.length;
+  if (stuck > 0) chips.push({ tone: "warning", label: `${stuck} stuck` });
+  if (a.settlement.releasableNowCount > 0) chips.push({ tone: "brand", label: `settle ${a.settlement.releasableNowCount}` });
+  if (a.claimableLcai > 0) chips.push({ tone: "success", label: `claim ${fmt(a.claimableLcai, 3)}` });
+  return chips;
+}
 
 /** Compact overview of every watched worker at once. */
 export function WatchGrid({
@@ -30,7 +45,7 @@ export function WatchGrid({
           .then((r) => r.json())
           .then((j) => {
             if (!on || !j.ok) return;
-            setData((d) => ({ ...d, [addr.toLowerCase()]: { worker: j.worker, live: !!j.live } }));
+            setData((d) => ({ ...d, [addr.toLowerCase()]: { worker: j.worker, live: !!j.live, actions: j.actions ?? null } }));
           })
           .catch(() => {});
       });
@@ -64,9 +79,19 @@ export function WatchGrid({
         const d = data[addr.toLowerCase()];
         const w = d?.worker;
         const isActive = active?.toLowerCase() === addr.toLowerCase();
-        // Registered-but-not-live (active idle, or deactivated/slashed) shows amber;
-        // only a deregistered/missing worker shows red.
-        const dot = !w ? "dot-idle" : d.live ? "dot-live" : w.status !== "deregistered" ? "dot-warn" : "dot-down";
+        const chips = workerChips(d?.actions ?? null);
+        const needsAttention = chips.some((c) => c.tone === "danger" || c.tone === "warning");
+        // A problem (no gas / stuck) tints the dot amber regardless of last_seen;
+        // else registered-but-not-live shows amber, deregistered/missing shows red.
+        const dot = !w
+          ? "dot-idle"
+          : needsAttention
+            ? "dot-warn"
+            : d.live
+              ? "dot-live"
+              : w.status !== "deregistered"
+                ? "dot-warn"
+                : "dot-down";
         return (
           <button
             key={addr}
@@ -81,15 +106,28 @@ export function WatchGrid({
               <span className="font-mono text-sm text-content-primary">{shortAddr(addr)}</span>
             </div>
             {w ? (
-              <div className="mt-3 flex items-center justify-between text-xs text-content-soft">
-                <span className="inline-flex items-center gap-1">
-                  <CheckCircle2 className="size-3.5" /> {compact(w.jobs_completed ?? 0)} jobs
-                </span>
-                <span className="inline-flex items-center gap-1 text-success">
-                  <Coins className="size-3.5" /> {fmt(fromWei(w.total_earned), 2)}
-                </span>
-                <span>{timeAgo(w.last_seen_at)}</span>
-              </div>
+              <>
+                <div className="mt-3 flex items-center justify-between text-xs text-content-soft">
+                  <span className="inline-flex items-center gap-1">
+                    <CheckCircle2 className="size-3.5" /> {compact(w.jobs_completed ?? 0)} jobs
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-success">
+                    <Coins className="size-3.5" /> {fmt(fromWei(w.total_earned), 2)}
+                  </span>
+                  <span>{timeAgo(w.last_seen_at)}</span>
+                </div>
+                {/* Proactive alerts: surface stuck jobs / no gas / claimable across
+                    EVERY watched worker, so nothing is missed without opening each. */}
+                {chips.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {chips.map((c) => (
+                      <Badge key={c.label} tone={c.tone}>
+                        {c.label}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="mt-3 text-xs text-content-soft">{d ? "not registered" : "loading..."}</div>
             )}

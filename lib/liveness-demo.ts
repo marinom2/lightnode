@@ -20,6 +20,8 @@ export const DEMO_LIVENESS: WorkerLivenessReport = {
   address: "0xdemo000000000000000000000000000000000000",
   status: "active",
   liveness: "stalled",
+  activity: "stalled",
+  lastCompletedAgoSec: 180_000,
   lastSeenAgoSec: 166_000,
   activeJobCount: 3,
   stuckJobs: [
