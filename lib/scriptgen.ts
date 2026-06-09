@@ -76,6 +76,8 @@ econ_alerts(){
   if [ -n "$S" ] && [ "$S" -gt 0 ] 2>/dev/null; then alert_key stuck "LightChain worker on $HN has $S job(s) past their deadline (stuck) - clear them in the app to avoid a timeout slash."; else alert_key stuck ""; fi
   local R; R="$(printf '%s' "$J" | sed -nE 's/.*"settleNow":[[:space:]]*([0-9]+).*/\\1/p')"
   if [ -n "$R" ] && [ "$R" -gt 0 ] 2>/dev/null; then alert_key settle "LightChain worker on $HN has $R completed job(s) ready to settle - open the app and Settle to collect your earnings."; else alert_key settle ""; fi
+  local C; C="$(printf '%s' "$J" | sed -nE 's/.*"claimableLcai":[[:space:]]*([0-9.]+).*/\\1/p')"
+  if [ -n "$C" ] && awk -v c="$C" 'BEGIN{exit !(c+0 >= 0.01)}' 2>/dev/null; then alert_key claimable "LightChain worker on $HN has ~$C LCAI of earnings claimable - open the app and Withdraw to collect them."; else alert_key claimable ""; fi
 }
 # Respect an intentional Stop/Deregister: while this marker exists, leave the
 # worker alone (Install or Restart clears it to re-arm).
@@ -688,6 +690,7 @@ if ((Test-Path (Join-Path $env:USERPROFILE ".lightnode\\alerts.webhook")) -and (
         if ($r.outOfGas) { Send-Alert gas "LightChain worker on $hn is OUT OF GAS - its wallet ($($c.WORKER_ADDR)) cannot pay to acknowledge jobs, settle, or claim. Send it a little LCAI." } else { Send-Alert gas "" }
         if ([int]$r.stuck -gt 0) { Send-Alert stuck "LightChain worker on $hn has $($r.stuck) job(s) past their deadline (stuck) - clear them in the app to avoid a timeout slash." } else { Send-Alert stuck "" }
         if ([int]$r.settleNow -gt 0) { Send-Alert settle "LightChain worker on $hn has $($r.settleNow) completed job(s) ready to settle - open the app and Settle to collect your earnings." } else { Send-Alert settle "" }
+        if ([double]$r.claimableLcai -ge 0.01) { Send-Alert claimable "LightChain worker on $hn has ~$($r.claimableLcai) LCAI of earnings claimable - open the app and Withdraw to collect them." } else { Send-Alert claimable "" }
       }
     } catch {}
   }
