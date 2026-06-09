@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Sparkles,
+  Gauge,
   MessagesSquare,
   Bot,
   Layers,
@@ -46,6 +47,7 @@ export const CONSOLE_NAV: ConsoleNavSection[] = [
     title: "Run a capability",
     items: [
       { label: "Inference", href: "/build/inference", icon: Sparkles, blurb: "One encrypted prompt to a verifiable answer", ready: true },
+      { label: "Quote", href: "/build/quote", icon: Gauge, blurb: "Pre-spend cost, worker depth, reliability, refund window", ready: true },
       { label: "Chat", href: "/build/chat", icon: MessagesSquare, blurb: "Multi-turn conversation, one job per turn", ready: true },
       { label: "Agent", href: "/build/agent", icon: Bot, blurb: "ReAct tool-calling loop on any model", ready: true },
       { label: "Batch", href: "/build/batch", icon: Layers, blurb: "Many prompts in parallel, stable order", ready: true },

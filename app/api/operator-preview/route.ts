@@ -441,7 +441,22 @@ export async function GET(req: Request) {
           }),
       });
     }
-    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', or 'economics'");
+    if (action === "quote") {
+      // Consumer pre-spend quote (preInferenceQuote): fuse live fee + eligible-
+      // worker depth + measured reliability + refund window into one decision
+      // object, BEFORE any session opens. The consumer-side counterpart to the
+      // operator economics page.
+      const model = url.searchParams.get("model") ?? "";
+      if (!/^[a-zA-Z0-9._:-]{1,40}$/.test(model)) return bad("model: pass a model tag, e.g. llama3-8b");
+      const ln = new LightNode(network);
+      try {
+        const quote = await ln.preInferenceQuote(model);
+        return NextResponse.json({ action: "quote", net, quote });
+      } catch (e) {
+        return bad((e as Error).message?.split("\n")[0] ?? "quote failed", 404);
+      }
+    }
+    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', 'economics', or 'quote'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },
