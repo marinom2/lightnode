@@ -257,6 +257,10 @@ export default function PlaygroundPage() {
       setS({ ...initial, phase: "error", error: "Type a prompt first." });
       return;
     }
+    if (prompt.length > 8000) {
+      setS({ ...initial, phase: "error", error: "Prompt is too long (max 8000 characters). Shorten it and try again." });
+      return;
+    }
 
     startRef.current = Date.now();
     setS({ ...initial, phase: "auth" });

@@ -46,7 +46,18 @@ export async function GET(req: NextRequest) {
         const { ok, errData } = await ethCall(cfg.rpc, cfg.jobRegistry, data);
         if (ok) return { jobId: Number(job.id), ready: true, claimableAt: now };
         if (errData && errData.toLowerCase().startsWith(DISPUTE_WINDOW_NOT_ELAPSED)) {
-          const releaseAt = Number(BigInt("0x" + errData.slice(74, 138))); // 2nd 32-byte word
+          // Decode the 2nd 32-byte word (releaseAt). Guard against a malformed /
+          // truncated revert blob: a bad slice makes BigInt throw or yields a
+          // non-finite number, which would render a NaN ETA. Fail closed.
+          let releaseAt = NaN;
+          try {
+            releaseAt = Number(BigInt("0x" + errData.slice(74, 138)));
+          } catch {
+            releaseAt = NaN;
+          }
+          if (!Number.isFinite(releaseAt) || releaseAt < 0) {
+            return { jobId: Number(job.id), ready: false, claimableAt: 0 };
+          }
           return { jobId: Number(job.id), ready: releaseAt <= now, claimableAt: releaseAt };
         }
         // Unknown revert (e.g. already disputed) - treat as not-ready, no ETA.
