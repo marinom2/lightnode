@@ -440,6 +440,35 @@ export class LightNode {
     );
   }
 
+  /**
+   * A snapshot of every economically load-bearing protocol parameter (live
+   * AIConfig: stake floor, all slash bps, fee split, every timeout, suspension
+   * threshold/cooldown, and each whitelisted model's fee + enabled flag). Pin it
+   * to a committable lightchain.lock.json and diff future snapshots with
+   * {@link diffProtocolSnapshots} to catch a fee/timeout/model change before it
+   * silently breaks a downstream integration. Read-only.
+   */
+  async protocolSnapshot(): Promise<ProtocolSnapshot> {
+    const publicClient = createPublicClient({ transport: this.rpcHttp() }) as unknown as MinimalPublicClient;
+    const op = new WorkerOperator(this.network, { publicClient });
+    const [cfg, models] = await Promise.all([op.config(), this.getModels()]);
+    return {
+      net: this.network.id,
+      minStakeLcai: cfg.minStakeLcai,
+      ackTimeoutSec: cfg.ackTimeoutSec,
+      completionTimeoutSec: cfg.completionTimeoutSec,
+      resolutionTimeoutSec: cfg.resolutionTimeoutSec,
+      disputeWindowSec: cfg.disputeWindowSec,
+      slashBps: cfg.slashBps,
+      feeBps: cfg.feeBps,
+      suspensionThreshold: cfg.suspensionThreshold,
+      suspensionCooldownSec: cfg.suspensionCooldownSec,
+      models: models
+        .filter((m) => m.is_whitelisted)
+        .map((m) => ({ id: m.id, name: m.name, feeLcai: Number(m.fee) / 1e18, enabled: m.is_enabled })),
+    };
+  }
+
   /** Network-wide rollup across all models over the last `sample` jobs. */
   getNetworkAnalytics(sample = 1000): Promise<NetworkAnalytics> {
     return this.cached(`networkAnalytics:${sample}`, async () => networkAnalytics(await this.getModelStats(sample)));
@@ -807,6 +836,72 @@ export interface InferenceQuote {
   routable: boolean;
   /** One-line human summary. */
   verdict: string;
+}
+
+/** A pinnable snapshot of the live protocol parameters (see {@link LightNode.protocolSnapshot}). */
+export interface ProtocolSnapshot {
+  net: string;
+  minStakeLcai: number;
+  ackTimeoutSec: number;
+  completionTimeoutSec: number;
+  resolutionTimeoutSec: number;
+  disputeWindowSec: number;
+  slashBps: { ackTimeout: number; completionTimeout: number; dispute: number; max: number };
+  feeBps: { worker: number; protocol: number; feePool: number };
+  suspensionThreshold: number;
+  suspensionCooldownSec: number;
+  models: { id: string; name: string; feeLcai: number; enabled: boolean }[];
+}
+
+/** One parameter that changed between two {@link ProtocolSnapshot}s. */
+export interface ProtocolChange {
+  path: string;
+  from: string | number;
+  to: string | number;
+}
+
+function flattenSnapshot(s: ProtocolSnapshot): Record<string, string | number> {
+  const o: Record<string, string | number> = {
+    minStakeLcai: s.minStakeLcai,
+    ackTimeoutSec: s.ackTimeoutSec,
+    completionTimeoutSec: s.completionTimeoutSec,
+    resolutionTimeoutSec: s.resolutionTimeoutSec,
+    disputeWindowSec: s.disputeWindowSec,
+    "slashBps.ackTimeout": s.slashBps.ackTimeout,
+    "slashBps.completionTimeout": s.slashBps.completionTimeout,
+    "slashBps.dispute": s.slashBps.dispute,
+    "slashBps.max": s.slashBps.max,
+    "feeBps.worker": s.feeBps.worker,
+    "feeBps.protocol": s.feeBps.protocol,
+    "feeBps.feePool": s.feeBps.feePool,
+    suspensionThreshold: s.suspensionThreshold,
+    suspensionCooldownSec: s.suspensionCooldownSec,
+  };
+  for (const m of s.models) {
+    o[`model.${m.name}.feeLcai`] = m.feeLcai;
+    o[`model.${m.name}.enabled`] = String(m.enabled);
+  }
+  return o;
+}
+
+/**
+ * Diff two protocol snapshots into a flat change-log. Pure; powers the drift
+ * watcher and a CI guard that fails when a fee/timeout/slash/model changes under
+ * a downstream app.
+ */
+export function diffProtocolSnapshots(baseline: ProtocolSnapshot, current: ProtocolSnapshot): ProtocolChange[] {
+  const a = flattenSnapshot(baseline);
+  const b = flattenSnapshot(current);
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+  const changes: ProtocolChange[] = [];
+  for (const k of keys) {
+    const from = a[k];
+    const to = b[k];
+    if (from === undefined) changes.push({ path: k, from: "(absent)", to: to as string | number });
+    else if (to === undefined) changes.push({ path: k, from, to: "(removed)" });
+    else if (from !== to) changes.push({ path: k, from, to });
+  }
+  return changes.sort((x, y) => x.path.localeCompare(y.path));
 }
 
 /** Builder constraints for {@link LightNode.chooseModel}. All optional. */
