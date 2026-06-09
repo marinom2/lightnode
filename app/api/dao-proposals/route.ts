@@ -11,7 +11,7 @@
  */
 import { NextResponse } from "next/server";
 import { createPublicClient, http, parseAbiItem } from "viem";
-import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, type ProposalState } from "lightnode-sdk";
+import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, decodeGovernanceAction, type ProposalState } from "lightnode-sdk";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -132,8 +132,24 @@ export async function GET(req: Request) {
     const abi = GOVERNOR_ABI;
     const proposals = await Promise.all(
       recent.map(async (log) => {
-        const args = (log as unknown as { args: { proposalId: bigint; description: string; proposer: `0x${string}`; voteStart: bigint; voteEnd: bigint } }).args;
+        const args = (log as unknown as {
+          args: {
+            proposalId: bigint;
+            description: string;
+            proposer: `0x${string}`;
+            voteStart: bigint;
+            voteEnd: bigint;
+            targets?: `0x${string}`[];
+            values?: bigint[];
+            calldatas?: `0x${string}`[];
+          };
+        }).args;
         const id = args.proposalId;
+        // Decode the executing calldata into plain-English, danger-flagged actions.
+        const targets = args.targets ?? [];
+        const actions = targets.map((target, i) =>
+          decodeGovernanceAction({ target, value: args.values?.[i] ?? 0n, calldata: args.calldatas?.[i] ?? "0x" }),
+        );
         const [stateRaw, votes, deadline] = (await Promise.all([
           pub.readContract({ address: addresses.governor, abi, functionName: "state", args: [id] }).catch(() => -1),
           pub.readContract({ address: addresses.governor, abi, functionName: "proposalVotes", args: [id] }).catch(() => [0n, 0n, 0n]),
@@ -153,6 +169,7 @@ export async function GET(req: Request) {
           votesFor: votes[1].toString(),
           votesAgainst: votes[0].toString(),
           votesAbstain: votes[2].toString(),
+          actions,
         };
       }),
     );

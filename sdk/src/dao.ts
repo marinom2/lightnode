@@ -18,7 +18,7 @@
  * castVote, queue, execute. Plus convenience reads of the constants.
  */
 
-import { keccak256, parseAbi, toBytes } from "viem";
+import { keccak256, parseAbi, toBytes, decodeFunctionData } from "viem";
 
 /**
  * Both deployed DAOs we know about:
@@ -220,6 +220,91 @@ export interface ProposalRow {
   state: ProposalState;
   stateLabel: string;
   blockNumber: bigint;
+  /** Decoded on-chain actions this proposal executes (verified calldata, not the proposer's prose). */
+  actions: DecodedGovernanceAction[];
+}
+
+/** One decoded action inside a proposal (see {@link decodeGovernanceAction}). */
+export interface DecodedGovernanceAction {
+  target: `0x${string}`;
+  /** Native value sent with the call, in whole LCAI/ETH. */
+  valueLcai: number;
+  /** Decoded function name, or null when the selector isn't in the known set. */
+  fn: string | null;
+  /** Plain-English description of what the call does. */
+  label: string;
+  kind: "upgrade" | "transfer" | "ownership" | "governance-param" | "value" | "unknown";
+  /** True for high-impact calls (upgrades, ownership moves, fund transfers). */
+  dangerous: boolean;
+}
+
+// The high-signal governance calls worth decoding without a per-target ABI:
+// proxy upgrades, fund movements, ownership handovers, and Governor self-params.
+// A proposal targeting an unlisted setter still surfaces (kind "unknown" + selector).
+const GOV_ACTION_ABI = parseAbi([
+  "function transfer(address to, uint256 amount)",
+  "function approve(address spender, uint256 amount)",
+  "function upgradeTo(address newImplementation)",
+  "function upgradeToAndCall(address newImplementation, bytes data)",
+  "function transferOwnership(address newOwner)",
+  "function setVotingDelay(uint256 newVotingDelay)",
+  "function setVotingPeriod(uint256 newVotingPeriod)",
+  "function setProposalThreshold(uint256 newProposalThreshold)",
+  "function updateQuorumNumerator(uint256 newQuorumNumerator)",
+]);
+
+const shortAddr = (a: string): string => (a.length > 12 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a);
+
+/**
+ * Decode one proposal action (target, value, calldata) into a plain-English,
+ * danger-flagged description - the verified intent of the executing calldata,
+ * not the proposer's free-text. Pure; decodes the high-signal governance calls
+ * (upgrades, transfers, ownership, Governor params) and falls back to a labelled
+ * unknown-selector entry for anything else.
+ */
+export function decodeGovernanceAction(action: { target: `0x${string}`; value: bigint; calldata: `0x${string}` }): DecodedGovernanceAction {
+  const valueLcai = Number(action.value) / 1e18;
+  const base = { target: action.target, valueLcai };
+  if (!action.calldata || action.calldata === "0x") {
+    return { ...base, fn: null, kind: "value", dangerous: valueLcai > 0, label: valueLcai > 0 ? `Send ${valueLcai} (native) to ${shortAddr(action.target)}` : `Empty call to ${shortAddr(action.target)}` };
+  }
+  try {
+    const { functionName, args } = decodeFunctionData({ abi: GOV_ACTION_ABI, data: action.calldata });
+    const a = (args ?? []) as readonly unknown[];
+    switch (functionName) {
+      case "transfer":
+        return { ...base, fn: functionName, kind: "transfer", dangerous: true, label: `Transfer ${Number(a[1] as bigint) / 1e18} to ${shortAddr(String(a[0]))}` };
+      case "approve":
+        return { ...base, fn: functionName, kind: "transfer", dangerous: true, label: `Approve ${Number(a[1] as bigint) / 1e18} to ${shortAddr(String(a[0]))}` };
+      case "upgradeTo":
+      case "upgradeToAndCall":
+        return { ...base, fn: functionName, kind: "upgrade", dangerous: true, label: `Upgrade ${shortAddr(action.target)} implementation to ${shortAddr(String(a[0]))}` };
+      case "transferOwnership":
+        return { ...base, fn: functionName, kind: "ownership", dangerous: true, label: `Transfer ownership of ${shortAddr(action.target)} to ${shortAddr(String(a[0]))}` };
+      case "setVotingDelay":
+      case "setVotingPeriod":
+      case "setProposalThreshold":
+      case "updateQuorumNumerator":
+        return { ...base, fn: functionName, kind: "governance-param", dangerous: false, label: `${functionName}(${String(a[0])})` };
+      default:
+        return { ...base, fn: functionName, kind: "unknown", dangerous: valueLcai > 0, label: `${functionName} on ${shortAddr(action.target)}` };
+    }
+  } catch {
+    return {
+      ...base,
+      fn: null,
+      kind: valueLcai > 0 ? "value" : "unknown",
+      dangerous: valueLcai > 0,
+      label: `Unknown call (${action.calldata.slice(0, 10)}) to ${shortAddr(action.target)}${valueLcai > 0 ? `, sends ${valueLcai}` : ""}`,
+    };
+  }
+}
+
+/** Decode every action in a ProposalCreated event's parallel target/value/calldata arrays. */
+function decodeProposalActions(targets: readonly `0x${string}`[], values: readonly bigint[], calldatas: readonly `0x${string}`[]): DecodedGovernanceAction[] {
+  return targets.map((target, i) =>
+    decodeGovernanceAction({ target, value: values[i] ?? 0n, calldata: calldatas[i] ?? "0x" }),
+  );
 }
 
 /**
@@ -372,6 +457,10 @@ export class DAO {
         const description = (args.description as string | undefined) ?? "";
         if (id == null || !proposer) continue;
         const title = description.split(/\r?\n/).map((s) => s.trim()).find(Boolean) ?? `Proposal #${id.toString()}`;
+        // Decode the executing calldata (verified intent) instead of discarding it.
+        const targets = (args.targets as `0x${string}`[] | undefined) ?? [];
+        const values = (args.values as bigint[] | undefined) ?? [];
+        const calldatas = (args.calldatas as `0x${string}`[] | undefined) ?? [];
         rows.push({
           id,
           proposer,
@@ -380,6 +469,7 @@ export class DAO {
           state: 0 as ProposalState,
           stateLabel: "",
           blockNumber: log.blockNumber ?? 0n,
+          actions: decodeProposalActions(targets, values, calldatas),
         });
       }
     }

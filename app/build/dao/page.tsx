@@ -14,6 +14,14 @@ const EXPLORER: Record<DaoChain, string> = {
   lightchain: "https://mainnet.lightscan.app",
 };
 
+interface DecodedAction {
+  target: string;
+  valueLcai: number;
+  fn: string | null;
+  label: string;
+  kind: string;
+  dangerous: boolean;
+}
 interface Proposal {
   id: string;
   title: string;
@@ -22,6 +30,7 @@ interface Proposal {
   votesFor: string;
   votesAgainst: string;
   votesAbstain: string;
+  actions?: DecodedAction[];
 }
 interface DaoResponse {
   addresses?: { governor: string };
@@ -180,6 +189,17 @@ export default function DaoPanel() {
                   </div>
                 </div>
                 <VoteBar p={p} />
+                {p.actions && p.actions.length > 0 && (
+                  <div className="mt-3 space-y-1 border-t border-bdr-soft pt-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-content-soft">Executes on-chain (decoded calldata)</p>
+                    {p.actions.map((act, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs">
+                        <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", act.dangerous ? "bg-warning" : "bg-content-soft/40")} />
+                        <span className="text-content-default">{act.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
 
