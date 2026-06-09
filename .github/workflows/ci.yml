@@ -44,6 +44,12 @@ jobs:
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
+    # Advisory, NOT a gate. The Playwright smoke run drives the live app, which
+    # depends on external services (Reown config, the public subgraph) that 403 /
+    # rate-limit in CI, so it flakes for reasons unrelated to the change. Keep it
+    # running for signal + the uploaded report, but never fail the workflow on it
+    # (that was emailing on every push). The `verify` job is the real gate.
+    continue-on-error: true
     env:
       NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID }}
     steps:
