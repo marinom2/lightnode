@@ -521,7 +521,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.18.2";
+export const SDK_VERSION = "0.18.3";
 
 export {
   NETWORKS,

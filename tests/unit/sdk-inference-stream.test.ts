@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { runInferenceStream, runInferenceWithKey, isAbortError, NETWORKS } from "../../sdk/src/index";
+import { runInferenceStream, runInferenceWithKey, isAbortError, modelId, NETWORKS } from "../../sdk/src/index";
 
 const KEY = "0x" + "1".repeat(64);
 
@@ -22,6 +22,19 @@ describe("runInferenceStream error propagation", () => {
     }
     expect(threw).toBeDefined();
     expect(isAbortError(threw)).toBe(true);
+  });
+});
+
+describe("input guards", () => {
+  it("modelId rejects an empty / whitespace tag", () => {
+    expect(() => modelId("")).toThrow(/non-empty/i);
+    expect(() => modelId("   ")).toThrow(/non-empty/i);
+  });
+
+  it("runInferenceWithKey rejects an empty / whitespace prompt before any network call", async () => {
+    await expect(
+      runInferenceWithKey({ network: "testnet", privateKey: KEY, prompt: "   " }),
+    ).rejects.toThrow(/prompt must be a non-empty/i);
   });
 });
 
