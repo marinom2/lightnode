@@ -334,6 +334,56 @@ export class LightNode {
     });
   }
 
+  /**
+   * Consumer pre-spend quote: BEFORE opening a session, fuse everything a dApp
+   * builder needs to decide whether to route to a model into ONE object - the
+   * live fee, the count of workers CURRENTLY eligible on-chain (redundancy
+   * depth), measured p50/p95 + honest completion rate, and the worst-case refund
+   * window if a worker stalls. Read-only; no key, no funds. LightChain's model
+   * list and worker directory never fuse these into one decision.
+   */
+  async preInferenceQuote(modelTag: string, opts: { workers?: number } = {}): Promise<InferenceQuote> {
+    const tag = (modelTag ?? "").trim();
+    if (!tag) throw new Error("preInferenceQuote: modelTag must be a non-empty string");
+    const id = computeModelId(tag);
+    const idLow = id.toLowerCase();
+    const publicClient = createPublicClient({ transport: this.rpcHttp() }) as unknown as MinimalPublicClient;
+    const op = new WorkerOperator(this.network, { publicClient });
+    const [models, modelStats, config, workers] = await Promise.all([
+      this.getModels(),
+      this.getModelStats(),
+      op.config(),
+      this.getWorkers(opts.workers ?? 200),
+    ]);
+    const model = models.find((m) => m.id.toLowerCase() === idLow);
+    if (!model) throw new Error(`preInferenceQuote: model "${tag}" is not in the registry`);
+    const stat = modelStats.find((s) => s.modelId.toLowerCase() === idLow);
+    // Redundancy depth: how many workers are on-chain eligible to serve THIS
+    // model right now. Only active workers can serve; one isEligible eth_call per
+    // worker, bounded so a large set doesn't fan out unbounded.
+    const active = workers.filter((w) => (w.status ?? "").toLowerCase() === "active");
+    const eligibility = await mapWithConcurrency(active, 8, async (w) => {
+      const m = await fetchOnchainEligibleModels(this.network, w.id, [id], this.timeoutMs);
+      return m?.get(idLow) === true;
+    });
+    const eligibleWorkers = eligibility.filter(Boolean).length;
+    const refundWindowSec = config.ackTimeoutSec + config.completionTimeoutSec + config.disputeWindowSec;
+    const base = {
+      model: tag,
+      modelId: id,
+      feeLcai: Number(model.fee) / 1e18,
+      maxOutputTokens: model.max_output_tokens,
+      enabled: model.is_enabled,
+      eligibleWorkers,
+      completionRate: stat?.completionRate ?? null,
+      p50: stat?.p50 ?? null,
+      p95: stat?.p95 ?? null,
+      sampleJobs: stat?.total ?? 0,
+      refundWindowSec,
+    };
+    return { ...base, routable: base.enabled && eligibleWorkers > 0, verdict: quoteVerdict(base) };
+  }
+
   /** Network-wide rollup across all models over the last `sample` jobs. */
   getNetworkAnalytics(sample = 1000): Promise<NetworkAnalytics> {
     return this.cached(`networkAnalytics:${sample}`, async () => networkAnalytics(await this.getModelStats(sample)));
@@ -672,3 +722,62 @@ export type { WorkerLivenessReport, StuckJobReport, StuckKind, Liveness, WorkerA
 export type { WorkerActionCenter, WorkerAction, ActionKind, ActionUrgency, SettlementSummary, SettlementConfig } from "./actions.js";
 export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
 export type { SiweWalletClient, SiweChallenge, SiweVerifyResult, SiweSession } from "./auth.js";
+
+/**
+ * A consumer pre-spend decision object (see {@link LightNode.preInferenceQuote}).
+ * Everything a dApp builder needs to decide whether to route to a model, fused
+ * from live reads.
+ */
+export interface InferenceQuote {
+  model: string;
+  modelId: `0x${string}`;
+  /** Per-job fee in whole LCAI (the model's gross fee). */
+  feeLcai: number;
+  maxOutputTokens: number;
+  enabled: boolean;
+  /** Workers on-chain eligible to serve this model right now (redundancy depth). */
+  eligibleWorkers: number;
+  /** Honest recent completion rate (0..1), or null when there's no sample. */
+  completionRate: number | null;
+  p50: number | null;
+  p95: number | null;
+  /** Recent jobs observed for this model (the reliability sample size). */
+  sampleJobs: number;
+  /** Worst-case seconds until a stalled job's fee auto-refunds (ack + completion + dispute). */
+  refundWindowSec: number;
+  /** enabled AND at least one eligible worker - safe to route to. */
+  routable: boolean;
+  /** One-line human summary. */
+  verdict: string;
+}
+
+/** Human seconds: 45s, 12m, 1.5h, 1.0d. */
+function humanizeSeconds(sec: number): string {
+  if (sec < 90) return `${Math.round(sec)}s`;
+  if (sec < 5400) return `${Math.round(sec / 60)}m`;
+  if (sec < 86400) return `${(sec / 3600).toFixed(1)}h`;
+  return `${(sec / 86400).toFixed(1)}d`;
+}
+
+/**
+ * Pure verdict composer for {@link InferenceQuote}. Separated from the network
+ * reads so the decision logic is unit-testable without a chain.
+ */
+export function quoteVerdict(q: {
+  feeLcai: number;
+  enabled: boolean;
+  eligibleWorkers: number;
+  completionRate: number | null;
+  p95: number | null;
+  refundWindowSec: number;
+}): string {
+  if (!q.enabled) return "Model is not currently enabled - pick another.";
+  if (q.eligibleWorkers === 0) return "No workers are currently eligible for this model - jobs would not be served right now.";
+  const parts = [`fee ${q.feeLcai} LCAI`, `${q.eligibleWorkers} eligible worker${q.eligibleWorkers === 1 ? "" : "s"}`];
+  if (q.completionRate != null) parts.push(`${Math.round(q.completionRate * 100)}% completion`);
+  if (q.p95 != null) parts.push(`p95 ${q.p95}s`);
+  parts.push(`refund in ~${humanizeSeconds(q.refundWindowSec)} if stalled`);
+  let line = parts.join(", ");
+  if (q.eligibleWorkers === 1) line += " - single worker, no redundancy";
+  return line;
+}
