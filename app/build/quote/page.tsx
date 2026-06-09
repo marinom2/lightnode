@@ -7,7 +7,10 @@ import { NETWORKS } from "lightnode-sdk";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { PanelGrid, PanelColumn, Field, RunButton, ResponseEmpty, Notice } from "@/components/build/console/panel-kit";
+import { ModelRouter } from "@/components/build/console/model-router";
 import { cn } from "@/lib/utils";
+
+type Mode = "one" | "best";
 
 interface Quote {
   model: string;
@@ -59,6 +62,7 @@ export default function QuotePage() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("one");
 
   // Load the model list for the dropdown on mount / network change.
   useEffect(() => {
@@ -112,6 +116,24 @@ export default function QuotePage() {
         title="Pre-spend quote"
         subtitle={`Before you open a session: the live per-job fee, how many workers are eligible to serve the model RIGHT NOW (redundancy depth), the measured completion rate + latency, and when your fee auto-refunds if a worker stalls - one decision object. Read-only, no wallet, ${netLabel}.`}
       >
+        <div className="mb-5 inline-flex rounded-lg border border-bdr-soft p-0.5 text-sm">
+          {(["one", "best"] as Mode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={cn(
+                "rounded-md px-3 py-1 font-medium transition-colors",
+                mode === m ? "bg-primary/10 text-content-primary" : "text-content-soft hover:text-content-primary",
+              )}
+            >
+              {m === "one" ? "Quote a model" : "Find best model"}
+            </button>
+          ))}
+        </div>
+        {mode === "best" ? (
+          <ModelRouter network={network} netLabel={netLabel} />
+        ) : (
         <PanelGrid>
           <PanelColumn title="Request">
             <div className="space-y-4">
@@ -189,6 +211,7 @@ export default function QuotePage() {
             )}
           </PanelColumn>
         </PanelGrid>
+        )}
       </ConsolePanel>
 
       <section className="space-y-3">

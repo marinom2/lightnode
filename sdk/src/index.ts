@@ -384,6 +384,61 @@ export class LightNode {
     return { ...base, routable: base.enabled && eligibleWorkers > 0, verdict: quoteVerdict(base) };
   }
 
+  /**
+   * Consumer-side model router. Scores every whitelisted model against the
+   * builder's constraints (max fee, max p95, min completion, min redundancy) from
+   * live data and returns them ranked best-first, each with a meets flag, the
+   * reasons it was dropped, and a composite score. The inverse of the operator
+   * leaderboard: "which model should my dApp route to". Read-only; shares the
+   * eligibility fan-out with preInferenceQuote but fetches the network reads ONCE
+   * for all models instead of per model.
+   */
+  async chooseModel(constraints: ModelConstraints = {}): Promise<ModelChoice[]> {
+    const publicClient = createPublicClient({ transport: this.rpcHttp() }) as unknown as MinimalPublicClient;
+    const op = new WorkerOperator(this.network, { publicClient });
+    const [models, modelStats, config, workers] = await Promise.all([
+      this.getModels(),
+      this.getModelStats(),
+      op.config(),
+      this.getWorkers(200),
+    ]);
+    const candidates = models.filter((m) => m.is_whitelisted);
+    const ids = candidates.map((m) => m.id);
+    // One isEligible read per active worker, checking ALL candidate models at
+    // once (not per model), then tally eligible workers per model.
+    const active = workers.filter((w) => (w.status ?? "").toLowerCase() === "active");
+    const maps = await mapWithConcurrency(active, 8, (w) => fetchOnchainEligibleModels(this.network, w.id, ids, this.timeoutMs));
+    const eligibleCount = new Map<string, number>();
+    for (const m of maps) {
+      if (!m) continue;
+      for (const [id, ok] of m) if (ok) eligibleCount.set(id, (eligibleCount.get(id) ?? 0) + 1);
+    }
+    const refundWindowSec = config.ackTimeoutSec + config.completionTimeoutSec + config.disputeWindowSec;
+    const statById = new Map(modelStats.map((s) => [s.modelId.toLowerCase(), s]));
+    const choices: ModelChoice[] = candidates.map((m) => {
+      const idLow = m.id.toLowerCase();
+      const stat = statById.get(idLow);
+      const fields = {
+        model: m.name,
+        modelId: m.id as `0x${string}`,
+        feeLcai: Number(m.fee) / 1e18,
+        maxOutputTokens: m.max_output_tokens,
+        enabled: m.is_enabled,
+        eligibleWorkers: eligibleCount.get(idLow) ?? 0,
+        completionRate: stat?.completionRate ?? null,
+        p50: stat?.p50 ?? null,
+        p95: stat?.p95 ?? null,
+        sampleJobs: stat?.total ?? 0,
+        refundWindowSec,
+      };
+      return { ...fields, ...rankModelChoice(fields, constraints) };
+    });
+    // Models that meet the constraints first, then by composite score, then by depth.
+    return choices.sort(
+      (a, b) => Number(b.meets) - Number(a.meets) || b.score - a.score || b.eligibleWorkers - a.eligibleWorkers,
+    );
+  }
+
   /** Network-wide rollup across all models over the last `sample` jobs. */
   getNetworkAnalytics(sample = 1000): Promise<NetworkAnalytics> {
     return this.cached(`networkAnalytics:${sample}`, async () => networkAnalytics(await this.getModelStats(sample)));
@@ -749,6 +804,59 @@ export interface InferenceQuote {
   routable: boolean;
   /** One-line human summary. */
   verdict: string;
+}
+
+/** Builder constraints for {@link LightNode.chooseModel}. All optional. */
+export interface ModelConstraints {
+  maxFeeLcai?: number;
+  maxP95Sec?: number;
+  /** Minimum recent completion rate, 0..1. */
+  minCompletionRate?: number;
+  /** Minimum on-chain eligible workers (redundancy). */
+  minEligibleWorkers?: number;
+}
+
+/** One ranked model option from {@link LightNode.chooseModel}. */
+export interface ModelChoice {
+  model: string;
+  modelId: `0x${string}`;
+  feeLcai: number;
+  maxOutputTokens: number;
+  enabled: boolean;
+  eligibleWorkers: number;
+  completionRate: number | null;
+  p50: number | null;
+  p95: number | null;
+  sampleJobs: number;
+  refundWindowSec: number;
+  /** Satisfies every given constraint AND is routable (enabled + has workers). */
+  meets: boolean;
+  /** Why it failed (empty when it meets). */
+  dropReasons: string[];
+  /** Composite quality score (higher is better) - completion + redundancy - latency - fee. */
+  score: number;
+}
+
+/**
+ * Pure scorer/filter for {@link LightNode.chooseModel}. Separated from the
+ * network reads so the ranking logic is unit-testable without a chain.
+ */
+export function rankModelChoice(
+  m: { feeLcai: number; enabled: boolean; eligibleWorkers: number; completionRate: number | null; p95: number | null },
+  c: ModelConstraints,
+): { meets: boolean; dropReasons: string[]; score: number } {
+  const dropReasons: string[] = [];
+  if (!m.enabled) dropReasons.push("model disabled");
+  if (m.eligibleWorkers === 0) dropReasons.push("no eligible workers");
+  if (c.maxFeeLcai != null && m.feeLcai > c.maxFeeLcai) dropReasons.push(`fee ${m.feeLcai} > max ${c.maxFeeLcai}`);
+  if (c.minEligibleWorkers != null && m.eligibleWorkers < c.minEligibleWorkers)
+    dropReasons.push(`${m.eligibleWorkers} eligible < min ${c.minEligibleWorkers}`);
+  if (c.minCompletionRate != null && m.completionRate != null && m.completionRate < c.minCompletionRate)
+    dropReasons.push(`completion ${Math.round(m.completionRate * 100)}% < min ${Math.round(c.minCompletionRate * 100)}%`);
+  if (c.maxP95Sec != null && m.p95 != null && m.p95 > c.maxP95Sec) dropReasons.push(`p95 ${m.p95}s > max ${c.maxP95Sec}s`);
+  const score =
+    (m.completionRate ?? 0) * 100 + Math.min(m.eligibleWorkers, 10) * 5 - (m.p95 ?? 0) * 0.2 - m.feeLcai * 10;
+  return { meets: dropReasons.length === 0, dropReasons, score: Math.round(score * 10) / 10 };
 }
 
 /** Human seconds: 45s, 12m, 1.5h, 1.0d. */
