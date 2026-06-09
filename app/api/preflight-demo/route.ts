@@ -58,7 +58,11 @@ export async function POST(req: NextRequest) {
   } catch {
     body = {};
   }
-  const model = typeof body.model === "string" ? body.model : "llama3-8b";
+  // Defense-in-depth on a public, faucet-funded endpoint: only accept a
+  // model that LOOKS like a model tag (short, tag-safe chars) instead of an
+  // arbitrary attacker-controlled string. Anything else falls back to the
+  // default. The SDK/gateway still rejects an unknown-but-valid tag.
+  const model = typeof body.model === "string" && /^[a-zA-Z0-9._:-]{1,40}$/.test(body.model) ? body.model : "llama3-8b";
   const deadlineMs =
     typeof body.deadlineMs === "number" && body.deadlineMs >= 5_000 && body.deadlineMs <= 60_000
       ? body.deadlineMs
