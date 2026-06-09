@@ -592,7 +592,6 @@ export async function runJobOnSession(
       /* a faulty consumer callback must not affect the stream */
     }
   };
-  const WS = pickWebSocket(opts.WebSocket);
   const relayUrl = opts.relayUrl ?? `wss://relay.${network.id}.lightchain.ai/ws`;
   // Shim so the job body below can keep referencing prepared.* unchanged.
   const prepared = { sessionKey, createSessionArgs: { worker } };
@@ -619,6 +618,12 @@ export async function runJobOnSession(
   }
   if (!relayToken) throw new RelayTokenTimeoutError();
 
+  // Resolve the WebSocket implementation only now that we actually need it. In
+  // Node this throws if `ws` wasn't provided; doing it here - after the abort
+  // checks and the relay-token poll - means an already-cancelled call or a relay
+  // timeout surfaces its real error instead of a confusing "no WebSocket"
+  // (and, on Node < 21 with no global WebSocket, keeps those paths testable).
+  const WS = pickWebSocket(opts.WebSocket);
   const ws = new WS(`${relayUrl}?token=${encodeURIComponent(relayToken)}`);
   // Close the relay socket without throwing, from any cleanup/abort path.
   const closeWs = (): void => {
