@@ -44,8 +44,8 @@ export const CONSOLE_NAV: ConsoleNavSection[] = [
   {
     title: "Run a capability",
     items: [
-      { label: "Inference", href: "/build/sdks/inference", icon: Sparkles, blurb: "One encrypted prompt to a verifiable answer", ready: true },
-      { label: "Chat", href: "/build/sdks/chat", icon: MessagesSquare, blurb: "Multi-turn conversation, one tx per turn", ready: true },
+      { label: "Inference", href: "/build/inference", icon: Sparkles, blurb: "One encrypted prompt to a verifiable answer", ready: true },
+      { label: "Chat", href: "/build/chat", icon: MessagesSquare, blurb: "Multi-turn conversation, one job per turn", ready: true },
       { label: "Agent", href: "/build/agent", icon: Bot, blurb: "ReAct tool-calling loop on any model", ready: false },
       { label: "Batch", href: "/build/batch", icon: Layers, blurb: "Many prompts in parallel, stable order", ready: false },
       { label: "Worker ops", href: "/build/sdks/operator", icon: Server, blurb: "Status, settle, stuck-job recovery, exit", ready: true },
