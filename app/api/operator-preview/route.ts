@@ -11,8 +11,20 @@
  * StackBlitz or a local Node script.
  */
 import { NextResponse } from "next/server";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, parseAbi, getAddress } from "viem";
 import { WorkerOperator, NETWORKS, LightNode, type NetworkId } from "lightnode-sdk";
+
+// EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1.
+// Every LightChain protocol contract stores its logic address here (verified live).
+const EIP1967_IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+// Documented mainnet service accounts (public, observable on-chain). Not signing
+// targets - shown so operators can recognise who assigns/relays/disputes their jobs.
+const MAINNET_SERVICE_EOAS = [
+  { name: "Dispatcher", role: "Assigns jobs to workers", address: "0x93953f40A472E65cD0212a2DA38dD1337854256F" },
+  { name: "Worker-gateway", role: "Relays encrypted prompts + results", address: "0x46737082Ac84e64f936cDDBa28F5Cd5E71329E62" },
+  { name: "Disputer", role: "Opens disputes on bad results", address: "0xED60d14E586219D7c984bDf0AA720a6Bd96B5F73" },
+] as const;
 
 const STUCK_DEADLINE_SEC = 60 * 60; // SDK default completion timeout
 
@@ -291,7 +303,94 @@ export async function GET(req: Request) {
         },
       });
     }
-    return bad("unknown action - try 'config', 'status', 'job', or 'risk'");
+    if (action === "contracts") {
+      // Live contract verifier: prove the addresses we sign against match the
+      // chain's OWN resolution (WorkerRegistry.aiConfig()/.jobRegistry()), expose
+      // each upgradeable proxy's current implementation (EIP-1967 slot) + owner,
+      // and surface the documented service EOAs. Directly serves the docs'
+      // guidance to "verify the current owner on-chain before relying on any
+      // privileged action".
+      const RESOLVE_ABI = parseAbi([
+        "function aiConfig() view returns (address)",
+        "function jobRegistry() view returns (address)",
+      ]);
+      const OWNABLE_ABI = parseAbi(["function owner() view returns (address)"]);
+      const readImpl = async (addr: string): Promise<string | null> => {
+        try {
+          const w = await publicClient.getStorageAt({ address: addr as `0x${string}`, slot: EIP1967_IMPL_SLOT });
+          if (!w) return null;
+          const a = `0x${w.slice(-40)}`;
+          return /^0x0+$/.test(a) ? null : getAddress(a);
+        } catch {
+          return null;
+        }
+      };
+      const readOwner = async (addr: string): Promise<string | null> => {
+        try {
+          return await publicClient.readContract({ address: addr as `0x${string}`, abi: OWNABLE_ABI, functionName: "owner" });
+        } catch {
+          // Governor is Timelock-governed (no owner()), genesis predeploys may not be Ownable.
+          return null;
+        }
+      };
+
+      const defs: { key: string; name: string; role: string; address?: string; kind: "predeploy" | "proxy" | "contract" }[] = [
+        { key: "workerRegistry", name: "WorkerRegistry", role: "Worker registration, stake, eligibility", address: network.workerRegistry, kind: "predeploy" },
+        { key: "aiConfig", name: "AIConfig", role: "Protocol parameters - stake, timeouts, slash bps, fee split", address: network.aiConfig, kind: "proxy" },
+        { key: "jobRegistry", name: "JobRegistry", role: "Job lifecycle, escrow, settlement", address: network.jobRegistry, kind: "proxy" },
+        { key: "feePool", name: "FeePool", role: "Protocol fee accumulation", address: network.feePool, kind: "predeploy" },
+        { key: "treasury", name: "Treasury", role: "DAO-controlled treasury", address: network.treasury, kind: "proxy" },
+        { key: "governor", name: "LightChainGovernor", role: "On-chain DAO governance", address: network.governor, kind: "proxy" },
+        { key: "timelock", name: "TimelockController", role: "Governance execution delay", address: network.timelock, kind: "contract" },
+        { key: "nativeVotes", name: "NativeVotes", role: "Native voting power", address: network.nativeVotes, kind: "predeploy" },
+      ];
+      const present = defs.filter((d): d is typeof d & { address: string } => !!d.address);
+
+      const contracts = await Promise.all(
+        present.map(async (d) => {
+          const [implementation, owner] = await Promise.all([readImpl(d.address), readOwner(d.address)]);
+          return { key: d.key, name: d.name, role: d.role, address: d.address, kind: d.kind, implementation, owner };
+        }),
+      );
+
+      const [resolvedAiConfig, resolvedJobRegistry] = await Promise.all([
+        publicClient.readContract({ address: network.workerRegistry as `0x${string}`, abi: RESOLVE_ABI, functionName: "aiConfig" }).catch(() => null),
+        publicClient.readContract({ address: network.workerRegistry as `0x${string}`, abi: RESOLVE_ABI, functionName: "jobRegistry" }).catch(() => null),
+      ]);
+      const eq = (a: string | null, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+      // Who controls the upgradeable contracts, and is that an EOA (the docs' warning)?
+      const ownerSet = [...new Set(contracts.map((c) => c.owner).filter((o): o is string => !!o))];
+      const commonOwner = ownerSet.length === 1 ? ownerSet[0] : null;
+      let ownerIsContract: boolean | null = null;
+      if (commonOwner) {
+        try {
+          const code = await publicClient.getCode({ address: commonOwner as `0x${string}` });
+          ownerIsContract = !!code && code !== "0x";
+        } catch {
+          ownerIsContract = null;
+        }
+      }
+
+      return NextResponse.json({
+        action: "contracts",
+        net,
+        chainId: network.chainId,
+        explorer: network.explorer,
+        contracts,
+        resolution: {
+          aiConfig: { configured: network.aiConfig, resolved: resolvedAiConfig, matches: eq(resolvedAiConfig, network.aiConfig) },
+          jobRegistry: { configured: network.jobRegistry, resolved: resolvedJobRegistry, matches: eq(resolvedJobRegistry, network.jobRegistry) },
+        },
+        governance: {
+          owner: commonOwner,
+          ownerIsContract,
+          isTimelock: eq(commonOwner, network.timelock),
+        },
+        serviceEoas: net === "mainnet" ? MAINNET_SERVICE_EOAS : [],
+      });
+    }
+    return bad("unknown action - try 'config', 'status', 'job', 'risk', or 'contracts'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },
