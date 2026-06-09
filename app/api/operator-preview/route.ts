@@ -456,7 +456,26 @@ export async function GET(req: Request) {
         return bad((e as Error).message?.split("\n")[0] ?? "quote failed", 404);
       }
     }
-    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', 'economics', or 'quote'");
+    if (action === "chooseModel") {
+      // Consumer-side router: rank whitelisted models against the builder's
+      // constraints from live data. The inverse of the operator leaderboard.
+      const num = (k: string): number | undefined => {
+        const v = url.searchParams.get(k);
+        if (v == null || v === "") return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      const constraints = {
+        maxFeeLcai: num("maxFee"),
+        maxP95Sec: num("maxP95"),
+        minCompletionRate: num("minCompletion"), // 0..1
+        minEligibleWorkers: num("minEligible"),
+      };
+      const ln = new LightNode(network);
+      const choices = await ln.chooseModel(constraints);
+      return NextResponse.json({ action: "chooseModel", net, choices, constraints });
+    }
+    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', 'economics', 'quote', or 'chooseModel'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },
