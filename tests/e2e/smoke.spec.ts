@@ -60,14 +60,14 @@ test("network page renders leaderboard + per-model analytics", async ({ page }) 
   await expect(page.getByRole("button", { name: /CSV/i })).toBeVisible();
 });
 
-test("build hub renders hero, install, scaffolders, and CTAs", async ({ page }) => {
+test("build console renders overview, install, and capability nav", async ({ page }) => {
   await page.goto("/build");
-  await expect(page.getByRole("heading", { name: /Build with LightChain AI/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Build on LightChain AI/i })).toBeVisible();
   await expect(page.getByText("npm install lightnode-sdk viem")).toBeVisible();
   await expect(page.getByText("npm create lightnode-app my-app")).toBeVisible(); // scaffolder
-  await expect(page.getByRole("link", { name: /View on npm/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Source on GitHub/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Open the playground/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Playground/i }).first()).toBeVisible();
+  // The console rail + capability grid route into the live panels.
+  await expect(page.getByRole("link", { name: /Inference/i }).first()).toBeVisible();
 });
 
 test("playground renders prompt UI and connect-wallet gating", async ({ page }) => {
