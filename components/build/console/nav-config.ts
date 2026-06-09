@@ -11,6 +11,7 @@ import {
   Landmark,
   Activity,
   Coins,
+  LayoutGrid,
   BookOpen,
   TerminalSquare,
   Bug,
@@ -59,6 +60,7 @@ export const CONSOLE_NAV: ConsoleNavSection[] = [
       { label: "DAO", href: "/build/dao", icon: Landmark, blurb: "Read + vote on LCAI Governor proposals", ready: true },
       { label: "Network", href: "/build/network", icon: Activity, blurb: "Live workers, models, jobs, analytics", ready: true },
       { label: "Revenue", href: "/build/revenue", icon: Coins, blurb: "Protocol fee revenue, run-rate, FeePool flow", ready: true },
+      { label: "Models", href: "/build/models", icon: LayoutGrid, blurb: "Supply vs demand + saturation per model", ready: true },
     ],
   },
   {
