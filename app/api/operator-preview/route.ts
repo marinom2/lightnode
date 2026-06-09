@@ -476,7 +476,13 @@ export async function GET(req: Request) {
       const choices = await ln.chooseModel(constraints);
       return NextResponse.json({ action: "chooseModel", net, choices, constraints });
     }
-    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', 'economics', 'quote', or 'chooseModel'");
+    if (action === "snapshot") {
+      // Pinnable protocol-parameter snapshot for the drift watcher + CI lock.
+      const ln = new LightNode(network);
+      const snapshot = await ln.protocolSnapshot();
+      return NextResponse.json({ action: "snapshot", net, snapshot });
+    }
+    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', 'economics', 'quote', 'chooseModel', or 'snapshot'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },
