@@ -329,6 +329,29 @@ export function useEncryptedInference(): UseEncryptedInference {
         modelId: prepared.createSessionArgs.paramsHash,
       }));
 
+      // Pin explicit, chain-estimated gas fees on both txs. LightChain's per-gas
+      // price is a few wei, which MetaMask can't auto-estimate - it shows a red
+      // "Network fee" warning and blocks Confirm. Passing concrete fees (the same
+      // way the onboard funding + worker withdraw flows do) makes the fee
+      // displayable and the transaction confirmable.
+      // Union (one arm or the other), never an object with both fee styles -
+      // viem's writeContract type rejects mixing maxFeePerGas with gasPrice.
+      let feeParams: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | { gasPrice: bigint } | undefined;
+      try {
+        const f = await pub.estimateFeesPerGas();
+        feeParams = f?.maxFeePerGas
+          ? { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas }
+          : { gasPrice: await pub.getGasPrice() };
+      } catch {
+        // EIP-1559 estimation unsupported on the chain - fall back to legacy gas price.
+        try {
+          feeParams = { gasPrice: await pub.getGasPrice() };
+        } catch {
+          // Last resort: let the wallet estimate (the prior behaviour).
+          feeParams = undefined;
+        }
+      }
+
       // === 3. Sign createSession on-chain ===
       setState((p) => ({ ...p, phase: "create" }));
       const abi = parseAbi(JOB_REGISTRY_CONSUMER_ABI);
@@ -345,6 +368,7 @@ export function useEncryptedInference(): UseEncryptedInference {
           prepared.createSessionArgs.expiry,
         ],
         gas: 1_000_000n,
+        ...(feeParams ?? {}),
       });
       setState((p) => ({ ...p, createTx }));
       const createReceipt = await pub.waitForTransactionReceipt({ hash: createTx });
@@ -433,6 +457,7 @@ export function useEncryptedInference(): UseEncryptedInference {
         args: [sessionId, promptHash],
         value: parseEther(String(fee)),
         gas: 500_000n,
+        ...(feeParams ?? {}),
       });
       setState((p) => ({ ...p, submitTx }));
       const submitReceipt = await pub.waitForTransactionReceipt({ hash: submitTx });
