@@ -10,6 +10,7 @@ import {
   ArrowLeftRight,
   Landmark,
   Activity,
+  Coins,
   BookOpen,
   TerminalSquare,
   Bug,
@@ -57,6 +58,7 @@ export const CONSOLE_NAV: ConsoleNavSection[] = [
       { label: "Bridge", href: "/build/bridge", icon: ArrowLeftRight, blurb: "Quote + move LCAI to/from Ethereum", ready: true },
       { label: "DAO", href: "/build/dao", icon: Landmark, blurb: "Read + vote on LCAI Governor proposals", ready: true },
       { label: "Network", href: "/build/network", icon: Activity, blurb: "Live workers, models, jobs, analytics", ready: true },
+      { label: "Revenue", href: "/build/revenue", icon: Coins, blurb: "Protocol fee revenue, run-rate, FeePool flow", ready: true },
     ],
   },
   {

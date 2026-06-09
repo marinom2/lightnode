@@ -222,3 +222,105 @@ export function workerJobsCsv(jobs: Job[]): string {
   ]);
   return toCsv([head, ...rows]);
 }
+
+// ===========================================================================
+// Protocol fee-revenue reconstruction (holder / analyst view). Nothing on
+// LightChain's side reports network protocol revenue; this rebuilds it from the
+// settled-job sample + the live fee split.
+// ===========================================================================
+
+export interface FeeRevenue {
+  totalGrossLcai: number;
+  protocolLcai: number;
+  feePoolLcai: number;
+  workerLcai: number;
+  settledCount: number;
+  refundedCount: number;
+  /** settled / (settled + refunded), or null with no decided jobs. */
+  captureRate: number | null;
+  /** Seconds between the first and last settled job in the sample. */
+  spanSec: number;
+  perDay: { grossLcai: number; protocolLcai: number; feePoolLcai: number };
+  perModel: { modelId: string; name: string; settled: number; grossLcai: number }[];
+}
+
+/**
+ * Reconstruct protocol fee revenue from a job sample. For every SETTLED job
+ * (completed/released/resolved) the model's gross fee is split by the live
+ * `feeBps` into worker/protocol/feePool cuts; timed-out/disputed jobs earned
+ * nothing (fee refunded). Per-day figures are derived from the sample's actual
+ * time span, so they're honest about the window rather than assuming one.
+ */
+export function aggregateFeeRevenue(
+  jobs: Job[],
+  models: ModelInfo[],
+  feeBps: { worker: number; protocol: number; feePool: number },
+  nowSec: number,
+): FeeRevenue {
+  const feeById = new Map(models.map((m) => [m.id.toLowerCase(), { feeWei: safeBig(m.fee), name: m.name }]));
+  let grossWei = 0n;
+  let settledCount = 0;
+  let refundedCount = 0;
+  let minAt = Infinity;
+  let maxAt = 0;
+  const perModelWei = new Map<string, { name: string; settled: number; grossWei: bigint }>();
+
+  for (const j of jobs) {
+    const s = j.state ?? "";
+    if (isSuccess(s)) {
+      const key = (j.model_id ?? "").toLowerCase();
+      const entry = feeById.get(key);
+      const fee = entry?.feeWei ?? 0n;
+      grossWei += fee;
+      settledCount += 1;
+      if (j.completed_at && j.completed_at > 0) {
+        minAt = Math.min(minAt, j.completed_at);
+        maxAt = Math.max(maxAt, j.completed_at);
+      }
+      const pm = perModelWei.get(key) ?? { name: entry?.name ?? key, settled: 0, grossWei: 0n };
+      pm.settled += 1;
+      pm.grossWei += fee;
+      perModelWei.set(key, pm);
+    } else if (isTimedOut(s) || isDisputed(s)) {
+      refundedCount += 1;
+    }
+  }
+
+  const protocolWei = (grossWei * BigInt(feeBps.protocol)) / 10000n;
+  const feePoolWei = (grossWei * BigInt(feeBps.feePool)) / 10000n;
+  const workerWei = (grossWei * BigInt(feeBps.worker)) / 10000n;
+  const spanSec = maxAt > 0 && minAt !== Infinity && maxAt > minAt ? maxAt - minAt : 0;
+  const days = spanSec > 0 ? spanSec / 86400 : 0;
+  const perDayFactor = days > 0 ? 1 / days : 0;
+  const decided = settledCount + refundedCount;
+
+  return {
+    totalGrossLcai: lcai(grossWei),
+    protocolLcai: lcai(protocolWei),
+    feePoolLcai: lcai(feePoolWei),
+    workerLcai: lcai(workerWei),
+    settledCount,
+    refundedCount,
+    captureRate: decided > 0 ? settledCount / decided : null,
+    spanSec,
+    perDay: {
+      grossLcai: lcai(grossWei) * perDayFactor,
+      protocolLcai: lcai(protocolWei) * perDayFactor,
+      feePoolLcai: lcai(feePoolWei) * perDayFactor,
+    },
+    perModel: [...perModelWei.entries()]
+      .map(([modelId, v]) => ({ modelId, name: v.name, settled: v.settled, grossLcai: lcai(v.grossWei) }))
+      .sort((a, b) => b.grossLcai - a.grossLcai),
+  };
+}
+
+function safeBig(v?: string): bigint {
+  try {
+    return v ? BigInt(v) : 0n;
+  } catch {
+    return 0n;
+  }
+}
+function lcai(wei: bigint): number {
+  return Number(wei) / 1e18;
+}
