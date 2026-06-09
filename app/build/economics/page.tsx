@@ -18,7 +18,9 @@ interface EconModel {
   recentJobs: number;
   completionRate: number | null;
   p50: number | null;
+  p95: number | null;
 }
+type Mode = "operator" | "consumer";
 interface EconData {
   gasPerJobLcai: number;
   config: {
@@ -63,6 +65,45 @@ function Stat({ label, value, sub, tone = "default" }: { label: string; value: s
   );
 }
 
+function ConsumerView({
+  model,
+  c,
+  jobsPerDay,
+}: {
+  model: EconModel;
+  c: { costPerCall: number; txGasLcai: number; per1k: number; perDay: number; perMonth: number; reuseSavingPerDay: number };
+  jobsPerDay: number;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <Stat label="Cost / call" value={`${lcai(c.costPerCall)} LCAI`} />
+        <Stat label="Cost / 1k calls" value={`${lcai(c.per1k, 2)} LCAI`} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Stat label={`Cost / day (${jobsPerDay.toLocaleString()} calls)`} value={`${lcai(c.perDay, 2)} LCAI`} />
+        <Stat label="Cost / month" value={`${lcai(c.perMonth, 0)} LCAI`} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Stat label="Fee / call" value={`${lcai(model.feeLcai)} LCAI`} sub="paid to the worker pool" />
+        <Stat label="Gas / call (2 txs)" value={`~${lcai(c.txGasLcai)} LCAI`} sub="createSession + submitJob" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Stat
+          label="Per-call wall-clock"
+          value={model.p95 != null ? `~${model.p95}s p95` : model.p50 != null ? `~${model.p50}s p50` : "-"}
+          sub="answer latency + 2 confirmations"
+        />
+        <Stat label="Session-reuse saving / day" value={`${lcai(c.reuseSavingPerDay)} LCAI`} sub="Conversation signs createSession once" tone="good" />
+      </div>
+      <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-content-soft">
+        <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-primary" />
+        The consumer pays the full model fee per call (the submitJob value) plus tiny gas for the two signed txs. A reused session (Conversation) signs createSession once, so multi-turn chats save the per-call session gas.
+      </p>
+    </div>
+  );
+}
+
 export default function EconomicsPage() {
   const { network } = useNetwork();
   const [data, setData] = useState<EconData | null>(null);
@@ -70,6 +111,7 @@ export default function EconomicsPage() {
   const [loading, setLoading] = useState(true);
   const [modelId, setModelId] = useState<string>("");
   const [jobsPerDay, setJobsPerDay] = useState(100);
+  const [mode, setMode] = useState<Mode>("operator");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,14 +152,38 @@ export default function EconomicsPage() {
     return { workerFeePerJob, netPerJob, dailyNet, monthlyNet, annualNet, yieldPct, slashPerTimeout };
   }, [data, model, jobsPerDay]);
 
+  // Consumer spend: the caller pays the FULL model fee per call (the submitJob
+  // value) plus gas for the two user-signed txs. Session reuse (Conversation)
+  // signs createSession once instead of per call.
+  const consumer = useMemo(() => {
+    if (!data || !model) return null;
+    const txGasLcai = data.gasPerJobLcai; // ~gas for createSession + submitJob
+    const costPerCall = model.feeLcai + txGasLcai;
+    const perDay = costPerCall * jobsPerDay;
+    return {
+      costPerCall,
+      txGasLcai,
+      per1k: costPerCall * 1000,
+      perDay,
+      perMonth: perDay * 30,
+      // Multi-turn: createSession amortised once over the day's calls -> the
+      // per-call gas (roughly half of txGasLcai) is saved on all but the first.
+      reuseSavingPerDay: jobsPerDay > 1 ? (txGasLcai / 2) * (jobsPerDay - 1) : 0,
+    };
+  }, [data, model, jobsPerDay]);
+
   const netLabel = NETWORKS[network].label;
 
   return (
     <div className="space-y-10">
       <ConsolePanel
         kicker="Capability · Economics"
-        title="Worker earnings & ROI"
-        subtitle={`Project what a worker earns straight from the live protocol economics - the AIConfig fee split, the on-chain model fee, the stake floor, and your assumed throughput. All inputs read live from ${netLabel}; the projection is yours to drive.`}
+        title={mode === "operator" ? "Worker earnings & ROI" : "Consumer cost planner"}
+        subtitle={
+          mode === "operator"
+            ? `Project what a worker earns from the live protocol economics - the AIConfig fee split, the on-chain model fee, the stake floor, and your assumed throughput. Live from ${netLabel}.`
+            : `Budget a user-pays inference feature: the LCAI cost per call / 1k / month at the live model fee, the per-call confirmation wall-clock, and the session-reuse saving. Live from ${netLabel}.`
+        }
       >
         {error && <Notice tone="warn">{error}</Notice>}
         {loading && (
@@ -126,7 +192,25 @@ export default function EconomicsPage() {
           </div>
         )}
 
-        {data && model && calc && (
+        {data && (
+          <div className="mb-5 inline-flex rounded-lg border border-bdr-soft p-0.5 text-sm">
+            {(["operator", "consumer"] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={cn(
+                  "rounded-md px-3 py-1 font-medium transition-colors",
+                  mode === m ? "bg-primary/10 text-content-primary" : "text-content-soft hover:text-content-primary",
+                )}
+              >
+                {m === "operator" ? "Operator ROI" : "Consumer cost"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {data && model && calc && consumer && (
           <PanelGrid>
             <PanelColumn title="Assumptions">
               <div className="space-y-4">
@@ -145,11 +229,11 @@ export default function EconomicsPage() {
                 </Field>
 
                 <Field
-                  label={`Jobs per day: ${jobsPerDay.toLocaleString()}`}
+                  label={`${mode === "operator" ? "Jobs" : "Calls"} per day: ${jobsPerDay.toLocaleString()}`}
                   hint={
                     model.completionRate != null
-                      ? `Your throughput assumption. This model's recent network completion rate is ${(model.completionRate * 100).toFixed(0)}%${model.p50 != null ? ` at ${model.p50}ms p50` : ""}.`
-                      : "Your throughput assumption - how many jobs this worker completes per day."
+                      ? `Your ${mode === "operator" ? "throughput" : "volume"} assumption. This model's recent network completion rate is ${(model.completionRate * 100).toFixed(0)}%${model.p50 != null ? ` at ${model.p50}s p50` : ""}.`
+                      : `Your ${mode === "operator" ? "throughput" : "volume"} assumption.`
                   }
                 >
                   <input
@@ -185,7 +269,10 @@ export default function EconomicsPage() {
               </div>
             </PanelColumn>
 
-            <PanelColumn title="Projection">
+            <PanelColumn title={mode === "operator" ? "Operator ROI" : "Consumer cost"}>
+              {mode === "consumer" ? (
+                <ConsumerView model={model} c={consumer} jobsPerDay={jobsPerDay} />
+              ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <Stat label="Net / day" value={`${lcai(calc.dailyNet, 2)} LCAI`} tone={calc.dailyNet >= 0 ? "good" : "warn"} />
@@ -220,6 +307,7 @@ export default function EconomicsPage() {
                   Earnings are net of gas only. Stake is locked, not spent - it is returned on exit unless slashed. Yield assumes the stake floor; staking more does not increase per-job pay.
                 </p>
               </div>
+              )}
             </PanelColumn>
           </PanelGrid>
         )}
