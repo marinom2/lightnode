@@ -45,14 +45,19 @@ export function humanizeError(e: unknown, ctx?: { action?: string }): string {
   if (/abort|cancelled|canceled/i.test(raw) && !/aborted on chain/i.test(raw)) {
     return "Cancelled.";
   }
+  // User rejected wallet signature (checked before reverts: viem's rejection
+  // error embeds the full calldata + ABI, which must never reach the user).
+  if (/user rejected|user denied|user closed|denied transaction|rejected the request/i.test(raw)) {
+    return "You rejected the request in your wallet. Nothing was charged - run it again when you're ready.";
+  }
+  // Not enough balance to cover fee + gas (a pre-send viem error, not a revert).
+  if (/insufficient funds|exceeds the balance|gas \* price/i.test(raw)) {
+    return "Your wallet doesn't have enough LCAI to cover the fee plus gas. Top up (use the faucet on testnet) and try again.";
+  }
   // RPC reverts with selector-only data are useless to surface raw.
   if (/execution reverted/i.test(raw)) {
     const reason = raw.match(/execution reverted:?\s*([^\n]+)/i)?.[1]?.trim();
     return reason && !/^0x[0-9a-f]+$/i.test(reason) ? `On-chain call reverted: ${reason}.` : "On-chain call reverted. Check the wallet has enough LCAI for the fee and try again.";
-  }
-  // User rejected wallet signature
-  if (/user rejected|user denied|user closed/i.test(raw)) {
-    return "Signature request rejected. Approve the prompt in your wallet to continue.";
   }
   // JSON parse - usually means the server returned HTML instead (e.g. proxy error page)
   if (/Unexpected token|JSON\.parse|is not valid JSON/i.test(raw)) {

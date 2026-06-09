@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Send, Sparkles } from "lucide-react";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
-import { Notice } from "@/components/build/console/panel-kit";
-import { ConnectStrip, isRunning, phaseLabel } from "@/components/build/console/inference-flow";
+import { ConnectStrip, FlowError, isRunning, phaseLabel } from "@/components/build/console/inference-flow";
 import { useEncryptedInference } from "@/lib/use-encrypted-inference";
 import { cn } from "@/lib/utils";
 
@@ -135,7 +134,7 @@ export default function ChatPanel() {
 
           {state.error && (
             <div className="px-4 pb-2">
-              <Notice tone="warn">{state.error}</Notice>
+              <FlowError message={state.error} />
             </div>
           )}
 
