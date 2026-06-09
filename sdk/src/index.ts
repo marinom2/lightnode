@@ -93,6 +93,7 @@ import {
   InferenceAbortedError,
   isStalledWorker,
   isAbortError,
+  explainInferenceError,
 } from "./errors.js";
 import { GatewayClient, GatewayHttpError } from "./gateway.js";
 import { siweSignIn, siweChallenge, siweVerify } from "./auth.js";
@@ -727,6 +728,7 @@ export {
   InferenceAbortedError,
   isStalledWorker,
   isAbortError,
+  explainInferenceError,
   // v0.7.0 worker-OPERATOR surface: the write/ops side (stuck-job recovery,
   // Docker-free settle/exit, revert decoding, live config). Complements the
   // read-only worker preflight/watch above; does not duplicate it.
@@ -777,6 +779,7 @@ export type { WorkerLivenessReport, StuckJobReport, StuckKind, Liveness, WorkerA
 export type { WorkerActionCenter, WorkerAction, ActionKind, ActionUrgency, SettlementSummary, SettlementConfig } from "./actions.js";
 export type { NetworkId, NetworkConfig, Worker, Job, JobTransactions, ModelInfo, WorkerModel, ServedModel, NetworkStats, ModelStat, WorkerStat, NetworkAnalytics };
 export type { SiweWalletClient, SiweChallenge, SiweVerifyResult, SiweSession } from "./auth.js";
+export type { ErrorExplanation, ErrorKind } from "./errors.js";
 
 /**
  * A consumer pre-spend decision object (see {@link LightNode.preInferenceQuote}).

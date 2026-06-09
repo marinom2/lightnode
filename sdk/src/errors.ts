@@ -100,3 +100,143 @@ export function isStalledWorker(e: unknown): e is StalledWorkerError {
 export function isAbortError(e: unknown): e is Error {
   return e instanceof InferenceAbortedError || (e instanceof Error && e.name === "AbortError");
 }
+
+export type ErrorKind =
+  | "stalled"
+  | "revert"
+  | "relay-timeout"
+  | "auth"
+  | "aborted"
+  | "insufficient-funds"
+  | "rejected"
+  | "network"
+  | "unknown";
+
+/**
+ * A structured, builder-facing remediation for any error thrown by the inference
+ * flow - so a dApp writing its own catch block gets actionable guidance instead
+ * of a raw message to regex. Pure; pass the live dispute window for exact refund
+ * timing.
+ */
+export interface ErrorExplanation {
+  kind: ErrorKind;
+  title: string;
+  detail: string;
+  /** Is the consumer's LCAI safe / will it refund automatically? */
+  fundsSafe: boolean;
+  /** Does re-running help (e.g. a fresh session picks a different worker)? */
+  retryable: boolean;
+  /** The exact next action to take. */
+  nextStep: string;
+  jobId?: string;
+  tx?: `0x${string}`;
+}
+
+function refundPhrase(refundWindowSec?: number): string {
+  if (refundWindowSec && refundWindowSec > 0) {
+    const h = refundWindowSec / 3600;
+    return h >= 1 ? `after the ~${h.toFixed(0)}h dispute window` : `after the ~${Math.round(refundWindowSec / 60)}m dispute window`;
+  }
+  return "after the protocol's dispute window (a few hours on testnet, ~24h on mainnet)";
+}
+
+/**
+ * Map any thrown value from the inference flow to a structured {@link ErrorExplanation}.
+ * Recognises every typed SDK error plus the common viem/wallet message cases.
+ * Read-only and pure - safe to call inside a UI or a catch block. For exact
+ * refund timing on a stall, pass `refundWindowSec` (e.g. from `config()`).
+ */
+export function explainInferenceError(e: unknown, opts: { refundWindowSec?: number } = {}): ErrorExplanation {
+  if (e instanceof StalledWorkerError) {
+    return {
+      kind: "stalled",
+      title: "Worker stalled - fee auto-refunds",
+      detail: `The assigned worker accepted the job but never produced a result. The protocol times it out and refunds your ${e.feeLcai} LCAI ${refundPhrase(opts.refundWindowSec)} - you do NOT need to call timeoutJob.`,
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Re-run: a fresh session is assigned a different worker (assignment is stochastic, so a retry almost always lands on a healthy one).",
+      jobId: e.jobId.toString(),
+      tx: e.submitTx,
+    };
+  }
+  if (e instanceof OnChainRevertError) {
+    return {
+      kind: "revert",
+      title: `${e.fn} reverted on-chain`,
+      detail: `The ${e.fn} transaction reverted with a contract-level error. ${e.fn === "createSession" ? "No fee was escrowed." : "The escrow is released by the revert."} Open the tx on the explorer for the exact reason.`,
+      fundsSafe: true,
+      retryable: e.fn === "createSession",
+      nextStep: e.fn === "submitJob" ? "Check your stake/balance and that the model is enabled, then retry." : "Inspect the tx on the explorer; retry if it was a transient nonce/gas issue.",
+      tx: e.tx,
+    };
+  }
+  if (e instanceof RelayTokenTimeoutError) {
+    return {
+      kind: "relay-timeout",
+      title: "Relay token never issued",
+      detail: "The gateway didn't finalise the session (no relay token inside the poll window) - usually a transient dispatcher hiccup. No inference fee was charged.",
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Re-run to open a fresh session.",
+    };
+  }
+  if (e instanceof GatewayAuthError) {
+    return {
+      kind: "auth",
+      title: "Gateway authentication failed",
+      detail: e.status === 401 ? "Your sign-in token is missing or expired." : `The gateway rejected the request (HTTP ${e.status}).`,
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Re-run the SIWE sign-in for a fresh bearer token, then retry.",
+    };
+  }
+  if (isAbortError(e)) {
+    return {
+      kind: "aborted",
+      title: "Inference aborted",
+      detail: "The request was cancelled via its AbortSignal. If submitJob had already broadcast, that job still settles on-chain; the SDK just stopped listening.",
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Re-run when ready.",
+    };
+  }
+  const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  if (/user rejected|user denied|denied transaction|rejected the request/i.test(msg)) {
+    return {
+      kind: "rejected",
+      title: "Signature rejected",
+      detail: "You declined the request in your wallet; nothing was charged.",
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Re-run and approve the prompt in your wallet.",
+    };
+  }
+  if (/insufficient funds|exceeds the balance|gas \* price/i.test(msg)) {
+    return {
+      kind: "insufficient-funds",
+      title: "Not enough LCAI for fee + gas",
+      detail: "Your wallet can't cover the inference fee plus gas.",
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Top up the wallet (use the faucet on testnet) and retry.",
+    };
+  }
+  if (/failed to fetch|fetch failed|enotfound|econn|network error/i.test(msg)) {
+    return {
+      kind: "network",
+      title: "Network error",
+      detail: "Could not reach the gateway or RPC endpoint.",
+      fundsSafe: true,
+      retryable: true,
+      nextStep: "Check connectivity and retry.",
+    };
+  }
+  return {
+    kind: "unknown",
+    title: "Unexpected error",
+    detail: (msg || "An unrecognised error occurred.").split("\n")[0].slice(0, 200),
+    fundsSafe: true,
+    retryable: true,
+    nextStep: "Retry; if it persists, paste any revert data into the decoder below to identify the contract error.",
+  };
+}
