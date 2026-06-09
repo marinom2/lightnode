@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Server, CheckCircle2, AlertTriangle, XCircle, Clock, ArrowRight, Scale } from "lucide-react";
+import { Server, CheckCircle2, AlertTriangle, XCircle, Clock, ArrowRight, Scale, Shield } from "lucide-react";
 import { useNetwork } from "@/lib/network-context";
 import { NETWORKS } from "lightnode-sdk";
 import { ConsolePanel } from "@/components/build/console/panel";
@@ -10,9 +10,10 @@ import { CodeTabs } from "@/components/build/console/code-tabs";
 import { PanelGrid, PanelColumn, Field, RunButton, ResponseEmpty, ProofRow, Notice, short } from "@/components/build/console/panel-kit";
 import { cn } from "@/lib/utils";
 
-type Action = "config" | "status" | "job" | "risk";
+type Action = "config" | "contracts" | "status" | "job" | "risk";
 const ACTIONS: { id: Action; label: string }[] = [
   { id: "config", label: "Protocol config" },
+  { id: "contracts", label: "Contracts" },
   { id: "status", label: "Worker status" },
   { id: "risk", label: "Suspension & slashing" },
   { id: "job", label: "Classify a job" },
@@ -102,8 +103,29 @@ interface RiskData {
   };
   schedule: { ackTimeoutBps: number; completionTimeoutBps: number; disputeBps: number; maxBps: number };
 }
+interface ContractRow {
+  key: string;
+  name: string;
+  role: string;
+  address: string;
+  kind: "predeploy" | "proxy" | "contract";
+  implementation: string | null;
+  owner: string | null;
+}
+interface ContractsData {
+  chainId: number;
+  explorer: string;
+  contracts: ContractRow[];
+  resolution: {
+    aiConfig: { configured: string; resolved: string | null; matches: boolean };
+    jobRegistry: { configured: string; resolved: string | null; matches: boolean };
+  };
+  governance: { owner: string | null; ownerIsContract: boolean | null; isTimelock: boolean };
+  serviceEoas: { name: string; role: string; address: string }[];
+}
 type PreviewResponse =
   | { action: "config"; config: ConfigData }
+  | ({ action: "contracts" } & ContractsData)
   | { action: "status"; worker: string; status: StatusData }
   | { action: "job"; jobId: string; status: JobStatusData | null; onchain: JobOnchain | null; protocol: JobProtocol | null }
   | { action: "risk"; worker: string; standing: RiskData["standing"]; suspension: RiskData["suspension"]; slash: RiskData["slash"]; schedule: RiskData["schedule"] };
@@ -533,6 +555,78 @@ function RiskView({ d, worker, explorer }: { d: RiskData; worker: string; explor
   );
 }
 
+function ContractsView({ d }: { d: ContractsData }) {
+  const verified = d.resolution.aiConfig.matches && d.resolution.jobRegistry.matches;
+  const ownerEoa = d.governance.ownerIsContract === false && !d.governance.isTimelock;
+  const { explorer } = d;
+  return (
+    <div className="space-y-4">
+      <div className={cn("rounded-xl border p-3.5", verified ? TONE_CLASS.ok : TONE_CLASS.warn)}>
+        <div className="flex items-center gap-2">
+          {verified ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}
+          <span className="text-sm font-semibold">
+            {verified ? "Verified against the on-chain registry" : "Registry resolution mismatch"}
+          </span>
+        </div>
+        <p className="mt-1.5 text-xs leading-relaxed text-content-default">
+          WorkerRegistry resolves AIConfig {d.resolution.aiConfig.matches ? "✓" : "✗"} and JobRegistry{" "}
+          {d.resolution.jobRegistry.matches ? "✓" : "✗"} to the addresses below. Always confirm a contract here (or against
+          the registry) before signing anything to it.
+        </p>
+      </div>
+
+      {d.governance.owner && (
+        <div className={cn("rounded-xl border p-3", ownerEoa ? "border-warning/30 bg-warning/5" : "border-bdr-soft")}>
+          <div className="mb-0.5 flex items-center gap-1.5">
+            {ownerEoa ? <AlertTriangle className="size-3.5 text-warning" /> : <Shield className="size-3.5 text-primary" />}
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-content-soft">Privileged owner (upgrades + params)</p>
+          </div>
+          <ProofRow label="owner" value={short(d.governance.owner)} href={`${explorer}/address/${d.governance.owner}`} />
+          <p className="mt-1 text-[11px] leading-relaxed text-content-soft">
+            {d.governance.isTimelock
+              ? "Owned by the governance Timelock - upgrades and parameter changes flow through the DAO."
+              : ownerEoa
+                ? "Owned by an EOA (the deployer), not yet the Timelock/multisig. Upgrades and parameter changes rely on that single key - verify it before trusting any privileged action."
+                : "Owner of the upgradeable contracts."}
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {d.contracts.map((c) => (
+          <div key={c.key} className="rounded-xl border border-bdr-soft p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-content-primary">{c.name}</span>
+              <span className="rounded-full border border-bdr-soft px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-content-soft">
+                {c.kind}
+              </span>
+            </div>
+            <p className="mb-1 text-[11px] text-content-soft">{c.role}</p>
+            <ProofRow label="address" value={short(c.address, 10, 8)} href={`${explorer}/address/${c.address}`} />
+            {c.implementation && (
+              <ProofRow label="implementation" value={short(c.implementation, 10, 8)} href={`${explorer}/address/${c.implementation}`} />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {d.serviceEoas.length > 0 && (
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-content-soft">Service accounts</p>
+          <div className="space-y-2 rounded-xl border border-bdr-soft p-3">
+            {d.serviceEoas.map((e) => (
+              <div key={e.address}>
+                <ProofRow label={e.name} value={short(e.address)} href={`${explorer}/address/${e.address}`} />
+                <p className="text-[11px] text-content-soft">{e.role}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function WorkerPanel() {
   const { network } = useNetwork();
   const [action, setAction] = useState<Action>("config");
@@ -652,6 +746,7 @@ export default function WorkerPanel() {
             {!error && !data && !running && <ResponseEmpty>Pick an action and read live on-chain operator data.</ResponseEmpty>}
             {!error && running && <ResponseEmpty>Reading the chain...</ResponseEmpty>}
             {!error && data && data.action === "config" && <ConfigView c={data.config} />}
+            {!error && data && data.action === "contracts" && <ContractsView d={data} />}
             {!error && data && data.action === "status" && <StatusView s={data.status} explorer={explorer} worker={data.worker} />}
             {!error && data && data.action === "risk" && (
               <RiskView
