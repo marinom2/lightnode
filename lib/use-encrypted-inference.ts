@@ -1,0 +1,539 @@
+"use client";
+
+/**
+ * Shared, wallet-signed encrypted-inference flow used by every interactive
+ * surface in the app (the Playground and the BUILD console panels). It drives
+ * the exact same SDK path any third-party dApp would call:
+ *
+ *   SIWE auth -> prepareSession -> wallet-signed createSession + submitJob ->
+ *   encrypted relay stream -> session-key-decrypted answer.
+ *
+ * IMPORTANT: this is USER-PAYS. The connected wallet signs createSession and
+ * submitJob and pays the fee. There is no shared/demo wallet here - that
+ * approach serialised every visitor behind one funded key and broke under any
+ * concurrency ("session in flight from another visitor"). Each visitor running
+ * with their own wallet is the only design that actually works for a public,
+ * multi-user surface.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import { parseAbi, parseAbiItem, parseEther, type Log } from "viem";
+import { useAccount, usePublicClient, useWalletClient, useChainId, useSwitchChain } from "wagmi";
+import { useNetwork } from "@/lib/network-context";
+import {
+  GatewayClient,
+  prepareSession,
+  submitPrompt,
+  decryptResponse,
+  estimateJobFee,
+  JOB_REGISTRY_CONSUMER_ABI,
+  NETWORKS,
+} from "lightnode-sdk";
+
+export type Phase = "idle" | "auth" | "prepare" | "create" | "upload" | "submit" | "stream" | "done" | "error";
+
+export const DEFAULT_MODEL = "llama3-8b";
+export const MAX_ATTEMPTS = 3;
+
+// Tracks every paid attempt + its eventual refund timing, so the operator can
+// see why their wallet was charged multiple times if the first worker stalled.
+export interface StalledAttempt {
+  jobId: string;
+  worker: `0x${string}`;
+  feeLcai: number;
+  submitTx: `0x${string}`;
+}
+
+export interface FlowState {
+  phase: Phase;
+  modelTag: string;
+  modelId: `0x${string}` | null;
+  feeLcai: number | null;
+  sessionId: bigint | null;
+  jobId: bigint | null;
+  createTx: `0x${string}` | null;
+  submitTx: `0x${string}` | null;
+  // The worker's own commit-result transaction (where JobCompleted fires with
+  // responseHash + ciphertextHash). It's NOT a tx the user signs; it's the
+  // third party in the chain of proof and worth showing alongside the user's.
+  completedTx: `0x${string}` | null;
+  worker: `0x${string}` | null;
+  output: string;
+  error: string | null;
+  elapsedMs: number;
+  // Auto-retry bookkeeping.
+  attempt: number; // 1..MAX_ATTEMPTS
+  stalled: StalledAttempt[]; // every prior attempt whose worker silently stalled
+  // True when the SIWE handshake was satisfied from the cached JWT (no wallet
+  // popup needed). Surfaces in the UI as "auth reused (cached)".
+  authCached: boolean;
+}
+
+const initial: FlowState = {
+  phase: "idle",
+  modelTag: DEFAULT_MODEL,
+  modelId: null,
+  feeLcai: null,
+  sessionId: null,
+  jobId: null,
+  createTx: null,
+  submitTx: null,
+  completedTx: null,
+  worker: null,
+  output: "",
+  error: null,
+  elapsedMs: 0,
+  attempt: 1,
+  stalled: [],
+  authCached: false,
+};
+
+// SIWE JWT cache so a builder running multiple prompts in the same browser
+// session only signs the auth message once. Lives in sessionStorage (cleared
+// on tab close), keyed by network+address, and gated by the issued-token
+// expiry minus a 30s safety margin so we never hand back a JWT that's about
+// to expire.
+const JWT_KEY = (net: string, address: string) => `lc.playground.jwt.${net}.${address.toLowerCase()}`;
+interface CachedJwt {
+  token: string;
+  expiresAt: number; // unix ms
+}
+function readCachedJwt(net: string, address: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(JWT_KEY(net, address));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as CachedJwt;
+    if (!v?.token || typeof v.expiresAt !== "number") return null;
+    if (Date.now() > v.expiresAt - 30_000) return null;
+    return v.token;
+  } catch {
+    return null;
+  }
+}
+function writeCachedJwt(net: string, address: string, token: string, expiresAtIso: string): void {
+  if (typeof window === "undefined") return;
+  const expiresAt = Date.parse(expiresAtIso);
+  if (!Number.isFinite(expiresAt)) return;
+  try {
+    window.sessionStorage.setItem(JWT_KEY(net, address), JSON.stringify({ token, expiresAt } satisfies CachedJwt));
+  } catch {
+    // sessionStorage may be unavailable (private mode); fall back to no caching.
+  }
+}
+
+// Sentinel error thrown by the inference attempt when the worker acknowledged
+// the job but never produced a result inside the deadline. Caught by the outer
+// run() loop to trigger an automatic retry with a different worker.
+class StalledWorkerError extends Error {
+  constructor(
+    public jobId: bigint,
+    public worker: `0x${string}`,
+    public submitTx: `0x${string}`,
+    public feeLcai: number,
+  ) {
+    super("worker stalled");
+    this.name = "StalledWorkerError";
+  }
+}
+
+export interface RunOptions {
+  /** Model tag, e.g. "llama3-8b". Defaults to DEFAULT_MODEL. */
+  model?: string;
+}
+
+export interface UseEncryptedInference {
+  state: FlowState;
+  authPending: boolean;
+  isConnected: boolean;
+  address: `0x${string}` | undefined;
+  wrongChain: boolean;
+  expectedChain: number;
+  /** The resolved NETWORKS[net] config (label, chainId, explorer, ...). */
+  cfg: (typeof NETWORKS)[keyof typeof NETWORKS];
+  explorer: string;
+  net: keyof typeof NETWORKS;
+  run: (prompt: string, opts?: RunOptions) => Promise<void>;
+  reset: () => void;
+}
+
+export function useEncryptedInference(): UseEncryptedInference {
+  // The global network context (the navbar's NetworkToggle) is the single
+  // source of truth across the app.
+  const { network: net } = useNetwork();
+  const [state, setState] = useState<FlowState>(initial);
+  const [authPending, setAuthPending] = useState(false);
+  const startRef = useRef<number>(0);
+  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const publicClient = usePublicClient({ chainId: NETWORKS[net].chainId });
+  const { data: walletClient } = useWalletClient();
+  const { switchChainAsync } = useSwitchChain();
+
+  const cfg = NETWORKS[net];
+  const expectedChain = cfg.chainId;
+  const wrongChain = isConnected && chainId !== expectedChain;
+
+  // A network flip via the navbar mid-run would leave a half-finished testnet
+  // flow on a mainnet-labelled page (or vice versa) - the UI would still show
+  // the prior network's tx hashes against the new network's explorer. Resetting
+  // the flow state on switch keeps "what you see" matched to "what you can run".
+  useEffect(() => {
+    setState(initial);
+  }, [net]);
+
+  // Show elapsed time live so the operator sees progress even during the slowest stage.
+  useEffect(() => {
+    if (state.phase === "idle" || state.phase === "done" || state.phase === "error") {
+      if (tickerRef.current) clearInterval(tickerRef.current);
+      tickerRef.current = null;
+      return;
+    }
+    if (!tickerRef.current) {
+      tickerRef.current = setInterval(() => {
+        setState((p) => ({ ...p, elapsedMs: Date.now() - startRef.current }));
+      }, 250);
+    }
+    return () => {
+      if (tickerRef.current && (state.phase === "done" || state.phase === "error")) {
+        clearInterval(tickerRef.current);
+        tickerRef.current = null;
+      }
+    };
+  }, [state.phase]);
+
+  const reset = () => setState(initial);
+
+  const run = async (prompt: string, opts: RunOptions = {}) => {
+    const model = opts.model?.trim() || DEFAULT_MODEL;
+    if (!isConnected || !address || !walletClient || !publicClient) {
+      setState({ ...initial, phase: "error", error: "Connect a wallet first." });
+      return;
+    }
+    if (wrongChain && switchChainAsync) {
+      try {
+        await switchChainAsync({ chainId: expectedChain });
+      } catch {
+        setState({ ...initial, phase: "error", error: `Switch your wallet to chain ${expectedChain} and try again.` });
+        return;
+      }
+    }
+    if (!prompt.trim()) {
+      setState({ ...initial, phase: "error", error: "Type a prompt first." });
+      return;
+    }
+    if (prompt.length > 8000) {
+      setState({ ...initial, phase: "error", error: "Prompt is too long (max 8000 characters). Shorten it and try again." });
+      return;
+    }
+
+    startRef.current = Date.now();
+    setState({ ...initial, phase: "auth", modelTag: model });
+    // Capture narrowed handles so the inner runAttempt closure (which TS
+    // doesn't narrow across function boundaries) doesn't re-widen them.
+    const wal = walletClient;
+    const pub = publicClient;
+    // sockRef.current lives across an inner async closure; use a ref so TS doesn't
+    // narrow it to `never` after the closure mutates it from the outer scope.
+    const sockRef: { current: WebSocket | null } = { current: null };
+    try {
+      // === 1. SIWE handshake via our same-origin proxy ===
+      // First try the cached JWT for this (network, address). When valid, the
+      // user signs nothing here - one fewer wallet popup for repeat prompts in
+      // the same browser session.
+      const gwBase = `/api/gw/${net}`;
+      let token = readCachedJwt(net, address);
+      if (token) {
+        setState((p) => ({ ...p, authCached: true }));
+      } else {
+        setAuthPending(true);
+        const ch = await fetch(`${gwBase}/api/auth/challenge?address=${address}`, {
+          headers: { Accept: "application/json" },
+        }).then((r) => r.json() as Promise<{ message?: string }>);
+        if (!ch?.message) throw new Error("auth challenge returned no message");
+        const signature = await wal.signMessage({ message: ch.message });
+        const verify = await fetch(`${gwBase}/api/auth/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ message: ch.message, signature }),
+        }).then((r) => r.json() as Promise<{ token?: string; expiresAt?: string }>);
+        if (!verify?.token) throw new Error("auth verify did not return a token");
+        token = verify.token;
+        if (verify.expiresAt) writeCachedJwt(net, address, token, verify.expiresAt);
+        setAuthPending(false);
+      }
+      const gateway = new GatewayClient({ network: net, bearer: token, baseUrl: gwBase });
+
+      // === 2..7. Retry loop. If a worker silently stalls (~5% of testnet)
+      // we record the lost-fee attempt, ask the dispatcher for a fresh worker,
+      // and run prepare -> createSession -> submitJob again with new wallet
+      // signatures. The stalled escrow is reclaimed by the protocol's own
+      // timeout/dispute pipeline (off the consumer's hot path), which is why
+      // we don't try to call timeoutJob from here. Capped at MAX_ATTEMPTS so
+      // a chronically broken testnet doesn't drain the wallet.
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        setState((p) => ({ ...p, attempt }));
+        try {
+          sockRef.current = await runAttempt(gateway);
+          break; // success - leave the retry loop
+        } catch (e) {
+          if (e instanceof StalledWorkerError && attempt < MAX_ATTEMPTS) {
+            // Remember this stalled attempt for the UI, close its WS, and loop.
+            try {
+              sockRef.current?.close();
+            } catch {
+              // ignore
+            }
+            sockRef.current = null;
+            setState((p) => ({
+              ...p,
+              stalled: [
+                ...p.stalled,
+                { jobId: e.jobId.toString(), worker: e.worker, feeLcai: e.feeLcai, submitTx: e.submitTx },
+              ],
+            }));
+            continue;
+          }
+          throw e;
+        }
+      }
+      // (runAttempt sets phase "done" itself on the successful attempt.)
+      return;
+    } catch (err) {
+      try {
+        // TS narrows `sockRef.current` to never across the inner async closure; the
+        // typed local reflects the real lifetime (any open WS we may still hold).
+        // sockRef.current is the live WS, if any.
+        sockRef.current?.close();
+      } catch {
+        // ignore
+      }
+      setAuthPending(false);
+      setState((p) => ({ ...p, phase: "error", error: err instanceof Error ? err.message : String(err) }));
+    }
+    // ---- inner helper -----------------------------------------------------
+    async function runAttempt(gateway: GatewayClient): Promise<WebSocket> {
+      // === 2. Prepare session (pick a worker, wrap session key, get dispatcher sig) ===
+      setState((p) => ({ ...p, phase: "prepare", createTx: null, submitTx: null, sessionId: null, jobId: null, output: "" }));
+      const prepared = await prepareSession(gateway, model);
+      const fee = await estimateJobFee(cfg, model);
+      setState((p) => ({
+        ...p,
+        feeLcai: fee,
+        worker: prepared.createSessionArgs.worker,
+        modelId: prepared.createSessionArgs.paramsHash,
+      }));
+
+      // === 3. Sign createSession on-chain ===
+      setState((p) => ({ ...p, phase: "create" }));
+      const abi = parseAbi(JOB_REGISTRY_CONSUMER_ABI);
+      const createTx = await wal.writeContract({
+        address: cfg.jobRegistry as `0x${string}`,
+        abi,
+        functionName: "createSession",
+        args: [
+          prepared.createSessionArgs.paramsHash,
+          prepared.createSessionArgs.worker,
+          prepared.createSessionArgs.encWorkerKey,
+          prepared.createSessionArgs.ephemeralPubKey,
+          prepared.createSessionArgs.initState,
+          prepared.createSessionArgs.expiry,
+        ],
+        gas: 1_000_000n,
+      });
+      setState((p) => ({ ...p, createTx }));
+      const createReceipt = await pub.waitForTransactionReceipt({ hash: createTx });
+      if (createReceipt.status !== "success") throw new Error("createSession reverted");
+      const sessionCreated = parseAbiItem(
+        "event SessionCreated(uint256 indexed sessionId, address indexed user, bytes32 indexed paramsHash, address worker, bytes encWorkerKey, bytes ephemeralPubKey)",
+      );
+      const sessionLogs = await pub.getLogs({
+        address: cfg.jobRegistry as `0x${string}`,
+        event: sessionCreated,
+        blockHash: createReceipt.blockHash,
+      });
+      const sessionLog = sessionLogs.find((l: Log) => l.transactionHash === createTx);
+      if (!sessionLog || !("args" in sessionLog) || !sessionLog.args?.sessionId)
+        throw new Error("SessionCreated not in receipt");
+      const sessionId = sessionLog.args.sessionId as bigint;
+      setState((p) => ({ ...p, sessionId }));
+
+      // === 4. Wait for relay token, open the WS BEFORE submitJob ===
+      let relayToken: string | undefined;
+      for (let i = 0; i < 30 && !relayToken; i++) {
+        const r = await gateway.getSessionToken(Number(sessionId));
+        if ("token" in r && r.token) {
+          relayToken = r.token;
+          break;
+        }
+        await new Promise((res) => setTimeout(res, 1000));
+      }
+      if (!relayToken) throw new Error("relay token never became ready");
+      sockRef.current = new WebSocket(`wss://relay.${net}.lightchain.ai/ws?token=${encodeURIComponent(relayToken)}`);
+      sockRef.current.binaryType = "arraybuffer";
+      await new Promise<void>((res, rej) => {
+        sockRef.current!.addEventListener("open", () => res(), { once: true });
+        sockRef.current!.addEventListener("error", () => rej(new Error("relay WebSocket open failed")), { once: true });
+        setTimeout(() => rej(new Error("relay WebSocket open timeout")), 20_000);
+      });
+      const chunks: string[] = [];
+      // Per the relay protocol, frames can be type "chunk" (an incremental
+      // piece of the response, indexed by `seq`) OR "complete" (the entire
+      // assembled response in one frame). Faster workers / short responses
+      // often skip chunks and emit only a single "complete". We were only
+      // decoding "chunk" before, which silently produced an empty output when
+      // a worker chose the single-frame path - exactly the mainnet bug we hit.
+      sockRef.current.addEventListener("message", async (ev) => {
+        const raw = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data as ArrayBuffer);
+        let frame: { type?: string; payload?: string };
+        try {
+          frame = JSON.parse(raw);
+        } catch {
+          return;
+        }
+        if (!frame?.payload) return;
+        if (frame.type === "chunk") {
+          try {
+            const piece = await decryptResponse(prepared.sessionKey, frame.payload);
+            chunks.push(piece);
+            setState((p) => ({ ...p, output: chunks.join("") }));
+          } catch {
+            // skip non-decryptable control frames
+          }
+          return;
+        }
+        if (frame.type === "complete" && chunks.length === 0) {
+          // No streaming chunks arrived - fall back to the assembled-response
+          // payload the worker put in the final "complete" frame.
+          try {
+            const piece = await decryptResponse(prepared.sessionKey, frame.payload);
+            chunks.push(piece);
+            setState((p) => ({ ...p, output: chunks.join("") }));
+          } catch {
+            // ignore
+          }
+        }
+      });
+
+      // === 5. Encrypt + upload the prompt ===
+      setState((p) => ({ ...p, phase: "upload" }));
+      const promptHash = await submitPrompt(gateway, prepared.sessionKey, prompt);
+
+      // === 6. Sign submitJob on-chain, paying the fee ===
+      setState((p) => ({ ...p, phase: "submit" }));
+      const submitTx = await wal.writeContract({
+        address: cfg.jobRegistry as `0x${string}`,
+        abi,
+        functionName: "submitJob",
+        args: [sessionId, promptHash],
+        value: parseEther(String(fee)),
+        gas: 500_000n,
+      });
+      setState((p) => ({ ...p, submitTx }));
+      const submitReceipt = await pub.waitForTransactionReceipt({ hash: submitTx });
+      if (submitReceipt.status !== "success") throw new Error("submitJob reverted");
+      const jobSubmitted = parseAbiItem(
+        "event JobSubmitted(uint256 indexed jobId, uint256 indexed sessionId, address worker)",
+      );
+      const jobLogs = await pub.getLogs({
+        address: cfg.jobRegistry as `0x${string}`,
+        event: jobSubmitted,
+        blockHash: submitReceipt.blockHash,
+      });
+      const jobLog = jobLogs.find((l: Log) => l.transactionHash === submitTx);
+      if (!jobLog || !("args" in jobLog) || !jobLog.args?.jobId) throw new Error("JobSubmitted not in receipt");
+      const jobId = jobLog.args.jobId as bigint;
+      setState((p) => ({ ...p, jobId, phase: "stream" }));
+
+      // === 7. Wait for JobCompleted (typed event filter to avoid matching JobSubmitted's signature) ===
+      // The actual *result* is the WS-delivered, session-key-decrypted ciphertext.
+      // JobCompleted is the worker's commit-result tx - an explorer pointer that
+      // anchors the answer to an on-chain hash. Polling rules:
+      //
+      //   - No chunks yet: poll for the full 120s. If still nothing, throw
+      //     stalled so the outer loop can retry with a different worker.
+      //   - Chunks arrived (we have a real, session-key-authentic answer):
+      //     keep polling for a 45s grace window after the first chunk. Workers
+      //     usually commit JobCompleted within ~10s of broadcasting the answer,
+      //     so 45s is generous. If it still doesn't land, surface the answer
+      //     with completedTx=null (the "on-chain proof pending" footer renders).
+      const jobCompleted = parseAbiItem(
+        "event JobCompleted(uint256 indexed jobId, address indexed worker, bytes32 responseHash, bytes32 ciphertextHash)",
+      );
+      const POLL_DEADLINE_MS = 120_000;
+      const POST_CHUNKS_GRACE_MS = 45_000;
+      const waitStart = Date.now();
+      let firstChunkAt: number | null = chunks.length > 0 ? waitStart : null;
+      let completed: Log | null = null;
+      while (!completed) {
+        const now = Date.now();
+        if (now - waitStart >= POLL_DEADLINE_MS) break;
+        if (firstChunkAt != null && now - firstChunkAt >= POST_CHUNKS_GRACE_MS) break;
+        await new Promise((res) => setTimeout(res, 3000));
+        // Watch for the first chunk landing during the wait (so the grace
+        // window starts ticking from when the answer actually arrived, not
+        // from a stale earlier check).
+        if (firstChunkAt == null && chunks.length > 0) firstChunkAt = Date.now();
+        const logs = await pub.getLogs({
+          address: cfg.jobRegistry as `0x${string}`,
+          event: jobCompleted,
+          args: { jobId },
+          fromBlock: submitReceipt.blockNumber,
+        });
+        if (logs.length) {
+          completed = logs[0] as Log;
+          break;
+        }
+      }
+      // No on-chain event after the grace window, but the WS DID deliver a
+      // valid answer: session-key decryption succeeded, so the result is
+      // cryptographically bound. Surface as "done" with completedTx null and
+      // let the UI render the "on-chain confirmation pending" footer.
+      if (!completed && chunks.length > 0) {
+        await new Promise((res) => setTimeout(res, 2000));
+        sockRef.current.close();
+        setState((p) => ({
+          ...p,
+          phase: "done",
+          elapsedMs: Date.now() - startRef.current,
+          completedTx: null,
+        }));
+        return sockRef.current;
+      }
+      if (!completed) {
+        // Throw a typed sentinel so the outer run() can catch + auto-retry with
+        // a different worker. The caller will close this WS and record the
+        // stalled attempt for the UI / refund-timing display.
+        throw new StalledWorkerError(jobId, prepared.createSessionArgs.worker, submitTx, fee);
+      }
+      // Grace for the last relay frame, then close cleanly.
+      await new Promise((res) => setTimeout(res, 4000));
+      sockRef.current.close();
+      setState((p) => ({
+        ...p,
+        phase: "done",
+        elapsedMs: Date.now() - startRef.current,
+        // The worker's own commit-result transaction (where JobCompleted fired
+        // with responseHash + ciphertextHash). It's the third proof in the chain.
+        completedTx: completed.transactionHash as `0x${string}`,
+      }));
+      return sockRef.current;
+    }
+  };
+
+  return {
+    state,
+    authPending,
+    isConnected,
+    address,
+    wrongChain,
+    expectedChain,
+    cfg,
+    explorer: cfg.explorer,
+    net,
+    run,
+    reset,
+  };
+}

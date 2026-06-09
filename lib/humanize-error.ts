@@ -23,7 +23,7 @@ export function humanizeError(e: unknown, ctx?: { action?: string }): string {
   // Lossless empty -> generic fallback
   if (!raw) return `Something went wrong with ${action}. Try again.`;
 
-  // Vercel hard cap. Most visible on /api/chat-demo, but any route can hit it.
+  // Vercel hard cap. Any long-running serverless route can hit it.
   if (/FUNCTION_INVOCATION_TIMEOUT/i.test(raw) || /\b504\b/.test(raw)) {
     return "The network took longer to respond than the demo budget allows. Try again, or run the example locally.";
   }
