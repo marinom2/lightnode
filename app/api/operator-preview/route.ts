@@ -214,7 +214,84 @@ export async function GET(req: Request) {
         explorer: { base: network.explorer },
       });
     }
-    return bad("unknown action - try 'config', 'status', or 'job'");
+    if (action === "risk") {
+      // Suspension & slashing transparency: combine the live on-chain reads
+      // (WorkerRegistry.isEligible per served model = the authoritative "jailed"
+      // signal; stake vs floor) with the indexer (lifetime timeouts, stuck jobs)
+      // and AIConfig (slash bps + suspension threshold/cooldown) into a single
+      // risk picture. LightChain's own explorer shows a "Jailed" badge; we show
+      // WHY, HOW CLOSE to suspension, and HOW MUCH stake is at risk right now.
+      const worker = url.searchParams.get("worker") ?? "";
+      if (!/^0x[0-9a-fA-F]{40}$/.test(worker)) return bad("worker: pass a valid 0x address");
+      const op = new WorkerOperator(network, {
+        publicClient: publicClient as unknown as ConstructorParameters<typeof WorkerOperator>[1]["publicClient"],
+        workerAddress: worker as `0x${string}`,
+      });
+      const ln = new LightNode(network);
+      const [st, cfg, liveness, w, served] = await Promise.all([
+        op.status(),
+        op.config(),
+        ln.getWorkerLiveness(worker),
+        ln.getWorker(worker),
+        ln.getServedModels(worker),
+      ]);
+      const servedModels = served.map((m) => ({ modelId: m.modelId, name: m.name, eligible: m.onchainEligible }));
+      const anyEligibleTrue = servedModels.some((m) => m.eligible === true);
+      const anyEligibleFalse = servedModels.some((m) => m.eligible === false);
+      // Derived standing. "suspended" is the on-chain jailed signal: registered
+      // and above the stake floor, but isEligible() is false for every model it
+      // serves (and not merely an unavailable chain read).
+      const verdict = !st.registered
+        ? "unregistered"
+        : st.belowFloor
+          ? "below-floor"
+          : servedModels.length === 0
+            ? "no-models"
+            : anyEligibleTrue
+              ? "active"
+              : anyEligibleFalse
+                ? "suspended"
+                : "active"; // all eligibility reads unknown - don't false-alarm
+      return NextResponse.json({
+        action: "risk",
+        net,
+        worker,
+        standing: {
+          registered: st.registered,
+          stakeLcai: st.stakeLcai,
+          minStakeLcai: cfg.minStakeLcai,
+          belowFloor: st.belowFloor,
+          headroomLcai: st.headroomLcai,
+          servedModels,
+          verdict,
+        },
+        suspension: {
+          lifetimeTimeouts: w?.jobs_timed_out ?? 0,
+          threshold: cfg.suspensionThreshold,
+          cooldownSec: cfg.suspensionCooldownSec,
+          stuckNow: liveness.stuckJobs.length,
+          atRisk: liveness.suspensionRisk,
+        },
+        slash: {
+          exposureLcai: liveness.slashExposureLcai,
+          exposureBps: liveness.slashExposureBps,
+          maxBps: cfg.slashBps.max,
+          stuckJobs: liveness.stuckJobs.map((s) => ({
+            id: s.id,
+            kind: s.kind,
+            slashBps: s.slashBps,
+            pastDeadlineSec: s.pastDeadlineSec,
+          })),
+        },
+        schedule: {
+          ackTimeoutBps: cfg.slashBps.ackTimeout,
+          completionTimeoutBps: cfg.slashBps.completionTimeout,
+          disputeBps: cfg.slashBps.dispute,
+          maxBps: cfg.slashBps.max,
+        },
+      });
+    }
+    return bad("unknown action - try 'config', 'status', 'job', or 'risk'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },

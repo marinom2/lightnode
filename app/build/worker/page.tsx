@@ -10,12 +10,14 @@ import { CodeTabs } from "@/components/build/console/code-tabs";
 import { PanelGrid, PanelColumn, Field, RunButton, ResponseEmpty, ProofRow, Notice, short } from "@/components/build/console/panel-kit";
 import { cn } from "@/lib/utils";
 
-type Action = "config" | "status" | "job";
+type Action = "config" | "status" | "job" | "risk";
 const ACTIONS: { id: Action; label: string }[] = [
   { id: "config", label: "Protocol config" },
   { id: "status", label: "Worker status" },
+  { id: "risk", label: "Suspension & slashing" },
   { id: "job", label: "Classify a job" },
 ];
+const NEEDS_WORKER = (a: Action) => a === "status" || a === "risk";
 
 interface ConfigData {
   minStakeLcai: number;
@@ -80,10 +82,31 @@ interface JobProtocol {
   suspensionThreshold: number;
   suspensionCooldownSec: number;
 }
+type RiskVerdict = "active" | "below-floor" | "suspended" | "no-models" | "unregistered";
+interface RiskData {
+  standing: {
+    registered: boolean;
+    stakeLcai: number;
+    minStakeLcai: number;
+    belowFloor: boolean;
+    headroomLcai: number;
+    servedModels: { modelId: string; name: string | null; eligible: boolean | null }[];
+    verdict: RiskVerdict;
+  };
+  suspension: { lifetimeTimeouts: number; threshold: number; cooldownSec: number; stuckNow: number; atRisk: boolean };
+  slash: {
+    exposureLcai: number;
+    exposureBps: number;
+    maxBps: number;
+    stuckJobs: { id: string; kind: "unacked" | "incomplete"; slashBps: number; pastDeadlineSec: number }[];
+  };
+  schedule: { ackTimeoutBps: number; completionTimeoutBps: number; disputeBps: number; maxBps: number };
+}
 type PreviewResponse =
   | { action: "config"; config: ConfigData }
   | { action: "status"; worker: string; status: StatusData }
-  | { action: "job"; jobId: string; status: JobStatusData | null; onchain: JobOnchain | null; protocol: JobProtocol | null };
+  | { action: "job"; jobId: string; status: JobStatusData | null; onchain: JobOnchain | null; protocol: JobProtocol | null }
+  | { action: "risk"; worker: string; standing: RiskData["standing"]; suspension: RiskData["suspension"]; slash: RiskData["slash"]; schedule: RiskData["schedule"] };
 
 const SNIPPET = `import { WorkerOperator } from "lightnode-sdk";
 
@@ -377,6 +400,139 @@ function JobView({
   );
 }
 
+const RISK_VERDICT: Record<RiskVerdict, { title: string; tone: "ok" | "warn" | "bad" | "info"; line: (d: RiskData) => string }> = {
+  active: {
+    title: "Active & eligible",
+    tone: "ok",
+    line: () => "Registered, staked above the floor, and eligible on-chain to take jobs for at least one model.",
+  },
+  "below-floor": {
+    title: "Below stake floor",
+    tone: "warn",
+    line: (d) =>
+      `Staked ${d.standing.stakeLcai.toLocaleString()} LCAI against a ${d.standing.minStakeLcai.toLocaleString()} LCAI floor - short by ${Math.max(0, d.standing.minStakeLcai - d.standing.stakeLcai).toLocaleString()} LCAI. The worker can't take jobs until you topUpStake() and reinstate().`,
+  },
+  suspended: {
+    title: "Suspended (jailed)",
+    tone: "bad",
+    line: (d) =>
+      `Registered and staked, but WorkerRegistry.isEligible() is false for every model it serves - the on-chain jailed signal. Usually a timeout suspension; it becomes eligible again after the ${dur(d.suspension.cooldownSec)} cooldown, or call reinstate() once the cause is cleared.`,
+  },
+  "no-models": {
+    title: "No models registered",
+    tone: "info",
+    line: () => "Registered and staked, but serving no models - it can't be assigned work. Call addModel(tag) to start earning.",
+  },
+  unregistered: {
+    title: "Not registered",
+    tone: "info",
+    line: () => "No active WorkerRegistry registration on this network for that address.",
+  },
+};
+
+function pctBps(bps: number): string {
+  return `${bps / 100}%`;
+}
+
+function RiskView({ d, worker, explorer }: { d: RiskData; worker: string; explorer: string }) {
+  const v = RISK_VERDICT[d.standing.verdict] ?? RISK_VERDICT.unregistered;
+  const Icon = TONE_ICON[v.tone];
+  const remaining = Math.max(0, d.suspension.threshold - d.suspension.lifetimeTimeouts);
+  return (
+    <div className="space-y-4">
+      <div className={cn("rounded-xl border p-3.5", TONE_CLASS[v.tone])}>
+        <div className="flex items-center gap-2">
+          <Icon className="size-4" />
+          <span className="text-sm font-semibold">{v.title}</span>
+        </div>
+        <p className="mt-1.5 text-xs leading-relaxed text-content-default">{v.line(d)}</p>
+      </div>
+
+      {d.standing.servedModels.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-content-soft">Eligibility (on-chain)</p>
+          <div className="flex flex-wrap gap-1.5">
+            {d.standing.servedModels.map((m) => (
+              <span
+                key={m.modelId}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-xs",
+                  m.eligible === true
+                    ? "border-success/30 bg-success/10 text-success"
+                    : m.eligible === false
+                      ? "border-destructive/30 bg-destructive/10 text-destructive"
+                      : "border-bdr-soft text-content-soft",
+                )}
+              >
+                {m.name ?? short(m.modelId)} · {m.eligible === true ? "eligible" : m.eligible === false ? "not eligible" : "unknown"}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Suspension countdown */}
+      <div className="rounded-xl border border-bdr-soft p-3">
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-content-soft">Suspension risk</p>
+          <span className={cn("text-[11px] tabular-nums", d.suspension.atRisk ? "text-warning" : "text-content-soft")}>
+            {d.suspension.lifetimeTimeouts} / {d.suspension.threshold} timeouts
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-surface-base-faint">
+          <div
+            className={cn("h-full rounded-full", d.suspension.atRisk ? "bg-warning" : "bg-primary/60")}
+            style={{ width: `${Math.min(100, (d.suspension.lifetimeTimeouts / Math.max(1, d.suspension.threshold)) * 100)}%` }}
+          />
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-content-soft">
+          {remaining > 0
+            ? `${remaining} more timeout${remaining === 1 ? "" : "s"} triggers a ${dur(d.suspension.cooldownSec)} suspension.`
+            : `At or over the ${d.suspension.threshold}-timeout threshold - subject to a ${dur(d.suspension.cooldownSec)} suspension.`}
+          {d.suspension.stuckNow > 0 && ` ${d.suspension.stuckNow} job(s) are stuck right now and will count if they time out.`}
+        </p>
+      </div>
+
+      {/* Slash exposure now */}
+      <div className="rounded-xl border border-bdr-soft p-3">
+        <div className="mb-1 flex items-center gap-1.5">
+          <Scale className="size-3.5 text-warning" />
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-content-soft">Stake at risk right now</p>
+        </div>
+        {d.slash.stuckJobs.length === 0 ? (
+          <p className="text-xs text-content-soft">No stuck jobs - nothing is exposed to a slash right now.</p>
+        ) : (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium text-warning">
+              ~{d.slash.exposureLcai.toLocaleString()} LCAI ({pctBps(d.slash.exposureBps)} of stake, capped at {pctBps(d.slash.maxBps)})
+            </p>
+            {d.slash.stuckJobs.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                <span className="font-mono text-content-default">job {s.id}</span>
+                <span className="text-content-soft">{s.kind === "unacked" ? "never acknowledged" : "acknowledged, never completed"}</span>
+                <span className="ml-auto tabular-nums text-warning">{pctBps(s.slashBps)} · {dur(s.pastDeadlineSec)} past deadline</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Slash schedule */}
+      <div>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-content-soft">Slash schedule (AIConfig)</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <KV k="Ack timeout" v={pctBps(d.schedule.ackTimeoutBps)} />
+          <KV k="Completion timeout" v={pctBps(d.schedule.completionTimeoutBps)} />
+          <KV k="Dispute" v={pctBps(d.schedule.disputeBps)} />
+          <KV k="Max per job" v={pctBps(d.schedule.maxBps)} />
+        </div>
+      </div>
+
+      <ProofRow label="worker" value={short(worker)} href={`${explorer}/address/${worker}`} />
+    </div>
+  );
+}
+
 export default function WorkerPanel() {
   const { network } = useNetwork();
   const [action, setAction] = useState<Action>("config");
@@ -393,7 +549,7 @@ export default function WorkerPanel() {
       setError(null);
       setData(null);
       const qs = new URLSearchParams({ action: a, net: network });
-      if (a === "status") {
+      if (NEEDS_WORKER(a)) {
         if (!/^0x[0-9a-fA-F]{40}$/.test(worker.trim())) {
           setError("Paste a valid 0x worker address.");
           setRunning(false);
@@ -437,7 +593,7 @@ export default function WorkerPanel() {
       <ConsolePanel
         kicker="Capability · Worker ops"
         title="Worker operator"
-        subtitle="The Docker-free operator surface: read live protocol config, inspect any worker's on-chain status and stuck-job exposure, and classify a job - the same reads the desktop Action Center and the lightnode worker CLI use. Write ops (settle, clearStuck, withdraw, deregister) sign with your own key."
+        subtitle="The Docker-free operator surface: read live protocol config, inspect any worker's on-chain status, see its suspension & slashing exposure, and classify a job - the same reads the desktop Action Center and the lightnode worker CLI use. Write ops (settle, clearStuck, withdraw, deregister) sign with your own key."
       >
         <PanelGrid>
           <PanelColumn title="Request">
@@ -464,7 +620,7 @@ export default function WorkerPanel() {
                   </button>
                 ))}
               </div>
-              {action === "status" && (
+              {NEEDS_WORKER(action) && (
                 <Field label="Worker address" hint="Any registered worker on the selected network.">
                   <input
                     value={worker}
@@ -497,6 +653,13 @@ export default function WorkerPanel() {
             {!error && running && <ResponseEmpty>Reading the chain...</ResponseEmpty>}
             {!error && data && data.action === "config" && <ConfigView c={data.config} />}
             {!error && data && data.action === "status" && <StatusView s={data.status} explorer={explorer} worker={data.worker} />}
+            {!error && data && data.action === "risk" && (
+              <RiskView
+                d={{ standing: data.standing, suspension: data.suspension, slash: data.slash, schedule: data.schedule }}
+                worker={data.worker}
+                explorer={explorer}
+              />
+            )}
             {!error && data && data.action === "job" && (
               data.status ? (
                 <JobView
