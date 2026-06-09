@@ -92,6 +92,16 @@ export function ConnectStrip({
   );
 }
 
+/** A clean, single-line error card (humanized message + icon). */
+export function FlowError({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-3 text-sm leading-relaxed text-content-default">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
 /** A compact live-phase line (with a spinner while running). */
 export function PhaseLine({ state }: { state: FlowState }) {
   if (!isRunning(state.phase)) return null;

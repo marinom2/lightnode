@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { parseAbi, parseAbiItem, parseEther, type Log } from "viem";
 import { useAccount, usePublicClient, useWalletClient, useChainId, useSwitchChain } from "wagmi";
 import { useNetwork } from "@/lib/network-context";
+import { humanizeError } from "@/lib/humanize-error";
 import {
   GatewayClient,
   prepareSession,
@@ -311,7 +312,9 @@ export function useEncryptedInference(): UseEncryptedInference {
         // ignore
       }
       setAuthPending(false);
-      setState((p) => ({ ...p, phase: "error", error: err instanceof Error ? err.message : String(err) }));
+      // Never surface a raw provider error (viem rejection errors embed the full
+      // calldata + ABI + a docs link). humanizeError maps it to one clean line.
+      setState((p) => ({ ...p, phase: "error", error: humanizeError(err, { action: "the inference" }) }));
     }
     // ---- inner helper -----------------------------------------------------
     async function runAttempt(gateway: GatewayClient): Promise<WebSocket> {

@@ -11,9 +11,8 @@ import {
   Field,
   RunButton,
   ResponseEmpty,
-  Notice,
 } from "@/components/build/console/panel-kit";
-import { ConnectStrip, PhaseLine, FlowProofs, isRunning } from "@/components/build/console/inference-flow";
+import { ConnectStrip, PhaseLine, FlowProofs, FlowError, isRunning } from "@/components/build/console/inference-flow";
 import { useEncryptedInference, DEFAULT_MODEL } from "@/lib/use-encrypted-inference";
 
 const DEFAULT_PROMPT = "Reply with a one-sentence fun fact about the ocean.";
@@ -128,7 +127,7 @@ export default function InferencePanel() {
                 </ResponseEmpty>
               )}
               <PhaseLine state={state} />
-              {state.error && <Notice tone="warn">{state.error}</Notice>}
+              {state.error && <FlowError message={state.error} />}
               {state.output && (
                 <p className="whitespace-pre-wrap rounded-xl border border-bdr-soft bg-surface-base-faint p-3.5 text-sm leading-relaxed text-content-default">
                   {state.output}
