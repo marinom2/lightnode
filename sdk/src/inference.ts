@@ -34,6 +34,11 @@ const CALCULATE_JOB_FEE_SELECTOR = "0x33763d83";
 
 /** modelId = keccak256(utf8(exact ollama tag)). Joins to the subgraph + contracts. */
 export function modelId(tag: string): `0x${string}` {
+  // Guard the single choke point for model tags: an empty/whitespace tag would
+  // otherwise hash to a real-looking bytes32 and silently target a model that
+  // does not exist (a wasted on-chain job). Every fee quote / session prepare
+  // routes through here.
+  if (!tag || !tag.trim()) throw new Error("modelId: model tag must be a non-empty string");
   return keccak256(toBytes(tag));
 }
 
@@ -218,6 +223,9 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string, o
  * the EIP-4844 blob hash to pass to `submitJob(sessionId, blobHash)`.
  */
 export async function submitPrompt(gateway: GatewayClient, sessionKey: Uint8Array, prompt: string, opts?: { searchEnabled?: boolean }): Promise<`0x${string}`> {
+  // Backstop guard so no path uploads an empty blob (the high-level entries
+  // reject earlier, before any wallet tx; this catches lower-level callers).
+  if (!prompt || !prompt.trim()) throw new Error("submitPrompt: prompt must be a non-empty string");
   const ct = await encrypt(sessionKey, utf8ToBytes(prompt));
   const res = await gateway.uploadBlob(bytesToBase64(ct), opts?.searchEnabled ? { searchEnabled: true } : undefined);
   const first = res.blobHashes?.[0];
@@ -944,6 +952,7 @@ export class LightChatSession {
  * ```
  */
 export async function runInference(args: RunInferenceArgs): Promise<RunInferenceResult> {
+  if (!args.prompt || !args.prompt.trim()) throw new Error("runInference: prompt must be a non-empty string");
   const maxRetries = args.maxRetries ?? 2;
   const stalled: RunInferenceResult["stalled"] = [];
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
@@ -1074,6 +1083,9 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   // actionable message.
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) {
     throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
+  }
+  if (!args.prompt || !args.prompt.trim()) {
+    throw new Error("runInferenceWithKey: prompt must be a non-empty string");
   }
   if (args.signal?.aborted) {
     throw new InferenceAbortedError("before-start");
