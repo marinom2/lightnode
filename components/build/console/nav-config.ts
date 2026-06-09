@@ -49,7 +49,7 @@ export const CONSOLE_NAV: ConsoleNavSection[] = [
       { label: "Agent", href: "/build/agent", icon: Bot, blurb: "ReAct tool-calling loop on any model", ready: false },
       { label: "Batch", href: "/build/batch", icon: Layers, blurb: "Many prompts in parallel, stable order", ready: false },
       { label: "Worker ops", href: "/build/sdks/operator", icon: Server, blurb: "Status, settle, stuck-job recovery, exit", ready: true },
-      { label: "Bridge", href: "/build/sdks/bridge", icon: ArrowLeftRight, blurb: "Quote + move LCAI to/from Ethereum", ready: true },
+      { label: "Bridge", href: "/build/bridge", icon: ArrowLeftRight, blurb: "Quote + move LCAI to/from Ethereum", ready: true },
       { label: "DAO", href: "/build/sdks/dao", icon: Landmark, blurb: "Read + vote on LCAI Governor proposals", ready: true },
       { label: "Network", href: "/build/network", icon: Activity, blurb: "Live workers, models, jobs, analytics", ready: true },
     ],
