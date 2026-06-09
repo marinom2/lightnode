@@ -437,6 +437,7 @@ export async function GET(req: Request) {
               recentJobs: s?.total ?? 0,
               completionRate: s?.completionRate ?? null,
               p50: s?.p50 ?? null,
+              p95: s?.p95 ?? null,
             };
           }),
       });
