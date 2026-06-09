@@ -390,7 +390,58 @@ export async function GET(req: Request) {
         serviceEoas: net === "mainnet" ? MAINNET_SERVICE_EOAS : [],
       });
     }
-    return bad("unknown action - try 'config', 'status', 'job', 'risk', or 'contracts'");
+    if (action === "economics") {
+      // Live inputs for the worker ROI calculator: the AIConfig fee split + slash
+      // + min stake, every whitelisted model's fee (wei -> LCAI) and recent demand
+      // stats, and network worker counts. The projection math runs client-side so
+      // the sliders are instant; everything here is read live.
+      const op = new WorkerOperator(network, {
+        publicClient: publicClient as unknown as ConstructorParameters<typeof WorkerOperator>[1]["publicClient"],
+        workerAddress: SENTINEL,
+      });
+      const ln = new LightNode(network);
+      const [cfg, models, modelStats, netStats] = await Promise.all([
+        op.config(),
+        ln.getModels(),
+        ln.getModelStats(1000).catch(() => []),
+        ln.getNetworkStats().catch(() => null),
+      ]);
+      const statsById = new Map(modelStats.map((s) => [s.modelId.toLowerCase(), s]));
+      return NextResponse.json({
+        action: "economics",
+        net,
+        gasPerJobLcai: 0.001, // ack + complete + release on LightChain ~ a fraction of a cent
+        config: {
+          minStakeLcai: cfg.minStakeLcai,
+          workerFeeBps: cfg.feeBps.worker,
+          protocolFeeBps: cfg.feeBps.protocol,
+          feePoolBps: cfg.feeBps.feePool,
+          completionTimeoutBps: cfg.slashBps.completionTimeout,
+          maxSlashBps: cfg.slashBps.max,
+        },
+        network: {
+          activeWorkers: netStats?.active ?? null,
+          totalWorkers: netStats?.total ?? null,
+          jobsCompleted: netStats?.jobsCompleted ?? null,
+        },
+        models: models
+          .filter((m) => m.is_whitelisted)
+          .map((m) => {
+            const s = statsById.get(m.id.toLowerCase());
+            return {
+              id: m.id,
+              name: m.name,
+              feeLcai: Number(m.fee) / 1e18,
+              maxOutputTokens: m.max_output_tokens,
+              enabled: m.is_enabled,
+              recentJobs: s?.total ?? 0,
+              completionRate: s?.completionRate ?? null,
+              p50: s?.p50 ?? null,
+            };
+          }),
+      });
+    }
+    return bad("unknown action - try 'config', 'status', 'job', 'risk', 'contracts', or 'economics'");
   } catch (e) {
     return NextResponse.json(
       { error: (e as Error).message?.split("\n")[0] ?? "fetch failed" },
