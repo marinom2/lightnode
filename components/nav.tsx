@@ -11,6 +11,8 @@ import {
   Globe,
   Menu,
   Rocket,
+  Server,
+  Sparkles,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,11 +46,12 @@ const ALL_LINKS: NavItem[] = [
     label: "Build",
     webOnly: true,
     children: [
-      { href: "/build", label: "Get started", desc: "Hero, install, scaffolders", icon: Rocket },
-      { href: "/build/sdks", label: "SDK modules", desc: "Bridge, DAO, chat, worker, dispute, models", icon: Boxes },
-      { href: "/build/cli", label: "CLI", desc: "Run lightnode commands interactively", icon: FileText },
+      { href: "/build", label: "Console overview", desc: "Runnable capabilities + quickstart", icon: Rocket },
+      { href: "/build/inference", label: "Inference", desc: "Encrypted prompt to a verifiable answer", icon: Sparkles },
+      { href: "/build/worker", label: "Worker ops", desc: "Status, settle, stuck-job recovery, exit", icon: Server },
       { href: "/build/network", label: "Live network", desc: "Workers, models, jobs in real time", icon: Globe },
-      { href: "/build/reference", label: "Reference", desc: "Contracts, networks, changelog, ports", icon: Database },
+      { href: "/build/reference", label: "Reference", desc: "Methods, contracts, networks, changelog", icon: Database },
+      { href: "/build/cli", label: "CLI", desc: "Run lightnode commands interactively", icon: FileText },
     ],
   },
 ];
