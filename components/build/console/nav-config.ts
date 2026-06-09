@@ -12,6 +12,7 @@ import {
   Activity,
   BookOpen,
   TerminalSquare,
+  Bug,
   type LucideIcon,
 } from "lucide-react";
 
@@ -63,6 +64,7 @@ export const CONSOLE_NAV: ConsoleNavSection[] = [
     items: [
       { label: "SDK reference", href: "/build/reference", icon: BookOpen, blurb: "Every method, network, contract address", ready: true },
       { label: "CLI", href: "/build/cli", icon: TerminalSquare, blurb: "Run lightnode commands, copy scaffolders", ready: true },
+      { label: "Errors", href: "/build/errors", icon: Bug, blurb: "Decode any error or on-chain revert into a fix", ready: true },
     ],
   },
 ];
