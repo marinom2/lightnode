@@ -386,6 +386,20 @@ describe("free up memory (stop worker + unload model + quit Docker)", () => {
   });
 });
 
+describe("watchdog economic alerts", () => {
+  it("alerts on claimable earnings (macOS unix watchdog)", () => {
+    const cmd = desktopInstallCommand("macos", "testnet");
+    expect(cmd).toContain('"claimableLcai"'); // reads the field from /api/worker-alert
+    expect(cmd).toContain("alert_key claimable");
+    expect(cmd).toContain("LCAI of earnings claimable");
+  });
+  it("alerts on claimable earnings (Windows watchdog)", () => {
+    const cmd = desktopInstallCommand("windows", "testnet");
+    expect(cmd).toContain("$r.claimableLcai");
+    expect(cmd).toContain("Send-Alert claimable");
+  });
+});
+
 describe("pause marker (intentional stop must not be auto-restarted)", () => {
   it("the watchdog skips work while the pause marker exists", () => {
     expect(desktopInstallCommand("macos", "testnet")).toContain("keep-online.paused");
