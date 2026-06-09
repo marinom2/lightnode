@@ -28,7 +28,7 @@ const CLI_ADD = [
 
 export default function BuildCliPage() {
   return (
-    <div className="mx-auto max-w-5xl px-5 py-10">
+    <div className="space-y-10">
       <div className="mb-8">
         <h1 className="text-balance text-3xl font-semibold tracking-tight text-content-primary sm:text-4xl">
           lightnode CLI

@@ -44,15 +44,22 @@ const nextConfig: NextConfig = {
     return config;
   },
   async redirects() {
-    // The /build/sdks reorg (2026-06): preflight + batch + agent + models were
-    // collapsed into the new Inference SDK + Chat SDK. Keep old links live so
-    // anything bookmarked, indexed, or shared in the wild still lands somewhere
-    // meaningful.
+    // The BUILD console rebuild (2026-06): the old /build/sdks grid + per-module
+    // detail pages were replaced by first-class capability panels at /build/<cap>.
+    // Keep every old link live so anything bookmarked, indexed, or shared lands
+    // on the right panel. Specific maps first, then a catch-all to the overview.
     return [
-      { source: "/build/sdks/preflight", destination: "/build/sdks/inference", permanent: true },
-      { source: "/build/sdks/batch", destination: "/build/sdks/inference", permanent: true },
-      { source: "/build/sdks/models", destination: "/build/sdks/inference", permanent: true },
-      { source: "/build/sdks/agent", destination: "/build/sdks/chat", permanent: true },
+      { source: "/build/sdks/inference", destination: "/build/inference", permanent: false },
+      { source: "/build/sdks/chat", destination: "/build/chat", permanent: false },
+      { source: "/build/sdks/bridge", destination: "/build/bridge", permanent: false },
+      { source: "/build/sdks/dao", destination: "/build/dao", permanent: false },
+      { source: "/build/sdks/operator", destination: "/build/worker", permanent: false },
+      { source: "/build/sdks/agent", destination: "/build/agent", permanent: false },
+      { source: "/build/sdks/batch", destination: "/build/batch", permanent: false },
+      { source: "/build/sdks/preflight", destination: "/build/worker", permanent: false },
+      { source: "/build/sdks/models", destination: "/build/worker", permanent: false },
+      { source: "/build/sdks", destination: "/build", permanent: false },
+      { source: "/build/sdks/:path*", destination: "/build", permanent: false },
     ];
   },
 };
