@@ -165,19 +165,52 @@ export async function GET(req: Request) {
       });
     }
     if (action === "job") {
-      // Classify any job by id - the same surface the old Refund SDK card
-      // exposed, now living under Worker Operator since both speak to the
-      // job lifecycle. Ask for tx hashes so the widget can deep-link straight
-      // to submitJob + jobCompleted on Lightscan instead of just the block.
+      // Classify any job by id, and surface everything an operator needs to
+      // act: the indexer's classification + tx hashes (deep-link to submitJob /
+      // jobCompleted), the AUTHORITATIVE on-chain struct (ack/deadline/completed
+      // timestamps + escrow, so the UI can show the real timeline against the
+      // real deadline), and the live protocol params (timeouts, slash bps,
+      // suspension) so penalties are concrete, not hand-waved.
       const jobIdRaw = url.searchParams.get("jobId") ?? "";
       if (!/^\d+$/.test(jobIdRaw)) return bad("jobId: pass a positive integer id");
       const ln = new LightNode(network);
-      const status = await ln.getJobStatus(jobIdRaw, { withTransactions: true });
+      const opForCfg = new WorkerOperator(network, {
+        publicClient: publicClient as unknown as ConstructorParameters<typeof WorkerOperator>[1]["publicClient"],
+        workerAddress: SENTINEL,
+      });
+      const [status, onchain, cfg] = await Promise.all([
+        ln.getJobStatus(jobIdRaw, { withTransactions: true }),
+        ln.getJobOnchain(BigInt(jobIdRaw)).catch(() => null),
+        opForCfg.config().catch(() => null),
+      ]);
       return NextResponse.json({
         action: "job",
         net,
         jobId: jobIdRaw,
         status,
+        // BigInts serialised to JSON-safe numbers (fee -> whole LCAI).
+        onchain: onchain
+          ? {
+              stateIndex: onchain.stateIndex,
+              submittedAt: onchain.submittedAt,
+              ackAt: onchain.ackAt,
+              completedAt: onchain.completedAt,
+              deadlineAt: onchain.deadlineAt,
+              escrowedFeeLcai: Number(onchain.escrowedFeeWei) / 1e18,
+              worker: onchain.worker,
+            }
+          : null,
+        protocol: cfg
+          ? {
+              ackTimeoutSec: cfg.ackTimeoutSec,
+              completionTimeoutSec: cfg.completionTimeoutSec,
+              resolutionTimeoutSec: cfg.resolutionTimeoutSec,
+              disputeWindowSec: cfg.disputeWindowSec,
+              slashBps: cfg.slashBps,
+              suspensionThreshold: cfg.suspensionThreshold,
+              suspensionCooldownSec: cfg.suspensionCooldownSec,
+            }
+          : null,
         explorer: { base: network.explorer },
       });
     }
