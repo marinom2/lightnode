@@ -2,18 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { Loader2, RefreshCw, ChevronDown, ExternalLink } from "lucide-react";
+import { Loader2, RefreshCw, ChevronDown, ExternalLink, Landmark, Vote } from "lucide-react";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { Notice, short } from "@/components/build/console/panel-kit";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { DAO_EXPLORER, SECONDS_PER_BLOCK, type DaoChain } from "./dao-chain";
+import { DAO_EXPLORER, DAO_VOTE_UI, SECONDS_PER_BLOCK, type DaoChain } from "./dao-chain";
 import { humanizeDuration } from "./dao-math";
 import { TreasuryBar } from "./treasury-bar";
 import { VotingPowerCard } from "./voting-power-card";
 import { QuorumLine } from "./quorum-line";
-import { CastVote } from "./cast-vote";
 
 const CHAIN_META: Record<DaoChain, { label: string; icon: string }> = {
   ethereum: { label: "Ethereum", icon: "/logos/eth.svg" },
@@ -167,8 +166,8 @@ export default function DaoPanel() {
     <div className="space-y-10">
       <ConsolePanel
         kicker="Capability · DAO"
-        title="Governance"
-        subtitle="Read live LCAIGovernor proposals (OpenZeppelin Governor v5) and their on-chain vote tallies. Casting votes, proposing, queueing, and executing sign with your wallet - shown in the snippet."
+        title="Governance intelligence"
+        subtitle="An ecosystem lens over LightChain governance - decoded proposal actions, quorum distance, treasury flow, lifecycle timing, and your on-chain standing, read straight from the registries. Voting and delegation happen on LightChain's own DAO; lightnode surfaces what the official tools don't and links you there to act."
         actions={
           <div className="flex items-center gap-2">
             <div className="inline-flex items-center rounded-full border border-bdr-soft bg-surface-base-subtle p-0.5 text-xs font-medium">
@@ -206,6 +205,20 @@ export default function DaoPanel() {
         }
       >
         <div className="mb-4 space-y-3">
+          <a
+            href={DAO_VOTE_UI}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-primary/6 px-4 py-3 transition-colors hover:border-primary/40"
+          >
+            <span className="flex items-center gap-2.5 text-sm text-content-default">
+              <Landmark className="size-4 shrink-0 text-primary" />
+              Vote, delegate, and execute on the official LightChain DAO
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
+              dao.lightchain.ai <ExternalLink className="size-3.5" />
+            </span>
+          </a>
           <TreasuryBar chain={chain} />
           <VotingPowerCard chain={chain} />
         </div>
@@ -282,7 +295,14 @@ export default function DaoPanel() {
                       <QuorumLine chain={chain} votesFor={p.votesFor} votesAbstain={p.votesAbstain} quorumWei={p.quorumWei} />
 
                       {p.stateLabel.toLowerCase() === "active" && (
-                        <CastVote chain={chain} proposalId={p.id} onVoted={() => void load(chain, limit)} />
+                        <a
+                          href={DAO_VOTE_UI}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-primary px-3.5 py-2 text-xs font-semibold text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)] transition-all hover:brightness-110"
+                        >
+                          <Vote className="size-3.5" /> Vote on this proposal at the LightChain DAO <ExternalLink className="size-3" />
+                        </a>
                       )}
 
                       {(() => {
