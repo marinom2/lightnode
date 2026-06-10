@@ -10,33 +10,15 @@
  * by default to keep RPC pressure low.
  */
 import { NextResponse } from "next/server";
-import { createPublicClient, http, parseAbiItem } from "viem";
+import { createPublicClient, http } from "viem";
 import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, decodeGovernanceAction, type ProposalState } from "lightnode-sdk";
+import { findGovernorEvents, RPCS_BY_CHAIN } from "@/lib/dao-governor-scan";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 // The full-history scan fans out ~20 parallel getLogs; give it room beyond the
 // default serverless budget.
 export const maxDuration = 30;
-
-// Chain of public RPCs per network. We hit them in order until one returns
-// something usable for getLogs. Free public endpoints get rate-limited or
-// time out on large block ranges, so the first one to answer wins.
-const RPCS_BY_CHAIN: Record<"ethereum" | "lightchain", string[]> = {
-  ethereum: process.env.LIGHTNODE_ETH_RPC
-    ? [process.env.LIGHTNODE_ETH_RPC]
-    : [
-        "https://ethereum-rpc.publicnode.com",
-        "https://eth.merkle.io",
-        "https://rpc.ankr.com/eth",
-        "https://eth.drpc.org",
-      ],
-  lightchain: ["https://rpc.mainnet.lightchain.ai"],
-};
-
-const PROPOSAL_CREATED = parseAbiItem(
-  "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)",
-);
 
 function shortenDescription(s: string, max = 240): string {
   const trimmed = s.replace(/\s+/g, " ").trim();
@@ -54,20 +36,6 @@ function deriveTitle(description: string): string {
     .replace(/\.$/, "");
   return cleaned.length ? cleaned.slice(0, 120) : "Untitled proposal";
 }
-
-// Bound each RPC attempt so a slow-but-not-failing endpoint can't eat the whole
-// Vercel budget before the loop tries the next one. The full-history scan fans
-// out ~20 parallel getLogs, so allow a little more headroom than a recent window.
-const RPC_ATTEMPT_TIMEOUT_MS = 9000;
-
-// Governor deployment blocks. Scanning from here (not a recent window) is the
-// only way to surface EVERY proposal. Ethereum mainnet LCAIGovernor 0x6dfa...
-// deployed at ~24,350,285 (verified on-chain); LightChain's is young so genesis
-// is cheap.
-const DEPLOY_BLOCK: Record<"ethereum" | "lightchain", bigint> = {
-  ethereum: 24_350_000n,
-  lightchain: 0n,
-};
 
 // Read the quorum requirement (in vote-token wei) at a proposal's snapshot block.
 // quorum(timepoint) reverts for timepoint 0, so guard on a real snapshot and
@@ -91,64 +59,6 @@ async function readQuorum(
   }
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([p, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
-async function findEventsAcrossRpcs(
-  addresses: { governor: `0x${string}` },
-  chain: "ethereum" | "lightchain",
-) {
-  const errors: string[] = [];
-  // Public RPCs (notably publicnode) cap getLogs at 50k blocks per call, so we
-  // chunk. Scanning from the Governor's deployment block (not a recent window)
-  // is what surfaces EVERY proposal. Parallel keeps it inside the budget.
-  const CHUNK = 50_000n;
-  for (const rpc of RPCS_BY_CHAIN[chain]) {
-    try {
-      // Wrap the whole per-RPC attempt (head read + chunked getLogs) in one
-      // deadline so a single stalled socket fails fast and the loop moves on.
-      const result = await withTimeout(
-        (async () => {
-          const pub = createPublicClient({ transport: http(rpc) });
-          const head = await pub.getBlockNumber();
-          const deploy = DEPLOY_BLOCK[chain];
-          const fromBlock = head > deploy ? deploy : 0n;
-          const windows: Array<{ from: bigint; to: bigint }> = [];
-          for (let start = fromBlock; start <= head; start += CHUNK) {
-            const end = start + CHUNK - 1n > head ? head : start + CHUNK - 1n;
-            windows.push({ from: start, to: end });
-          }
-          const chunks = await Promise.all(
-            windows.map((w) =>
-              pub.getLogs({
-                address: addresses.governor,
-                event: PROPOSAL_CREATED,
-                fromBlock: w.from,
-                toBlock: w.to,
-              }),
-            ),
-          );
-          return { pub, events: chunks.flat() };
-        })(),
-        RPC_ATTEMPT_TIMEOUT_MS,
-        `${chain} RPC ${rpc.replace(/^https?:\/\//, "").slice(0, 24)}`,
-      );
-      return result;
-    } catch (e) {
-      errors.push(`${rpc.replace(/^https?:\/\//, "").slice(0, 24)}: ${(e as Error).message?.split("\n")[0]?.slice(0, 80)}`);
-      continue;
-    }
-  }
-  throw new Error("all RPCs failed: " + errors.join(" | "));
-}
-
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -159,10 +69,9 @@ export async function GET(req: Request) {
     // visitor clicks 'See more' a few times.
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "12")));
     const addresses = DAO_ADDRESSES[chain];
-    const { pub, events } = await findEventsAcrossRpcs(addresses, chain);
-    // Current head lets the client turn each proposal's deadline block into a
-    // human "voting ends in ~X" countdown.
-    const headBlock = await pub.getBlockNumber().catch(() => 0n);
+    // `head` comes back from the scan so the client can turn each proposal's
+    // deadline block into a human "voting ends in ~X" countdown.
+    const { pub, events, head: headBlock } = await findGovernorEvents(addresses.governor, chain);
     const total = events.length;
     const recent = events.slice().reverse().slice(0, limit);
     const abi = GOVERNOR_ABI;

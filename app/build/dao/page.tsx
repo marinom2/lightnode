@@ -13,6 +13,8 @@ import { humanizeDuration } from "./dao-math";
 import { TreasuryBar } from "./treasury-bar";
 import { VotingPowerCard } from "./voting-power-card";
 import { QuorumLine } from "./quorum-line";
+import { GovernorDrift } from "./governor-drift";
+import { ProposalAnalytics } from "./proposal-analytics";
 
 const CHAIN_META: Record<DaoChain, { label: string; icon: string }> = {
   ethereum: { label: "Ethereum", icon: "/logos/eth.svg" },
@@ -343,6 +345,16 @@ export default function DaoPanel() {
           </div>
         )}
       </ConsolePanel>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Outcome analytics · {chain}</h2>
+        <ProposalAnalytics chain={chain} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Ethereum vs LightChain</h2>
+        <GovernorDrift />
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">The SDK behind it</h2>
