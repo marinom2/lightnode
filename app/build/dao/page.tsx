@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Loader2, RefreshCw, ChevronDown, ExternalLink, Landmark, Vote } from "lucide-react";
+import { Loader2, RefreshCw, ChevronDown, ExternalLink, Landmark, Vote, X } from "lucide-react";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { Notice, short } from "@/components/build/console/panel-kit";
@@ -73,26 +73,44 @@ function timingLabel(p: Proposal, headBlock: string | undefined, chain: DaoChain
 
 function snippetFor(chain: DaoChain): string {
   const rpcVar = chain === "ethereum" ? "ETH_RPC" : "LIGHTCHAIN_RPC";
-  const tokenNote =
+  const chainNote =
     chain === "ethereum"
       ? `// Ethereum: LCAIB is an ERC20Votes token - delegate once to activate power.`
-      : `// LightChain: native voting via the genesis predeploy - stake self-delegates.`;
+      : `// LightChain: native voting via the genesis predeploy precompile - no wrapping.`;
   return `import { createPublicClient, http } from "viem";
-import { DAO } from "lightnode-sdk";
+import { DAO, decodeGovernanceAction } from "lightnode-sdk";
 
-${tokenNote}
-const dao = new DAO(createPublicClient({ transport: http(${rpcVar}) }), "${chain}");
+${chainNote}
+// First arg is a viem PublicClient (not an RPC url); second is the chain key.
+const client = createPublicClient({ transport: http(${rpcVar}) });
+const dao = new DAO(client, "${chain}");
 
-// Live reads (no wallet needed):
-const p        = await dao.proposal(proposalId);     // state, tallies, snapshot
-const quorum   = await dao.quorum(p.snapshot);        // wei needed to reach quorum
-const power    = await dao.getVotes(me, p.snapshot);  // your weight at the snapshot
-const voted    = await dao.hasVoted(proposalId, me);  // already voted?
-const delegate = await dao.getDelegate(me);           // who holds your voting power
+// Scan recent proposals - each row carries VERIFIED, decoded calldata
+// (the executing intent, not the proposer's prose) + live state:
+const rows = await dao.recentProposals({ limit: 5 });
+for (const p of rows) {
+  console.log(p.id, p.stateLabel, p.title);
+  for (const act of p.actions) {
+    // act: { label, kind, dangerous, target, valueLcai, fn } - produced by
+    // decodeGovernanceAction({ target, value, calldata }), callable directly.
+    console.log(act.dangerous ? "[privileged]" : "", act.label);
+  }
+}
 
-// Writes sign with your wallet: new DAO(rpc, "${chain}", walletClient)
+// Drill into one proposal + the governor's own voting rules:
+const p      = await dao.proposal(rows[0].id);   // state, tallies, snapshot, eta
+const cfg    = await dao.config();               // delay/period blocks, threshold
+const quorum = await dao.quorum(p.snapshot);     // wei needed to reach quorum
+
+// Your on-chain standing (no wallet needed):
+const power    = await dao.getVotes(me, p.snapshot);  // weight at the snapshot
+const balance  = await dao.getBallotsBalance(me);     // voting-token balance
+const voted    = await dao.hasVoted(rows[0].id, me);  // already voted?
+const delegate = await dao.getDelegate(me);           // who holds your power
+
+// Writes sign with your wallet: new DAO(client, "${chain}", walletClient)
 // await dao.delegate(me);              // activate your voting power
-// await dao.castVote(proposalId, 1);   // 0 against, 1 for, 2 abstain`;
+// await dao.castVote(rows[0].id, 1);   // 0 against, 1 for, 2 abstain`;
 }
 
 function toneFor(label: string): "brand" | "success" | "danger" | "warning" | "muted" {
@@ -137,16 +155,18 @@ function VoteBar({ p }: { p: Proposal }) {
 export default function DaoPanel() {
   const [chain, setChain] = useState<DaoChain>("ethereum");
   const [limit, setLimit] = useState(5);
+  const [stateFilter, setStateFilter] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [data, setData] = useState<DaoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async (c: DaoChain, lim: number) => {
+  const load = useCallback(async (c: DaoChain, lim: number, sf: string | null) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/dao-proposals?chain=${c}&limit=${lim}`);
+      const res = await fetch(`/api/dao-proposals?chain=${c}&limit=${lim}${sf ? `&state=${sf}` : ""}`);
       const d = (await res.json()) as DaoResponse & { error?: string };
       if (!res.ok || d.error) {
         setError(d.error ?? "Could not reach the governor RPC.");
@@ -161,11 +181,20 @@ export default function DaoPanel() {
   }, []);
 
   useEffect(() => {
-    void load(chain, limit);
-  }, [load, chain, limit]);
+    void load(chain, limit, stateFilter);
+  }, [load, chain, limit, stateFilter]);
+
+  // Apply a state filter from the analytics chips and bring the list into view.
+  const applyStateFilter = (s: string | null) => {
+    setStateFilter((prev) => (prev === s ? null : s));
+    setLimit(5);
+    setExpandedId(null);
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="space-y-10">
+      <div ref={panelRef}>
       <ConsolePanel
         kicker="Capability · DAO"
         title="Governance intelligence"
@@ -180,6 +209,7 @@ export default function DaoPanel() {
                   onClick={() => {
                     setChain(c);
                     setLimit(5);
+                    setStateFilter(null);
                   }}
                   aria-pressed={chain === c}
                   className={cn(
@@ -196,7 +226,7 @@ export default function DaoPanel() {
             </div>
             <button
               type="button"
-              onClick={() => void load(chain, limit)}
+              onClick={() => void load(chain, limit, stateFilter)}
               disabled={loading}
               aria-label="Refresh"
               className="grid size-9 place-items-center rounded-lg border border-bdr-soft text-content-soft transition-colors hover:text-content-primary disabled:opacity-50"
@@ -229,6 +259,20 @@ export default function DaoPanel() {
 
         {!error && (
           <div className="space-y-2.5">
+            {stateFilter && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-content-soft">Filtered to</span>
+                <button
+                  type="button"
+                  onClick={() => applyStateFilter(null)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 font-medium capitalize text-primary transition-colors hover:bg-primary/25"
+                >
+                  {stateFilter}
+                  <X className="size-3" />
+                </button>
+              </div>
+            )}
+
             {loading && !data &&
               Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="h-24 animate-pulse rounded-2xl border border-bdr-soft bg-surface-base-faint" />
@@ -236,7 +280,7 @@ export default function DaoPanel() {
 
             {data?.proposals.length === 0 && (
               <div className="rounded-2xl border border-dashed border-bdr-soft px-4 py-8 text-center text-sm text-content-soft">
-                No proposals found on {chain} in the scanned window.
+                {stateFilter ? `No ${stateFilter} proposals on ${chain}.` : `No proposals found on ${chain} in the scanned window.`}
               </div>
             )}
 
@@ -345,10 +389,11 @@ export default function DaoPanel() {
           </div>
         )}
       </ConsolePanel>
+      </div>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Outcome analytics · {chain}</h2>
-        <ProposalAnalytics chain={chain} />
+        <ProposalAnalytics chain={chain} activeFilter={stateFilter} onFilter={applyStateFilter} />
       </section>
 
       <section className="space-y-3">
