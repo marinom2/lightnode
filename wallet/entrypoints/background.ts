@@ -16,7 +16,7 @@ import { readWorkerStatus } from "../src/rpc/worker";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
-import { type BgMessage, type WalletOp, type JsonRpcRequest, RpcError } from "../src/provider/protocol";
+import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, RpcError } from "../src/provider/protocol";
 import { APPROVAL_REQUIRED, LOCAL_READ, isAllowedMethod } from "../src/provider/rpc-methods";
 
 const VAULT_KEY = "vault";
@@ -180,6 +180,15 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await bumpAutoLock();
       const data = erc20TransferData(op.to, op.amount, op.decimals);
       return { hash: await signAndSend(acct.account, op.token as `0x${string}`, 0n, data) };
+    }
+    case "addActivity": {
+      const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
+      await browser.storage.local.set({ activity: [op.entry, ...activity].slice(0, 40) });
+      return { ok: true };
+    }
+    case "getActivity": {
+      const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
+      return activity.filter((e) => e.chainId === op.chainId);
     }
     case "listPending":
       return [...pending.entries()].map(([id, p]) => ({ id, method: p.request.method, origin: p.origin, params: p.request.params }));

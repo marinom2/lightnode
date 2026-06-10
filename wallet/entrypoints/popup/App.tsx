@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
 import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
+import { encodeQR } from "qr";
 import { chainById, CHAIN_LIST, explorerFor } from "../../src/rpc/chains";
 import type { TokenBalance } from "../../src/rpc/tokens";
+import type { ActivityEntry } from "../../src/provider/protocol";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
 
 type Asset = { kind: "native"; symbol: string } | { kind: "token"; symbol: string; address: string; decimals: number };
@@ -177,13 +179,17 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
   const explorer = explorerFor(state.chainId);
 
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [tab, setTab] = useState<"tokens" | "activity">("tokens");
+  const chainId = state.chainId;
   const loadBal = useCallback(() => {
     setBal(null);
     setTokens([]);
     wallet<{ formatted: string }>({ type: "getBalance", address }).then((b) => setBal(b.formatted)).catch(() => setBal("0"));
     wallet<TokenBalance[]>({ type: "getTokens", address }).then(setTokens).catch(() => setTokens([]));
-  }, [address]);
-  useEffect(loadBal, [loadBal, state.chainId]);
+    wallet<ActivityEntry[]>({ type: "getActivity", chainId }).then(setActivity).catch(() => setActivity([]));
+  }, [address, chainId]);
+  useEffect(loadBal, [loadBal]);
 
   const copy = () => {
     void navigator.clipboard.writeText(address);
@@ -238,14 +244,15 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
         <a className="act" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer"><span className="ic"><Ic name="external" size={16} /></span>Explorer</a>
       </div>
 
-      <div>
-        <div className="row between" style={{ marginBottom: 8 }}>
-          <h2 style={{ margin: 0 }}>Tokens</h2>
-          <button className="ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={addToken}>+ Add token</button>
-        </div>
+      <div className="tabs">
+        <button className={`tab${tab === "tokens" ? " active" : ""}`} onClick={() => setTab("tokens")}>Tokens</button>
+        <button className={`tab${tab === "activity" ? " active" : ""}`} onClick={() => setTab("activity")}>Activity</button>
+      </div>
+
+      {tab === "tokens" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <div className="list-row">
-            <span className="token-ic" style={{ color: netColor(state.chainId) }}>{sym.slice(0, 2)}</span>
+            <span className="token-ic" style={{ color: netColor(chainId) }}>{sym.slice(0, 2)}</span>
             <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
             <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
           </div>
@@ -256,12 +263,15 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
               <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
             </div>
           ))}
+          <button className="ghost" style={{ fontSize: 12, marginTop: 2 }} onClick={addToken}><Ic name="plus" size={13} /> Add token</button>
         </div>
-      </div>
+      ) : (
+        <ActivityList items={activity} explorer={explorer} />
+      )}
 
-      {state.chainId === 9200 && <WorkerPanel address={address} />}
+      {chainId === 9200 && <WorkerPanel address={address} />}
 
-      {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} onClose={() => setSheet(null)} onSent={loadBal} />}
+      {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
       {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
     </>
@@ -336,6 +346,28 @@ function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onRemoved:
   );
 }
 
+function ActivityList({ items, explorer }: { items: ActivityEntry[]; explorer: string }) {
+  if (items.length === 0) return <div className="empty">No activity yet on this network. Your sends will appear here.</div>;
+  const ago = (ts: number) => {
+    const m = Math.round((Date.now() - ts) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {items.map((e) => (
+        <a className="list-row" key={e.hash} href={`${explorer}/tx/${e.hash}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <span className="token-ic"><Ic name="send" size={14} /></span>
+          <div className="grow"><b style={{ fontSize: 13 }}>Sent {e.symbol}</b><div className="faint">To {short(e.to)} · {ago(e.ts)}</div></div>
+          <b style={{ fontSize: 13 }}>-{fmtBal(e.amount)}</b>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id: number) => void }) {
   const [open, setOpen] = useState(false);
   return (
@@ -363,7 +395,7 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
   );
 }
 
-function SendSheet({ from, assets, explorer, onClose, onSent }: { from: string; assets: Asset[]; explorer: string; onClose: () => void; onSent: () => void }) {
+function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from: string; assets: Asset[]; explorer: string; chainId: number; onClose: () => void; onSent: () => void }) {
   const [asset, setAsset] = useState<Asset>(assets[0]!);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -379,6 +411,7 @@ function SendSheet({ from, assets, explorer, onClose, onSent }: { from: string; 
         ? await wallet<{ hash: string }>({ type: "send", from, to: to.trim(), valueWei: amount })
         : await wallet<{ hash: string }>({ type: "sendToken", from, token: asset.address, to: to.trim(), amount, decimals: asset.decimals });
       setHash(r.hash);
+      void wallet({ type: "addActivity", entry: { hash: r.hash, to: to.trim(), amount, symbol: asset.symbol, chainId, ts: Date.now() } });
       onSent();
     } catch (e) {
       setErr((e as Error).message);
@@ -428,6 +461,7 @@ function ReceiveSheet({ address, chainName, onClose }: { address: string; chainN
       <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head"><h1>Receive</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
         <p className="muted">Your address on {chainName} - the same on every EVM chain:</p>
+        <div className="qr" dangerouslySetInnerHTML={{ __html: encodeQR(address, "svg") }} />
         <div className="card addr" style={{ textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>{address}</div>
         <button onClick={copy}>{copied ? "Copied!" : "Copy address"}</button>
       </div>
