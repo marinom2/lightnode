@@ -1,32 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, ShieldCheck, AlertTriangle, ExternalLink, Wallet } from "lucide-react";
-import { VOTES_ABI } from "lightnode-sdk";
-import { humanizeError } from "@/lib/humanize-error";
+import { ShieldCheck, AlertTriangle, ExternalLink, Wallet } from "lucide-react";
+import { useAccount } from "wagmi";
+import { useAppKit } from "@reown/appkit/react";
 import { short } from "@/components/build/console/panel-kit";
-import { cn } from "@/lib/utils";
-import {
-  DAO_EXPLORER,
-  VOTE_TOKEN,
-  daoPublicClient,
-  loadVotingPower,
-  pinnedFees,
-  type DaoChain,
-  type VotingPowerReads,
-} from "./dao-chain";
+import { DAO_VOTE_UI, DELEGATION_UI, loadVotingPower, type DaoChain, type VotingPowerReads } from "./dao-chain";
 import { delegationStatus, formatLcaiWei } from "./dao-math";
-import { useDaoWallet } from "./use-dao-wallet";
-
-type Tx = { phase: "idle" | "working" | "submitted" | "confirmed" | "error"; msg?: string; tx?: `0x${string}` };
 
 const SYMBOL: Record<DaoChain, string> = { ethereum: "LCAIB", lightchain: "LCAI" };
 
+/**
+ * Read-only "your standing" card. lightnode surfaces voting power + delegation
+ * state from the on-chain registries; the actual delegate transaction happens on
+ * LightChain's official UI, so we link out rather than sign here.
+ */
 export function VotingPowerCard({ chain }: { chain: DaoChain }) {
-  const { address, isConnected, open, getSigner } = useDaoWallet(chain);
+  const { address, isConnected } = useAccount();
+  const { open } = useAppKit();
   const [reads, setReads] = useState<VotingPowerReads | null>(null);
   const [loading, setLoading] = useState(false);
-  const [tx, setTx] = useState<Tx>({ phase: "idle" });
 
   const refresh = useCallback(async () => {
     if (!address) return;
@@ -42,31 +35,8 @@ export function VotingPowerCard({ chain }: { chain: DaoChain }) {
 
   useEffect(() => {
     setReads(null);
-    setTx({ phase: "idle" });
     if (isConnected && address) void refresh();
   }, [isConnected, address, chain, refresh]);
-
-  const delegateToSelf = async () => {
-    if (!isConnected || !address) return open();
-    setTx({ phase: "working", msg: "Confirm in your wallet (you may be asked to switch network first)..." });
-    try {
-      const signer = await getSigner();
-      const fees = chain === "lightchain" ? await pinnedFees(daoPublicClient(chain)) : undefined;
-      const hash = await signer.writeContract({
-        address: VOTE_TOKEN[chain],
-        abi: VOTES_ABI,
-        functionName: "delegate",
-        args: [address],
-        ...(fees ?? {}),
-      });
-      setTx({ phase: "submitted", msg: "Delegation submitted - confirming...", tx: hash });
-      await daoPublicClient(chain).waitForTransactionReceipt({ hash });
-      setTx({ phase: "confirmed", msg: "Voting power activated.", tx: hash });
-      await refresh();
-    } catch (e) {
-      setTx({ phase: "error", msg: humanizeError(e, { action: "delegating your votes" }) });
-    }
-  };
 
   if (!isConnected || !address) {
     return (
@@ -86,8 +56,7 @@ export function VotingPowerCard({ chain }: { chain: DaoChain }) {
   return (
     <div className="rounded-2xl border border-bdr-soft bg-card/60 p-4 backdrop-blur-sm">
       <PowerHeader chain={chain} reads={reads} loading={loading} />
-      {reads && <DelegationRow chain={chain} reads={reads} address={address} onDelegate={delegateToSelf} working={tx.phase === "working" || tx.phase === "submitted"} />}
-      {tx.phase !== "idle" && tx.phase !== "working" && <TxLine chain={chain} tx={tx} />}
+      {reads && <DelegationRow chain={chain} reads={reads} address={address} />}
     </div>
   );
 }
@@ -113,19 +82,7 @@ function PowerHeader({ chain, reads, loading }: { chain: DaoChain; reads: Voting
   );
 }
 
-function DelegationRow({
-  chain,
-  reads,
-  address,
-  onDelegate,
-  working,
-}: {
-  chain: DaoChain;
-  reads: VotingPowerReads;
-  address: `0x${string}`;
-  onDelegate: () => void;
-  working: boolean;
-}) {
+function DelegationRow({ chain, reads, address }: { chain: DaoChain; reads: VotingPowerReads; address: `0x${string}` }) {
   const status = delegationStatus(reads.votesWei, reads.balanceWei, reads.delegate, address);
   if (status.kind === "self") {
     const gap = formatLcaiWei(status.gapWei, 2);
@@ -137,8 +94,6 @@ function DelegationRow({
       </p>
     );
   }
-  // Nothing to delegate: holding zero balance on this chain. Don't push a
-  // pointless "delegate to activate" prompt.
   if (reads.balanceWei === 0n) {
     return (
       <p className="mt-3 text-xs text-content-soft">
@@ -148,50 +103,22 @@ function DelegationRow({
   }
   const msg =
     status.kind === "undelegated"
-      ? `You hold ${formatLcaiWei(reads.balanceWei, 2)} ${SYMBOL[chain]} but 0 voting power. Delegate to yourself to activate it.`
-      : `Delegated to ${short(reads.delegate)} - they hold your voting power. Reclaim it below.`;
+      ? `You hold ${formatLcaiWei(reads.balanceWei, 2)} ${SYMBOL[chain]} but 0 voting power. Activate it by delegating.`
+      : `Delegated to ${short(reads.delegate)} - they hold your voting power.`;
+  const href = DELEGATION_UI[chain] ?? DAO_VOTE_UI;
   return (
     <div className="mt-3 space-y-2">
       <p className="flex items-start gap-1.5 text-xs text-warning">
         <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {msg}
       </p>
-      <button
-        type="button"
-        onClick={onDelegate}
-        disabled={working}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-primary px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)] transition-all hover:brightness-110 disabled:opacity-50"
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-primary px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)] transition-all hover:brightness-110"
       >
-        {working && <Loader2 className="size-3.5 animate-spin" />} Delegate to self
-      </button>
-    </div>
-  );
-}
-
-function TxLine({ chain, tx }: { chain: DaoChain; tx: Tx }) {
-  if (tx.phase === "error") {
-    return (
-      <p className="mt-2.5 flex items-start gap-1.5 text-xs text-warning">
-        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {tx.msg}
-      </p>
-    );
-  }
-  return (
-    <div className="mt-2.5 flex items-center justify-between gap-2 text-xs">
-      <span className={cn("flex items-center gap-1.5", tx.phase === "confirmed" ? "text-success" : "text-content-soft")}>
-        {tx.phase === "submitted" && <Loader2 className="size-3.5 animate-spin" />}
-        {tx.phase === "confirmed" && <ShieldCheck className="size-3.5" />}
-        {tx.msg}
-      </span>
-      {tx.tx && (
-        <a
-          href={`${DAO_EXPLORER[chain]}/tx/${tx.tx}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-primary hover:underline"
-        >
-          tx <ExternalLink className="size-3" />
-        </a>
-      )}
+        Manage delegation <ExternalLink className="size-3.5" />
+      </a>
     </div>
   );
 }
