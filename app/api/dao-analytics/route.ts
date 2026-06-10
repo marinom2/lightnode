@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import type { createPublicClient } from "viem";
 import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, decodeGovernanceAction, type ProposalState } from "lightnode-sdk";
-import { findGovernorEvents, type GovernorChain } from "@/lib/dao-governor-scan";
+import { findGovernorEvents, mapBatched, type GovernorChain } from "@/lib/dao-governor-scan";
 import { computeOutcomeStats, type ProposalOutcome } from "@/lib/dao-analytics";
 
 export const dynamic = "force-dynamic";
@@ -48,15 +48,6 @@ async function readOutcome(pub: Pub, governor: `0x${string}`, id: bigint): Promi
     votesAbstainWei: votes[2],
     quorumWei,
   };
-}
-
-// Process proposals in small concurrent batches to keep free-RPC load sane.
-async function mapBatched<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += size) {
-    out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
-  }
-  return out;
 }
 
 export async function GET(req: Request) {

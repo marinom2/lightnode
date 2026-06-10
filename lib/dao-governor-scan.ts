@@ -33,6 +33,15 @@ export const PROPOSAL_CREATED = parseAbiItem(
 const RPC_ATTEMPT_TIMEOUT_MS = 9000;
 const CHUNK = 50_000n;
 
+/** Run `fn` over `items` in small concurrent batches to keep free-RPC load sane. */
+export async function mapBatched<T, R>(items: T[], size: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(...(await Promise.all(items.slice(i, i + size).map((item, j) => fn(item, i + j)))));
+  }
+  return out;
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<T>((_, reject) => {

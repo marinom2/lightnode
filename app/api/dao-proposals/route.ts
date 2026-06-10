@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";
 import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, decodeGovernanceAction, type ProposalState } from "lightnode-sdk";
-import { findGovernorEvents, RPCS_BY_CHAIN } from "@/lib/dao-governor-scan";
+import { findGovernorEvents, mapBatched, RPCS_BY_CHAIN } from "@/lib/dao-governor-scan";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,6 +35,18 @@ function deriveTitle(description: string): string {
     .replace(/^Proposal[:\-]?\s*/i, "")
     .replace(/\.$/, "");
   return cleaned.length ? cleaned.slice(0, 120) : "Untitled proposal";
+}
+
+// Read a proposal's current state as its lowercase label (for the ?state= filter).
+async function readStateLabel(
+  pub: ReturnType<typeof createPublicClient>,
+  governor: `0x${string}`,
+  id: bigint,
+): Promise<string> {
+  const raw = (await pub
+    .readContract({ address: governor, abi: GOVERNOR_ABI, functionName: "state", args: [id] })
+    .catch(() => -1)) as number;
+  return (PROPOSAL_STATE_LABEL[raw as ProposalState] ?? "unknown").toLowerCase();
 }
 
 // Read the quorum requirement (in vote-token wei) at a proposal's snapshot block.
@@ -68,13 +80,26 @@ export async function GET(req: Request) {
     // load cheap; max 30 protects free RPCs from getting hammered when a
     // visitor clicks 'See more' a few times.
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "12")));
+    // Optional state filter (e.g. ?state=executed). When set we read state for
+    // EVERY proposal (cheap single read each) and keep only matches, so the
+    // filter spans all proposals, not just the loaded page.
+    const stateParam = url.searchParams.get("state");
+    const stateFilter = stateParam ? stateParam.toLowerCase() : null;
     const addresses = DAO_ADDRESSES[chain];
+    const abi = GOVERNOR_ABI;
     // `head` comes back from the scan so the client can turn each proposal's
     // deadline block into a human "voting ends in ~X" countdown.
     const { pub, events, head: headBlock } = await findGovernorEvents(addresses.governor, chain);
-    const total = events.length;
-    const recent = events.slice().reverse().slice(0, limit);
-    const abi = GOVERNOR_ABI;
+
+    let ordered = events.slice().reverse(); // newest first
+    if (stateFilter) {
+      const labels = await mapBatched(ordered, 8, (log) =>
+        readStateLabel(pub, addresses.governor, (log as unknown as { args: { proposalId: bigint } }).args.proposalId),
+      );
+      ordered = ordered.filter((_, i) => labels[i] === stateFilter);
+    }
+    const total = ordered.length;
+    const recent = ordered.slice(0, limit);
     const proposals = await Promise.all(
       recent.map(async (log) => {
         const args = (log as unknown as {

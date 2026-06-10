@@ -55,7 +55,15 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-export function ProposalAnalytics({ chain }: { chain: DaoChain }) {
+export function ProposalAnalytics({
+  chain,
+  activeFilter,
+  onFilter,
+}: {
+  chain: DaoChain;
+  activeFilter?: string | null;
+  onFilter?: (state: string) => void;
+}) {
   const [data, setData] = useState<AnalyticsResp | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -97,12 +105,25 @@ export function ProposalAnalytics({ chain }: { chain: DaoChain }) {
       <div className="flex flex-wrap gap-2">
         {Object.entries(s.byState)
           .sort((a, b) => b[1] - a[1])
-          .map(([state, count]) => (
-            <span key={state} className="inline-flex items-center gap-1.5 rounded-full border border-bdr-soft bg-card/60 px-2.5 py-1 text-[11px]">
-              <span className={cn("font-semibold tabular-nums", STATE_TONE[state] ?? "text-content-default")}>{count}</span>
-              <span className="capitalize text-content-soft">{state}</span>
-            </span>
-          ))}
+          .map(([state, count]) => {
+            const active = activeFilter === state;
+            return (
+              <button
+                key={state}
+                type="button"
+                onClick={() => onFilter?.(state)}
+                aria-pressed={active}
+                title={`Show only ${state} proposals`}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                  active ? "border-primary/50 bg-primary/15" : "border-bdr-soft bg-card/60 hover:border-primary/40",
+                )}
+              >
+                <span className={cn("font-semibold tabular-nums", STATE_TONE[state] ?? "text-content-default")}>{count}</span>
+                <span className="capitalize text-content-soft">{state}</span>
+              </button>
+            );
+          })}
       </div>
 
       <ExecutedTimeline executed={data.executed} explorer={data.explorer} chain={chain} />
