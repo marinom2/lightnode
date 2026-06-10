@@ -9,25 +9,54 @@ import { CodeTabs } from "@/components/build/console/code-tabs";
 import { shortAddr, cn } from "@/lib/utils";
 
 type Dir = "eth-to-lc" | "lc-to-eth";
+type ChainKey = "ethereum" | "lightchain";
 
-const ETH = { label: "Ethereum", badge: "/logos/eth.svg" };
-const LC = { label: "LightchainAI", badge: "/lightnode-mark.png" };
-
-interface Balances {
-  ethereumLcai: number;
-  lightchainLcai: number;
-}
-interface Fee {
-  estimatedSourceGas: string;
-  igpFee: { ok: boolean };
+interface ChainBrand {
+  key: ChainKey;
+  label: string;
+  sub: string;
+  token: string;
+  badge: string;
 }
 
-function TokenLogo({ badge }: { badge: string }) {
+const CHAIN_BRAND: Record<ChainKey, ChainBrand> = {
+  ethereum: { key: "ethereum", label: "Ethereum", sub: "LCAI ERC-20", token: "/logos/lcai.png", badge: "/logos/eth.svg" },
+  lightchain: { key: "lightchain", label: "LightchainAI", sub: "native LCAI", token: "/logos/lcai.png", badge: "/logos/lcai.png" },
+};
+const ENDPOINTS: Record<Dir, [ChainKey, ChainKey]> = {
+  "eth-to-lc": ["ethereum", "lightchain"],
+  "lc-to-eth": ["lightchain", "ethereum"],
+};
+
+function TokenChainIcon({ brand, size = 36 }: { brand: ChainBrand; size?: number }) {
+  const badge = Math.max(14, Math.round(size * 0.45));
   return (
-    <span className="relative inline-block size-9 shrink-0">
-      <Image src="/logos/lcai.png" alt="LCAI" width={36} height={36} className="size-9 rounded-full" />
-      <Image src={badge} alt="" width={16} height={16} className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-card ring-2 ring-card" />
-    </span>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <span className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-[#14152C]">
+        <Image src={brand.token} alt="LCAI" width={size} height={size} className="h-full w-full object-contain p-0.5" />
+      </span>
+      <span
+        className="absolute -bottom-0.5 -right-0.5 grid place-items-center overflow-hidden rounded-full bg-[#1A1B38] ring-2 ring-[#070710]"
+        style={{ width: badge, height: badge }}
+      >
+        <Image src={brand.badge} alt={brand.label} width={badge} height={badge} className="h-full w-full object-contain" />
+      </span>
+    </div>
+  );
+}
+
+function TokenButton({ brand, reverse = false }: { brand: ChainBrand; reverse?: boolean }) {
+  return (
+    <div className={cn("flex w-full items-center rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2.5 sm:px-4", reverse && "flex-row-reverse")}>
+      <div className={cn("flex items-center gap-3", reverse && "flex-row-reverse")}>
+        <TokenChainIcon brand={brand} size={36} />
+        <div className={cn("flex flex-col gap-0.5", reverse ? "items-end" : "items-start")}>
+          <span className="text-sm font-semibold leading-tight text-content-primary sm:text-base">LCAI</span>
+          <span className="text-[10px] font-normal leading-tight text-content-soft sm:text-xs">{brand.label}</span>
+        </div>
+      </div>
+      <ChevronDown className={cn("size-4 shrink-0 text-content-soft", reverse ? "mr-auto" : "ml-auto")} />
+    </div>
   );
 }
 
@@ -61,7 +90,15 @@ await bridgeTransfer(wallet, {
 });`;
 }
 
-const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+interface Balances {
+  ethereumLcai: number;
+  lightchainLcai: number;
+}
+interface Fee {
+  estimatedSourceGas: string;
+}
+
+const bal4 = (n: number | null) => (n == null ? "0.00" : n.toFixed(4));
 
 export default function BridgePanel() {
   const { address, isConnected } = useAccount();
@@ -72,12 +109,17 @@ export default function BridgePanel() {
   const [fee, setFee] = useState<Fee | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
 
-  const from = dir === "eth-to-lc" ? ETH : LC;
-  const to = dir === "eth-to-lc" ? LC : ETH;
-  const sourceBal = bal ? (dir === "eth-to-lc" ? bal.ethereumLcai : bal.lightchainLcai) : 0;
-  const remoteBal = bal ? (dir === "eth-to-lc" ? bal.lightchainLcai : bal.ethereumLcai) : 0;
+  const [fromKey, toKey] = ENDPOINTS[dir];
+  const fromBrand = CHAIN_BRAND[fromKey];
+  const toBrand = CHAIN_BRAND[toKey];
+  const originBalance = bal ? (fromKey === "ethereum" ? bal.ethereumLcai : bal.lightchainLcai) : null;
+  const remoteBalance = bal ? (toKey === "ethereum" ? bal.ethereumLcai : bal.lightchainLcai) : null;
 
-  // Real balances on both chains for the connected address (same EVM address).
+  const flip = () => {
+    setDir((d) => (d === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc"));
+    setAmount("");
+  };
+
   useEffect(() => {
     if (!isConnected || !address) {
       setBal(null);
@@ -93,7 +135,6 @@ export default function BridgePanel() {
     };
   }, [isConnected, address]);
 
-  // Live fee preview, debounced on amount/direction.
   const loadFee = useCallback(async () => {
     const amt = amount.trim();
     if (!amt || Number(amt) <= 0) {
@@ -120,96 +161,94 @@ export default function BridgePanel() {
     return () => clearTimeout(t);
   }, [loadFee]);
 
-  const feeText = feeLoading ? "..." : fee ? `${fee.estimatedSourceGas} + 0 Hyperlane (IGP)` : "-";
+  const feeText = feeLoading ? "..." : fee ? `${fee.estimatedSourceGas} + 0 IGP` : "-";
 
   return (
     <div className="space-y-8">
-      <div className="mx-auto max-w-[480px] overflow-hidden rounded-3xl border border-bdr-soft bg-card shadow-2xl">
-        <div className="border-b border-bdr-soft px-6 py-5 text-center">
-          <h2 className="text-2xl font-bold tracking-tight text-content-primary">LCAI Bridge</h2>
+      <div className="mx-auto max-w-[480px] overflow-hidden rounded-2xl border border-primary/30 shadow-2xl">
+        <div className="bg-[#14152C] px-3 py-5 text-center">
+          <h2 className="text-xl font-semibold leading-tight text-content-primary">LCAI Bridge</h2>
         </div>
 
-        <div className="space-y-4 p-6">
-          {/* Token pair */}
-          <div className="flex items-center gap-2">
-            <div className="flex flex-1 items-center gap-3 rounded-2xl border border-bdr-soft bg-surface-base-faint px-3.5 py-3">
-              <TokenLogo badge={from.badge} />
-              <div className="min-w-0 leading-tight">
-                <div className="text-base font-semibold text-content-primary">LCAI</div>
-                <div className="truncate text-xs text-content-soft">{from.label}</div>
-              </div>
-              <ChevronDown className="ml-auto size-4 shrink-0 text-content-soft" />
-            </div>
-            <button
-              type="button"
-              onClick={() => setDir((d) => (d === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc"))}
-              aria-label="Flip direction"
-              className="grid size-11 shrink-0 place-items-center rounded-xl border border-bdr-soft bg-card text-content-soft transition-colors hover:border-primary/40 hover:text-primary"
-            >
-              <ArrowLeftRight className="size-4" />
-            </button>
-            <div className="flex flex-1 items-center gap-3 rounded-2xl border border-bdr-soft bg-surface-base-faint px-3.5 py-3">
-              <ChevronDown className="size-4 shrink-0 text-content-soft" />
-              <div className="ml-auto min-w-0 text-right leading-tight">
-                <div className="text-base font-semibold text-content-primary">LCAI</div>
-                <div className="truncate text-xs text-content-soft">{to.label}</div>
-              </div>
-              <TokenLogo badge={to.badge} />
-            </div>
-          </div>
-
-          {/* Amount */}
-          <div className="rounded-2xl border border-bdr-soft bg-surface-base-faint p-4">
-            <div className="flex items-center gap-3">
-              <input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                inputMode="decimal"
-                placeholder="0.00"
-                className="w-full bg-transparent text-3xl font-semibold tabular-nums text-content-primary outline-none placeholder:text-content-soft/40"
-              />
+        <div className="space-y-2.5 bg-[#070710] p-4 sm:p-5">
+          {/* token-pair row + center flip */}
+          <div className="relative grid grid-cols-2 gap-[33px]">
+            <TokenButton brand={fromBrand} />
+            <TokenButton brand={toBrand} reverse />
+            <div className="absolute left-1/2 top-1/2 z-[2] -translate-x-1/2 -translate-y-1/2 rounded-md border-4 border-[#070710] sm:border-[6px]">
               <button
                 type="button"
-                onClick={() => sourceBal > 0 && setAmount(String(sourceBal))}
-                className="shrink-0 rounded-full bg-primary/15 px-3 py-1 text-sm font-medium text-primary transition-colors hover:bg-primary/25"
+                onClick={flip}
+                aria-label="Flip direction"
+                className="grid size-8 place-items-center rounded-md bg-[#1A1B38] text-primary transition-colors hover:bg-[#14152C] sm:size-[44px]"
               >
-                Max
+                <ArrowLeftRight className="size-4" />
               </button>
             </div>
-            <div className="mt-1.5 flex items-center justify-between text-sm">
-              <span className="text-content-soft">$0.00</span>
-              <span className="font-medium text-primary">Balance: {fmt(sourceBal)}</span>
+          </div>
+
+          {/* amount + balances */}
+          <div className="mt-4 rounded-xl border border-bdr-soft bg-surface-base-subtle p-2.5">
+            <div className="rounded-lg border border-bdr-soft bg-[#14152C] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="w-full flex-1 border-none bg-transparent text-xl font-normal tabular-nums text-content-primary outline-none placeholder:text-content-soft sm:text-2xl"
+                />
+                <button
+                  type="button"
+                  onClick={() => originBalance && originBalance > 0 && setAmount(String(originBalance))}
+                  disabled={!isConnected || !originBalance}
+                  className="flex h-6 min-w-[52px] items-center justify-center rounded-[30px] bg-primary px-3 text-xs font-semibold leading-none text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Max
+                </button>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs leading-[18px] text-content-soft">
+                <span className="tabular-nums">$0.00</span>
+                <span className="font-medium text-primary tabular-nums">Balance: {bal4(originBalance)}</span>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between">
+                {isConnected && address ? (
+                  <span className="inline-flex items-center gap-2 text-sm text-content-soft">
+                    <span className="size-2 rounded-full bg-success" />
+                    <span className="font-mono text-content-primary">{shortAddr(address)}</span>
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => open()} className="inline-flex items-center gap-1.5 text-sm text-content-soft transition-colors hover:text-content-primary">
+                    Connect Wallet <ChevronDown className="size-3.5" />
+                  </button>
+                )}
+                <span className="text-xs text-content-soft">{toBrand.sub}</span>
+              </div>
+              <div className="rounded-lg border border-bdr-soft bg-[#14152C] p-4">
+                <span className="text-sm font-medium leading-[18px] text-primary tabular-nums">Remote Balance: {bal4(remoteBalance)}</span>
+              </div>
             </div>
           </div>
 
-          {/* Wallet + remote balance */}
-          <button
-            type="button"
-            onClick={() => open()}
-            className="inline-flex items-center gap-1.5 text-sm text-content-soft transition-colors hover:text-content-primary"
-          >
-            {isConnected && address ? shortAddr(address) : "Connect Wallet"} <ChevronDown className="size-3.5" />
-          </button>
-          <div className="rounded-2xl border border-bdr-soft bg-surface-base-faint p-4 text-sm">
-            <span className="font-medium text-primary">Remote Balance: {fmt(remoteBal)}</span>
+          {/* fees */}
+          <div className="mt-2 flex items-center text-sm text-content-soft">
+            <CreditCard className="mr-1 size-4" /> Fees: <span className="ml-1 text-content-default">{feeText}</span>
+            {feeLoading && <Loader2 className="ml-1 size-3.5 animate-spin" />}
           </div>
 
-          {/* Fees */}
-          <div className="flex items-center gap-1.5 text-sm text-content-soft">
-            <CreditCard className="size-4" /> Fees: <span className="text-content-default">{feeText}</span>
-            {feeLoading && <Loader2 className="size-3.5 animate-spin" />}
-          </div>
-
-          {/* Action */}
+          {/* action */}
           <button
             type="button"
-            onClick={() => (isConnected ? loadFee() : open())}
-            className="h-12 w-full rounded-2xl bg-[linear-gradient(94deg,#dd00ac_0%,#7130c3_38%,#7064e9_68%,#4f7cf6_100%)] bg-[length:200%_auto] bg-[position:left_center] text-base font-semibold tracking-[0.3px] text-white transition-all duration-300 hover:bg-[position:right_center] hover:brightness-110"
+            onClick={() => (isConnected ? void loadFee() : open())}
+            className="mt-2 h-12 w-full rounded-2xl bg-[linear-gradient(94deg,#dd00ac_0%,#7130c3_38%,#7064e9_68%,#4f7cf6_100%)] bg-[length:200%_auto] bg-[position:left_center] text-base font-semibold tracking-[0.3px] text-white transition-all duration-300 hover:bg-[position:right_center] hover:brightness-110"
           >
-            {isConnected ? `Review ${from.label} → ${to.label} transfer` : "Connect wallet"}
+            {isConnected ? "Preview transfer" : "Connect wallet"}
           </button>
           <p className="text-center text-[11px] leading-relaxed text-content-soft">
-            Live Hyperlane Warp Route. The transfer signs with your own wallet on {from.label} - the exact call is generated below (a bridge moves real cross-chain funds, so it isn&apos;t auto-submitted here).
+            Live Hyperlane Warp Route. The transfer signs with your own wallet on {fromBrand.label} - the exact call is generated below (a bridge moves real cross-chain funds, so it isn&apos;t auto-submitted here).
           </p>
         </div>
       </div>
