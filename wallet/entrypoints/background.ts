@@ -12,7 +12,7 @@
 import { createPublicClient, http, parseEther, formatEther, type TypedDataDefinition } from "viem";
 import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
-import { WorkerOperator, NETWORKS, type MinimalPublicClient } from "lightnode-sdk";
+import { readWorkerStatus } from "../src/rpc/worker";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, lightchainMainnet } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, RpcError } from "../src/provider/protocol";
@@ -98,23 +98,10 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const wei = await publicClient().getBalance({ address: op.address as `0x${string}` });
       return { wei: wei.toString(), lcai: formatEther(wei) };
     }
-    case "workerStatus": {
-      // Read-only worker registry/stake lookup via the SDK. No key needed; we
-      // return only number/bool fields (chrome.runtime can't structured-clone bigint).
-      const wo = new WorkerOperator(NETWORKS.mainnet, {
-        publicClient: publicClient() as unknown as MinimalPublicClient,
-        workerAddress: op.address as `0x${string}`,
-      });
-      const s = await wo.status();
-      return {
-        registered: s.registered,
-        belowFloor: s.belowFloor,
-        stakeLcai: s.stakeLcai,
-        minStakeLcai: Number(s.minStakeWei) / 1e18,
-        headroomLcai: s.headroomLcai,
-        claimableLcai: s.claimableLcai,
-      };
-    }
+    case "workerStatus":
+      // Read-only registry/stake lookup (no key). Already returns number/bool
+      // fields only, so it survives chrome.runtime's structured clone (no bigint).
+      return readWorkerStatus(publicClient(), op.address as `0x${string}`);
     case "send": {
       const kr = await restore();
       const acct = kr?.accountFor(op.from);
