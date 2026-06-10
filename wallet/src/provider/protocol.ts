@@ -36,6 +36,9 @@ export type WalletOp =
   | { type: "unlock"; password: string }
   | { type: "lock" }
   | { type: "addAccount" }
+  | { type: "setActiveAccount"; index: number }
+  | { type: "revealMnemonic"; password: string }
+  | { type: "removeWallet" }
   | { type: "getBalance"; address: string }
   | { type: "setChain"; chainId: number }
   | { type: "getTokens"; address: string }

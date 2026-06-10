@@ -31,6 +31,8 @@ const ICONS: Record<string, string> = {
   check: "M5 12l5 5L20 7",
   external: "M14 4h6v6M20 4l-9 9M10 5H5v14h14v-5",
   x: "M6 6l12 12M18 6 6 18",
+  settings: "M20 7h-9M14 17H5M17 14a3 3 0 100 6 3 3 0 000-6zM7 4a3 3 0 100 6 3 3 0 000-6z",
+  plus: "M12 5v14M5 12h14",
 };
 function Ic({ name, size = 18 }: { name: string; size?: number }) {
   return (
@@ -165,9 +167,10 @@ function Unlock({ onDone }: { onDone: () => void }) {
 // ---- wallet home -----------------------------------------------------------
 
 function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
-  const address = state.accounts[0]!;
+  const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
   const [bal, setBal] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<"send" | "receive" | null>(null);
+  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | null>(null);
+  const [acctOpen, setAcctOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const chain = chainById(state.chainId);
   const sym = chain.nativeCurrency.symbol;
@@ -188,6 +191,8 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
     setTimeout(() => setCopied(false), 1200);
   };
   const switchChain = (id: number) => void wallet({ type: "setChain", chainId: id }).then(onChange);
+  const selectAccount = (i: number) => void wallet({ type: "setActiveAccount", index: i }).then(onChange);
+  const addAccount = () => void wallet({ type: "addAccount" }).then(onChange);
   const addToken = async () => {
     const addr = window.prompt("Token contract address (0x…) on this network:");
     if (!addr?.trim()) return;
@@ -206,13 +211,19 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
   return (
     <>
       <div className="header">
-        <span className="avatar" style={{ background: avatarGradient(address) }} />
-        <div className="acct" onClick={copy} title="Copy address">
-          <b>Account 1</b>
-          <span className="addr-mini">{short(address)}</span>
+        <div className="net" style={{ minWidth: 0 }}>
+          <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
+            <span className="avatar" style={{ background: avatarGradient(address), width: 26, height: 26 }} />
+            <span className="acct"><b>Account {state.activeIndex + 1}</b><span className="addr-mini">{short(address)}</span></span>
+            <Ic name="chevron" size={13} />
+          </button>
+          {acctOpen && (
+            <AccountMenu accounts={state.accounts} activeIndex={state.activeIndex} onSelect={selectAccount} onAdd={addAccount} onClose={() => setAcctOpen(false)} />
+          )}
         </div>
         <span className="spacer" />
         <NetworkSwitcher chainId={state.chainId} onSwitch={switchChain} />
+        <button className="icon-btn" title="Settings" onClick={() => setSheet("settings")}><Ic name="settings" size={15} /></button>
         <button className="icon-btn" title="Lock" onClick={() => void wallet({ type: "lock" }).then(onChange)}><Ic name="lock" size={15} /></button>
       </div>
 
@@ -252,7 +263,76 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
       {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
+      {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
     </>
+  );
+}
+
+function AccountMenu({ accounts, activeIndex, onSelect, onAdd, onClose }: { accounts: string[]; activeIndex: number; onSelect: (i: number) => void; onAdd: () => void; onClose: () => void }) {
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, zIndex: 20 }} onClick={onClose} />
+      <div className="net-menu" style={{ left: 0, right: "auto", width: 232 }}>
+        {accounts.map((a, i) => (
+          <button key={a} className={`net-item${i === activeIndex ? " sel" : ""}`} onClick={() => { onSelect(i); onClose(); }}>
+            <span className="avatar" style={{ width: 22, height: 22, background: avatarGradient(a) }} />
+            <span className="grow" style={{ minWidth: 0 }}><b style={{ fontSize: 12 }}>Account {i + 1}</b><span className="faint" style={{ display: "block" }}>{short(a)}</span></span>
+            {i === activeIndex && <span className="check"><Ic name="check" size={14} /></span>}
+          </button>
+        ))}
+        <button className="net-item" style={{ color: "var(--brand)", fontWeight: 600 }} onClick={() => { onAdd(); onClose(); }}>
+          <Ic name="plus" size={15} /> Add account
+        </button>
+      </div>
+    </>
+  );
+}
+
+function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onRemoved: () => void }) {
+  const [pw, setPw] = useState("");
+  const [phrase, setPhrase] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const reveal = async () => {
+    setErr(null);
+    try {
+      const r = await wallet<{ mnemonic: string }>({ type: "revealMnemonic", password: pw });
+      setPhrase(r.mnemonic);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  const remove = async () => {
+    if (!window.confirm("Remove this wallet from the device? You can only restore it with your recovery phrase.")) return;
+    await wallet({ type: "removeWallet" });
+    onRemoved();
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Settings</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <div className="card">
+          <h2>Recovery phrase</h2>
+          {phrase ? (
+            <>
+              <div className="seed" style={{ marginTop: 4 }}>{phrase}</div>
+              <p className="danger-box" style={{ marginTop: 8 }}>Never share this. Anyone with it controls your funds.</p>
+            </>
+          ) : (
+            <>
+              <p className="muted">Enter your password to reveal your 24-word phrase.</p>
+              <input type="password" placeholder="Password" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 8 }} />
+              {err && <p className="err">{err}</p>}
+              <button className="ghost" disabled={!pw} onClick={reveal} style={{ marginTop: 8, width: "100%" }}>Reveal phrase</button>
+            </>
+          )}
+        </div>
+        <div className="card">
+          <h2>Security</h2>
+          <p className="muted">Auto-locks after 15 minutes of inactivity and after a browser restart.</p>
+          <button className="danger" onClick={remove} style={{ marginTop: 10, width: "100%" }}>Remove wallet from this device</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

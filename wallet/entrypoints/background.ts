@@ -23,7 +23,19 @@ const VAULT_KEY = "vault";
 const SESSION_KEY = "session-mnemonic";
 const PERMS_KEY = "connected-origins";
 const CHAIN_KEY = "selected-chain";
+const COUNT_KEY = "account-count";
+const ACTIVE_KEY = "active-account";
 const AUTO_LOCK_MIN = 15;
+
+// How many accounts to derive (persisted, so added accounts survive lock/unlock).
+async function accountCount(): Promise<number> {
+  const { [COUNT_KEY]: n } = await browser.storage.local.get(COUNT_KEY);
+  return typeof n === "number" && n >= 1 ? n : 1;
+}
+async function activeIndex(max: number): Promise<number> {
+  const { [ACTIVE_KEY]: i } = await browser.storage.local.get(ACTIVE_KEY);
+  return typeof i === "number" && i >= 0 && i < max ? i : 0;
+}
 
 let live: Keyring | null = null;
 const pending = new Map<string, { request: JsonRpcRequest; origin: string; resolve: (r: unknown) => void; reject: (e: { code: number; message: string }) => void }>();
@@ -50,7 +62,7 @@ async function trackedTokens(chainId: number): Promise<TokenMeta[]> {
 async function restore(): Promise<Keyring | null> {
   if (live) return live;
   const { [SESSION_KEY]: mnemonic } = await browser.storage.session.get(SESSION_KEY);
-  if (typeof mnemonic === "string" && mnemonic) live = Keyring.fromMnemonic(mnemonic, 1);
+  if (typeof mnemonic === "string" && mnemonic) live = Keyring.fromMnemonic(mnemonic, await accountCount());
   return live;
 }
 
@@ -75,10 +87,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     case "getState": {
       const { [VAULT_KEY]: vault } = await browser.storage.local.get(VAULT_KEY);
       const kr = await restore();
+      const accounts = kr ? kr.accounts.map((a) => a.address) : [];
       return {
         hasVault: Boolean(vault),
         unlocked: Boolean(kr),
-        accounts: kr ? kr.accounts.map((a) => a.address) : [],
+        accounts,
+        activeIndex: await activeIndex(accounts.length || 1),
         chainId: await selectedChainId(),
       };
     }
@@ -87,10 +101,24 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await browser.storage.local.set({ [CHAIN_KEY]: op.chainId });
       return { chainId: op.chainId };
     }
+    case "setActiveAccount": {
+      await browser.storage.local.set({ [ACTIVE_KEY]: op.index });
+      return { ok: true };
+    }
+    case "revealMnemonic": {
+      const { [VAULT_KEY]: vault } = (await browser.storage.local.get(VAULT_KEY)) as { vault?: EncryptedVault };
+      if (!vault) throw RpcError.invalidParams;
+      return { mnemonic: await decryptVault(vault, op.password) }; // throws "Invalid password"
+    }
+    case "removeWallet": {
+      await lock();
+      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY]);
+      return { ok: true };
+    }
     case "createVault":
     case "importVault": {
       const vault = await encryptVault(op.mnemonic, op.password);
-      await browser.storage.local.set({ [VAULT_KEY]: vault });
+      await browser.storage.local.set({ [VAULT_KEY]: vault, [COUNT_KEY]: 1, [ACTIVE_KEY]: 0 });
       await browser.storage.session.set({ [SESSION_KEY]: op.mnemonic });
       live = Keyring.fromMnemonic(op.mnemonic, 1);
       await bumpAutoLock();
@@ -100,7 +128,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const { [VAULT_KEY]: vault } = (await browser.storage.local.get(VAULT_KEY)) as { vault?: EncryptedVault };
       if (!vault) throw RpcError.invalidParams;
       const mnemonic = await decryptVault(vault, op.password); // throws "Invalid password"
-      live = Keyring.fromMnemonic(mnemonic, 1);
+      live = Keyring.fromMnemonic(mnemonic, await accountCount());
       await browser.storage.session.set({ [SESSION_KEY]: mnemonic });
       await bumpAutoLock();
       return { unlocked: true, accounts: live.accounts.map((a) => a.address) };
@@ -112,6 +140,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const kr = await restore();
       if (!kr) throw RpcError.locked;
       const acct = kr.addAccount();
+      await browser.storage.local.set({ [COUNT_KEY]: kr.accounts.length });
       await bumpAutoLock();
       return { address: acct.address };
     }
@@ -228,7 +257,7 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
   const kr = await restore();
   if (!kr) throw RpcError.locked;
   if (request.method === "eth_requestAccounts") {
-    const addr = kr.accounts[0]!.address;
+    const addr = kr.accounts[await activeIndex(kr.accounts.length)]!.address;
     const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
     perms[origin] = [addr];
     await browser.storage.local.set({ [PERMS_KEY]: perms });
