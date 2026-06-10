@@ -42,7 +42,13 @@ export interface AgentRunResult {
   hitLimit: boolean;
 }
 
-export interface AgentOptions extends Omit<RunInferenceWithKeyArgs, "prompt" | "system"> {
+/** How the agent runs each inference: with a funded key (Node), OR an injected
+ *  function (e.g. a browser wallet flow) so the SAME loop runs anywhere. */
+export type AgentInferenceBackend =
+  | Omit<RunInferenceWithKeyArgs, "prompt" | "system">
+  | { inferenceFn: (args: { prompt: string }) => Promise<{ answer: string }> };
+
+export type AgentOptions = AgentInferenceBackend & {
   /** Human-readable goal / persona. Becomes the BASE system prompt; the tool harness is appended automatically. */
   system?: string;
   /** Tools the model is allowed to call. */
@@ -51,7 +57,7 @@ export interface AgentOptions extends Omit<RunInferenceWithKeyArgs, "prompt" | "
   maxIterations?: number;
   /** Called after every step (thought / tool call / answer). Useful for live UI. */
   onStep?: (step: AgentStep) => void;
-}
+};
 
 /**
  * ReAct-style agent on top of `runInferenceWithKey`. Each iteration:
@@ -113,19 +119,27 @@ export class Agent {
     const system = this.buildSystemPrompt();
 
     let iterations = 0;
+    // The inference backend: an injected fn (browser wallet, mock, ...) when
+    // provided, else runInferenceWithKey with the funded key. The agent loop is
+    // identical either way.
+    const opts = this.opts as Record<string, unknown>;
+    const injected =
+      typeof opts.inferenceFn === "function"
+        ? (opts.inferenceFn as (a: { prompt: string }) => Promise<{ answer: string }>)
+        : null;
     // Strip Agent-only fields before passing through to runInferenceWithKey.
-    const passthrough = { ...this.opts } as Partial<AgentOptions>;
+    const passthrough = { ...this.opts } as Partial<AgentOptions> & { inferenceFn?: unknown };
     delete passthrough.tools;
     delete passthrough.maxIterations;
     delete passthrough.onStep;
     delete passthrough.system;
+    delete passthrough.inferenceFn;
     while (iterations < maxIter) {
       iterations++;
       const prompt = `${system}\n\n${transcript.join("\n\n")}\n\nAssistant:`;
-      const { answer: raw } = await runInferenceWithKey({
-        ...(passthrough as RunInferenceWithKeyArgs),
-        prompt,
-      });
+      const { answer: raw } = injected
+        ? await injected({ prompt })
+        : await runInferenceWithKey({ ...(passthrough as RunInferenceWithKeyArgs), prompt });
       const parsed = parseAgentOutput(raw);
       if (parsed.kind === "answer") {
         const step: AgentStep = { kind: "answer", text: parsed.text };

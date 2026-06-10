@@ -143,6 +143,12 @@ export interface RunOptions {
   model?: string;
 }
 
+/** What `run` resolves to on success (null on error/abort). Lets batch/agent callers collect answers. */
+export interface InferenceRunResult {
+  answer: string;
+  submitTx: `0x${string}` | null;
+}
+
 export interface UseEncryptedInference {
   state: FlowState;
   authPending: boolean;
@@ -154,7 +160,7 @@ export interface UseEncryptedInference {
   cfg: (typeof NETWORKS)[keyof typeof NETWORKS];
   explorer: string;
   net: keyof typeof NETWORKS;
-  run: (prompt: string, opts?: RunOptions) => Promise<void>;
+  run: (prompt: string, opts?: RunOptions) => Promise<InferenceRunResult | null>;
   reset: () => void;
 }
 
@@ -207,29 +213,30 @@ export function useEncryptedInference(): UseEncryptedInference {
 
   const reset = () => setState(initial);
 
-  const run = async (prompt: string, opts: RunOptions = {}) => {
+  const run = async (prompt: string, opts: RunOptions = {}): Promise<InferenceRunResult | null> => {
     const model = opts.model?.trim() || DEFAULT_MODEL;
     if (!isConnected || !address || !walletClient || !publicClient) {
       setState({ ...initial, phase: "error", error: "Connect a wallet first." });
-      return;
+      return null;
     }
     if (wrongChain && switchChainAsync) {
       try {
         await switchChainAsync({ chainId: expectedChain });
       } catch {
         setState({ ...initial, phase: "error", error: `Switch your wallet to chain ${expectedChain} and try again.` });
-        return;
+        return null;
       }
     }
     if (!prompt.trim()) {
       setState({ ...initial, phase: "error", error: "Type a prompt first." });
-      return;
+      return null;
     }
     if (prompt.length > 8000) {
       setState({ ...initial, phase: "error", error: "Prompt is too long (max 8000 characters). Shorten it and try again." });
-      return;
+      return null;
     }
 
+    let answerOut: InferenceRunResult | null = null;
     startRef.current = Date.now();
     setState({ ...initial, phase: "auth", modelTag: model });
     // Capture narrowed handles so the inner runAttempt closure (which TS
@@ -277,7 +284,9 @@ export function useEncryptedInference(): UseEncryptedInference {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         setState((p) => ({ ...p, attempt }));
         try {
-          sockRef.current = await runAttempt(gateway);
+          const res = await runAttempt(gateway);
+          sockRef.current = res.ws;
+          answerOut = { answer: res.answer, submitTx: res.submitTx };
           break; // success - leave the retry loop
         } catch (e) {
           if (e instanceof StalledWorkerError && attempt < MAX_ATTEMPTS) {
@@ -301,7 +310,6 @@ export function useEncryptedInference(): UseEncryptedInference {
         }
       }
       // (runAttempt sets phase "done" itself on the successful attempt.)
-      return;
     } catch (err) {
       try {
         // TS narrows `sockRef.current` to never across the inner async closure; the
@@ -316,8 +324,9 @@ export function useEncryptedInference(): UseEncryptedInference {
       // calldata + ABI + a docs link). humanizeError maps it to one clean line.
       setState((p) => ({ ...p, phase: "error", error: humanizeError(err, { action: "the inference" }) }));
     }
+    return answerOut;
     // ---- inner helper -----------------------------------------------------
-    async function runAttempt(gateway: GatewayClient): Promise<WebSocket> {
+    async function runAttempt(gateway: GatewayClient): Promise<{ ws: WebSocket; answer: string; submitTx: `0x${string}` }> {
       // === 2. Prepare session (pick a worker, wrap session key, get dispatcher sig) ===
       setState((p) => ({ ...p, phase: "prepare", createTx: null, submitTx: null, sessionId: null, jobId: null, output: "" }));
       const prepared = await prepareSession(gateway, model);
@@ -528,7 +537,7 @@ export function useEncryptedInference(): UseEncryptedInference {
           elapsedMs: Date.now() - startRef.current,
           completedTx: null,
         }));
-        return sockRef.current;
+        return { ws: sockRef.current, answer: chunks.join(""), submitTx };
       }
       if (!completed) {
         // Throw a typed sentinel so the outer run() can catch + auto-retry with
@@ -547,7 +556,7 @@ export function useEncryptedInference(): UseEncryptedInference {
         // with responseHash + ciphertextHash). It's the third proof in the chain.
         completedTx: completed.transactionHash as `0x${string}`,
       }));
-      return sockRef.current;
+      return { ws: sockRef.current, answer: chunks.join(""), submitTx };
     }
   };
 
