@@ -38,8 +38,11 @@ export type WalletOp =
   | { type: "addAccount" }
   | { type: "getBalance"; address: string }
   | { type: "setChain"; chainId: number }
+  | { type: "getTokens"; address: string }
+  | { type: "addToken"; chainId: number; address: string }
   | { type: "workerStatus"; address: string }
   | { type: "send"; from: string; to: string; valueWei: string }
+  | { type: "sendToken"; from: string; token: string; to: string; amount: string; decimals: number }
   | { type: "listPending" }
   | { type: "resolvePending"; id: string; approved: boolean };
 
