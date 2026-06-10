@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
-import { wallet, type WalletState, type PendingRequest } from "./wallet-api";
+import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
+import { summarizeTypedData } from "../../src/provider/typed-data";
+import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
+
+const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "warn", danger: "warn" };
 
 const EXPLORER = "https://mainnet.lightscan.app";
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -156,11 +160,42 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
         <p className="addr" style={{ marginTop: 6 }}>{short(address)} <a href={`${EXPLORER}/address/${address}`} target="_blank" rel="noreferrer">view</a></p>
       </div>
       <SendForm from={address} onSent={onChange} />
+      <WorkerPanel address={address} />
       <div className="card">
-        <h2>LightChain superpowers</h2>
-        <p className="muted">Worker staking + monitoring, encrypted AI inference, and DAO intelligence connect through the lightnode SDK. Manage them at <a href="https://lightchain.ai" target="_blank" rel="noreferrer">lightnode</a>.</p>
+        <h2>More superpowers</h2>
+        <p className="muted">Encrypted AI inference, DAO intelligence, and the Ethereum bridge connect through the lightnode SDK and land next. Explore them at <a href="https://lightchain.ai" target="_blank" rel="noreferrer">lightnode</a>.</p>
       </div>
     </>
+  );
+}
+
+function WorkerPanel({ address }: { address: string }) {
+  const [s, setS] = useState<WorkerStatusView | "loading" | "error">("loading");
+  useEffect(() => {
+    setS("loading");
+    wallet<WorkerStatusView>({ type: "workerStatus", address }).then(setS).catch(() => setS("error"));
+  }, [address]);
+  if (s === "loading") return <div className="card"><h2>Worker status</h2><p className="muted">Checking the registry…</p></div>;
+  if (s === "error") return <div className="card"><h2>Worker status</h2><p className="muted">Could not reach the worker registry. Try again later.</p></div>;
+  if (!s.registered) {
+    return (
+      <div className="card">
+        <h2>Worker status</h2>
+        <p className="muted">This address is not a registered LightChain worker. <a href="https://lightchain.ai/onboard" target="_blank" rel="noreferrer">Run a worker →</a></p>
+      </div>
+    );
+  }
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return (
+    <div className="card">
+      <div className="row between"><h2 style={{ margin: 0 }}>Worker</h2><span className="pill">registered</span></div>
+      <div className="row between" style={{ marginTop: 8 }}><span className="muted">Stake</span><span className="addr">{fmt(s.stakeLcai)} LCAI</span></div>
+      <div className="row between"><span className="muted">Min stake</span><span className="addr">{fmt(s.minStakeLcai)}</span></div>
+      <div className="row between"><span className="muted">Headroom</span><span className="addr">{fmt(s.headroomLcai)}</span></div>
+      {s.claimableLcai > 0 && <div className="row between"><span className="muted">Claimable</span><span className="ok">{fmt(s.claimableLcai)} LCAI</span></div>}
+      {s.belowFloor && <p className="warn">Below the stake floor - top up to keep earning. Manage at lightnode.</p>}
+      <a href="https://lightchain.ai" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: 12 }}>Manage worker →</a>
+    </div>
   );
 }
 
@@ -234,18 +269,40 @@ function labelFor(method: string): string {
   if (method === "eth_requestAccounts") return "Connect this site to your wallet";
   if (method === "personal_sign") return "Sign a message";
   if (method === "eth_sendTransaction") return "Send a transaction";
+  if (method === "eth_signTypedData_v4") return "Sign typed data (EIP-712)";
   return method;
 }
 
 function RequestDetail({ req }: { req: PendingRequest }) {
   if (req.method === "eth_sendTransaction") {
     const tx = (req.params?.[0] ?? {}) as { to?: string; value?: string; data?: string };
-    const hasData = tx.data && tx.data !== "0x";
+    const decoded = decodeDangerousCall(tx.data as `0x${string}` | undefined);
     return (
       <div className="muted" style={{ fontSize: 12 }}>
         <p className="addr">to: {tx.to ?? "(contract creation)"}</p>
         <p>value: {tx.value ? Number(BigInt(tx.value)) / 1e18 : 0} LCAI</p>
-        {hasData && <p className="warn">This is a contract interaction (data {String(tx.data).slice(0, 12)}…). Only approve if you trust this site - contract calls can move tokens.</p>}
+        {decoded.kind !== "empty" && (
+          <p className={SEVERITY_CLASS[decoded.severity]}>
+            <b>{decoded.label}.</b> {decoded.detail}
+          </p>
+        )}
+      </div>
+    );
+  }
+  if (req.method === "eth_signTypedData_v4") {
+    const s = summarizeTypedData(req.params?.[1], [9200, 8200]);
+    return (
+      <div className="muted" style={{ fontSize: 12 }}>
+        {s.error ? (
+          <p className="warn">{s.error} Reject unless you trust this site.</p>
+        ) : (
+          <>
+            <p>type: <b>{s.primaryType}</b>{s.domainName ? ` · ${s.domainName}` : ""}</p>
+            {s.verifyingContract && <p className="addr">contract: {s.verifyingContract}</p>}
+            {!s.chainIdOk && <p className="warn">Domain chain ({s.chainId ?? "?"}) is not LightChain - reject unless you are sure.</p>}
+            {s.warning && <p className="warn">{s.warning}</p>}
+          </>
+        )}
       </div>
     );
   }
