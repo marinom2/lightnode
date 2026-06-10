@@ -5,6 +5,15 @@ export interface JsonRpcRequest {
   method: string;
   params?: unknown[];
 }
+
+export interface ActivityEntry {
+  hash: string;
+  to: string;
+  amount: string;
+  symbol: string;
+  chainId: number;
+  ts: number;
+}
 export interface JsonRpcResult {
   id: number | string;
   result?: unknown;
@@ -46,6 +55,8 @@ export type WalletOp =
   | { type: "workerStatus"; address: string }
   | { type: "send"; from: string; to: string; valueWei: string }
   | { type: "sendToken"; from: string; token: string; to: string; amount: string; decimals: number }
+  | { type: "addActivity"; entry: ActivityEntry }
+  | { type: "getActivity"; chainId: number }
   | { type: "listPending" }
   | { type: "resolvePending"; id: string; approved: boolean };
 
