@@ -41,6 +41,7 @@ const ALL_LINKS: NavItem[] = [
   { href: "/onboard", label: "Run a worker" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/network", label: "Network" },
+  { href: "/wallet", label: "Wallet", webOnly: true },
   {
     href: "/build",
     label: "Build",
