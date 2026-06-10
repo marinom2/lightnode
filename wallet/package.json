@@ -5,7 +5,10 @@
   "type": "module",
   "description": "Self-custodial EOA browser wallet for LightChain. Non-custodial: keys never leave the device. Not an official LightChain package.",
   "scripts": {
+    "build:sdk": "npm --prefix ../sdk install --no-audit --no-fund && npm --prefix ../sdk run build",
+    "predev": "npm run build:sdk",
     "dev": "wxt",
+    "prebuild": "npm run build:sdk",
     "build": "wxt build",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
