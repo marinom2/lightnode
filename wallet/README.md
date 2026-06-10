@@ -1,4 +1,4 @@
-# LightChain Wallet
+# LightNode Wallet
 
 A **self-custodial** browser wallet for LightChain (EVM L1, chain 9200; testnet 8200). Like Phantom/MetaMask, it is a pure client-side **EOA wallet** - there is **no smart contract**, no relayer, and no server. Your keys are generated and encrypted **on your device and never leave it**. We are not an exchange and never custody funds.
 

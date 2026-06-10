@@ -1,8 +1,8 @@
 import { PAGE_TO_CONTENT, CONTENT_TO_PAGE, type ContentMessage } from "../src/provider/protocol";
 
 // Injected into the page's MAIN world. Exposes a standard EIP-1193 provider and
-// announces it via EIP-6963 so dapps can pick "LightChain Wallet" ALONGSIDE
-// MetaMask. We do not overwrite window.ethereum (only set it if nothing else has).
+// announces it via EIP-6963 so dapps can pick "LightNode Wallet" alongside any other wallet.
+// We do not overwrite window.ethereum (only set it if nothing else has).
 type Handler = (args: unknown) => void;
 
 function createProvider() {
@@ -22,7 +22,7 @@ function createProvider() {
   });
 
   const provider = {
-    isLightChainWallet: true,
+    isLightNodeWallet: true,
     request({ method, params }: { method: string; params?: unknown[] }): Promise<unknown> {
       if (typeof method !== "string") return Promise.reject({ code: -32602, message: "Invalid params" });
       const id = nextId++;
@@ -46,9 +46,9 @@ function createProvider() {
 function announce(provider: ReturnType<typeof createProvider>) {
   const info = {
     uuid: crypto.randomUUID(),
-    name: "LightChain Wallet",
+    name: "LightNode Wallet",
     icon: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiM3MDY0ZTkiLz48L3N2Zz4=",
-    rdns: "ai.lightchain.wallet",
+    rdns: "app.lightnode.wallet",
   };
   const emit = () => window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail: Object.freeze({ info, provider }) }));
   window.addEventListener("eip6963:requestProvider", emit);

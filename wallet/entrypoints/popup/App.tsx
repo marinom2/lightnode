@@ -27,7 +27,7 @@ export function App() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="wrap">
-      <div className="brand"><span className="dot" /> LightChain Wallet</div>
+      <div className="brand"><span className="dot" /> LightNode Wallet</div>
       {children}
     </div>
   );

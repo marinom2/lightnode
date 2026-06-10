@@ -1,0 +1,41 @@
+name: Wallet release
+
+# Builds the prebuilt extension zip and attaches it to a GitHub Release so the
+# website's "Download the wallet" button always serves a current build. The
+# wallet is self-contained (no SDK build step), so this is a plain npm build.
+on:
+  push:
+    tags: ["wallet-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build + zip the extension
+        working-directory: wallet
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          npm run zip
+      - name: Stable asset name
+        run: cp wallet/.output/*-chrome.zip lightnode-wallet-chrome.zip
+      - name: Publish to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || 'wallet-latest' }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" lightnode-wallet-chrome.zip --clobber
+          else
+            gh release create "$TAG" lightnode-wallet-chrome.zip \
+              --title "LightNode Wallet ($TAG)" \
+              --notes "Prebuilt LightChain wallet extension (Chrome MV3). Unzip and Load unpacked in chrome://extensions."
+          fi
