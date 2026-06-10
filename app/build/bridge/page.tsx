@@ -124,20 +124,19 @@ export default function BridgePanel() {
     setAmount("");
   };
 
-  useEffect(() => {
+  const loadBalances = useCallback(() => {
     if (!isConnected || !address) {
       setBal(null);
       return;
     }
-    let on = true;
     fetch(`/api/bridge-balances?address=${address}`)
       .then((r) => r.json())
-      .then((j: Balances & { ok?: boolean }) => on && j.ok && setBal(j))
+      .then((j: Balances & { ok?: boolean }) => j.ok && setBal(j))
       .catch(() => {});
-    return () => {
-      on = false;
-    };
   }, [isConnected, address]);
+  useEffect(() => {
+    loadBalances();
+  }, [loadBalances]);
 
   const loadFee = useCallback(async () => {
     const amt = amount.trim();
@@ -233,6 +232,18 @@ export default function BridgePanel() {
         ...(feeParams ?? {}),
       });
       setExec({ phase: "done", msg: "", tx });
+      setAmount("");
+      // Refresh balances once the source-chain tx confirms (the source side
+      // drops immediately; the relayed amount lands on the destination later, so
+      // poll a couple more times to catch the remote balance updating).
+      pub
+        .waitForTransactionReceipt({ hash: tx })
+        .then(() => {
+          loadBalances();
+          setTimeout(loadBalances, 15_000);
+          setTimeout(loadBalances, 45_000);
+        })
+        .catch(() => {});
     } catch (e) {
       setExec({ phase: "error", msg: humanizeError(e, { action: "the bridge transfer" }) });
     }
