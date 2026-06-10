@@ -17,10 +17,10 @@ import { useEncryptedInference, DEFAULT_MODEL } from "@/lib/use-encrypted-infere
 
 const DEFAULT_PROMPT = "Reply with a one-sentence fun fact about the ocean.";
 
-const SNIPPET = `import { runInferenceWithKey } from "lightnode-sdk";
+const snippet = (net: string) => `import { runInferenceWithKey } from "lightnode-sdk";
 
 const { answer, txs } = await runInferenceWithKey({
-  network: "testnet",                  // or "mainnet"
+  network: "${net}",
   privateKey: process.env.PRIVATE_KEY,  // 0x... funded key
   prompt: "Reply with a one-sentence fun fact about the ocean.",
 });
@@ -141,7 +141,7 @@ export default function InferencePanel() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">The SDK call this panel makes</h2>
-        <CodeTabs tabs={[{ label: "TypeScript", code: SNIPPET }]} />
+        <CodeTabs tabs={[{ label: "TypeScript", code: snippet(net) }]} />
         <p className="text-xs text-content-soft">
           Same five-line call any dApp uses. Drop it into a project with{" "}
           <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-content-default">npx lightnode add inference</code>.

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Bot, ArrowRight, Brain, Wrench, Eye, CheckCircle2 } from "lucide-react";
+import { useNetwork } from "@/lib/network-context";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { PanelGrid, PanelColumn, Field } from "@/components/build/console/panel-kit";
@@ -43,13 +44,13 @@ const TOOL_DEFS: Record<string, { label: string; desc: string; code: string }> =
   },
 };
 
-function agentCode(task: string, tools: string[], maxIterations: number): string {
+function agentCode(task: string, tools: string[], maxIterations: number, net: string): string {
   const blocks = (tools.length ? tools : ["add", "now"]).map((t) => TOOL_DEFS[t].code).join("\n");
   const t = task.trim() || "What is 21 + 21, and what time is it now?";
   return `import { Agent } from "lightnode-sdk";
 
 const agent = new Agent({
-  network: "testnet",
+  network: "${net}",
   privateKey: process.env.PRIVATE_KEY,
   maxIterations: ${maxIterations},
   tools: [
@@ -70,6 +71,7 @@ const LOOP = [
 ];
 
 export default function AgentPanel() {
+  const { network } = useNetwork();
   const [task, setTask] = useState("What is 21 + 21, and what time is it now?");
   const [tools, setTools] = useState<string[]>(["add", "now"]);
   const [maxIterations, setMaxIterations] = useState(4);
@@ -144,7 +146,7 @@ export default function AgentPanel() {
 
           <div className="flex flex-col gap-2">
             <span className="px-1 text-[11px] font-semibold uppercase tracking-wider text-content-soft">Generated agent</span>
-            <CodeTabs tabs={[{ label: "TypeScript", code: agentCode(task, tools, maxIterations) }]} />
+            <CodeTabs tabs={[{ label: "TypeScript", code: agentCode(task, tools, maxIterations, network) }]} />
             <p className="px-1 text-[11px] text-content-soft">
               <Bot className="mr-1 inline size-3.5 text-primary" />
               Each reasoning step that calls the model is one encrypted inference.

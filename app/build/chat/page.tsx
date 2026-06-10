@@ -13,10 +13,10 @@ interface Msg {
   content: string;
 }
 
-const SNIPPET = `import { Conversation } from "lightnode-sdk";
+const snippet = (net: string) => `import { Conversation } from "lightnode-sdk";
 
 const chat = new Conversation({
-  network: "testnet",
+  network: "${net}",
   privateKey: process.env.PRIVATE_KEY,
   system: "You are a concise assistant.",
 });
@@ -98,8 +98,9 @@ export default function ChatPanel() {
               <div className="grid h-full place-items-center text-center text-sm text-content-soft">
                 <div>
                   <Sparkles className="mx-auto mb-2 size-5 text-primary" />
-                  Connect your wallet and start a conversation. Each turn is a real encrypted inference, and the model
-                  remembers the thread.
+                  {isConnected
+                    ? "Start a conversation. Each turn is a real encrypted inference, and the model remembers the thread."
+                    : "Connect your wallet to start. Each turn is a real encrypted inference, and the model remembers the thread."}
                 </div>
               </div>
             )}
@@ -172,7 +173,7 @@ export default function ChatPanel() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">The SDK call this panel makes</h2>
-        <CodeTabs tabs={[{ label: "TypeScript", code: SNIPPET }]} />
+        <CodeTabs tabs={[{ label: "TypeScript", code: snippet(net) }]} />
         <p className="text-xs text-content-soft">
           Drop a chat UI into your project with{" "}
           <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-content-default">npx lightnode add chat</code>.
