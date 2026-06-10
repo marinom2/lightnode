@@ -7,12 +7,11 @@ import { CodeTabs } from "@/components/build/console/code-tabs";
 import { Notice, short } from "@/components/build/console/panel-kit";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-type DaoChain = "ethereum" | "lightchain";
-const EXPLORER: Record<DaoChain, string> = {
-  ethereum: "https://etherscan.io",
-  lightchain: "https://mainnet.lightscan.app",
-};
+import { DAO_EXPLORER, type DaoChain } from "./dao-chain";
+import { TreasuryBar } from "./treasury-bar";
+import { VotingPowerCard } from "./voting-power-card";
+import { QuorumLine } from "./quorum-line";
+import { CastVote } from "./cast-vote";
 
 interface DecodedAction {
   target: string;
@@ -34,6 +33,8 @@ interface Proposal {
   votesFor: string;
   votesAgainst: string;
   votesAbstain: string;
+  snapshotBlock?: string;
+  quorumWei?: string;
   actions?: DecodedAction[];
 }
 interface DaoResponse {
@@ -48,9 +49,14 @@ import { DAO } from "lightnode-sdk";
 
 const dao = new DAO(createPublicClient({ transport: http(ETH_RPC) }), "ethereum");
 
-const p = await dao.proposal(proposalId);   // state, tallies, deadline
-// Voting / proposing sign with a wallet:
-// await dao.castVote(proposalId, 1);        // 0 against, 1 for, 2 abstain`;
+// Read a proposal + your standing:
+const p = await dao.proposal(proposalId);          // state, tallies, deadline
+const quorum = await dao.quorum(p.snapshot);        // wei needed to pass
+const power = await dao.getVotes(me, p.snapshot);   // your weight at snapshot
+
+// Writes sign with your wallet (pass a wallet client):
+// await dao.delegate(me);                 // activate your voting power
+// await dao.castVote(proposalId, 1);      // 0 against, 1 for, 2 abstain`;
 
 function toneFor(label: string): "brand" | "success" | "danger" | "warning" | "muted" {
   const l = label.toLowerCase();
@@ -159,6 +165,11 @@ export default function DaoPanel() {
           </div>
         }
       >
+        <div className="mb-4 space-y-3">
+          <TreasuryBar chain={chain} />
+          <VotingPowerCard chain={chain} />
+        </div>
+
         {error && <Notice tone="warn">{error}</Notice>}
 
         {!error && (
@@ -228,16 +239,22 @@ export default function DaoPanel() {
                         <div><span className="text-content-soft">Abstain </span><span className="tabular-nums text-content-default">{fmtLcai(p.votesAbstain)}</span></div>
                       </div>
 
+                      <QuorumLine chain={chain} votesFor={p.votesFor} votesAbstain={p.votesAbstain} quorumWei={p.quorumWei} />
+
+                      {p.stateLabel.toLowerCase() === "active" && (
+                        <CastVote chain={chain} proposalId={p.id} onVoted={() => void load(chain, limit)} />
+                      )}
+
                       {(p.voteStart || p.voteEnd) && (
                         <p className="text-[11px] text-content-soft">Voting window: block {p.voteStart ?? "?"} → {p.voteEnd ?? "?"}</p>
                       )}
 
                       <div className="flex flex-wrap gap-3 text-[11px]">
-                        <a href={`${EXPLORER[chain]}/address/${p.proposer}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                        <a href={`${DAO_EXPLORER[chain]}/address/${p.proposer}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                           Proposer <ExternalLink className="size-3" />
                         </a>
                         {data?.addresses?.governor && (
-                          <a href={`${EXPLORER[chain]}/address/${data.addresses.governor}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                          <a href={`${DAO_EXPLORER[chain]}/address/${data.addresses.governor}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                             Governor <ExternalLink className="size-3" />
                           </a>
                         )}
