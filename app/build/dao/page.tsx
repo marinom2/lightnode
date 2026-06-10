@@ -15,6 +15,7 @@ import { VotingPowerCard } from "./voting-power-card";
 import { QuorumLine } from "./quorum-line";
 import { GovernorDrift } from "./governor-drift";
 import { ProposalAnalytics } from "./proposal-analytics";
+import { VotersPanel } from "./voters-panel";
 
 const CHAIN_META: Record<DaoChain, { label: string; icon: string }> = {
   ethereum: { label: "Ethereum", icon: "/logos/eth.svg" },
@@ -394,6 +395,11 @@ export default function DaoPanel() {
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Outcome analytics · {chain}</h2>
         <ProposalAnalytics chain={chain} activeFilter={stateFilter} onFilter={applyStateFilter} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Who decides · {chain}</h2>
+        <VotersPanel chain={chain} />
       </section>
 
       <section className="space-y-3">
