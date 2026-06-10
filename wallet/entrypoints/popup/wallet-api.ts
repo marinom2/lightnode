@@ -11,6 +11,7 @@ export interface WalletState {
   hasVault: boolean;
   unlocked: boolean;
   accounts: string[];
+  activeIndex: number;
   chainId: number;
 }
 export interface PendingRequest {
