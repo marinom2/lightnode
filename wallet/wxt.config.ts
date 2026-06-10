@@ -9,9 +9,11 @@ export default defineConfig({
   alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   manifest: {
     name: "LightNode Wallet",
-    description: "Self-custodial wallet for LightChain. Your keys never leave this device.",
+    description: "Self-custodial wallet for LightChain and EVM chains. Your keys never leave this device.",
     minimum_chrome_version: "120",
     permissions: ["storage", "alarms", "notifications"],
+    icons: { 16: "icon/16.png", 32: "icon/32.png", 48: "icon/48.png", 128: "icon/128.png" },
+    action: { default_icon: { 16: "icon/16.png", 32: "icon/32.png", 48: "icon/48.png", 128: "icon/128.png" } },
     web_accessible_resources: [{ resources: ["inpage.js"], matches: ["<all_urls>"] }],
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'" },
   },
