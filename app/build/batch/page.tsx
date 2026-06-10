@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { Plus, X, Layers } from "lucide-react";
+import { useNetwork } from "@/lib/network-context";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { PanelGrid, PanelColumn, Field } from "@/components/build/console/panel-kit";
 
-function batchCode(prompts: string[], concurrency: number, system: string): string {
+function batchCode(prompts: string[], concurrency: number, system: string, net: string): string {
   const used = prompts.map((p) => p.trim()).filter(Boolean);
   const list = (used.length ? used : ["Summarize LightChain AI in one sentence.", "Name one risk of centralized inference."])
     .map((p) => `    ${JSON.stringify(p)},`)
@@ -15,7 +16,7 @@ function batchCode(prompts: string[], concurrency: number, system: string): stri
   return `import { runInferenceBatch } from "lightnode-sdk";
 
 const results = await runInferenceBatch({
-  network: "testnet",
+  network: "${net}",
   privateKey: process.env.PRIVATE_KEY,
   concurrency: ${concurrency},${sys}
   prompts: [
@@ -30,6 +31,7 @@ for (const r of results) console.log(r.index, r.error?.message ?? r.result?.answ
 }
 
 export default function BatchPanel() {
+  const { network } = useNetwork();
   const [prompts, setPrompts] = useState<string[]>(["", ""]);
   const [concurrency, setConcurrency] = useState(4);
   const [system, setSystem] = useState("");
@@ -103,7 +105,7 @@ export default function BatchPanel() {
 
           <div className="flex flex-col gap-2">
             <span className="px-1 text-[11px] font-semibold uppercase tracking-wider text-content-soft">Generated call</span>
-            <CodeTabs tabs={[{ label: "TypeScript", code: batchCode(prompts, concurrency, system) }]} />
+            <CodeTabs tabs={[{ label: "TypeScript", code: batchCode(prompts, concurrency, system, network) }]} />
             <p className="px-1 text-[11px] text-content-soft">
               <Layers className="mr-1 inline size-3.5 text-primary" />
               Each slot is one createSession + submitJob pair, so concurrency also caps wallet-nonce pressure.
