@@ -231,14 +231,15 @@ export default function BridgePanel() {
         gas: 500_000n,
         ...(feeParams ?? {}),
       });
-      setExec({ phase: "done", msg: "", tx });
+      setExec({ phase: "done", msg: `Submitted on ${fromBrand.label} - confirming...`, tx });
       setAmount("");
-      // Refresh balances once the source-chain tx confirms (the source side
-      // drops immediately; the relayed amount lands on the destination later, so
-      // poll a couple more times to catch the remote balance updating).
+      // Once the source-chain tx confirms, the source balance drops immediately;
+      // the relayed LCAI lands on the destination later (~30-60 min), so update
+      // the status honestly and poll a couple more times for the remote balance.
       pub
         .waitForTransactionReceipt({ hash: tx })
         .then(() => {
+          setExec({ phase: "done", msg: `Confirmed on ${fromBrand.label}. Your LCAI lands on ${toBrand.label} after the Hyperlane relay (~30-60 min).`, tx });
           loadBalances();
           setTimeout(loadBalances, 15_000);
           setTimeout(loadBalances, 45_000);
@@ -340,14 +341,19 @@ export default function BridgePanel() {
             <p className="text-center text-xs text-content-soft">{exec.msg}</p>
           )}
           {exec.phase === "done" && exec.tx && (
-            <a
-              href={`${routeOf(fromKey).explorer}/tx/${exec.tx}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/5 px-3 py-2.5 text-sm text-success"
-            >
-              <CheckCircle2 className="size-4" /> Bridge submitted - track on {fromBrand.label} <ExternalLink className="size-3.5" />
-            </a>
+            <div className="space-y-1.5 rounded-xl border border-success/30 bg-success/5 px-3 py-2.5">
+              <p className="flex items-start justify-center gap-1.5 text-center text-sm text-success">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> {exec.msg || "Bridge submitted"}
+              </p>
+              <a
+                href={`${routeOf(fromKey).explorer}/tx/${exec.tx}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1 text-xs text-content-soft transition-colors hover:text-primary"
+              >
+                View tx on {fromBrand.label} <ExternalLink className="size-3" />
+              </a>
+            </div>
           )}
           {exec.phase === "error" && (
             <p className="flex items-start justify-center gap-1.5 text-center text-xs text-warning">
@@ -362,7 +368,7 @@ export default function BridgePanel() {
 
       <section className="mx-auto max-w-[640px] space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Execute it (signs with your wallet)</h2>
-        <CodeTabs tabs={[{ label: "TypeScript", code: bridgeSnippet(dir, amount, address ?? "") }]} />
+        <CodeTabs tabs={[{ label: "TypeScript", code: bridgeSnippet(dir, amount, "") }]} />
         <p className="text-xs text-content-soft">
           Hold LCAI ERC-20 on Ethereum?{" "}
           <a href="https://app.uniswap.org/swap?chain=ethereum&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927" target="_blank" rel="noreferrer" className="text-primary hover:underline">
