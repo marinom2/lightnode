@@ -8,7 +8,7 @@
  * surface EVERY proposal, not just a recent window) and race a per-attempt
  * deadline across a list of endpoints.
  */
-import { createPublicClient, http, parseAbiItem } from "viem";
+import { createPublicClient, http, parseAbiItem, type AbiEvent } from "viem";
 
 export type GovernorChain = "ethereum" | "lightchain";
 
@@ -53,10 +53,11 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 /**
- * Scan every `ProposalCreated` event for a governor. Returns the public client
- * that answered (reuse it for follow-up reads), the events, and the head block.
+ * Generic chunked event scan from a contract's deployment block to head, racing
+ * a deadline across the RPC list. Returns the client that answered (reuse it for
+ * follow-up reads), the decoded events, and the head block.
  */
-export async function findGovernorEvents(governor: `0x${string}`, chain: GovernorChain) {
+export async function findEvents(address: `0x${string}`, chain: GovernorChain, event: AbiEvent) {
   const errors: string[] = [];
   for (const rpc of RPCS_BY_CHAIN[chain]) {
     try {
@@ -72,7 +73,7 @@ export async function findGovernorEvents(governor: `0x${string}`, chain: Governo
             windows.push({ from: start, to: end });
           }
           const chunks = await Promise.all(
-            windows.map((w) => pub.getLogs({ address: governor, event: PROPOSAL_CREATED, fromBlock: w.from, toBlock: w.to })),
+            windows.map((w) => pub.getLogs({ address, event, fromBlock: w.from, toBlock: w.to })),
           );
           return { pub, events: chunks.flat(), head };
         })(),
@@ -85,4 +86,9 @@ export async function findGovernorEvents(governor: `0x${string}`, chain: Governo
     }
   }
   throw new Error("all RPCs failed: " + errors.join(" | "));
+}
+
+/** Scan every `ProposalCreated` event for a governor (thin wrapper over findEvents). */
+export function findGovernorEvents(governor: `0x${string}`, chain: GovernorChain) {
+  return findEvents(governor, chain, PROPOSAL_CREATED);
 }
