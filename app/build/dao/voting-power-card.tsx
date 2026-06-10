@@ -78,7 +78,7 @@ export function VotingPowerCard({ chain }: { chain: DaoChain }) {
         <span className="flex items-center gap-2.5 text-sm text-content-soft">
           <Wallet className="size-4 text-primary" /> Connect your wallet to see your voting power
         </span>
-        <span className="rounded-lg bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">Connect</span>
+        <span className="rounded-lg bg-gradient-primary px-2.5 py-1 text-xs font-semibold text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)]">Connect</span>
       </button>
     );
   }
@@ -159,7 +159,7 @@ function DelegationRow({
         type="button"
         onClick={onDelegate}
         disabled={working}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-primary px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)] transition-all hover:brightness-110 disabled:opacity-50"
       >
         {working && <Loader2 className="size-3.5 animate-spin" />} Delegate to self
       </button>

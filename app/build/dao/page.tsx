@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import { Loader2, RefreshCw, ChevronDown, ExternalLink } from "lucide-react";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
@@ -12,6 +13,11 @@ import { TreasuryBar } from "./treasury-bar";
 import { VotingPowerCard } from "./voting-power-card";
 import { QuorumLine } from "./quorum-line";
 import { CastVote } from "./cast-vote";
+
+const CHAIN_META: Record<DaoChain, { label: string; icon: string }> = {
+  ethereum: { label: "Ethereum", icon: "/logos/eth.svg" },
+  lightchain: { label: "LightChain", icon: "/logos/lcai.png" },
+};
 
 interface DecodedAction {
   target: string;
@@ -145,7 +151,7 @@ export default function DaoPanel() {
         subtitle="Read live LCAIGovernor proposals (OpenZeppelin Governor v5) and their on-chain vote tallies. Casting votes, proposing, queueing, and executing sign with your wallet - shown in the snippet."
         actions={
           <div className="flex items-center gap-2">
-            <div className="flex rounded-lg border border-bdr-soft p-0.5">
+            <div className="inline-flex items-center rounded-full border border-bdr-soft bg-surface-base-subtle p-0.5 text-xs font-medium">
               {(["ethereum", "lightchain"] as DaoChain[]).map((c) => (
                 <button
                   key={c}
@@ -154,12 +160,16 @@ export default function DaoPanel() {
                     setChain(c);
                     setLimit(5);
                   }}
+                  aria-pressed={chain === c}
                   className={cn(
-                    "rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors",
-                    chain === c ? "bg-surface-base-light text-content-primary" : "text-content-soft hover:text-content-primary",
+                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all",
+                    chain === c
+                      ? "bg-gradient-primary text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)]"
+                      : "text-content-soft hover:text-content-primary",
                   )}
                 >
-                  {c}
+                  <Image src={CHAIN_META[c].icon} alt="" width={14} height={14} className="size-3.5 rounded-full object-contain" />
+                  {CHAIN_META[c].label}
                 </button>
               ))}
             </div>
@@ -280,7 +290,7 @@ export default function DaoPanel() {
                 type="button"
                 onClick={() => setLimit((l) => l + 5)}
                 disabled={loading}
-                className="w-full rounded-xl border border-bdr-soft py-2.5 text-sm font-medium text-content-soft transition-colors hover:text-content-primary disabled:opacity-50"
+                className="w-full rounded-xl border border-bdr-soft py-2.5 text-sm font-medium text-content-soft transition-colors hover:border-primary/40 hover:text-content-primary disabled:opacity-50"
               >
                 {loading ? "Loading..." : `Load more (${data.total - data.proposals.length} more)`}
               </button>

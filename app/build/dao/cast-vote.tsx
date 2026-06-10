@@ -113,7 +113,7 @@ function CastBody({
 }) {
   if (!connected) {
     return (
-      <button type="button" onClick={onConnect} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90">
+      <button type="button" onClick={onConnect} className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-primary px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_2px_10px_-2px_rgba(112,100,233,0.6)] transition-all hover:brightness-110">
         <Wallet className="size-3.5" /> Connect wallet to vote
       </button>
     );
