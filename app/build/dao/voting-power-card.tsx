@@ -23,7 +23,7 @@ type Tx = { phase: "idle" | "working" | "submitted" | "confirmed" | "error"; msg
 const SYMBOL: Record<DaoChain, string> = { ethereum: "LCAIB", lightchain: "LCAI" };
 
 export function VotingPowerCard({ chain }: { chain: DaoChain }) {
-  const { address, isConnected, walletClient, open, onTargetChain, ensureChain } = useDaoWallet(chain);
+  const { address, isConnected, open, getSigner } = useDaoWallet(chain);
   const [reads, setReads] = useState<VotingPowerReads | null>(null);
   const [loading, setLoading] = useState(false);
   const [tx, setTx] = useState<Tx>({ phase: "idle" });
@@ -47,12 +47,12 @@ export function VotingPowerCard({ chain }: { chain: DaoChain }) {
   }, [isConnected, address, chain, refresh]);
 
   const delegateToSelf = async () => {
-    if (!walletClient || !address) return open();
-    setTx({ phase: "working", msg: onTargetChain ? "Confirm the delegation in your wallet..." : "Switch network in your wallet..." });
+    if (!isConnected || !address) return open();
+    setTx({ phase: "working", msg: "Confirm in your wallet (you may be asked to switch network first)..." });
     try {
-      await ensureChain();
+      const signer = await getSigner();
       const fees = chain === "lightchain" ? await pinnedFees(daoPublicClient(chain)) : undefined;
-      const hash = await walletClient.writeContract({
+      const hash = await signer.writeContract({
         address: VOTE_TOKEN[chain],
         abi: VOTES_ABI,
         functionName: "delegate",
@@ -134,6 +134,15 @@ function DelegationRow({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
         Self-delegated - your {SYMBOL[chain]} is active.
         {status.gapWei > 0n && <span className="text-content-soft">({gap} pending next checkpoint)</span>}
+      </p>
+    );
+  }
+  // Nothing to delegate: holding zero balance on this chain. Don't push a
+  // pointless "delegate to activate" prompt.
+  if (reads.balanceWei === 0n) {
+    return (
+      <p className="mt-3 text-xs text-content-soft">
+        You hold no {SYMBOL[chain]} on this chain, so you have no voting power here.
       </p>
     );
   }
