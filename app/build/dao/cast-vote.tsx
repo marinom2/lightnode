@@ -26,7 +26,7 @@ const CHOICES: { label: string; support: Support; cls: string }[] = [
 ];
 
 export function CastVote({ chain, proposalId, onVoted }: { chain: DaoChain; proposalId: string; onVoted?: () => void }) {
-  const { address, isConnected, walletClient, open, onTargetChain, ensureChain } = useDaoWallet(chain);
+  const { address, isConnected, open, getSigner } = useDaoWallet(chain);
   const [voted, setVoted] = useState<boolean | null>(null);
   const [powerWei, setPowerWei] = useState<bigint | null>(null);
   const [vote, setVote] = useState<Vote>({ phase: "idle" });
@@ -55,12 +55,12 @@ export function CastVote({ chain, proposalId, onVoted }: { chain: DaoChain; prop
   }, [isConnected, address, chain, proposalId, check]);
 
   const castVote = async (support: Support) => {
-    if (!walletClient || !address) return open();
-    setVote({ phase: "working", support, msg: onTargetChain ? "Confirm your vote in your wallet..." : "Switch network in your wallet..." });
+    if (!isConnected || !address) return open();
+    setVote({ phase: "working", support, msg: "Confirm in your wallet (you may be asked to switch network first)..." });
     try {
-      await ensureChain();
+      const signer = await getSigner();
       const fees = chain === "lightchain" ? await pinnedFees(daoPublicClient(chain)) : undefined;
-      const hash = await walletClient.writeContract({
+      const hash = await signer.writeContract({
         address: GOVERNOR[chain],
         abi: GOVERNOR_ABI,
         functionName: "castVote",
@@ -78,7 +78,7 @@ export function CastVote({ chain, proposalId, onVoted }: { chain: DaoChain; prop
   };
 
   return (
-    <div className="rounded-lg border border-primary/25 bg-primary/[0.06] p-3">
+    <div className="rounded-lg border border-primary/25 bg-primary/6 p-3">
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-content-soft">Cast your vote</p>
       <CastBody
         connected={isConnected && !!address}

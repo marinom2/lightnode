@@ -44,19 +44,29 @@ interface DaoResponse {
   proposals: Proposal[];
 }
 
-const SNIPPET = `import { createPublicClient, http } from "viem";
+function snippetFor(chain: DaoChain): string {
+  const rpcVar = chain === "ethereum" ? "ETH_RPC" : "LIGHTCHAIN_RPC";
+  const tokenNote =
+    chain === "ethereum"
+      ? `// Ethereum: LCAIB is an ERC20Votes token - delegate once to activate power.`
+      : `// LightChain: native voting via the genesis predeploy - stake self-delegates.`;
+  return `import { createPublicClient, http } from "viem";
 import { DAO } from "lightnode-sdk";
 
-const dao = new DAO(createPublicClient({ transport: http(ETH_RPC) }), "ethereum");
+${tokenNote}
+const dao = new DAO(createPublicClient({ transport: http(${rpcVar}) }), "${chain}");
 
-// Read a proposal + your standing:
-const p = await dao.proposal(proposalId);          // state, tallies, deadline
-const quorum = await dao.quorum(p.snapshot);        // wei needed to pass
-const power = await dao.getVotes(me, p.snapshot);   // your weight at snapshot
+// Live reads (no wallet needed):
+const p        = await dao.proposal(proposalId);     // state, tallies, snapshot
+const quorum   = await dao.quorum(p.snapshot);        // wei needed to reach quorum
+const power    = await dao.getVotes(me, p.snapshot);  // your weight at the snapshot
+const voted    = await dao.hasVoted(proposalId, me);  // already voted?
+const delegate = await dao.getDelegate(me);           // who holds your voting power
 
-// Writes sign with your wallet (pass a wallet client):
-// await dao.delegate(me);                 // activate your voting power
-// await dao.castVote(proposalId, 1);      // 0 against, 1 for, 2 abstain`;
+// Writes sign with your wallet: new DAO(rpc, "${chain}", walletClient)
+// await dao.delegate(me);              // activate your voting power
+// await dao.castVote(proposalId, 1);   // 0 against, 1 for, 2 abstain`;
+}
 
 function toneFor(label: string): "brand" | "success" | "danger" | "warning" | "muted" {
   const l = label.toLowerCase();
@@ -281,7 +291,7 @@ export default function DaoPanel() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">The SDK behind it</h2>
-        <CodeTabs tabs={[{ label: "TypeScript", code: SNIPPET }]} />
+        <CodeTabs tabs={[{ label: "TypeScript", code: snippetFor(chain) }]} />
       </section>
     </div>
   );
