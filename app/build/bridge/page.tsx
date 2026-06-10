@@ -370,6 +370,10 @@ export default function BridgePanel() {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Execute it (signs with your wallet)</h2>
         <CodeTabs tabs={[{ label: "TypeScript", code: bridgeSnippet(dir, amount, "") }]} />
         <p className="text-xs text-content-soft">
+          Scaffold a runnable bridge script into your project:{" "}
+          <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-content-default">npx lightnode add bridge</code>.
+        </p>
+        <p className="text-xs text-content-soft">
           Hold LCAI ERC-20 on Ethereum?{" "}
           <a href="https://app.uniswap.org/swap?chain=ethereum&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927" target="_blank" rel="noreferrer" className="text-primary hover:underline">
             Get some on Uniswap
