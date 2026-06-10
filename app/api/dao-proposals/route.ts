@@ -15,6 +15,9 @@ import { DAO_ADDRESSES, PROPOSAL_STATE_LABEL, GOVERNOR_ABI, decodeGovernanceActi
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// The full-history scan fans out ~20 parallel getLogs; give it room beyond the
+// default serverless budget.
+export const maxDuration = 30;
 
 // Chain of public RPCs per network. We hit them in order until one returns
 // something usable for getLogs. Free public endpoints get rate-limited or
@@ -53,9 +56,18 @@ function deriveTitle(description: string): string {
 }
 
 // Bound each RPC attempt so a slow-but-not-failing endpoint can't eat the whole
-// Vercel 10s budget before the loop tries the next one. 4s leaves room for a
-// second (and third) RPC within the cap.
-const RPC_ATTEMPT_TIMEOUT_MS = 4000;
+// Vercel budget before the loop tries the next one. The full-history scan fans
+// out ~20 parallel getLogs, so allow a little more headroom than a recent window.
+const RPC_ATTEMPT_TIMEOUT_MS = 9000;
+
+// Governor deployment blocks. Scanning from here (not a recent window) is the
+// only way to surface EVERY proposal. Ethereum mainnet LCAIGovernor 0x6dfa...
+// deployed at ~24,350,285 (verified on-chain); LightChain's is young so genesis
+// is cheap.
+const DEPLOY_BLOCK: Record<"ethereum" | "lightchain", bigint> = {
+  ethereum: 24_350_000n,
+  lightchain: 0n,
+};
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -72,11 +84,9 @@ async function findEventsAcrossRpcs(
   chain: "ethereum" | "lightchain",
 ) {
   const errors: string[] = [];
-  // Public RPCs (notably publicnode) cap getLogs at 50k blocks per call. We
-  // scan the last ~6 weeks (~300k blocks on Ethereum, much more on LightChain
-  // where blocks are faster but the governor is younger so we can just scan
-  // from genesis). Parallel keeps it under Vercel's 10s serverless cap.
-  const WINDOW_BLOCKS = chain === "ethereum" ? 300_000n : 1_500_000n;
+  // Public RPCs (notably publicnode) cap getLogs at 50k blocks per call, so we
+  // chunk. Scanning from the Governor's deployment block (not a recent window)
+  // is what surfaces EVERY proposal. Parallel keeps it inside the budget.
   const CHUNK = 50_000n;
   for (const rpc of RPCS_BY_CHAIN[chain]) {
     try {
@@ -86,7 +96,8 @@ async function findEventsAcrossRpcs(
         (async () => {
           const pub = createPublicClient({ transport: http(rpc) });
           const head = await pub.getBlockNumber();
-          const fromBlock = head > WINDOW_BLOCKS ? head - WINDOW_BLOCKS : 0n;
+          const deploy = DEPLOY_BLOCK[chain];
+          const fromBlock = head > deploy ? deploy : 0n;
           const windows: Array<{ from: bigint; to: bigint }> = [];
           for (let start = fromBlock; start <= head; start += CHUNK) {
             const end = start + CHUNK - 1n > head ? head : start + CHUNK - 1n;
@@ -124,7 +135,7 @@ export async function GET(req: Request) {
     // `limit` paginates the per-call slice. Default 6 keeps initial page
     // load cheap; max 30 protects free RPCs from getting hammered when a
     // visitor clicks 'See more' a few times.
-    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit") ?? "6")));
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "12")));
     const addresses = DAO_ADDRESSES[chain];
     const { pub, events } = await findEventsAcrossRpcs(addresses, chain);
     const total = events.length;

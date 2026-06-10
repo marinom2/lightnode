@@ -89,7 +89,7 @@ function VoteBar({ p }: { p: Proposal }) {
 
 export default function DaoPanel() {
   const [chain, setChain] = useState<DaoChain>("ethereum");
-  const [limit, setLimit] = useState(6);
+  const [limit, setLimit] = useState(12);
   const [data, setData] = useState<DaoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +131,7 @@ export default function DaoPanel() {
                   type="button"
                   onClick={() => {
                     setChain(c);
-                    setLimit(6);
+                    setLimit(12);
                   }}
                   className={cn(
                     "rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors",
@@ -206,7 +206,7 @@ export default function DaoPanel() {
             {data?.hasMore && (
               <button
                 type="button"
-                onClick={() => setLimit((l) => l + 6)}
+                onClick={() => setLimit((l) => l + 12)}
                 disabled={loading}
                 className="w-full rounded-xl border border-bdr-soft py-2.5 text-sm font-medium text-content-soft transition-colors hover:text-content-primary disabled:opacity-50"
               >
