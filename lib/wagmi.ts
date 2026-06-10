@@ -21,7 +21,18 @@ export const lightchainTestnet: AppKitNetwork = {
   blockExplorers: { default: { name: "LightScan", url: NETWORKS.testnet.explorer } },
 };
 
-export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [lightchainMainnet, lightchainTestnet];
+// Ethereum mainnet - needed so the wallet can sign the inbound (ETH -> LightChain)
+// bridge leg, where LCAI is an ERC-20. Not shown in the app's network toggle
+// (that stays LightChain mainnet/testnet); it just lets the bridge switch chains.
+export const ethereumMainnet: AppKitNetwork = {
+  id: 1,
+  name: "Ethereum",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://ethereum-rpc.publicnode.com"] } },
+  blockExplorers: { default: { name: "Etherscan", url: "https://etherscan.io" } },
+};
+
+export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [lightchainMainnet, lightchainTestnet, ethereumMainnet];
 
 export const wagmiAdapter = new WagmiAdapter({
   ssr: true,

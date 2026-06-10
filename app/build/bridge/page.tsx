@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, ArrowLeftRight, CreditCard, Loader2 } from "lucide-react";
-import { useAccount } from "wagmi";
+import { ChevronDown, ArrowLeftRight, CreditCard, Loader2, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useAccount, useWalletClient, useSwitchChain, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
+import { createPublicClient, http, parseEther } from "viem";
+import { BRIDGE_ROUTE, HYPERLANE_ROUTER_ABI, ERC20_ABI, addressToBytes32 } from "lightnode-sdk";
 import { CodeTabs } from "@/components/build/console/code-tabs";
+import { humanizeError } from "@/lib/humanize-error";
 import { shortAddr, cn } from "@/lib/utils";
 
 type Dir = "eth-to-lc" | "lc-to-eth";
@@ -27,6 +30,7 @@ const ENDPOINTS: Record<Dir, [ChainKey, ChainKey]> = {
   "eth-to-lc": ["ethereum", "lightchain"],
   "lc-to-eth": ["lightchain", "ethereum"],
 };
+const routeOf = (k: ChainKey) => (k === "ethereum" ? BRIDGE_ROUTE.ethereum : BRIDGE_ROUTE["lightchain-mainnet"]);
 
 function TokenChainIcon({ brand, size = 36 }: { brand: ChainBrand; size?: number }) {
   const badge = Math.max(14, Math.round(size * 0.45));
@@ -163,6 +167,78 @@ export default function BridgePanel() {
 
   const feeText = feeLoading ? "..." : fee ? `${fee.estimatedSourceGas} + 0 IGP` : "-";
 
+  // ---- Live execution: sign transferRemote on the SOURCE chain ----
+  const { data: walletClient } = useWalletClient();
+  const { switchChainAsync } = useSwitchChain();
+  const chainId = useChainId();
+  const [exec, setExec] = useState<{ phase: "idle" | "working" | "done" | "error"; msg: string; tx?: string }>({ phase: "idle", msg: "" });
+
+  const executeBridge = async () => {
+    if (!isConnected || !walletClient || !address) {
+      open();
+      return;
+    }
+    let amt: bigint;
+    try {
+      amt = parseEther(amount || "0");
+    } catch {
+      amt = 0n;
+    }
+    if (amt <= 0n) {
+      setExec({ phase: "error", msg: "Enter an amount first." });
+      return;
+    }
+    if (originBalance != null && Number(amount) > originBalance + 1e-9) {
+      setExec({ phase: "error", msg: "Amount exceeds your balance on this chain." });
+      return;
+    }
+    const src = routeOf(fromKey);
+    const dst = routeOf(toKey);
+    setExec({ phase: "working", msg: chainId !== src.chainId ? `Switching your wallet to ${src.label}...` : "Preparing..." });
+    try {
+      if (chainId !== src.chainId) await switchChainAsync({ chainId: src.chainId });
+      const pub = createPublicClient({ transport: http(src.rpc) });
+      const fee = (await pub.readContract({ address: src.router, abi: HYPERLANE_ROUTER_ABI, functionName: "quoteGasPayment", args: [dst.hyperlaneDomain] })) as bigint;
+      // ERC-20 side (Ethereum): approve the router for the amount, once.
+      if (src.underlying) {
+        const allowance = (await pub.readContract({ address: src.underlying, abi: ERC20_ABI, functionName: "allowance", args: [address, src.router] })) as bigint;
+        if (allowance < amt) {
+          setExec({ phase: "working", msg: "Approve LCAI in your wallet (one-time)..." });
+          const approveTx = await walletClient.writeContract({ address: src.underlying, abi: ERC20_ABI, functionName: "approve", args: [src.router, amt] });
+          await pub.waitForTransactionReceipt({ hash: approveTx });
+        }
+      }
+      // Pin chain-estimated fees so MetaMask can render LightChain's tiny gas.
+      let feeParams: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | { gasPrice: bigint } | undefined;
+      try {
+        const f = await pub.estimateFeesPerGas();
+        feeParams = f?.maxFeePerGas ? { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas ?? f.maxFeePerGas } : { gasPrice: await pub.getGasPrice() };
+      } catch {
+        try {
+          feeParams = { gasPrice: await pub.getGasPrice() };
+        } catch {
+          feeParams = undefined;
+        }
+      }
+      // HypNative (LightChain): value = amount + fee. HypERC20 (Ethereum): value = fee.
+      const value = src.underlying ? fee : amt + fee;
+      setExec({ phase: "working", msg: "Confirm the bridge transfer in your wallet..." });
+      const tx = await walletClient.writeContract({
+        address: src.router,
+        abi: HYPERLANE_ROUTER_ABI,
+        functionName: "transferRemote",
+        args: [dst.hyperlaneDomain, addressToBytes32(address), amt],
+        value,
+        gas: 500_000n,
+        ...(feeParams ?? {}),
+      });
+      setExec({ phase: "done", msg: "", tx });
+    } catch (e) {
+      setExec({ phase: "error", msg: humanizeError(e, { action: "the bridge transfer" }) });
+    }
+  };
+  const working = exec.phase === "working";
+
   return (
     <div className="space-y-8">
       <div className="mx-auto max-w-[480px] overflow-hidden rounded-2xl border border-primary/30 shadow-2xl">
@@ -242,13 +318,33 @@ export default function BridgePanel() {
           {/* action */}
           <button
             type="button"
-            onClick={() => (isConnected ? void loadFee() : open())}
-            className="mt-2 h-12 w-full rounded-2xl bg-[linear-gradient(94deg,#dd00ac_0%,#7130c3_38%,#7064e9_68%,#4f7cf6_100%)] bg-[length:200%_auto] bg-[position:left_center] text-base font-semibold tracking-[0.3px] text-white transition-all duration-300 hover:bg-[position:right_center] hover:brightness-110"
+            onClick={() => void executeBridge()}
+            disabled={working}
+            className="mt-2 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(94deg,#dd00ac_0%,#7130c3_38%,#7064e9_68%,#4f7cf6_100%)] bg-[length:200%_auto] bg-[position:left_center] text-base font-semibold tracking-[0.3px] text-white transition-all duration-300 hover:bg-[position:right_center] hover:brightness-110 disabled:pointer-events-none disabled:opacity-60"
           >
-            {isConnected ? "Preview transfer" : "Connect wallet"}
+            {working && <Loader2 className="size-4 animate-spin" />}
+            {!isConnected ? "Connect wallet" : working ? "Bridging..." : `Bridge to ${toBrand.label}`}
           </button>
+          {exec.phase === "working" && exec.msg && (
+            <p className="text-center text-xs text-content-soft">{exec.msg}</p>
+          )}
+          {exec.phase === "done" && exec.tx && (
+            <a
+              href={`${routeOf(fromKey).explorer}/tx/${exec.tx}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/5 px-3 py-2.5 text-sm text-success"
+            >
+              <CheckCircle2 className="size-4" /> Bridge submitted - track on {fromBrand.label} <ExternalLink className="size-3.5" />
+            </a>
+          )}
+          {exec.phase === "error" && (
+            <p className="flex items-start justify-center gap-1.5 text-center text-xs text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {exec.msg}
+            </p>
+          )}
           <p className="text-center text-[11px] leading-relaxed text-content-soft">
-            Live Hyperlane Warp Route. The transfer signs with your own wallet on {fromBrand.label} - the exact call is generated below (a bridge moves real cross-chain funds, so it isn&apos;t auto-submitted here).
+            Live Hyperlane Warp Route - signs with your own wallet on {fromBrand.label} (your wallet confirms every step; LCAI lands on {toBrand.label} after the relay).
           </p>
         </div>
       </div>

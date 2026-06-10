@@ -83,7 +83,15 @@ export function BuildShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-5">
+    <>
+      {/* Branded ambient gradient backdrop. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div className="absolute left-1/2 top-[-12%] h-[42rem] w-[42rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(112,100,233,0.16),transparent_70%)] blur-3xl" />
+        <div className="absolute left-[-6%] top-[34%] h-[34rem] w-[34rem] rounded-full bg-[radial-gradient(circle,rgba(221,0,172,0.10),transparent_70%)] blur-3xl" />
+        <div className="absolute right-[-4%] top-[8%] h-[32rem] w-[32rem] rounded-full bg-[radial-gradient(circle,rgba(79,124,246,0.10),transparent_70%)] blur-3xl" />
+        <div className="absolute bottom-[-10%] left-[40%] h-[30rem] w-[30rem] rounded-full bg-[radial-gradient(circle,rgba(113,48,195,0.10),transparent_70%)] blur-3xl" />
+      </div>
+      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-5">
       {/* Mobile: a bar that opens the console drawer. */}
       <div className="flex items-center justify-between gap-3 py-3 md:hidden">
         <span className="inline-flex items-center gap-2 text-sm font-semibold text-content-primary">
@@ -119,6 +127,7 @@ export function BuildShell({ children }: { children: React.ReactNode }) {
         {/* Main content column. */}
         <div className="min-w-0 pb-16 md:py-8">{children}</div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
