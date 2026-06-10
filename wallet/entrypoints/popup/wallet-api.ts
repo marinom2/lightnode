@@ -19,3 +19,11 @@ export interface PendingRequest {
   origin: string;
   params?: unknown[];
 }
+export interface WorkerStatusView {
+  registered: boolean;
+  belowFloor: boolean;
+  stakeLcai: number;
+  minStakeLcai: number;
+  headroomLcai: number;
+  claimableLcai: number;
+}

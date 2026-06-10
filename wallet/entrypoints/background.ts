@@ -9,8 +9,10 @@
  * browser restart / extension reload. We do NOT "encrypt the seed with a key stored
  * beside it" (that adds surface for zero gain). Threat model documented in README.
  */
-import { createPublicClient, http, parseEther, formatEther } from "viem";
+import { createPublicClient, http, parseEther, formatEther, type TypedDataDefinition } from "viem";
 import { Keyring } from "../src/keyring/keyring";
+import { parseTypedData } from "../src/provider/typed-data";
+import { WorkerOperator, NETWORKS, type MinimalPublicClient } from "lightnode-sdk";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, lightchainMainnet } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, RpcError } from "../src/provider/protocol";
@@ -95,6 +97,23 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     case "getBalance": {
       const wei = await publicClient().getBalance({ address: op.address as `0x${string}` });
       return { wei: wei.toString(), lcai: formatEther(wei) };
+    }
+    case "workerStatus": {
+      // Read-only worker registry/stake lookup via the SDK. No key needed; we
+      // return only number/bool fields (chrome.runtime can't structured-clone bigint).
+      const wo = new WorkerOperator(NETWORKS.mainnet, {
+        publicClient: publicClient() as unknown as MinimalPublicClient,
+        workerAddress: op.address as `0x${string}`,
+      });
+      const s = await wo.status();
+      return {
+        registered: s.registered,
+        belowFloor: s.belowFloor,
+        stakeLcai: s.stakeLcai,
+        minStakeLcai: Number(s.minStakeWei) / 1e18,
+        headroomLcai: s.headroomLcai,
+        claimableLcai: s.claimableLcai,
+      };
     }
     case "send": {
       const kr = await restore();
@@ -184,6 +203,20 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
     const acct = kr.accountFor(tx.from);
     if (!acct) throw RpcError.unauthorized;
     return signAndSend(acct.account, tx.to, tx.value ? BigInt(tx.value) : 0n);
+  }
+  if (request.method === "eth_signTypedData_v4") {
+    const [address, json] = request.params as [string, string];
+    const acct = kr.accountFor(address);
+    if (!acct) throw RpcError.unauthorized;
+    const td = parseTypedData(json);
+    if (!td?.domain || !td.primaryType || !td.types || td.message === undefined) throw RpcError.invalidParams;
+    // Bind the signature to our chains - never sign typed data aimed elsewhere (review H5).
+    const chainId = td.domain.chainId != null ? Number(td.domain.chainId) : undefined;
+    if (chainId !== 9200 && chainId !== 8200) throw { code: 4901, message: "Typed data targets a different chain" };
+    const types = { ...(td.types as Record<string, unknown>) };
+    delete types.EIP712Domain; // viem derives the domain type itself
+    const def = { domain: td.domain, types, primaryType: td.primaryType, message: td.message } as unknown as TypedDataDefinition;
+    return acct.account.signTypedData(def);
   }
   throw RpcError.unsupported;
 }
