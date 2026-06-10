@@ -38,6 +38,14 @@ export const GOVERNOR: Record<DaoChain, `0x${string}`> = {
   lightchain: DAO_ADDRESSES.lightchain.governor,
 };
 
+// Both governors count voting in BLOCKS (CLOCK_MODE=blocknumber), so block time
+// is needed to turn votingDelay/votingPeriod + deadline distance into real time.
+// Measured on mainnet: Ethereum ~12.04s (slot time), LightChain ~6.00s.
+export const SECONDS_PER_BLOCK: Record<DaoChain, number> = {
+  ethereum: 12,
+  lightchain: 6,
+};
+
 export function daoPublicClient(chain: DaoChain) {
   return createPublicClient({ transport: http(DAO_RPC[chain]) });
 }

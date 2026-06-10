@@ -37,6 +37,17 @@ const QUORUM_ABI = parseAbi([
   "function quorumNumerator() view returns (uint256)",
   "function quorumDenominator() view returns (uint256)",
 ]);
+const SCHEDULE_ABI = parseAbi([
+  "function votingDelay() view returns (uint256)",
+  "function votingPeriod() view returns (uint256)",
+  "function proposalThreshold() view returns (uint256)",
+]);
+const TIMELOCK_ABI = parseAbi(["function getMinDelay() view returns (uint256)"]);
+
+// Both governors count voting in blocks (CLOCK_MODE=blocknumber), so we convert
+// votingDelay/votingPeriod to real time with the measured mainnet block time:
+// Ethereum ~12s (slot), LightChain ~6s. Timelock delay is already in seconds.
+const SECONDS_PER_BLOCK: Record<"ethereum" | "lightchain", number> = { ethereum: 12, lightchain: 6 };
 
 type Pub = ReturnType<typeof createPublicClient>;
 
@@ -51,6 +62,22 @@ async function firstReachableClient(chain: "ethereum" | "lightchain"): Promise<P
     }
   }
   throw new Error(`no ${chain} RPC reachable`);
+}
+
+async function readSchedule(pub: Pub, governor: `0x${string}`, timelock: `0x${string}`, chain: "ethereum" | "lightchain") {
+  const spb = SECONDS_PER_BLOCK[chain];
+  const [delayBlocks, periodBlocks, thresholdWei, minDelay] = await Promise.all([
+    pub.readContract({ address: governor, abi: SCHEDULE_ABI, functionName: "votingDelay" }).catch(() => 0n),
+    pub.readContract({ address: governor, abi: SCHEDULE_ABI, functionName: "votingPeriod" }).catch(() => 0n),
+    pub.readContract({ address: governor, abi: SCHEDULE_ABI, functionName: "proposalThreshold" }).catch(() => 0n),
+    pub.readContract({ address: timelock, abi: TIMELOCK_ABI, functionName: "getMinDelay" }).catch(() => 0n),
+  ]);
+  return {
+    votingDelaySeconds: Number(delayBlocks as bigint) * spb,
+    votingPeriodSeconds: Number(periodBlocks as bigint) * spb,
+    timelockSeconds: Number(minDelay as bigint),
+    proposalThresholdWei: (thresholdWei as bigint).toString(),
+  };
 }
 
 async function readQuorumConfig(pub: Pub, governor: `0x${string}`) {
@@ -99,7 +126,10 @@ export async function GET(req: Request) {
     const chain = (url.searchParams.get("chain") ?? "ethereum") === "lightchain" ? "lightchain" : "ethereum";
     const addresses = DAO_ADDRESSES[chain];
     const pub = await firstReachableClient(chain);
-    const detail = chain === "ethereum" ? await readEthereumOverview(pub) : await readLightchainOverview(pub);
+    const [detail, schedule] = await Promise.all([
+      chain === "ethereum" ? readEthereumOverview(pub) : readLightchainOverview(pub),
+      readSchedule(pub, addresses.governor, addresses.timelock, chain),
+    ]);
     return NextResponse.json({
       chain,
       governor: addresses.governor,
@@ -108,6 +138,7 @@ export async function GET(req: Request) {
       feePool: chain === "lightchain" ? FEE_POOL : null,
       explorer: addresses.explorer,
       ...detail,
+      schedule,
       fetchedAt: Date.now(),
     });
   } catch (e) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { quorumStatus, delegationStatus, quorumPercent, formatLcaiWei } from "../../app/build/dao/dao-math";
+import { quorumStatus, delegationStatus, quorumPercent, formatLcaiWei, humanizeDuration } from "../../app/build/dao/dao-math";
 
 const e = (n: number) => BigInt(n) * 10n ** 18n; // n LCAI in wei
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -83,6 +83,30 @@ describe("quorumPercent", () => {
   });
   it("guards against a zero denominator", () => {
     expect(quorumPercent("3", "0")).toBe(0);
+  });
+});
+
+describe("humanizeDuration (block-derived voting timeline)", () => {
+  it("formats the Ethereum DAO: 7-day vote, 2-day queue, 1-day delay", () => {
+    expect(humanizeDuration(50_400 * 12)).toBe("7 days"); // votingPeriod blocks * 12s
+    expect(humanizeDuration(172_800)).toBe("2 days"); // timelock
+    expect(humanizeDuration(7_200 * 12)).toBe("1 day"); // votingDelay
+  });
+  it("formats the LightChain native DAO's 14-day vote (still old setting)", () => {
+    expect(humanizeDuration(201_600 * 6)).toBe("14 days");
+    expect(humanizeDuration(14_400 * 6)).toBe("1 day");
+  });
+  it("falls back to hours and minutes under a day", () => {
+    expect(humanizeDuration(43_200)).toBe("12 hours");
+    expect(humanizeDuration(3_600)).toBe("1 hour");
+    expect(humanizeDuration(900)).toBe("15 min");
+  });
+  it("keeps one decimal for fractional days", () => {
+    expect(humanizeDuration(Math.round(1.5 * 86_400))).toBe("1.5 days");
+  });
+  it("guards non-positive input", () => {
+    expect(humanizeDuration(0)).toBe("0s");
+    expect(humanizeDuration(-5)).toBe("0s");
   });
 });
 

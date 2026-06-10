@@ -160,6 +160,9 @@ export async function GET(req: Request) {
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "12")));
     const addresses = DAO_ADDRESSES[chain];
     const { pub, events } = await findEventsAcrossRpcs(addresses, chain);
+    // Current head lets the client turn each proposal's deadline block into a
+    // human "voting ends in ~X" countdown.
+    const headBlock = await pub.getBlockNumber().catch(() => 0n);
     const total = events.length;
     const recent = events.slice().reverse().slice(0, limit);
     const abi = GOVERNOR_ABI;
@@ -221,6 +224,7 @@ export async function GET(req: Request) {
       addresses,
       proposals,
       total,
+      headBlock: headBlock.toString(),
       hasMore: total > proposals.length,
       fetchedAt: Date.now(),
     });

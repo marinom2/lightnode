@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { Landmark, Coins, Target, ExternalLink } from "lucide-react";
-import { formatLcaiWei, quorumPercent } from "./dao-math";
+import { formatLcaiWei, quorumPercent, humanizeDuration } from "./dao-math";
 import type { DaoChain } from "./dao-chain";
 
+interface Schedule {
+  votingDelaySeconds: number;
+  votingPeriodSeconds: number;
+  timelockSeconds: number;
+  proposalThresholdWei: string;
+}
 interface Overview {
   chain: DaoChain;
   governor: string;
@@ -15,7 +21,25 @@ interface Overview {
   feePoolWei: string | null;
   voteToken: { address: string; symbol: string; totalSupplyWei: string | null };
   quorum: { numerator: string; denominator: string };
+  schedule?: Schedule;
   error?: string;
+}
+
+const VOTE_SYMBOL: Record<DaoChain, string> = { ethereum: "LCAIB", lightchain: "LCAI" };
+
+function ScheduleLine({ chain, schedule }: { chain: DaoChain; schedule: Schedule }) {
+  const vote = humanizeDuration(schedule.votingPeriodSeconds);
+  const delay = humanizeDuration(schedule.votingDelaySeconds);
+  const queue = humanizeDuration(schedule.timelockSeconds);
+  const threshold = formatLcaiWei(BigInt(schedule.proposalThresholdWei), 0);
+  return (
+    <p className="px-1 text-[11px] leading-relaxed text-content-soft">
+      <span className="font-medium text-content-default">Lifecycle:</span> {delay} delay → <span className="text-content-default">{vote} voting</span> → {queue} timelock queue before execution.
+      {schedule.proposalThresholdWei !== "0" && (
+        <> Proposing needs {threshold} {VOTE_SYMBOL[chain]}.</>
+      )}
+    </p>
+  );
 }
 
 function Stat({ icon, label, value, href }: { icon: React.ReactNode; label: string; value: string; href?: string }) {
@@ -65,16 +89,25 @@ export function TreasuryBar({ chain }: { chain: DaoChain }) {
   const qPct = quorumPercent(data.quorum.numerator, data.quorum.denominator);
   const supply = data.voteToken.totalSupplyWei ? `${formatLcaiWei(BigInt(data.voteToken.totalSupplyWei), 0)} ${sym}` : "native stake";
 
+  const quorumValue = qPct ? `${qPct % 1 === 0 ? qPct : qPct.toFixed(1)}% of supply` : "n/a";
+  const quorumHint = data.voteToken.totalSupplyWei
+    ? `${quorumValue} - needs ${formatLcaiWei((BigInt(data.voteToken.totalSupplyWei) * BigInt(data.quorum.numerator)) / BigInt(data.quorum.denominator || "1"), 0)} ${VOTE_SYMBOL[chain]} of For+Abstain to be valid`
+    : `${quorumValue} of the native vote supply`;
   return (
-    <div className="grid grid-cols-2 gap-4 rounded-2xl border border-bdr-soft bg-card/60 px-4 py-3.5 backdrop-blur-sm sm:grid-cols-4">
-      <Stat icon={<Landmark className="size-4" />} label="Treasury" value={`${formatLcaiWei(BigInt(data.treasuryWei), 2)} LCAI`} href={`${data.explorer}/address/${data.treasury}`} />
-      {data.feePoolWei != null && data.feePool ? (
-        <Stat icon={<Coins className="size-4" />} label="Fee pool" value={`${formatLcaiWei(BigInt(data.feePoolWei), 2)} LCAI`} href={`${data.explorer}/address/${data.feePool}`} />
-      ) : (
-        <Stat icon={<Coins className="size-4" />} label="Vote supply" value={supply} />
-      )}
-      <Stat icon={<Target className="size-4" />} label="Quorum" value={qPct ? `${qPct % 1 === 0 ? qPct : qPct.toFixed(1)}% of supply` : "n/a"} />
-      <Stat icon={<Landmark className="size-4" />} label="Governor" value={shortAddr(data.governor)} href={`${data.explorer}/address/${data.governor}`} />
+    <div className="space-y-3 rounded-2xl border border-bdr-soft bg-card/60 px-4 py-3.5 backdrop-blur-sm">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Stat icon={<Landmark className="size-4" />} label="Treasury" value={`${formatLcaiWei(BigInt(data.treasuryWei), 2)} LCAI`} href={`${data.explorer}/address/${data.treasury}`} />
+        {data.feePoolWei != null && data.feePool ? (
+          <Stat icon={<Coins className="size-4" />} label="Fee pool" value={`${formatLcaiWei(BigInt(data.feePoolWei), 2)} LCAI`} href={`${data.explorer}/address/${data.feePool}`} />
+        ) : (
+          <Stat icon={<Coins className="size-4" />} label="Vote supply" value={supply} />
+        )}
+        <div title={quorumHint}>
+          <Stat icon={<Target className="size-4" />} label="Quorum" value={quorumValue} />
+        </div>
+        <Stat icon={<Landmark className="size-4" />} label="Governor" value={shortAddr(data.governor)} href={`${data.explorer}/address/${data.governor}`} />
+      </div>
+      {data.schedule && <ScheduleLine chain={chain} schedule={data.schedule} />}
     </div>
   );
 }

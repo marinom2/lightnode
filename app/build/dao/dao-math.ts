@@ -61,6 +61,24 @@ export function quorumPercent(numerator: string, denominator: string): number {
   return (n / d) * 100;
 }
 
+/** Human duration from seconds: "1 day", "7 days", "12 hours", "30 min". */
+export function humanizeDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  const days = seconds / 86_400;
+  if (days >= 1) {
+    const rounded = Math.round(days * 10) / 10;
+    const label = rounded % 1 === 0 ? String(rounded) : rounded.toFixed(1);
+    return `${label} day${rounded === 1 ? "" : "s"}`;
+  }
+  const hours = seconds / 3_600;
+  if (hours >= 1) {
+    const h = Math.round(hours);
+    return `${h} hour${h === 1 ? "" : "s"}`;
+  }
+  const mins = Math.max(1, Math.round(seconds / 60));
+  return `${mins} min`;
+}
+
 /** Format a wei amount as a human LCAI/LCAIB string. Display-only (may approximate huge values). */
 export function formatLcaiWei(wei: bigint, maxFrac = 0): string {
   const n = Number(wei) / 1e18;

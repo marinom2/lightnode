@@ -8,7 +8,8 @@ import { CodeTabs } from "@/components/build/console/code-tabs";
 import { Notice, short } from "@/components/build/console/panel-kit";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { DAO_EXPLORER, type DaoChain } from "./dao-chain";
+import { DAO_EXPLORER, SECONDS_PER_BLOCK, type DaoChain } from "./dao-chain";
+import { humanizeDuration } from "./dao-math";
 import { TreasuryBar } from "./treasury-bar";
 import { VotingPowerCard } from "./voting-power-card";
 import { QuorumLine } from "./quorum-line";
@@ -47,7 +48,26 @@ interface DaoResponse {
   addresses?: { governor: string };
   total: number;
   hasMore: boolean;
+  headBlock?: string;
   proposals: Proposal[];
+}
+
+/** Human "voting ends/opens in ~X" from the proposal's block window vs the head. */
+function timingLabel(p: Proposal, headBlock: string | undefined, chain: DaoChain): string | null {
+  if (!headBlock) return null;
+  try {
+    const head = BigInt(headBlock);
+    if (head === 0n) return null;
+    const spb = SECONDS_PER_BLOCK[chain];
+    const state = p.stateLabel.toLowerCase();
+    const deadline = BigInt(p.deadlineBlock ?? p.voteEnd ?? "0");
+    const start = BigInt(p.voteStart ?? "0");
+    if (state === "active" && deadline > head) return `Voting ends in ~${humanizeDuration(Number(deadline - head) * spb)}`;
+    if (state === "pending" && start > head) return `Voting opens in ~${humanizeDuration(Number(start - head) * spb)}`;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function snippetFor(chain: DaoChain): string {
@@ -264,6 +284,11 @@ export default function DaoPanel() {
                       {p.stateLabel.toLowerCase() === "active" && (
                         <CastVote chain={chain} proposalId={p.id} onVoted={() => void load(chain, limit)} />
                       )}
+
+                      {(() => {
+                        const t = timingLabel(p, data?.headBlock, chain);
+                        return t ? <p className="text-[11px] font-medium text-primary">{t}</p> : null;
+                      })()}
 
                       {(p.voteStart || p.voteEnd) && (
                         <p className="text-[11px] text-content-soft">Voting window: block {p.voteStart ?? "?"} → {p.voteEnd ?? "?"}</p>
