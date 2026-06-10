@@ -1,4 +1,5 @@
-import { defineChain } from "viem";
+import { defineChain, type Chain } from "viem";
+import { mainnet, base, arbitrum, optimism, polygon } from "viem/chains";
 
 // LightChain mainnet eth_chainId verified live = 0x23f0 (9200). Native gas token LCAI.
 export const lightchainMainnet = defineChain({
@@ -19,11 +20,38 @@ export const lightchainTestnet = defineChain({
   testnet: true,
 });
 
-export type LightChainId = 9200 | 8200;
+// Code-pinned RPC per chain: we NEVER honor a dapp-supplied RPC url (review H4).
+// For the well-known EVM chains we reuse viem's metadata (name, symbol, explorer)
+// but override the RPC with a pinned public endpoint.
+const pin = (chain: Chain, http: string): Chain => ({ ...chain, rpcUrls: { default: { http: [http] } } });
 
-// Code-pinned RPC allowlist: we NEVER honor a dapp-supplied RPC url (review H4).
-export const SUPPORTED_CHAINS = { 9200: lightchainMainnet, 8200: lightchainTestnet } as const;
+export const SUPPORTED_CHAINS: Record<number, Chain> = {
+  9200: lightchainMainnet,
+  1: pin(mainnet, "https://ethereum-rpc.publicnode.com"),
+  8453: pin(base, "https://base-rpc.publicnode.com"),
+  42161: pin(arbitrum, "https://arbitrum-one-rpc.publicnode.com"),
+  10: pin(optimism, "https://optimism-rpc.publicnode.com"),
+  137: pin(polygon, "https://polygon-bor-rpc.publicnode.com"),
+  8200: lightchainTestnet,
+};
 
-export function chainById(id: number) {
-  return id === 8200 ? lightchainTestnet : lightchainMainnet;
+// Display order in the network switcher.
+export const CHAIN_LIST: Chain[] = [9200, 1, 8453, 42161, 10, 137, 8200].map((id) => SUPPORTED_CHAINS[id]!);
+
+export const DEFAULT_CHAIN_ID = 9200;
+
+export function chainById(id: number): Chain {
+  return SUPPORTED_CHAINS[id] ?? lightchainMainnet;
+}
+
+export function isSupportedChain(id: number): boolean {
+  return id in SUPPORTED_CHAINS;
+}
+
+export function explorerFor(id: number): string {
+  return chainById(id).blockExplorers?.default.url ?? "https://mainnet.lightscan.app";
+}
+
+export function symbolFor(id: number): string {
+  return chainById(id).nativeCurrency.symbol;
 }

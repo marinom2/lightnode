@@ -9,6 +9,7 @@ function createProvider() {
   let nextId = 1;
   const waiting = new Map<number | string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
   const listeners = new Map<string, Set<Handler>>();
+  const emit = (event: string, data: unknown) => listeners.get(event)?.forEach((h) => h(data));
 
   window.addEventListener("message", (event: MessageEvent) => {
     if (event.source !== window) return;
@@ -27,7 +28,17 @@ function createProvider() {
       if (typeof method !== "string") return Promise.reject({ code: -32602, message: "Invalid params" });
       const id = nextId++;
       return new Promise((resolve, reject) => {
-        waiting.set(id, { resolve, reject });
+        waiting.set(id, {
+          resolve: (result) => {
+            // Standard EIP-1193: notify the dapp the chain changed after a switch.
+            if (method === "wallet_switchEthereumChain") {
+              const cid = (Array.isArray(params) ? (params[0] as { chainId?: string })?.chainId : undefined);
+              if (cid) emit("chainChanged", cid);
+            }
+            resolve(result);
+          },
+          reject,
+        });
         window.postMessage({ target: PAGE_TO_CONTENT, request: { id, method, params: Array.isArray(params) ? params : [] } }, window.location.origin);
       });
     },

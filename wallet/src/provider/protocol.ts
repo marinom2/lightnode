@@ -37,6 +37,7 @@ export type WalletOp =
   | { type: "lock" }
   | { type: "addAccount" }
   | { type: "getBalance"; address: string }
+  | { type: "setChain"; chainId: number }
   | { type: "workerStatus"; address: string }
   | { type: "send"; from: string; to: string; valueWei: string }
   | { type: "listPending" }
