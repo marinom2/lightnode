@@ -1,23 +1,34 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowRight, Loader2, ArrowLeftRight } from "lucide-react";
-import { ConsolePanel } from "@/components/build/console/panel";
+import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
+import { ChevronDown, ArrowLeftRight, CreditCard, Loader2 } from "lucide-react";
+import { useAccount } from "wagmi";
+import { useAppKit } from "@reown/appkit/react";
 import { CodeTabs } from "@/components/build/console/code-tabs";
-import { PanelGrid, PanelColumn, Field, RunButton, ResponseEmpty, ProofRow, Notice, short } from "@/components/build/console/panel-kit";
-import { cn } from "@/lib/utils";
+import { shortAddr, cn } from "@/lib/utils";
 
 type Dir = "eth-to-lc" | "lc-to-eth";
 
-interface Preview {
-  direction: Dir;
-  amountLcai: string;
-  igpFee: { ok: boolean; eth?: number | null; lcai?: number | null; note?: string; error?: string };
+const ETH = { label: "Ethereum", badge: "/logos/eth.svg" };
+const LC = { label: "LightchainAI", badge: "/lightnode-mark.png" };
+
+interface Balances {
+  ethereumLcai: number;
+  lightchainLcai: number;
+}
+interface Fee {
   estimatedSourceGas: string;
-  estimatedRelayMinutes: string;
-  arrives: string;
-  route: { from: { chain: string; router: string; explorer: string }; to: { chain: string; router: string; explorer: string } };
-  projectedCall: { contract: string; method: string; destinationDomain: number; amount: string; recipientGiven: string | null; recipientHint: string | null; value: string };
+  igpFee: { ok: boolean };
+}
+
+function TokenLogo({ badge }: { badge: string }) {
+  return (
+    <span className="relative inline-block size-9 shrink-0">
+      <Image src="/logos/lcai.png" alt="LCAI" width={36} height={36} className="size-9 rounded-full" />
+      <Image src={badge} alt="" width={16} height={16} className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-card ring-2 ring-card" />
+    </span>
+  );
 }
 
 function bridgeSnippet(dir: Dir, amount: string, recipient: string): string {
@@ -31,13 +42,10 @@ import { quoteBridgeFee, approveBridge, bridgeTransfer } from "lightnode-sdk";
 const wallet = createWalletClient({ account, chain, transport: custom(window.ethereum) });
 const fee = await quoteBridgeFee(pub, "ethereum", "lightchain-mainnet");
 
-await approveBridge(wallet, parseEther("${amt}"));        // ERC-20 approve, once
+await approveBridge(wallet, parseEther("${amt}"));      // ERC-20 approve, once
 await bridgeTransfer(wallet, {
-  from: "ethereum",
-  to: "lightchain-mainnet",
-  amount: parseEther("${amt}"),
-  recipient: ${recip},                            // arrives as NATIVE LCAI on chain 9200
-  fee,
+  from: "ethereum", to: "lightchain-mainnet",
+  amount: parseEther("${amt}"), recipient: ${recip}, fee,   // arrives NATIVE on chain 9200
 });`;
   }
   return `import { createWalletClient, custom, parseEther } from "viem";
@@ -48,159 +56,173 @@ const wallet = createWalletClient({ account, chain, transport: custom(window.eth
 const fee = await quoteBridgeFee(pub, "lightchain-mainnet", "ethereum");
 
 await bridgeTransfer(wallet, {
-  from: "lightchain-mainnet",
-  to: "ethereum",
-  amount: parseEther("${amt}"),
-  recipient: ${recip},                            // arrives as LCAI ERC-20 on Ethereum
-  fee,                                            // value sent = amount + fee
+  from: "lightchain-mainnet", to: "ethereum",
+  amount: parseEther("${amt}"), recipient: ${recip}, fee,   // value = amount + fee
 });`;
 }
 
-export default function BridgePanel() {
-  const [dir, setDir] = useState<Dir>("eth-to-lc");
-  const [amount, setAmount] = useState("100");
-  const [recipient, setRecipient] = useState("");
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
-  const run = async () => {
-    setLoading(true);
-    setError(null);
-    setPreview(null);
+export default function BridgePanel() {
+  const { address, isConnected } = useAccount();
+  const { open } = useAppKit();
+  const [dir, setDir] = useState<Dir>("eth-to-lc");
+  const [amount, setAmount] = useState("");
+  const [bal, setBal] = useState<Balances | null>(null);
+  const [fee, setFee] = useState<Fee | null>(null);
+  const [feeLoading, setFeeLoading] = useState(false);
+
+  const from = dir === "eth-to-lc" ? ETH : LC;
+  const to = dir === "eth-to-lc" ? LC : ETH;
+  const sourceBal = bal ? (dir === "eth-to-lc" ? bal.ethereumLcai : bal.lightchainLcai) : 0;
+  const remoteBal = bal ? (dir === "eth-to-lc" ? bal.lightchainLcai : bal.ethereumLcai) : 0;
+
+  // Real balances on both chains for the connected address (same EVM address).
+  useEffect(() => {
+    if (!isConnected || !address) {
+      setBal(null);
+      return;
+    }
+    let on = true;
+    fetch(`/api/bridge-balances?address=${address}`)
+      .then((r) => r.json())
+      .then((j: Balances & { ok?: boolean }) => on && j.ok && setBal(j))
+      .catch(() => {});
+    return () => {
+      on = false;
+    };
+  }, [isConnected, address]);
+
+  // Live fee preview, debounced on amount/direction.
+  const loadFee = useCallback(async () => {
+    const amt = amount.trim();
+    if (!amt || Number(amt) <= 0) {
+      setFee(null);
+      return;
+    }
+    setFeeLoading(true);
     try {
       const res = await fetch("/api/bridge-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ direction: dir, amount, recipient: recipient.trim() || undefined }),
+        body: JSON.stringify({ direction: dir, amount: amt }),
       });
-      const d = (await res.json()) as (Preview & { ok: true }) | { ok?: false; error: string };
-      if (!res.ok || "error" in d) {
-        setError(("error" in d && d.error) || "Could not build the bridge preview.");
-        return;
-      }
-      setPreview(d);
+      const d = (await res.json()) as Fee & { ok?: boolean };
+      if (d.ok) setFee(d);
     } catch {
-      setError("Network error reaching the bridge endpoint.");
+      /* ignore */
     } finally {
-      setLoading(false);
+      setFeeLoading(false);
     }
-  };
+  }, [amount, dir]);
+  useEffect(() => {
+    const t = setTimeout(loadFee, 400);
+    return () => clearTimeout(t);
+  }, [loadFee]);
 
-  const fromLabel = dir === "eth-to-lc" ? "Ethereum" : "LightChain";
-  const toLabel = dir === "eth-to-lc" ? "LightChain" : "Ethereum";
+  const feeText = feeLoading ? "..." : fee ? `${fee.estimatedSourceGas} + 0 Hyperlane (IGP)` : "-";
 
   return (
-    <div className="space-y-10">
-      <ConsolePanel
-        kicker="Capability · Bridge"
-        title="Bridge LCAI"
-        subtitle="Move LCAI across the Hyperlane Warp Route - LCAI ERC-20 on Ethereum to/from native LCAI on LightChain. Pick a direction and amount for a live, exact transfer preview (fee, source gas, relay window, the projected transferRemote call). The execute signs with your own wallet on the source chain - the call is built for you below."
-      >
-        <PanelGrid>
-          <PanelColumn title="Transfer">
-            <div className="space-y-4">
-              <div>
-                <span className="mb-1.5 block text-xs font-medium text-content-soft">Direction</span>
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-1 rounded-lg border border-bdr-soft p-0.5 text-xs">
-                    {(["eth-to-lc", "lc-to-eth"] as Dir[]).map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setDir(d)}
-                        className={cn(
-                          "flex-1 rounded-md px-2 py-1.5 font-medium transition-colors",
-                          dir === d ? "bg-primary/10 text-content-primary" : "text-content-soft hover:text-content-primary",
-                        )}
-                      >
-                        {d === "eth-to-lc" ? "Ethereum → LightChain" : "LightChain → Ethereum"}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setDir((d) => (d === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc"))}
-                    aria-label="Flip direction"
-                    className="grid size-9 shrink-0 place-items-center rounded-lg border border-bdr-soft text-content-soft transition-colors hover:text-primary"
-                  >
-                    <ArrowLeftRight className="size-4" />
-                  </button>
-                </div>
+    <div className="space-y-8">
+      <div className="mx-auto max-w-[480px] overflow-hidden rounded-3xl border border-bdr-soft bg-card shadow-2xl">
+        <div className="border-b border-bdr-soft px-6 py-5 text-center">
+          <h2 className="text-2xl font-bold tracking-tight text-content-primary">LCAI Bridge</h2>
+        </div>
+
+        <div className="space-y-4 p-6">
+          {/* Token pair */}
+          <div className="flex items-center gap-2">
+            <div className="flex flex-1 items-center gap-3 rounded-2xl border border-bdr-soft bg-surface-base-faint px-3.5 py-3">
+              <TokenLogo badge={from.badge} />
+              <div className="min-w-0 leading-tight">
+                <div className="text-base font-semibold text-content-primary">LCAI</div>
+                <div className="truncate text-xs text-content-soft">{from.label}</div>
               </div>
-              <Field label="Amount (LCAI)">
-                <input
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                  inputMode="decimal"
-                  className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 text-sm tabular-nums text-content-primary outline-none focus:border-primary/60"
-                />
-              </Field>
-              <Field label="Recipient (optional)" hint={`Destination address on ${toLabel}. Defaults to your own address when you run it.`}>
-                <input
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value.trim())}
-                  placeholder="0x..."
-                  className="w-full rounded-lg border border-bdr-soft bg-surface-base-faint px-3 py-2 font-mono text-sm text-content-primary outline-none focus:border-primary/60"
-                />
-              </Field>
-              <RunButton running={loading} disabled={!amount.trim()} onClick={() => void run()} idle="Preview transfer" busy="Quoting..." />
+              <ChevronDown className="ml-auto size-4 shrink-0 text-content-soft" />
             </div>
-          </PanelColumn>
-
-          <PanelColumn title={`${fromLabel} → ${toLabel}`}>
-            {error && <Notice tone="warn">{error}</Notice>}
-            {!preview && !loading && !error && <ResponseEmpty>Pick a direction + amount and preview the exact transfer.</ResponseEmpty>}
-            {loading && (
-              <div className="flex items-center gap-2 text-sm text-content-soft">
-                <Loader2 className="size-4 animate-spin" /> Reading the live Hyperlane route...
+            <button
+              type="button"
+              onClick={() => setDir((d) => (d === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc"))}
+              aria-label="Flip direction"
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-bdr-soft bg-card text-content-soft transition-colors hover:border-primary/40 hover:text-primary"
+            >
+              <ArrowLeftRight className="size-4" />
+            </button>
+            <div className="flex flex-1 items-center gap-3 rounded-2xl border border-bdr-soft bg-surface-base-faint px-3.5 py-3">
+              <ChevronDown className="size-4 shrink-0 text-content-soft" />
+              <div className="ml-auto min-w-0 text-right leading-tight">
+                <div className="text-base font-semibold text-content-primary">LCAI</div>
+                <div className="truncate text-xs text-content-soft">{to.label}</div>
               </div>
-            )}
-            {preview && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-center gap-3 rounded-xl border border-bdr-soft bg-surface-base-faint p-3 text-center">
-                  <div>
-                    <div className="text-lg font-semibold tabular-nums text-content-primary">{preview.amountLcai} LCAI</div>
-                    <div className="text-[11px] text-content-soft">on {fromLabel}</div>
-                  </div>
-                  <ArrowRight className="size-4 text-primary" />
-                  <div>
-                    <div className="text-lg font-semibold tabular-nums text-content-primary">{preview.amountLcai} LCAI</div>
-                    <div className="text-[11px] text-content-soft">{preview.arrives}</div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-bdr-soft p-3">
-                  <ProofRow label="Hyperlane fee" value={preview.igpFee.ok ? "0 (IGP pre-paid)" : (preview.igpFee.error ?? "unavailable")} />
-                  <ProofRow label="Source gas" value={preview.estimatedSourceGas} />
-                  <ProofRow label="Arrives in" value={`~${preview.estimatedRelayMinutes} min`} />
-                </div>
-                <div className="rounded-xl border border-bdr-soft p-3">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-content-soft">Projected call</p>
-                  <ProofRow label="router" value={short(preview.projectedCall.contract)} href={`${preview.route.from.explorer}/address/${preview.projectedCall.contract}`} />
-                  <ProofRow label="method" value="transferRemote(...)" />
-                  <ProofRow label="dest domain" value={String(preview.projectedCall.destinationDomain)} />
-                  <ProofRow label="value" value={`${Number(preview.projectedCall.value) / 1e18} ${dir === "eth-to-lc" ? "ETH" : "LCAI"}`} />
-                  {preview.projectedCall.recipientHint && <p className="pt-1 text-[11px] text-content-soft">{preview.projectedCall.recipientHint}</p>}
-                </div>
-                <Notice tone="warn">Dry-run preview - no transaction sent. Run the call below to execute, signing with your own wallet on {fromLabel}.</Notice>
-              </div>
-            )}
-          </PanelColumn>
-        </PanelGrid>
-      </ConsolePanel>
+              <TokenLogo badge={to.badge} />
+            </div>
+          </div>
 
-      <section className="space-y-3">
+          {/* Amount */}
+          <div className="rounded-2xl border border-bdr-soft bg-surface-base-faint p-4">
+            <div className="flex items-center gap-3">
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-full bg-transparent text-3xl font-semibold tabular-nums text-content-primary outline-none placeholder:text-content-soft/40"
+              />
+              <button
+                type="button"
+                onClick={() => sourceBal > 0 && setAmount(String(sourceBal))}
+                className="shrink-0 rounded-full bg-primary/15 px-3 py-1 text-sm font-medium text-primary transition-colors hover:bg-primary/25"
+              >
+                Max
+              </button>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between text-sm">
+              <span className="text-content-soft">$0.00</span>
+              <span className="font-medium text-primary">Balance: {fmt(sourceBal)}</span>
+            </div>
+          </div>
+
+          {/* Wallet + remote balance */}
+          <button
+            type="button"
+            onClick={() => open()}
+            className="inline-flex items-center gap-1.5 text-sm text-content-soft transition-colors hover:text-content-primary"
+          >
+            {isConnected && address ? shortAddr(address) : "Connect Wallet"} <ChevronDown className="size-3.5" />
+          </button>
+          <div className="rounded-2xl border border-bdr-soft bg-surface-base-faint p-4 text-sm">
+            <span className="font-medium text-primary">Remote Balance: {fmt(remoteBal)}</span>
+          </div>
+
+          {/* Fees */}
+          <div className="flex items-center gap-1.5 text-sm text-content-soft">
+            <CreditCard className="size-4" /> Fees: <span className="text-content-default">{feeText}</span>
+            {feeLoading && <Loader2 className="size-3.5 animate-spin" />}
+          </div>
+
+          {/* Action */}
+          <button
+            type="button"
+            onClick={() => (isConnected ? loadFee() : open())}
+            className="h-12 w-full rounded-2xl bg-[linear-gradient(94deg,#dd00ac_0%,#7130c3_38%,#7064e9_68%,#4f7cf6_100%)] bg-[length:200%_auto] bg-[position:left_center] text-base font-semibold tracking-[0.3px] text-white transition-all duration-300 hover:bg-[position:right_center] hover:brightness-110"
+          >
+            {isConnected ? `Review ${from.label} → ${to.label} transfer` : "Connect wallet"}
+          </button>
+          <p className="text-center text-[11px] leading-relaxed text-content-soft">
+            Live Hyperlane Warp Route. The transfer signs with your own wallet on {from.label} - the exact call is generated below (a bridge moves real cross-chain funds, so it isn&apos;t auto-submitted here).
+          </p>
+        </div>
+      </div>
+
+      <section className="mx-auto max-w-[640px] space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Execute it (signs with your wallet)</h2>
-        <CodeTabs tabs={[{ label: "TypeScript", code: bridgeSnippet(dir, amount, recipient) }]} />
+        <CodeTabs tabs={[{ label: "TypeScript", code: bridgeSnippet(dir, amount, address ?? "") }]} />
         <p className="text-xs text-content-soft">
-          {dir === "eth-to-lc"
-            ? "Inbound signs on Ethereum mainnet (where LCAI is an ERC-20) - approve once, then transferRemote; native LCAI arrives on LightChain."
-            : "Outbound signs on LightChain mainnet - native LCAI is attached as value, no approve needed."}{" "}
           Hold LCAI ERC-20 on Ethereum?{" "}
           <a href="https://app.uniswap.org/swap?chain=ethereum&outputCurrency=0x9cA8530CA349c966Fe9ef903Df17a75B8A778927" target="_blank" rel="noreferrer" className="text-primary hover:underline">
             Get some on Uniswap
           </a>
-          .
+          , then bridge it to native LCAI on LightChain.
         </p>
       </section>
     </div>
