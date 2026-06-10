@@ -5,15 +5,16 @@ export const APPROVAL_REQUIRED = new Set<string>([
   "eth_sendTransaction",
   "personal_sign",
   "eth_signTypedData_v4",
-  "wallet_switchEthereumChain",
 ]);
 
-// Answered in the background without a popup.
-export const LOCAL_READ = new Set<string>(["eth_accounts", "eth_chainId", "net_version"]);
+// Answered in the background without a popup. wallet_switchEthereumChain switches
+// to one of our code-pinned supported chains (or rejects with 4902); switching to
+// a known, pinned network is low-risk and needs no approval popup.
+export const LOCAL_READ = new Set<string>(["eth_accounts", "eth_chainId", "net_version", "wallet_switchEthereumChain"]);
 
 // Read-only methods we forward to our own pinned RPC. We never accept a dapp RPC url,
 // and never expose mutating/admin methods. wallet_addEthereumChain is intentionally
-// absent (review H4): we support only the two pinned LightChain networks.
+// absent (review H4): we support only our code-pinned networks.
 const READ_PASSTHROUGH = new Set<string>([
   "eth_blockNumber",
   "eth_getBalance",

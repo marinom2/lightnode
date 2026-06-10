@@ -14,20 +14,27 @@ import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
 import { readWorkerStatus } from "../src/rpc/worker";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
-import { chainById, lightchainMainnet } from "../src/rpc/chains";
+import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, RpcError } from "../src/provider/protocol";
 import { APPROVAL_REQUIRED, LOCAL_READ, isAllowedMethod } from "../src/provider/rpc-methods";
 
 const VAULT_KEY = "vault";
 const SESSION_KEY = "session-mnemonic";
 const PERMS_KEY = "connected-origins";
+const CHAIN_KEY = "selected-chain";
 const AUTO_LOCK_MIN = 15;
 
 let live: Keyring | null = null;
 const pending = new Map<string, { request: JsonRpcRequest; origin: string; resolve: (r: unknown) => void; reject: (e: { code: number; message: string }) => void }>();
 let pendingSeq = 0;
 
-const publicClient = () => createPublicClient({ chain: lightchainMainnet, transport: http() });
+// The user's selected network (persisted). Every read/write/sign uses it.
+async function selectedChainId(): Promise<number> {
+  const { [CHAIN_KEY]: id } = await browser.storage.local.get(CHAIN_KEY);
+  return typeof id === "number" && isSupportedChain(id) ? id : DEFAULT_CHAIN_ID;
+}
+const clientFor = (id: number) => createPublicClient({ chain: chainById(id), transport: http() });
+const publicClient = async () => clientFor(await selectedChainId());
 
 // ---- session lifecycle -----------------------------------------------------
 
@@ -63,8 +70,13 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         hasVault: Boolean(vault),
         unlocked: Boolean(kr),
         accounts: kr ? kr.accounts.map((a) => a.address) : [],
-        chainId: lightchainMainnet.id,
+        chainId: await selectedChainId(),
       };
+    }
+    case "setChain": {
+      if (!isSupportedChain(op.chainId)) throw RpcError.invalidParams;
+      await browser.storage.local.set({ [CHAIN_KEY]: op.chainId });
+      return { chainId: op.chainId };
     }
     case "createVault":
     case "importVault": {
@@ -95,13 +107,13 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       return { address: acct.address };
     }
     case "getBalance": {
-      const wei = await publicClient().getBalance({ address: op.address as `0x${string}` });
-      return { wei: wei.toString(), lcai: formatEther(wei) };
+      const wei = await (await publicClient()).getBalance({ address: op.address as `0x${string}` });
+      return { wei: wei.toString(), formatted: formatEther(wei) };
     }
     case "workerStatus":
-      // Read-only registry/stake lookup (no key). Already returns number/bool
-      // fields only, so it survives chrome.runtime's structured clone (no bigint).
-      return readWorkerStatus(publicClient(), op.address as `0x${string}`);
+      // Worker contracts live on LightChain mainnet, so read there regardless of
+      // the selected network. Returns number/bool fields only (clone-safe).
+      return readWorkerStatus(clientFor(9200), op.address as `0x${string}`);
     case "send": {
       const kr = await restore();
       const acct = kr?.accountFor(op.from);
@@ -117,10 +129,11 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
   }
 }
 
-async function signAndSend(account: Keyring["accounts"][number]["account"], to: `0x${string}`, value: bigint): Promise<string> {
+async function signAndSend(account: Keyring["accounts"][number]["account"], to: `0x${string}`, value: bigint, data?: `0x${string}`): Promise<string> {
   const { createWalletClient } = await import("viem");
-  const wallet = createWalletClient({ account, chain: lightchainMainnet, transport: http() });
-  return wallet.sendTransaction({ to, value });
+  const chain = chainById(await selectedChainId());
+  const wallet = createWalletClient({ account, chain, transport: http() });
+  return wallet.sendTransaction({ to, value, data });
 }
 
 // ---- dapp RPC + approval queue ---------------------------------------------
@@ -129,15 +142,27 @@ async function handleDappRpc(request: JsonRpcRequest, origin: string): Promise<u
   if (!isAllowedMethod(request.method)) throw RpcError.unsupported;
 
   if (LOCAL_READ.has(request.method)) {
-    if (request.method === "eth_chainId") return `0x${lightchainMainnet.id.toString(16)}`;
-    if (request.method === "net_version") return String(lightchainMainnet.id);
+    const cid = await selectedChainId();
+    if (request.method === "eth_chainId") return `0x${cid.toString(16)}`;
+    if (request.method === "net_version") return String(cid);
     if (request.method === "eth_accounts") return await connectedAccounts(origin);
+    if (request.method === "wallet_switchEthereumChain") return await switchChain(request);
   }
 
   if (APPROVAL_REQUIRED.has(request.method)) return await enqueueApproval(request, origin);
 
-  // Everything else on the allowlist: read-only passthrough to our pinned RPC.
-  return publicClient().request({ method: request.method as never, params: request.params as never });
+  // Everything else on the allowlist: read-only passthrough to the selected chain's pinned RPC.
+  return (await publicClient()).request({ method: request.method as never, params: request.params as never });
+}
+
+// Switch the wallet to a code-pinned supported chain, or reject (4902) so the
+// dapp knows it is unrecognized. The inpage provider emits chainChanged on success.
+async function switchChain(request: JsonRpcRequest): Promise<null> {
+  const param = (request.params?.[0] ?? {}) as { chainId?: string };
+  const id = param.chainId ? Number(param.chainId) : NaN;
+  if (!isSupportedChain(id)) throw { code: 4902, message: "Unrecognized chain. Add it in the wallet first." };
+  await browser.storage.local.set({ [CHAIN_KEY]: id });
+  return null;
 }
 
 async function connectedAccounts(origin: string): Promise<string[]> {
@@ -197,9 +222,9 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
     if (!acct) throw RpcError.unauthorized;
     const td = parseTypedData(json);
     if (!td?.domain || !td.primaryType || !td.types || td.message === undefined) throw RpcError.invalidParams;
-    // Bind the signature to our chains - never sign typed data aimed elsewhere (review H5).
+    // Bind the signature to a supported chain - never sign typed data aimed elsewhere (review H5).
     const chainId = td.domain.chainId != null ? Number(td.domain.chainId) : undefined;
-    if (chainId !== 9200 && chainId !== 8200) throw { code: 4901, message: "Typed data targets a different chain" };
+    if (chainId === undefined || !isSupportedChain(chainId)) throw { code: 4901, message: "Typed data targets an unsupported chain" };
     const types = { ...(td.types as Record<string, unknown>) };
     delete types.EIP712Domain; // viem derives the domain type itself
     const def = { domain: td.domain, types, primaryType: td.primaryType, message: td.message } as unknown as TypedDataDefinition;

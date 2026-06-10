@@ -2,13 +2,40 @@ import { useCallback, useEffect, useState } from "react";
 import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
 import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
+import { chainById, CHAIN_LIST, explorerFor } from "../../src/rpc/chains";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
 
-const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "warn", danger: "warn" };
-
-const EXPLORER = "https://mainnet.lightscan.app";
+const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "warn", danger: "danger-box" };
+const SUPPORTED_IDS = CHAIN_LIST.map((c) => c.id);
+const NET_COLOR: Record<number, string> = { 9200: "#7064e9", 8200: "#a78bfa", 1: "#627eea", 8453: "#0052ff", 42161: "#28a0f0", 10: "#ff0420", 137: "#8247e5" };
+const netColor = (id: number) => NET_COLOR[id] ?? "#7064e9";
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const fmtBal = (s: string) => Number(s).toLocaleString(undefined, { maximumFractionDigits: Number(s) >= 1 ? 4 : 6 });
 const isApproveWindow = () => window.location.hash.includes("approve");
+
+function avatarGradient(addr: string): string {
+  let h = 0;
+  for (let i = 2; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) % 360;
+  return `linear-gradient(135deg, hsl(${h} 80% 62%), hsl(${(h + 70) % 360} 80% 55%))`;
+}
+
+const ICONS: Record<string, string> = {
+  send: "M7 17 17 7M8 7h9v9",
+  receive: "M12 4v15M19 12l-7 7-7-7",
+  copy: "M9 9h10v10H9zM5 15V5h10",
+  chevron: "M6 9l6 6 6-6",
+  lock: "M7 11V8a5 5 0 0110 0v3M5 11h14v9H5z",
+  check: "M5 12l5 5L20 7",
+  external: "M14 4h6v6M20 4l-9 9M10 5H5v14h14v-5",
+  x: "M6 6l12 12M18 6 6 18",
+};
+function Ic({ name, size = 18 }: { name: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={ICONS[name]} />
+    </svg>
+  );
+}
 
 export function App() {
   const [state, setState] = useState<WalletState | null>(null);
@@ -17,20 +44,15 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  if (isApproveWindow()) return <Shell><ApproveView /></Shell>;
-  if (!state) return <Shell><p className="muted">Loading…</p></Shell>;
-  if (!state.hasVault) return <Shell><Onboarding onDone={refresh} /></Shell>;
-  if (!state.unlocked) return <Shell><Unlock onDone={refresh} /></Shell>;
-  return <Shell><WalletHome state={state} onChange={refresh} /></Shell>;
+  if (isApproveWindow()) return <div className="wrap"><Brand /><ApproveView /></div>;
+  if (!state) return <div className="wrap"><Brand /><p className="muted">Loading…</p></div>;
+  if (!state.hasVault) return <div className="wrap"><Brand /><Onboarding onDone={refresh} /></div>;
+  if (!state.unlocked) return <div className="wrap"><Brand /><Unlock onDone={refresh} /></div>;
+  return <div className="wrap"><WalletHome state={state} onChange={refresh} /></div>;
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="wrap">
-      <div className="brand"><span className="dot" /> LightNode Wallet</div>
-      {children}
-    </div>
-  );
+function Brand() {
+  return <div className="brand"><span className="dot" /> LightNode Wallet</div>;
 }
 
 // ---- onboarding ------------------------------------------------------------
@@ -42,8 +64,8 @@ function Onboarding({ onDone }: { onDone: () => void }) {
   return (
     <div className="card">
       <h1>Self-custodial. Your keys.</h1>
-      <p className="muted">Keys are generated and encrypted on this device and never leave it.</p>
-      <div className="row" style={{ marginTop: 12, gap: 8 }}>
+      <p className="muted" style={{ marginTop: 6 }}>Generated and encrypted on this device. They never leave it - no server, no custody.</p>
+      <div className="row" style={{ marginTop: 14, gap: 8 }}>
         <button onClick={() => setMode("create")} style={{ flex: 1 }}>Create wallet</button>
         <button className="ghost" onClick={() => setMode("import")} style={{ flex: 1 }}>Import</button>
       </div>
@@ -70,17 +92,15 @@ function CreateFlow({ onDone }: { onDone: () => void }) {
   };
   return (
     <div className="card">
-      <h2>Your recovery phrase</h2>
-      <div className="seed">{mnemonic}</div>
-      <p className="warn">Write these 24 words down and keep them offline. Anyone with them controls your funds. We can never recover them for you.</p>
-      <label className="row muted" style={{ gap: 6 }}>
+      <h1>Your recovery phrase</h1>
+      <div className="seed" style={{ marginTop: 10 }}>{mnemonic}</div>
+      <p className="danger-box" style={{ marginTop: 10 }}>Write these 24 words down offline. Anyone with them controls your funds. We can never recover them.</p>
+      <label className="row muted" style={{ gap: 7, marginTop: 10 }}>
         <input type="checkbox" style={{ width: "auto" }} checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I saved my phrase
       </label>
-      <input type="password" placeholder="Set a password" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 10 }} />
+      <input type="password" placeholder="Set a password (min 8)" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 10 }} />
       {err && <p className="err">{err}</p>}
-      <button disabled={!saved || pw.length < 8 || busy} onClick={create} style={{ marginTop: 10, width: "100%" }}>
-        {busy ? "Creating…" : "Create wallet"}
-      </button>
+      <button disabled={!saved || pw.length < 8 || busy} onClick={create} style={{ marginTop: 10, width: "100%" }}>{busy ? "Creating…" : "Create wallet"}</button>
     </div>
   );
 }
@@ -104,19 +124,15 @@ function ImportFlow({ onDone }: { onDone: () => void }) {
   };
   return (
     <div className="card">
-      <h2>Import a recovery phrase</h2>
-      <textarea placeholder="word1 word2 …" value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} />
+      <h1>Import a phrase</h1>
+      <textarea placeholder="word1 word2 …" value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} style={{ marginTop: 10 }} />
       {mnemonic && !valid && <p className="err">Not a valid BIP-39 phrase.</p>}
-      <input type="password" placeholder="Set a password" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 10 }} />
+      <input type="password" placeholder="Set a password (min 8)" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 10 }} />
       {err && <p className="err">{err}</p>}
-      <button disabled={!valid || pw.length < 8 || busy} onClick={importIt} style={{ marginTop: 10, width: "100%" }}>
-        {busy ? "Importing…" : "Import wallet"}
-      </button>
+      <button disabled={!valid || pw.length < 8 || busy} onClick={importIt} style={{ marginTop: 10, width: "100%" }}>{busy ? "Importing…" : "Import wallet"}</button>
     </div>
   );
 }
-
-// ---- unlock ----------------------------------------------------------------
 
 function Unlock({ onDone }: { onDone: () => void }) {
   const [pw, setPw] = useState("");
@@ -135,8 +151,8 @@ function Unlock({ onDone }: { onDone: () => void }) {
   };
   return (
     <div className="card">
-      <h2>Unlock</h2>
-      <input type="password" placeholder="Password" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} />
+      <h1>Welcome back</h1>
+      <input type="password" placeholder="Password" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} style={{ marginTop: 10 }} />
       {err && <p className="err">{err}</p>}
       <button disabled={!pw || busy} onClick={unlock} style={{ marginTop: 10, width: "100%" }}>{busy ? "Unlocking…" : "Unlock"}</button>
     </div>
@@ -148,24 +164,152 @@ function Unlock({ onDone }: { onDone: () => void }) {
 function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
   const address = state.accounts[0]!;
   const [bal, setBal] = useState<string | null>(null);
-  useEffect(() => {
-    wallet<{ lcai: string }>({ type: "getBalance", address }).then((b) => setBal(b.lcai)).catch(() => setBal(null));
+  const [sheet, setSheet] = useState<"send" | "receive" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const chain = chainById(state.chainId);
+  const sym = chain.nativeCurrency.symbol;
+  const explorer = explorerFor(state.chainId);
+
+  const loadBal = useCallback(() => {
+    setBal(null);
+    wallet<{ formatted: string }>({ type: "getBalance", address }).then((b) => setBal(b.formatted)).catch(() => setBal("0"));
   }, [address]);
+  useEffect(loadBal, [loadBal, state.chainId]);
+
+  const copy = () => {
+    void navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+  const switchChain = (id: number) => void wallet({ type: "setChain", chainId: id }).then(onChange);
+
   return (
     <>
-      <div className="card">
-        <div className="row between"><span className="pill">LightChain · 9200</span><button className="ghost" style={{ padding: "4px 10px" }} onClick={() => wallet({ type: "lock" }).then(onChange)}>Lock</button></div>
-        <p className="muted" style={{ marginTop: 10 }}>Balance</p>
-        <div className="balance">{bal == null ? "…" : Number(bal).toLocaleString(undefined, { maximumFractionDigits: 4 })} <span style={{ fontSize: 14, color: "var(--soft)" }}>LCAI</span></div>
-        <p className="addr" style={{ marginTop: 6 }}>{short(address)} <a href={`${EXPLORER}/address/${address}`} target="_blank" rel="noreferrer">view</a></p>
+      <div className="header">
+        <span className="avatar" style={{ background: avatarGradient(address) }} />
+        <div className="acct" onClick={copy} title="Copy address">
+          <b>Account 1</b>
+          <span className="addr-mini">{short(address)}</span>
+        </div>
+        <span className="spacer" />
+        <NetworkSwitcher chainId={state.chainId} onSwitch={switchChain} />
+        <button className="icon-btn" title="Lock" onClick={() => void wallet({ type: "lock" }).then(onChange)}><Ic name="lock" size={15} /></button>
       </div>
-      <SendForm from={address} onSent={onChange} />
-      <WorkerPanel address={address} />
-      <div className="card">
-        <h2>More superpowers</h2>
-        <p className="muted">Encrypted AI inference, DAO intelligence, and the Ethereum bridge connect through the lightnode SDK and land next. Explore them at <a href="https://lightchain.ai" target="_blank" rel="noreferrer">lightnode</a>.</p>
+
+      <div className="hero">
+        <div><span className="bal">{bal == null ? "…" : fmtBal(bal)}</span><span className="sym">{sym}</span></div>
+        <button className="copy-chip" onClick={copy}>{copied ? "Copied!" : short(address)} <Ic name="copy" size={13} /></button>
       </div>
+
+      <div className="actions">
+        <button className="act" onClick={() => setSheet("send")}><span className="ic"><Ic name="send" size={17} /></span>Send</button>
+        <button className="act" onClick={() => setSheet("receive")}><span className="ic"><Ic name="receive" size={17} /></span>Receive</button>
+        <a className="act" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer"><span className="ic"><Ic name="external" size={16} /></span>Explorer</a>
+      </div>
+
+      <div>
+        <h2>Tokens</h2>
+        <div className="list-row">
+          <span className="token-ic" style={{ color: netColor(state.chainId) }}>{sym.slice(0, 2)}</span>
+          <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
+          <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
+        </div>
+      </div>
+
+      {state.chainId === 9200 && <WorkerPanel address={address} />}
+
+      {sheet === "send" && <SendSheet from={address} sym={sym} explorer={explorer} onClose={() => setSheet(null)} onSent={loadBal} />}
+      {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
     </>
+  );
+}
+
+function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="net">
+      <button className="net-btn" onClick={() => setOpen((o) => !o)}>
+        <span className="net-dot" style={{ background: netColor(chainId) }} />
+        {chainById(chainId).name}
+        <Ic name="chevron" size={13} />
+      </button>
+      {open && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 20 }} onClick={() => setOpen(false)} />
+          <div className="net-menu">
+            {CHAIN_LIST.map((c) => (
+              <button key={c.id} className={`net-item${c.id === chainId ? " sel" : ""}`} onClick={() => { onSwitch(c.id); setOpen(false); }}>
+                <span className="net-dot" style={{ background: netColor(c.id) }} />
+                {c.name}
+                {c.id === chainId && <span className="check"><Ic name="check" size={15} /></span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SendSheet({ from, sym, explorer, onClose, onSent }: { from: string; sym: string; explorer: string; onClose: () => void; onSent: () => void }) {
+  const [to, setTo] = useState("");
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [hash, setHash] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const ok = /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && Number(amount) > 0;
+  const send = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await wallet<{ hash: string }>({ type: "send", from, to: to.trim(), valueWei: amount });
+      setHash(r.hash);
+      onSent();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Send {sym}</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        {hash ? (
+          <>
+            <p className="ok">Sent. Your {sym} is on its way.</p>
+            <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
+            <button onClick={onClose}>Done</button>
+          </>
+        ) : (
+          <>
+            <div><div className="muted" style={{ marginBottom: 6 }}>Recipient</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+            <div><div className="muted" style={{ marginBottom: 6 }}>Amount ({sym})</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
+            {err && <p className="err">{err}</p>}
+            <button disabled={!ok || busy} onClick={send}>{busy ? "Sending…" : `Send ${sym}`}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReceiveSheet({ address, chainName, onClose }: { address: string; chainName: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Receive</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <p className="muted">Your address on {chainName} - the same on every EVM chain:</p>
+        <div className="card addr" style={{ textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>{address}</div>
+        <button onClick={copy}>{copied ? "Copied!" : "Copy address"}</button>
+      </div>
+    </div>
   );
 }
 
@@ -175,13 +319,13 @@ function WorkerPanel({ address }: { address: string }) {
     setS("loading");
     wallet<WorkerStatusView>({ type: "workerStatus", address }).then(setS).catch(() => setS("error"));
   }, [address]);
-  if (s === "loading") return <div className="card"><h2>Worker status</h2><p className="muted">Checking the registry…</p></div>;
-  if (s === "error") return <div className="card"><h2>Worker status</h2><p className="muted">Could not reach the worker registry. Try again later.</p></div>;
+  if (s === "loading") return <div className="card"><h2>Worker</h2><p className="muted">Checking the registry…</p></div>;
+  if (s === "error") return <div className="card"><h2>Worker</h2><p className="muted">Could not reach the worker registry.</p></div>;
   if (!s.registered) {
     return (
       <div className="card">
-        <h2>Worker status</h2>
-        <p className="muted">This address is not a registered LightChain worker. <a href="https://lightchain.ai/onboard" target="_blank" rel="noreferrer">Run a worker →</a></p>
+        <h2>Worker</h2>
+        <p className="muted">Not a registered LightChain worker. <a href="https://lightchain.ai/onboard" target="_blank" rel="noreferrer">Run a worker →</a></p>
       </div>
     );
   }
@@ -190,46 +334,9 @@ function WorkerPanel({ address }: { address: string }) {
     <div className="card">
       <div className="row between"><h2 style={{ margin: 0 }}>Worker</h2><span className="pill">registered</span></div>
       <div className="row between" style={{ marginTop: 8 }}><span className="muted">Stake</span><span className="addr">{fmt(s.stakeLcai)} LCAI</span></div>
-      <div className="row between"><span className="muted">Min stake</span><span className="addr">{fmt(s.minStakeLcai)}</span></div>
       <div className="row between"><span className="muted">Headroom</span><span className="addr">{fmt(s.headroomLcai)}</span></div>
       {s.claimableLcai > 0 && <div className="row between"><span className="muted">Claimable</span><span className="ok">{fmt(s.claimableLcai)} LCAI</span></div>}
-      {s.belowFloor && <p className="warn">Below the stake floor - top up to keep earning. Manage at lightnode.</p>}
-      <a href="https://lightchain.ai" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: 12 }}>Manage worker →</a>
-    </div>
-  );
-}
-
-function SendForm({ from, onSent }: { from: string; onSent: () => void }) {
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [hash, setHash] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const send = async () => {
-    setBusy(true);
-    setErr(null);
-    setHash(null);
-    try {
-      const r = await wallet<{ hash: string }>({ type: "send", from, to: to.trim(), valueWei: amount });
-      setHash(r.hash);
-      setAmount("");
-      onSent();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const ok = /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && Number(amount) > 0;
-  return (
-    <div className="card">
-      <h2>Send LCAI</h2>
-      <input placeholder="0x recipient" value={to} onChange={(e) => setTo(e.target.value)} />
-      <input placeholder="Amount (LCAI)" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} style={{ marginTop: 8 }} />
-      <p className="muted" style={{ marginTop: 6 }}>Network fee: negligible on LightChain.</p>
-      {err && <p className="err">{err}</p>}
-      {hash && <p className="ok">Sent · <a href={`${EXPLORER}/tx/${hash}`} target="_blank" rel="noreferrer">{short(hash)}</a></p>}
-      <button disabled={!ok || busy} onClick={send} style={{ marginTop: 8, width: "100%" }}>{busy ? "Sending…" : "Send"}</button>
+      {s.belowFloor && <p className="warn">Below the stake floor - top up to keep earning.</p>}
     </div>
   );
 }
@@ -280,17 +387,15 @@ function RequestDetail({ req }: { req: PendingRequest }) {
     return (
       <div className="muted" style={{ fontSize: 12 }}>
         <p className="addr">to: {tx.to ?? "(contract creation)"}</p>
-        <p>value: {tx.value ? Number(BigInt(tx.value)) / 1e18 : 0} LCAI</p>
+        <p>value: {tx.value ? Number(BigInt(tx.value)) / 1e18 : 0}</p>
         {decoded.kind !== "empty" && (
-          <p className={SEVERITY_CLASS[decoded.severity]}>
-            <b>{decoded.label}.</b> {decoded.detail}
-          </p>
+          <p className={SEVERITY_CLASS[decoded.severity]}><b>{decoded.label}.</b> {decoded.detail}</p>
         )}
       </div>
     );
   }
   if (req.method === "eth_signTypedData_v4") {
-    const s = summarizeTypedData(req.params?.[1], [9200, 8200]);
+    const s = summarizeTypedData(req.params?.[1], SUPPORTED_IDS);
     return (
       <div className="muted" style={{ fontSize: 12 }}>
         {s.error ? (
@@ -299,7 +404,7 @@ function RequestDetail({ req }: { req: PendingRequest }) {
           <>
             <p>type: <b>{s.primaryType}</b>{s.domainName ? ` · ${s.domainName}` : ""}</p>
             {s.verifyingContract && <p className="addr">contract: {s.verifyingContract}</p>}
-            {!s.chainIdOk && <p className="warn">Domain chain ({s.chainId ?? "?"}) is not LightChain - reject unless you are sure.</p>}
+            {!s.chainIdOk && <p className="warn">Domain chain ({s.chainId ?? "?"}) is not a supported network - reject unless you are sure.</p>}
             {s.warning && <p className="warn">{s.warning}</p>}
           </>
         )}
