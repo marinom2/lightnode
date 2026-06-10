@@ -171,6 +171,9 @@ export async function GET(req: Request) {
           id: id.toString(),
           title: deriveTitle(args.description),
           descriptionPreview: shortenDescription(args.description),
+          // Full text for the expand/detail view (capped so a huge markdown body
+          // can't bloat the list response).
+          description: args.description.slice(0, 6000),
           proposer: args.proposer,
           state,
           stateLabel: PROPOSAL_STATE_LABEL[state] ?? "unknown",

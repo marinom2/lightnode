@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, ChevronDown, ExternalLink } from "lucide-react";
 import { ConsolePanel } from "@/components/build/console/panel";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { Notice, short } from "@/components/build/console/panel-kit";
@@ -25,8 +25,12 @@ interface DecodedAction {
 interface Proposal {
   id: string;
   title: string;
+  description?: string;
   proposer: string;
   stateLabel: string;
+  voteStart?: string;
+  voteEnd?: string;
+  deadlineBlock?: string;
   votesFor: string;
   votesAgainst: string;
   votesAbstain: string;
@@ -89,7 +93,8 @@ function VoteBar({ p }: { p: Proposal }) {
 
 export default function DaoPanel() {
   const [chain, setChain] = useState<DaoChain>("ethereum");
-  const [limit, setLimit] = useState(12);
+  const [limit, setLimit] = useState(5);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [data, setData] = useState<DaoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +136,7 @@ export default function DaoPanel() {
                   type="button"
                   onClick={() => {
                     setChain(c);
-                    setLimit(12);
+                    setLimit(5);
                   }}
                   className={cn(
                     "rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors",
@@ -169,44 +174,84 @@ export default function DaoPanel() {
               </div>
             )}
 
-            {data?.proposals.map((p) => (
-              <div key={p.id} className="rounded-2xl border border-bdr-soft bg-card/60 p-4 backdrop-blur-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={toneFor(p.stateLabel)}>{p.stateLabel}</Badge>
-                      <span className="font-mono text-[11px] text-content-soft">#{short(p.id, 6, 4)}</span>
-                    </div>
-                    <p className="mt-1.5 truncate text-sm font-medium text-content-primary">{p.title}</p>
-                    <a
-                      href={`${EXPLORER[chain]}/address/${p.proposer}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-content-soft hover:text-primary"
-                    >
-                      by {short(p.proposer)}
-                    </a>
-                  </div>
-                </div>
-                <VoteBar p={p} />
-                {p.actions && p.actions.length > 0 && (
-                  <div className="mt-3 space-y-1 border-t border-bdr-soft pt-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-content-soft">Executes on-chain (decoded calldata)</p>
-                    {p.actions.map((act, i) => (
-                      <div key={i} className="flex items-start gap-1.5 text-xs">
-                        <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", act.dangerous ? "bg-warning" : "bg-content-soft/40")} />
-                        <span className="text-content-default">{act.label}</span>
+            {data?.proposals.map((p) => {
+              const open = expandedId === p.id;
+              const fmtLcai = (s: string) => Math.round(num(s)).toLocaleString();
+              return (
+                <div key={p.id} className="overflow-hidden rounded-2xl border border-bdr-soft bg-card/60 backdrop-blur-sm">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(open ? null : p.id)}
+                    className="flex w-full items-start gap-3 p-4 text-left transition-colors hover:bg-surface-base-faint/40"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={toneFor(p.stateLabel)}>{p.stateLabel}</Badge>
+                        <span className="font-mono text-[11px] text-content-soft">#{short(p.id, 6, 4)}</span>
+                        {p.actions?.some((a) => a.dangerous) && <Badge tone="warning">privileged</Badge>}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+                      <p className={cn("mt-1.5 text-sm font-medium text-content-primary", !open && "truncate")}>{p.title}</p>
+                      <span className="text-[11px] text-content-soft">by {short(p.proposer)}</span>
+                      <VoteBar p={p} />
+                    </div>
+                    <ChevronDown className={cn("mt-1 size-4 shrink-0 text-content-soft transition-transform", open && "rotate-180")} />
+                  </button>
+
+                  {open && (
+                    <div className="space-y-3 border-t border-bdr-soft px-4 pb-4 pt-3">
+                      {p.description && (
+                        <div>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-soft">Description</p>
+                          <div className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-bdr-soft bg-surface-base-faint p-3 text-xs leading-relaxed text-content-default">
+                            {p.description}
+                          </div>
+                        </div>
+                      )}
+
+                      {p.actions && p.actions.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-soft">Executes on-chain (decoded calldata)</p>
+                          <div className="space-y-1">
+                            {p.actions.map((act, i) => (
+                              <div key={i} className="flex items-start gap-1.5 text-xs">
+                                <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", act.dangerous ? "bg-warning" : "bg-content-soft/40")} />
+                                <span className="break-all text-content-default">{act.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-2 rounded-lg border border-bdr-soft bg-surface-base-faint p-2.5 text-xs">
+                        <div><span className="text-content-soft">For </span><span className="tabular-nums text-success">{fmtLcai(p.votesFor)}</span></div>
+                        <div><span className="text-content-soft">Against </span><span className="tabular-nums text-destructive">{fmtLcai(p.votesAgainst)}</span></div>
+                        <div><span className="text-content-soft">Abstain </span><span className="tabular-nums text-content-default">{fmtLcai(p.votesAbstain)}</span></div>
+                      </div>
+
+                      {(p.voteStart || p.voteEnd) && (
+                        <p className="text-[11px] text-content-soft">Voting window: block {p.voteStart ?? "?"} → {p.voteEnd ?? "?"}</p>
+                      )}
+
+                      <div className="flex flex-wrap gap-3 text-[11px]">
+                        <a href={`${EXPLORER[chain]}/address/${p.proposer}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                          Proposer <ExternalLink className="size-3" />
+                        </a>
+                        {data?.addresses?.governor && (
+                          <a href={`${EXPLORER[chain]}/address/${data.addresses.governor}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                            Governor <ExternalLink className="size-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
             {data?.hasMore && (
               <button
                 type="button"
-                onClick={() => setLimit((l) => l + 12)}
+                onClick={() => setLimit((l) => l + 5)}
                 disabled={loading}
                 className="w-full rounded-xl border border-bdr-soft py-2.5 text-sm font-medium text-content-soft transition-colors hover:text-content-primary disabled:opacity-50"
               >
