@@ -15,6 +15,13 @@ next-env.d.ts
 # SDK build output
 sdk/dist
 
+# Guard against an accidental nested clone of this repo (git clone run inside it)
+/lightnode/
+
+# Wallet build output (WXT)
+wallet/.output
+wallet/.wxt
+
 # Local-only owner docs (strategy/QA/capabilities)
 QA-AND-BUSINESS.md
 CAPABILITIES.md
