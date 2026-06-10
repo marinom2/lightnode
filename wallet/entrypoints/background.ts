@@ -13,6 +13,7 @@ import { createPublicClient, http, parseEther, formatEther, type TypedDataDefini
 import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
 import { readWorkerStatus } from "../src/rpc/worker";
+import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, RpcError } from "../src/provider/protocol";
@@ -35,6 +36,14 @@ async function selectedChainId(): Promise<number> {
 }
 const clientFor = (id: number) => createPublicClient({ chain: chainById(id), transport: http() });
 const publicClient = async () => clientFor(await selectedChainId());
+
+// Tracked tokens per chain = the shipped defaults + any the user added.
+const TOKENS_KEY = (chainId: number) => `tokens-${chainId}`;
+async function trackedTokens(chainId: number): Promise<TokenMeta[]> {
+  const key = TOKENS_KEY(chainId);
+  const { [key]: user = [] } = (await browser.storage.local.get(key)) as Record<string, TokenMeta[]>;
+  return [...(DEFAULT_TOKENS[chainId] ?? []), ...user];
+}
 
 // ---- session lifecycle -----------------------------------------------------
 
@@ -110,6 +119,20 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const wei = await (await publicClient()).getBalance({ address: op.address as `0x${string}` });
       return { wei: wei.toString(), formatted: formatEther(wei) };
     }
+    case "getTokens": {
+      const cid = await selectedChainId();
+      const tokens = await trackedTokens(cid);
+      return readTokenBalances(clientFor(cid), op.address as `0x${string}`, tokens);
+    }
+    case "addToken": {
+      const meta = await fetchTokenMeta(clientFor(op.chainId), op.address);
+      const key = TOKENS_KEY(op.chainId);
+      const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, TokenMeta[]>;
+      if (!list.some((t) => t.address.toLowerCase() === meta.address.toLowerCase())) {
+        await browser.storage.local.set({ [key]: [...list, meta] });
+      }
+      return meta;
+    }
     case "workerStatus":
       // Worker contracts live on LightChain mainnet, so read there regardless of
       // the selected network. Returns number/bool fields only (clone-safe).
@@ -120,6 +143,14 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!acct) throw RpcError.locked;
       await bumpAutoLock();
       return { hash: await signAndSend(acct.account, op.to as `0x${string}`, parseEther(op.valueWei)) };
+    }
+    case "sendToken": {
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      await bumpAutoLock();
+      const data = erc20TransferData(op.to, op.amount, op.decimals);
+      return { hash: await signAndSend(acct.account, op.token as `0x${string}`, 0n, data) };
     }
     case "listPending":
       return [...pending.entries()].map(([id, p]) => ({ id, method: p.request.method, origin: p.origin, params: p.request.params }));

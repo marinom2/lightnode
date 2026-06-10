@@ -3,7 +3,10 @@ import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
 import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
 import { chainById, CHAIN_LIST, explorerFor } from "../../src/rpc/chains";
+import type { TokenBalance } from "../../src/rpc/tokens";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
+
+type Asset = { kind: "native"; symbol: string } | { kind: "token"; symbol: string; address: string; decimals: number };
 
 const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "warn", danger: "danger-box" };
 const SUPPORTED_IDS = CHAIN_LIST.map((c) => c.id);
@@ -170,9 +173,12 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
   const sym = chain.nativeCurrency.symbol;
   const explorer = explorerFor(state.chainId);
 
+  const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const loadBal = useCallback(() => {
     setBal(null);
+    setTokens([]);
     wallet<{ formatted: string }>({ type: "getBalance", address }).then((b) => setBal(b.formatted)).catch(() => setBal("0"));
+    wallet<TokenBalance[]>({ type: "getTokens", address }).then(setTokens).catch(() => setTokens([]));
   }, [address]);
   useEffect(loadBal, [loadBal, state.chainId]);
 
@@ -182,6 +188,20 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
     setTimeout(() => setCopied(false), 1200);
   };
   const switchChain = (id: number) => void wallet({ type: "setChain", chainId: id }).then(onChange);
+  const addToken = async () => {
+    const addr = window.prompt("Token contract address (0x…) on this network:");
+    if (!addr?.trim()) return;
+    try {
+      await wallet({ type: "addToken", chainId: state.chainId, address: addr.trim() });
+      loadBal();
+    } catch (e) {
+      window.alert((e as Error).message);
+    }
+  };
+  const assets: Asset[] = [
+    { kind: "native", symbol: sym },
+    ...tokens.map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals })),
+  ];
 
   return (
     <>
@@ -208,17 +228,29 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
       </div>
 
       <div>
-        <h2>Tokens</h2>
-        <div className="list-row">
-          <span className="token-ic" style={{ color: netColor(state.chainId) }}>{sym.slice(0, 2)}</span>
-          <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
-          <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
+        <div className="row between" style={{ marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>Tokens</h2>
+          <button className="ghost" style={{ padding: "4px 10px", fontSize: 11 }} onClick={addToken}>+ Add token</button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <div className="list-row">
+            <span className="token-ic" style={{ color: netColor(state.chainId) }}>{sym.slice(0, 2)}</span>
+            <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
+            <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
+          </div>
+          {tokens.map((t) => (
+            <div className="list-row" key={t.address}>
+              <span className="token-ic">{t.symbol.slice(0, 2)}</span>
+              <div className="grow"><b style={{ fontSize: 13 }}>{t.symbol}</b><div className="faint">{short(t.address)}</div></div>
+              <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
+            </div>
+          ))}
         </div>
       </div>
 
       {state.chainId === 9200 && <WorkerPanel address={address} />}
 
-      {sheet === "send" && <SendSheet from={address} sym={sym} explorer={explorer} onClose={() => setSheet(null)} onSent={loadBal} />}
+      {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
     </>
   );
@@ -251,7 +283,8 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
   );
 }
 
-function SendSheet({ from, sym, explorer, onClose, onSent }: { from: string; sym: string; explorer: string; onClose: () => void; onSent: () => void }) {
+function SendSheet({ from, assets, explorer, onClose, onSent }: { from: string; assets: Asset[]; explorer: string; onClose: () => void; onSent: () => void }) {
+  const [asset, setAsset] = useState<Asset>(assets[0]!);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -262,7 +295,9 @@ function SendSheet({ from, sym, explorer, onClose, onSent }: { from: string; sym
     setBusy(true);
     setErr(null);
     try {
-      const r = await wallet<{ hash: string }>({ type: "send", from, to: to.trim(), valueWei: amount });
+      const r = asset.kind === "native"
+        ? await wallet<{ hash: string }>({ type: "send", from, to: to.trim(), valueWei: amount })
+        : await wallet<{ hash: string }>({ type: "sendToken", from, token: asset.address, to: to.trim(), amount, decimals: asset.decimals });
       setHash(r.hash);
       onSent();
     } catch (e) {
@@ -274,19 +309,26 @@ function SendSheet({ from, sym, explorer, onClose, onSent }: { from: string; sym
   return (
     <div className="sheet" onClick={onClose}>
       <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Send {sym}</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <div className="sheet-head"><h1>Send</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
         {hash ? (
           <>
-            <p className="ok">Sent. Your {sym} is on its way.</p>
+            <p className="ok">Sent. Your {asset.symbol} is on its way.</p>
             <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
             <button onClick={onClose}>Done</button>
           </>
         ) : (
           <>
+            {assets.length > 1 && (
+              <div className="tabs" style={{ flexWrap: "wrap" }}>
+                {assets.map((a) => (
+                  <button key={a.symbol} className={`tab${a.symbol === asset.symbol ? " active" : ""}`} onClick={() => setAsset(a)}>{a.symbol}</button>
+                ))}
+              </div>
+            )}
             <div><div className="muted" style={{ marginBottom: 6 }}>Recipient</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
-            <div><div className="muted" style={{ marginBottom: 6 }}>Amount ({sym})</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
+            <div><div className="muted" style={{ marginBottom: 6 }}>Amount ({asset.symbol})</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
             {err && <p className="err">{err}</p>}
-            <button disabled={!ok || busy} onClick={send}>{busy ? "Sending…" : `Send ${sym}`}</button>
+            <button disabled={!ok || busy} onClick={send}>{busy ? "Sending…" : `Send ${asset.symbol}`}</button>
           </>
         )}
       </div>
