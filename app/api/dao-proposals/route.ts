@@ -69,6 +69,28 @@ const DEPLOY_BLOCK: Record<"ethereum" | "lightchain", bigint> = {
   lightchain: 0n,
 };
 
+// Read the quorum requirement (in vote-token wei) at a proposal's snapshot block.
+// quorum(timepoint) reverts for timepoint 0, so guard on a real snapshot and
+// fall back to 0n ("quorum unknown") on any failure rather than throwing.
+async function readQuorum(
+  pub: ReturnType<typeof createPublicClient>,
+  governor: `0x${string}`,
+  snapshot: bigint,
+): Promise<bigint> {
+  if (snapshot <= 0n) return 0n;
+  try {
+    const q = await pub.readContract({
+      address: governor,
+      abi: GOVERNOR_ABI,
+      functionName: "quorum",
+      args: [snapshot],
+    });
+    return q as bigint;
+  } catch {
+    return 0n;
+  }
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<T>((_, reject) => {
@@ -161,11 +183,16 @@ export async function GET(req: Request) {
         const actions = targets.map((target, i) =>
           decodeGovernanceAction({ target, value: args.values?.[i] ?? 0n, calldata: args.calldatas?.[i] ?? "0x" }),
         );
-        const [stateRaw, votes, deadline] = (await Promise.all([
+        const [stateRaw, votes, deadline, snapshot] = (await Promise.all([
           pub.readContract({ address: addresses.governor, abi, functionName: "state", args: [id] }).catch(() => -1),
           pub.readContract({ address: addresses.governor, abi, functionName: "proposalVotes", args: [id] }).catch(() => [0n, 0n, 0n]),
           pub.readContract({ address: addresses.governor, abi, functionName: "proposalDeadline", args: [id] }).catch(() => 0n),
-        ])) as [number, [bigint, bigint, bigint], bigint];
+          pub.readContract({ address: addresses.governor, abi, functionName: "proposalSnapshot", args: [id] }).catch(() => 0n),
+        ])) as [number, [bigint, bigint, bigint], bigint, bigint];
+        // Quorum is a fraction of the vote-token supply at the snapshot block, so
+        // it must be read with that timepoint. snapshot===0 means the read failed;
+        // report 0 (UI shows "quorum unknown") rather than calling quorum(0).
+        const quorumWei = await readQuorum(pub, addresses.governor, snapshot);
         const state = stateRaw as ProposalState;
         return {
           id: id.toString(),
@@ -183,6 +210,8 @@ export async function GET(req: Request) {
           votesFor: votes[1].toString(),
           votesAgainst: votes[0].toString(),
           votesAbstain: votes[2].toString(),
+          snapshotBlock: snapshot.toString(),
+          quorumWei: quorumWei.toString(),
           actions,
         };
       }),
@@ -234,6 +263,7 @@ export async function POST(req: Request) {
       pub.readContract({ address: addresses.governor, abi, functionName: "proposalDeadline", args: [id] }).catch(() => 0n),
       pub.readContract({ address: addresses.governor, abi, functionName: "proposalProposer", args: [id] }).catch(() => null),
     ])) as [number, [bigint, bigint, bigint], bigint, bigint, `0x${string}` | null];
+    const quorumWei = await readQuorum(pub, addresses.governor, snapshot);
     const state = stateRaw as ProposalState;
     return NextResponse.json({
       id: id.toString(),
@@ -245,6 +275,7 @@ export async function POST(req: Request) {
       votesFor: votes[1].toString(),
       votesAgainst: votes[0].toString(),
       votesAbstain: votes[2].toString(),
+      quorumWei: quorumWei.toString(),
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message?.split("\n")[0] ?? "fetch failed" }, { status: 500 });
