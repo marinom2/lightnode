@@ -11,6 +11,8 @@
  */
 import { createPublicClient, http, parseEther, formatEther, formatUnits, type TypedDataDefinition } from "viem";
 import { Keyring } from "../src/keyring/keyring";
+import { mnemonicToSeed } from "../src/keyring/mnemonic";
+import { derivePrivateKey } from "../src/keyring/hdwallet";
 import { parseTypedData } from "../src/provider/typed-data";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, discoverTokens, stripControls, type TokenMeta } from "../src/rpc/tokens";
 import { CG_NATIVE, CG_PLATFORM, LCAI_PRICE_CONTRACT, type Prices } from "../src/rpc/prices";
@@ -21,7 +23,7 @@ import { importNft, stillOwned, nftTransferData, type NftItem } from "../src/rpc
 import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history";
 import { quoteSwap, executeSwap, type SwapSide } from "../src/rpc/swap";
 import { listProposals, castVoteData, GOVERNORS } from "../src/rpc/governance";
-import { readWorkerStatus, readNetworkStats, readWorkerLifetime, withdrawTarget } from "../src/rpc/worker";
+import { readWorkerStatus, readNetworkStats, readWorkerLifetime, readWorkerModels, readProtocolParams, withdrawTarget } from "../src/rpc/worker";
 import { readGasTiers, type GasSpeed } from "../src/rpc/gas";
 import { resolveEnsName } from "../src/rpc/ens";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
@@ -39,7 +41,12 @@ const ACTIVE_KEY = "active-account";
 const NAMES_KEY = "account-names";
 // Per-owner: account A's prune must never touch account B's imports (review).
 const NFTS_KEY = (chainId: number, owner: string) => `nfts-${chainId}-${owner.toLowerCase()}`;
-const AUTO_LOCK_MIN = 15;
+const AUTOLOCK_KEY = "autolock-min";
+const AUTO_LOCK_CHOICES = [5, 15, 60];
+async function autoLockMinutes(): Promise<number> {
+  const { [AUTOLOCK_KEY]: m } = await browser.storage.local.get(AUTOLOCK_KEY);
+  return typeof m === "number" && AUTO_LOCK_CHOICES.includes(m) ? m : 15;
+}
 
 // How many accounts to derive (persisted, so added accounts survive lock/unlock).
 async function accountCount(): Promise<number> {
@@ -103,7 +110,7 @@ async function restore(): Promise<Keyring | null> {
 }
 
 async function bumpAutoLock(): Promise<void> {
-  await browser.alarms.create("autolock", { delayInMinutes: AUTO_LOCK_MIN });
+  await browser.alarms.create("autolock", { delayInMinutes: await autoLockMinutes() });
 }
 
 async function lock(): Promise<void> {
@@ -132,6 +139,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         activeIndex: await activeIndex(accounts.length || 1),
         chainId: await selectedChainId(),
         names,
+        autoLockMin: await autoLockMinutes(),
       };
     }
     case "setChain": {
@@ -146,6 +154,27 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const addr = kr?.accounts[op.index]?.address;
       if (addr) emitEvent("accountsChanged", [addr]); // notify connected dapps
       return { ok: true };
+    }
+    case "setAutoLock": {
+      if (!AUTO_LOCK_CHOICES.includes(op.minutes)) throw RpcError.invalidParams;
+      await browser.storage.local.set({ [AUTOLOCK_KEY]: op.minutes });
+      await bumpAutoLock(); // re-arm with the new duration immediately
+      return { ok: true };
+    }
+    case "revealPrivateKey": {
+      // Same gate as the mnemonic: password-decrypts the vault, derives ONE key.
+      const { [VAULT_KEY]: vault } = (await browser.storage.local.get(VAULT_KEY)) as { vault?: EncryptedVault };
+      if (!vault) throw RpcError.invalidParams;
+      const max = await accountCount();
+      if (!Number.isInteger(op.index) || op.index < 0 || op.index >= max) throw RpcError.invalidParams;
+      const mnemonic = await decryptVault(vault, op.password); // throws "Invalid password"
+      const seed = mnemonicToSeed(mnemonic);
+      const pk = derivePrivateKey(seed, op.index);
+      const { toHex } = await import("viem");
+      const hex = toHex(pk);
+      pk.fill(0);
+      seed.fill(0);
+      return { privateKey: hex };
     }
     case "revealMnemonic": {
       const { [VAULT_KEY]: vault } = (await browser.storage.local.get(VAULT_KEY)) as { vault?: EncryptedVault };
@@ -410,6 +439,10 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       return readNetworkStats(clientFor(9200));
     case "workerLifetime":
       return { lifetime: await readWorkerLifetime(op.address) };
+    case "workerModels":
+      return { models: await readWorkerModels(op.address) };
+    case "protocolParams":
+      return readProtocolParams(clientFor(9200));
     case "withdrawRewards": {
       const kr = await restore();
       const acct = kr?.accountFor(op.from);

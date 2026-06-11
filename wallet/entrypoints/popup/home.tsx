@@ -224,7 +224,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
 
       {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} own={state.accounts} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
-      {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
+      {sheet === "settings" && <SettingsSheet state={state} onClose={() => setSheet(null)} onRemoved={onChange} onChanged={onChange} />}
       {sheet === "swap" && <SwapSheet from={address} chainId={chainId} assets={assets} onClose={() => setSheet(null)} onDone={loadBal} />}
       {sheet === "dao" && <DaoSheet from={address} onClose={() => setSheet(null)} />}
       {sheet === "worker" && <WorkerSheet address={address} onClose={() => setSheet(null)} />}
@@ -437,6 +437,11 @@ function HistoryList({ items, explorer, owner, filter, onFilter, onRetry }: { it
 }
 function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id: number) => void }) {
   const [open, setOpen] = useState(false);
+  const [hideTestnets, setHideTestnets] = useState(false);
+  useEffect(() => {
+    if (open) void chrome.storage.local.get("ui-hide-testnets").then((r) => setHideTestnets(Boolean(r["ui-hide-testnets"])));
+  }, [open]);
+  const visibleChains = CHAIN_LIST.filter((c) => !hideTestnets || !c.testnet || c.id === chainId);
   return (
     <div className="net">
       <button className="net-btn" title={chainById(chainId).name} onClick={() => setOpen((o) => !o)}>
@@ -447,7 +452,7 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 20 }} onClick={() => setOpen(false)} />
           <div className="net-menu">
-            {CHAIN_LIST.map((c) => (
+            {visibleChains.map((c) => (
               <button key={c.id} className={`net-item${c.id === chainId ? " sel" : ""}`} onClick={() => { onSwitch(c.id); setOpen(false); }}>
                 <img className="net-logo" src={logoFor(c.id)} alt="" />
                 {c.name}

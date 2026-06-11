@@ -14,6 +14,7 @@ export interface WalletState {
   activeIndex: number;
   chainId: number;
   names: string[];
+  autoLockMin: number;
 }
 export interface PendingRequest {
   id: string;

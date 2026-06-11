@@ -52,6 +52,8 @@ export type WalletOp =
   | { type: "addAccount" }
   | { type: "setActiveAccount"; index: number }
   | { type: "revealMnemonic"; password: string }
+  | { type: "revealPrivateKey"; password: string; index: number }
+  | { type: "setAutoLock"; minutes: number }
   | { type: "removeWallet" }
   | { type: "getBalance"; address: string }
   | { type: "setChain"; chainId: number }
@@ -83,6 +85,8 @@ export type WalletOp =
   | { type: "castVote"; from: string; chainId: number; proposalId: string; support: 0 | 1 | 2 }
   | { type: "networkStats" }
   | { type: "workerLifetime"; address: string }
+  | { type: "workerModels"; address: string }
+  | { type: "protocolParams" }
   | { type: "withdrawRewards"; from: string }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
