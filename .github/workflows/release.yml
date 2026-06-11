@@ -93,8 +93,11 @@ jobs:
         with:
           projectPath: desktop
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
-          releaseName: "LightNode __VERSION__"
-          releaseBody: "One-click LightChain AI worker onboarding. Download the installer for your OS below."
+          # Title from the TAG, not tauri.conf.json's app version: the conf
+          # version lags behind tags, which once left 13 releases all titled
+          # with the same stale number.
+          releaseName: "LightNode ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
+          releaseBody: "LightNode desktop: one-click LightChain AI worker onboarding and operations. Download the installer for your OS below."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

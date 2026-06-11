@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability (private)
+    url: https://github.com/marinom2/lightnode/security/advisories/new
+    about: Report key-handling, encryption, or other sensitive issues privately. Never in a public issue.
+  - name: Docs and guides
+    url: https://lightnode.app/build
+    about: SDK docs, live examples, and the developer console.

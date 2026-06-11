@@ -1,8 +1,16 @@
 # Security
 
 LightNode is **non-custodial**: no private key is ever sent to, or stored on, any
-LightNode server. Everything that touches a key happens locally on the operator's
-machine. This document describes exactly where keys live and how they are used.
+LightNode server. Everything that touches a key happens locally on the user's
+machine. This policy covers all the products in this repository:
+
+- the **website + desktop app** (worker onboarding and dashboards) - detailed below,
+- the **`lightnode-sdk` npm package** (encrypted inference, bridge, DAO, worker ops) -
+  keys are caller-supplied, used only to sign locally via viem, never transmitted,
+- the **LightNode Wallet** browser extension (`wallet/`) - keys are generated and
+  AES-256-GCM-encrypted on-device; see [wallet/README.md](wallet/README.md) for its
+  threat model. The wallet has **not yet had an external security audit**; treat it
+  as a testnet-grade preview until that lands.
 
 ## What leaves your machine, and what never does
 
@@ -81,9 +89,12 @@ subgraph access is server-side with a timeout and graceful degradation.
 
 ## Reporting a vulnerability
 
-Please open a private security advisory on the repository, or contact the maintainer
-directly. Do not file public issues for sensitive reports. We will acknowledge,
-investigate, and coordinate a fix and disclosure.
+Use GitHub's private vulnerability reporting: go to the repository's
+[Security tab -> Report a vulnerability](https://github.com/marinom2/lightnode/security/advisories/new)
+(enabled for this repo). Do not file public issues for sensitive reports. We will
+acknowledge within 72 hours, investigate, and coordinate a fix and disclosure.
+Reports affecting the wallet's key handling or the SDK's encryption path are the
+highest priority.
 
 ## Scope notes
 

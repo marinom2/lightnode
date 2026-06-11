@@ -1,6 +1,9 @@
 # Contributing to LightNode
 
-Thanks for helping make joining the LightChain AI worker network easier.
+Thanks for contributing. This repo ships three products: the LightNode web +
+desktop app for running a LightChain AI worker, the `lightnode-sdk` builder
+surface (with the `create-lightnode-app` scaffolder), and the LightNode Wallet
+browser extension in `wallet/`.
 
 ## Help especially wanted: Linux & Windows testing
 
@@ -23,9 +26,18 @@ Everything CI runs, locally:
 npm run lint        # ESLint (next/core-web-vitals)
 npm run typecheck   # tsc --noEmit
 npm test            # Vitest unit tests
-npm run build       # production build
-npm run test:e2e    # Playwright smoke tests (builds + serves)
+npm run build       # production build (also builds the local sdk/)
+npx tsc --noEmit -p sdk/tsconfig.json   # keep the standalone SDK compiling
+npm run test:e2e    # Playwright smoke tests (builds + serves; advisory in CI)
 ```
+If you touch the wallet, run its own gate too (it is self-contained, with its
+own dependencies and no SDK build step):
+```bash
+cd wallet && npm test && npm run compile   # Vitest + tsc --noEmit
+```
+CI (`.github/workflows/ci.yml`) runs the root gate on every push and PR to
+`main`, and a husky pre-commit hook runs the root unit suite on every commit -
+keep it green rather than skipping it with `--no-verify`.
 
 ## Conventions
 - TypeScript, no `any`. Keep functions small and single-purpose.
@@ -34,13 +46,22 @@ npm run test:e2e    # Playwright smoke tests (builds + serves)
 - Data is read live from the LightChain subgraph via the `/api/*` routes - never
   call the subgraph directly from a client component (CORS + caching).
 - Conventional commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
+- Issues and PRs: use the templates in `.github/` (bug report, feature request,
+  and the PR checklist).
 
 ## Project layout
-- `app/` - routes (landing, onboard wizard, dashboard, guide, recover, network) + `/api` subgraph proxy
+- `app/` - routes (landing, onboard wizard, dashboard, network, playground, learn,
+  guide, recover, wallet, worker/[address], and `/build` with its sub-pages) +
+  the `/api/*` proxy routes (rate-limited by `middleware.ts`)
 - `components/` - UI (incl. `ui/` primitives, the Operations + Withdraw panels)
 - `lib/` - network constants, subgraph client, hardware scoring, secrets, and
   `scriptgen.ts` (the single source for every generated shell command - keep it pure)
 - `desktop/src-tauri/` - the Tauri v2 shell (Rust commands, capabilities, build config)
+- `sdk/` - the `lightnode-sdk` package (client + CLI + the `add` scaffolders)
+- `wallet/` - the LightNode Wallet extension (WXT + React MV3; self-contained
+  with its own tests and `wallet-v*` releases)
+- `create-lightnode-app/` - the `npm create lightnode-app` scaffolder
+- `examples/` - runnable SDK examples · `scripts/` - repro/maintenance scripts
 - `tests/unit` - Vitest · `tests/e2e` - Playwright
 
 For how the web and desktop apps fit together, see

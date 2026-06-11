@@ -1,0 +1,29 @@
+name: Feature request
+description: An idea for the SDK, wallet, website, or desktop app
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part?
+      options:
+        - lightnode-sdk (npm package / CLI)
+        - LightNode Wallet (browser extension)
+        - Website (lightnode.app)
+        - Desktop app (worker onboarding)
+        - create-lightnode-app (scaffolder)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does it solve?
+      description: Describe the situation where you needed this and what you do today instead.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What would it look like? API sketch, UI sketch, or a sentence is fine.

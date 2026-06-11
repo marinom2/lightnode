@@ -1,6 +1,9 @@
 # Architecture
 
-LightNode is one codebase that ships as two things: a web app and a desktop app.
+LightNode is one codebase that ships as three things: a web app, a desktop app,
+and the LightNode Wallet browser extension (`wallet/`). The web and desktop apps
+render the same UI; the wallet is a self-contained MV3 extension with its own
+build, tests, and `wallet-v*` releases (no dependency on the SDK or the app).
 This document explains how they fit together, why the desktop app loads the hosted
 UI, how worker actions are signed safely, and where the moving parts live.
 
@@ -166,7 +169,10 @@ All network and worker data is public and read live from the LightChain workers
 subgraph. The browser never calls the subgraph directly; instead it goes through
 server-side `/api/*` routes, which avoids client CORS issues and lets responses be
 cached briefly at the CDN. Subgraph calls have a timeout and degrade gracefully so a
-slow upstream does not hang the UI.
+slow upstream does not hang the UI. Every `/api/*` request first passes the
+in-memory rate limiter in `middleware.ts`, keyed by client IP + path class, with
+the tightest budgets on the gateway proxy, DAO scans, and operator preview (see
+`lib/rate-limit.ts`).
 
 The same read paths are available to anyone via the published `lightnode-sdk`
 (see `sdk/` below), which adds the reliability and tuning layer the dashboards
@@ -182,9 +188,22 @@ Inference calls accept an `AbortSignal` that cancels mid-stream.
 
 ```
 app/
-  (routes)          landing, /onboard wizard, /dashboard, /guide, /recover,
-                    /network, /worker/[address]
-  api/              subgraph proxy + version/settlement/worker endpoints
+  (routes)          landing, /onboard wizard, /dashboard, /network, /playground,
+                    /learn, /guide, /recover, /wallet (+ /wallet/privacy),
+                    /worker/[address], and /build with 16 sub-pages (agent,
+                    batch, bridge, chat, cli, dao, drift, economics, errors,
+                    inference, models, network, quote, reference, revenue,
+                    worker)
+  api/              21 route groups: analytics, bridge-balances, bridge-preview,
+                    bridge-quote, dao-analytics, dao-config, dao-overview,
+                    dao-proposals, dao-voters, download, fee-flow, gw (gateway
+                    proxy), jobs-stream, leaderboard, models, network,
+                    operator-preview, sdk-demo, version, worker, worker-alert.
+                    /api/download resolves the newest GitHub release per tag
+                    family (desktop v*, wallet wallet-v*), so each product's
+                    download link stays correct
+middleware.ts       in-memory rate limiting for every /api/* route (per client
+                    IP + path class; budgets in lib/rate-limit.ts)
 components/
   onboard/          wizard steps (machine check, model picker, one-click install, verify)
   operations-panel  the worker control surface (status, settle, deregister, ...)
@@ -199,6 +218,11 @@ lib/
   install-log.ts    cleans/condenses the streamed install log
   budget.ts         reads the real on-chain inference deadline
 desktop/src-tauri/  Rust commands, build.rs, capabilities, tauri.conf.json
+wallet/             the LightNode Wallet extension (WXT + React, Chrome MV3):
+                    self-custodial EOA wallet with send/swap/bridge, encrypted
+                    AI chat, DAO voting, and a worker hub. Self-contained (its
+                    own deps + Vitest suite, no SDK dependency); ships via the
+                    wallet-v* tag workflows and lightnode.app/wallet
 sdk/                the published lightnode-sdk package: the LightNode read
                     client, encrypted-inference helpers, the GatewayClient, the
                     WorkerOperator write surface (register / stake / settle /
