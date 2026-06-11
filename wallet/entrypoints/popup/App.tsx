@@ -403,7 +403,22 @@ function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from:
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [fee, setFee] = useState<string | null>(null);
+  const [txState, setTxState] = useState<"pending" | "confirmed" | "failed">("pending");
   const ok = /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && Number(amount) > 0;
+  useEffect(() => {
+    if (!hash) return;
+    let live = true;
+    const poll = () =>
+      wallet<{ status: "pending" | "confirmed" | "failed" }>({ type: "txStatus", hash }).then((r) => {
+        if (!live) return;
+        if (r.status === "pending") setTimeout(poll, 3000);
+        else setTxState(r.status);
+      }).catch(() => {});
+    poll();
+    return () => {
+      live = false;
+    };
+  }, [hash]);
   useEffect(() => {
     if (!ok) {
       setFee(null);
@@ -441,7 +456,9 @@ function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from:
         <div className="sheet-head"><h1>Send</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
         {hash ? (
           <>
-            <p className="ok">Sent. Your {asset.symbol} is on its way.</p>
+            <p className={txState === "failed" ? "err" : "ok"}>
+              {txState === "pending" ? `Sent ${asset.symbol} - confirming…` : txState === "confirmed" ? `Confirmed. Your ${asset.symbol} arrived.` : "Transaction failed on-chain."}
+            </p>
             <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
             <button onClick={onClose}>Done</button>
           </>
