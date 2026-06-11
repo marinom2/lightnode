@@ -28,6 +28,7 @@ function Shell({ children }: { children: ReactNode }) {
   const expanded = isExpanded();
   useEffect(() => {
     if (expanded) document.body.classList.add("expanded-body");
+    if (isApproveWindow()) document.body.classList.add("approve-body");
   }, [expanded]);
   return <div className={`wrap${expanded ? " expanded" : ""}`}>{children}</div>;
 }

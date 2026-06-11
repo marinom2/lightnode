@@ -184,3 +184,31 @@ export function siweOriginMismatch(messageText: string, requestOrigin: string): 
   if (stated === actual) return null;
   return { stated, actual };
 }
+
+/**
+ * The chain a SIWE message signs in FOR ("Chain ID: 9200" on its own line per
+ * EIP-4361). Null when the message is not SIWE or carries no parseable id.
+ */
+export function siweChainId(messageText: string): number | null {
+  if (!/wants you to sign in with your Ethereum account/.test(messageText.split("\n")[0] ?? "")) return null;
+  const m = messageText.match(/^Chain ID: (\d+)\s*$/m);
+  if (!m) return null;
+  const id = Number(m[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * personal_sign payloads arrive as hex (sometimes as plain text from older
+ * dapps). Returns the human-readable text, or null when the bytes are not
+ * clean UTF-8 - unreadable data must be presented as a danger, never as text.
+ */
+export function decodeSignText(raw: string): string | null {
+  if (!/^0x[0-9a-fA-F]*$/.test(raw)) return raw || null;
+  try {
+    const bytes = new Uint8Array((raw.slice(2).match(/../g) ?? []).map((h) => parseInt(h, 16)));
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return /[\x00-\x08\x0e-\x1f]/.test(text) ? null : text;
+  } catch {
+    return null;
+  }
+}

@@ -13,7 +13,7 @@ import { createPublicClient, http, parseEther, formatEther, formatUnits, type Ty
 import { Keyring } from "../src/keyring/keyring";
 import { mnemonicToSeed } from "../src/keyring/mnemonic";
 import { derivePrivateKey } from "../src/keyring/hdwallet";
-import { parseTypedData } from "../src/provider/typed-data";
+import { parseTypedData, decodeSignText, siweChainId, siweOriginMismatch } from "../src/provider/typed-data";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, discoverTokens, stripControls, type TokenMeta } from "../src/rpc/tokens";
 import { CG_NATIVE, CG_PLATFORM, LCAI_PRICE_CONTRACT, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
@@ -858,6 +858,22 @@ async function resolvePending(id: string, approved: boolean): Promise<void> {
   }
 }
 
+/**
+ * A SIWE sign-in names the chain the dapp lives on; approving it is the
+ * clearest "I am using this app on that network" signal there is, so the
+ * wallet follows. Only for supported chains, and only when the stated domain
+ * really is the requesting origin (a phishing message must not steer the
+ * wallet anywhere).
+ */
+async function followSiweChain(data: `0x${string}`, origin: string): Promise<void> {
+  const text = decodeSignText(data);
+  if (!text || siweOriginMismatch(text, origin)) return;
+  const target = siweChainId(text);
+  if (target == null || !isSupportedChain(target) || target === (await selectedChainId())) return;
+  await browser.storage.local.set({ [CHAIN_KEY]: target });
+  await emitToConnected("chainChanged", `0x${target.toString(16)}`);
+}
+
 async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<unknown> {
   const kr = await restore();
   if (!kr) throw RpcError.locked;
@@ -872,7 +888,9 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
     const [data, address] = request.params as [`0x${string}`, string];
     const acct = kr.accountFor(address);
     if (!acct) throw RpcError.unauthorized;
-    return acct.account.signMessage({ message: { raw: data } });
+    const signature = await acct.account.signMessage({ message: { raw: data } });
+    await followSiweChain(data, origin);
+    return signature;
   }
   if (request.method === "eth_sendTransaction") {
     // approve==sign: sign exactly the canonical tx the popup displayed (review H1),
