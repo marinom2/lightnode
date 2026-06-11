@@ -9,12 +9,13 @@
  * browser restart / extension reload. We do NOT "encrypt the seed with a key stored
  * beside it" (that adds surface for zero gain). Threat model documented in README.
  */
-import { createPublicClient, http, parseEther, formatEther, type TypedDataDefinition } from "viem";
+import { createPublicClient, http, parseEther, formatEther, formatUnits, type TypedDataDefinition } from "viem";
 import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
 import { readWorkerStatus } from "../src/rpc/worker";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
 import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
+import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, RpcError } from "../src/provider/protocol";
@@ -235,6 +236,55 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         return out; // prices are optional; surface what we have
       }
       return out;
+    }
+    case "simulateTx": {
+      // eth_simulateV1 with traceTransfers -> the signer's net balance changes,
+      // so we can preview "you send X / you receive Y" before they approve. The
+      // from balance is overridden so the sim never fails on funds.
+      const cid = await selectedChainId();
+      const client = clientFor(cid);
+      const from = (op.from || "0x").toLowerCase();
+      try {
+        const res = (await client.request({
+          method: "eth_simulateV1" as never,
+          params: [
+            {
+              blockStateCalls: [
+                {
+                  stateOverrides: { [from]: { balance: "0xffffffffffffffffffffffffffffffff" } },
+                  calls: [{ from, to: op.to, value: op.value ?? "0x0", data: op.data ?? "0x" }],
+                },
+              ],
+              traceTransfers: true,
+              validation: false,
+            },
+            "latest",
+          ] as never,
+        })) as Array<{ calls: Array<{ status: string; logs: SimLog[] }> }>;
+        const call = res?.[0]?.calls?.[0];
+        if (!call) return { ok: false };
+        const net = netChanges(parseTransfers(call.logs ?? []), from);
+        const changes: Array<{ symbol: string; formatted: string; direction: "in" | "out" }> = [];
+        for (const [token, delta] of net) {
+          const abs = delta > 0n ? delta : -delta;
+          const direction = delta > 0n ? ("in" as const) : ("out" as const);
+          let symbol = chainById(cid).nativeCurrency.symbol;
+          let decimals = 18;
+          if (token !== NATIVE_SENTINEL) {
+            const meta = await fetchTokenMeta(client, token).catch(() => null);
+            if (meta) {
+              symbol = meta.symbol;
+              decimals = meta.decimals;
+            } else {
+              symbol = `${token.slice(0, 6)}…`;
+            }
+          }
+          changes.push({ symbol, formatted: formatUnits(abs, decimals), direction });
+        }
+        return { ok: true, reverted: call.status !== "0x1", changes };
+      } catch {
+        return { ok: false }; // RPC may not support eth_simulateV1; UI falls back to the decode
+      }
     }
     case "knownRecipients": {
       // Distinct addresses you've sent to before (across chains) - the trusted
