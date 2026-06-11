@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { wallet, type PendingRequest, type WalletState } from "./wallet-api";
 import { decodeDangerousCall } from "../../src/provider/decode-call";
-import { summarizeTypedData } from "../../src/provider/typed-data";
+import { summarizeTypedData, siweOriginMismatch } from "../../src/provider/typed-data";
 import { chainById, logoFor } from "../../src/rpc/chains";
 import { SEVERITY_CLASS, SUPPORTED_IDS, avatarGradient, short } from "./shared";
 
@@ -130,10 +130,16 @@ function RequestDetail({ req }: { req: PendingRequest }) {
     return (
       <div className="muted" style={{ fontSize: 12 }}>
         <SimPreview tx={tx} mute={decoded.severity === "danger"} />
-        <p className="addr">to: {tx.to ?? "(contract creation)"}</p>
-        <p>value: {tx.value ? Number(BigInt(tx.value)) / 1e18 : 0}</p>
+        <div className="row between" style={{ marginTop: 4 }}>
+          <span className="faint">To</span>
+          <span className="addr" title={tx.to}>{tx.to ? short(tx.to) : "(contract creation)"}</span>
+        </div>
+        <div className="row between">
+          <span className="faint">Amount</span>
+          <b>{txValueEth(tx.value)}</b>
+        </div>
         {decoded.kind !== "empty" && (
-          <p className={SEVERITY_CLASS[decoded.severity]}><b>{decoded.label}.</b> {decoded.detail}</p>
+          <p className={SEVERITY_CLASS[decoded.severity]} style={{ marginTop: 6 }}><b>{decoded.label}.</b> {decoded.detail}</p>
         )}
       </div>
     );
@@ -148,6 +154,14 @@ function RequestDetail({ req }: { req: PendingRequest }) {
           <>
             <p>type: <b>{s.primaryType}</b>{s.domainName ? ` · ${s.domainName}` : ""}</p>
             {s.verifyingContract && <p className="addr">contract: {s.verifyingContract}</p>}
+            {s.permit.kind !== "none" && (
+              <div className={s.permit.unlimited ? "danger-box" : "warn"} style={{ marginTop: 6 }}>
+                <b>{s.permit.unlimited ? "Unlimited signature approval." : "Signature approval."}</b> {s.permit.summary}
+                {s.permit.spender && <div className="addr" style={{ marginTop: 4 }}>spender: {s.permit.spender}</div>}
+                {s.permit.token && <div className="addr">token: {s.permit.token}</div>}
+                {s.permit.deadline && Number(s.permit.deadline) > 0 && <div style={{ marginTop: 2 }}>valid until {new Date(Number(s.permit.deadline) * 1000).toLocaleString()}</div>}
+              </div>
+            )}
             {!s.chainIdOk && <p className="warn">Domain chain ({s.chainId ?? "?"}) is not a supported network - reject unless you are sure.</p>}
             {s.warning && <p className="warn">{s.warning}</p>}
           </>
@@ -158,11 +172,27 @@ function RequestDetail({ req }: { req: PendingRequest }) {
   if (req.method === "personal_sign") {
     const raw = String(req.params?.[0] ?? "");
     const text = decodeUtf8(raw);
-    return text != null
-      ? <p className="seed" style={{ fontSize: 12 }}>{text}</p>
-      : <p className="warn">You are signing unreadable (non-text) data. This can authorize transfers - reject unless you know exactly what it is.</p>;
+    if (text == null) return <p className="warn">You are signing unreadable (non-text) data. This can authorize transfers - reject unless you know exactly what it is.</p>;
+    const mismatch = siweOriginMismatch(text, req.origin);
+    return (
+      <>
+        {mismatch && (
+          <p className="danger-box"><b>Sign-in domain mismatch.</b> The message claims to be from <b>{mismatch.stated}</b> but the request comes from <b>{mismatch.actual}</b>. This is how lookalike sites steal sessions; reject it.</p>
+        )}
+        <p className="seed" style={{ fontSize: 12 }}>{text}</p>
+      </>
+    );
   }
   return <p className="muted">This site is requesting access to your account address.</p>;
+}
+
+function txValueEth(value?: string): string {
+  try {
+    const n = value ? Number(BigInt(value)) / 1e18 : 0;
+    return `${n.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
+  } catch {
+    return "unreadable";
+  }
 }
 
 function decodeUtf8(hex: string): string | null {

@@ -34,6 +34,10 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
   const [prices, setPrices] = useState<Prices | null>(null);
   const [tab, setTab] = useState<"tokens" | "nfts" | "activity">("tokens");
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all"); // lifted: survives tab switches
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    wallet<Record<string, string>>({ type: "getLabels" }).then(setLabels).catch(() => {});
+  }, [sheet]); // refresh when a sheet closes (a label may have just been saved)
   const [hideZero, setHideZero] = useState(false);
   useEffect(() => {
     void chrome.storage.local.get("ui-hide-zero").then((r) => setHideZero(Boolean(r["ui-hide-zero"])));
@@ -90,6 +94,15 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
       .catch(() => {});
   }, [address, chainId]);
   useEffect(() => loadBal(), [loadBal]);
+  // A dapp can switch the chain while the popup is open: follow it live so the
+  // header, balances, and history never show mixed-chain data.
+  useEffect(() => {
+    const listener = (changes: Record<string, unknown>, area: string) => {
+      if (area === "local" && "selected-chain" in changes) onChange();
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
+  }, [onChange]);
   // The user should never have to reopen the popup to see a received payment.
   // refreshTick also re-fires the DAO/Worker cards (their balances move too).
   const [refreshTick, setRefreshTick] = useState(0);
@@ -109,7 +122,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     const price = addr ? prices.tokenUsd[addr.toLowerCase()] : prices.nativeUsd;
     return price ? fmtUsd(price * amount) : null;
   };
-  const total = prices && typeof bal === "string" ? portfolioUsd(Number(bal), prices, (tokens ?? []).map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
+  const total = prices && typeof bal === "string" ? portfolioUsd(Number(bal), prices, (tokens ?? []).filter((t) => t.balance !== null).map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
 
   const copy = () => {
     void navigator.clipboard.writeText(address);
@@ -127,7 +140,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     return typeof c === "number" ? c : null;
   };
   const assets: Asset[] = [
-    { kind: "native", symbol: sym, balance: typeof bal === "string" ? bal : "0" },
+    { kind: "native", symbol: sym, balance: typeof bal === "string" ? bal : null },
     ...(tokens ?? []).map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals, balance: t.balance })),
   ];
 
@@ -196,7 +209,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
             <div className="list-row" key={`skel-${i}`}><span className="token-ic skel-block" /><div className="grow"><span className="skel" style={{ width: 90 }} /></div><span className="skel" style={{ width: 50 }} /></div>
           ))}
           {tokens === null && <p className="faint" style={{ padding: "2px 4px" }}>Could not refresh token balances. They will retry automatically.</p>}
-          {(tokens ?? []).filter((t) => !hideZero || Number(t.balance) > 0).map((t) => (
+          {(tokens ?? []).filter((t) => !hideZero || t.balance === null || Number(t.balance) > 0).map((t) => (
             <div className="list-row" key={t.address}>
               {tokenLogo(t.address) ? <img className="token-logo" src={tokenLogo(t.address)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
               <div className="grow">
@@ -204,9 +217,13 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
                 <div className="faint">{short(t.address)}{chg(t.address) != null && <Change pct={chg(t.address)!} />}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
-                {usd(t.symbol, Number(t.balance), t.address) && <div className="faint">{usd(t.symbol, Number(t.balance), t.address)}</div>}
+                {t.balance === null ? <b style={{ fontSize: 13 }} title="Could not refresh">--</b> : <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>}
+                {t.balance !== null && usd(t.symbol, Number(t.balance), t.address) && <div className="faint">{usd(t.symbol, Number(t.balance), t.address)}</div>}
               </div>
+              <button className="icon-btn row-hide" title={`Hide ${t.symbol}`} aria-label={`Hide ${t.symbol}`}
+                onClick={() => void wallet({ type: "removeToken", chainId, address: t.address }).then(() => loadBal())}>
+                <Ic name="x" size={11} />
+              </button>
             </div>
           ))}
           <div className="row" style={{ gap: 8, marginTop: 2 }}>
@@ -218,7 +235,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
       {tab === "nfts" && (
         <NftGrid nfts={nfts} onImport={() => setSheet("importNft")} onOpen={setNftSel} />
       )}
-      {tab === "activity" && <HistoryList items={history} explorer={explorer} owner={address} filter={historyFilter} onFilter={setHistoryFilter} onRetry={() => loadBal()} />}
+      {tab === "activity" && <HistoryList items={history} explorer={explorer} owner={address} labels={labels} filter={historyFilter} onFilter={setHistoryFilter} onRetry={() => loadBal()} />}
 
       <WorkerCard address={address} refreshKey={refreshTick} onOpen={() => setSheet("worker")} />
 
@@ -336,7 +353,7 @@ const HISTORY_FILTERS: { key: HistoryFilter; label: string }[] = [
   { key: "nft", label: "NFTs" },
 ];
 
-function HistoryRow({ h, explorer, owner, onChanged }: { h: HistoryItem; explorer: string; owner: string; onChanged: () => void }) {
+function HistoryRow({ h, explorer, owner, labels, onChanged }: { h: HistoryItem; explorer: string; owner: string; labels: Record<string, string>; onChanged: () => void }) {
   const inbound = h.direction === "in";
   const self = h.direction === "self";
   const [busy, setBusy] = useState(false);
@@ -363,7 +380,7 @@ function HistoryRow({ h, explorer, owner, onChanged }: { h: HistoryItem; explore
       <div className="grow" style={{ minWidth: 0 }}>
         <b style={{ fontSize: 13, display: "block" }} className="clamp">{title}</b>
         <div className="faint">
-          {self ? "To yourself" : `${inbound ? "From" : "To"} ${h.counterparty ? short(h.counterparty) : "contract"}`} · {timeAgo(h.ts)}
+          {self ? "To yourself" : `${inbound ? "From" : "To"} ${h.counterparty ? labels[h.counterparty.toLowerCase()] ?? short(h.counterparty) : "contract"}`} · {timeAgo(h.ts)}
           {h.failed && <span className="tag tag-bad">failed</span>}
           {h.pending && !h.failed && <span className="tag tag-warn">pending</span>}
         </div>
@@ -396,7 +413,7 @@ function HistoryRow({ h, explorer, owner, onChanged }: { h: HistoryItem; explore
   );
 }
 
-function HistoryList({ items, explorer, owner, filter, onFilter, onRetry }: { items: HistoryItem[] | null | undefined; explorer: string; owner: string; filter: HistoryFilter; onFilter: (f: HistoryFilter) => void; onRetry: () => void }) {
+function HistoryList({ items, explorer, owner, labels, filter, onFilter, onRetry }: { items: HistoryItem[] | null | undefined; explorer: string; owner: string; labels: Record<string, string>; filter: HistoryFilter; onFilter: (f: HistoryFilter) => void; onRetry: () => void }) {
   if (items === undefined) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -433,7 +450,7 @@ function HistoryList({ items, explorer, owner, filter, onFilter, onRetry }: { it
           {filter === "all" ? "No activity yet on this network." : `Nothing ${filter === "nft" ? "NFT-related" : filter === "in" ? "received" : "sent"} yet on this network.`}
         </div>
       ) : (
-        shown.map((h) => <HistoryRow key={h.logIndex != null ? `${h.hash}-${h.logIndex}` : `${h.hash}-${h.kind}-${h.direction}-${h.label}-${h.amount}`} h={h} explorer={explorer} owner={owner} onChanged={onRetry} />)
+        shown.map((h) => <HistoryRow key={h.logIndex != null ? `${h.hash}-${h.logIndex}` : `${h.hash}-${h.kind}-${h.direction}-${h.label}-${h.amount}`} h={h} explorer={explorer} owner={owner} labels={labels} onChanged={onRetry} />)
       )}
     </div>
   );

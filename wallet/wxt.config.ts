@@ -11,7 +11,7 @@ export default defineConfig({
     name: "LightNode Wallet",
     description: "Self-custodial wallet for LightChain and EVM chains. Your keys never leave this device.",
     minimum_chrome_version: "120",
-    permissions: ["storage", "alarms", "notifications"],
+    permissions: ["storage", "alarms"],
     host_permissions: ["https://api.coingecko.com/*"],
     icons: { 16: "icon/16.png", 32: "icon/32.png", 48: "icon/48.png", 128: "icon/128.png" },
     action: { default_icon: { 16: "icon/16.png", 32: "icon/32.png", 48: "icon/48.png", 128: "icon/128.png" } },

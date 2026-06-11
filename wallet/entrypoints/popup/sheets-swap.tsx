@@ -42,8 +42,9 @@ function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: 
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const amtNum = Number(amount) || 0;
-  const balNum = Number(tIn.balance);
-  const insufficient = amtNum > 0 && amtNum > balNum;
+  const balKnown = tIn.balance !== null;
+  const balNum = balKnown ? Number(tIn.balance) : 0;
+  const insufficient = balKnown && amtNum > 0 && amtNum > balNum;
   const samePair = assetKey(tIn) === assetKey(tOut);
   const quotable = amtNum > 0 && !samePair;
   const quoteEpoch = useRef(0);
@@ -66,7 +67,8 @@ function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: 
     return () => clearTimeout(t);
   }, [quotable, amount, tIn, tOut, chainId]);
   const setMax = () => {
-    if (tIn.kind === "token") return setAmount(tIn.balance);
+    if (!balKnown) return;
+    if (tIn.kind === "token") return setAmount(tIn.balance ?? "0");
     // Native in: the swap needs value = amount + gas, so reserve a gas buffer.
     const reserve = chainId === 1 ? 0.003 : 0.0004;
     setAmount(Math.max(0, balNum - reserve).toFixed(6).replace(/\.?0+$/, "") || "0");
@@ -113,13 +115,13 @@ function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: 
       <div>
         <input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
         <div className="row between" style={{ marginTop: 6 }}>
-          <span className="faint">{fmtBal(tIn.balance)} {tIn.symbol} available</span>
-          <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={setMax}>Max</button>
+          <span className="faint">{balKnown ? `${fmtBal(tIn.balance!)} ${tIn.symbol} available` : "Balance unavailable right now"}</span>
+          <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} disabled={!balKnown} onClick={setMax}>Max</button>
         </div>
       </div>
       <div><div className="muted" style={{ marginBottom: 6 }}>You receive</div>{pick(toList, tOut, setTOut)}</div>
       {samePair && <p className="faint">Pick two different assets.</p>}
-      {insufficient && <p className="err">Not enough {tIn.symbol}. You have {fmtBal(tIn.balance)}.</p>}
+      {insufficient && <p className="err">Not enough {tIn.symbol}. You have {fmtBal(tIn.balance!)}.</p>}
       {quote === "loading" && <p className="muted">Fetching the best price…</p>}
       {quote && quote !== "loading" && (
         <div className="card" style={{ padding: 10 }}>

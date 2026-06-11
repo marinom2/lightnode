@@ -85,6 +85,13 @@ function emitEvent(event: string, data: unknown, onlyOrigin?: string): void {
   }
 }
 
+/** Emit a provider event ONLY to origins the user actually connected: pushing
+ * accountsChanged/chainChanged to every open tab deanonymizes the user. */
+async function emitToConnected(event: string, data: unknown): Promise<void> {
+  const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
+  for (const origin of Object.keys(perms)) emitEvent(event, data, origin);
+}
+
 // The user's selected network (persisted). Every read/write/sign uses it.
 async function selectedChainId(): Promise<number> {
   const { [CHAIN_KEY]: id } = await browser.storage.local.get(CHAIN_KEY);
@@ -146,14 +153,22 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     case "setChain": {
       if (!isSupportedChain(op.chainId)) throw RpcError.invalidParams;
       await browser.storage.local.set({ [CHAIN_KEY]: op.chainId });
-      emitEvent("chainChanged", `0x${op.chainId.toString(16)}`); // notify connected dapps
+      await emitToConnected("chainChanged", `0x${op.chainId.toString(16)}`); // connected dapps only
       return { chainId: op.chainId };
     }
     case "setActiveAccount": {
       await browser.storage.local.set({ [ACTIVE_KEY]: op.index });
       const kr = await restore();
       const addr = kr?.accounts[op.index]?.address;
-      if (addr) emitEvent("accountsChanged", [addr]); // notify connected dapps
+      if (addr) {
+        // Grants are PER ORIGIN consents: switching the active account must
+        // never hand the new account to sites the user only connected with an
+        // old one. Notify exactly the origins already granted this account.
+        const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
+        for (const [o, grant] of Object.entries(perms)) {
+          if (grant.some((g) => g.toLowerCase() === addr.toLowerCase())) emitEvent("accountsChanged", [addr], o);
+        }
+      }
       return { ok: true };
     }
     case "setAutoLock": {
@@ -187,8 +202,8 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // Clear everything tied to this wallet's identity, not just the vault:
       // stale names/NFT lists must not attach to a different seed imported later.
       const all = (await browser.storage.local.get(null)) as Record<string, unknown>;
-      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-") || k.startsWith("disc-meta-"));
-      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", ...stale]);
+      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-") || k.startsWith("disc-meta-") || k.startsWith("hidden-tokens-"));
+      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", "addr-labels", ...stale]);
       return { ok: true };
     }
     case "createVault":
@@ -231,8 +246,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // re-read on-chain for ALL of them, so the indexer never sets a number.
       // Discovered symbol/decimals are re-read ON-CHAIN once (cached): the
       // indexer must not control what the send path divides by.
-      const known = new Set(tracked.map((t) => t.address.toLowerCase()));
-      const fresh = discovered.filter((d) => !known.has(d.address.toLowerCase()));
+      const hiddenKey = `hidden-tokens-${cid}`;
+      const { [hiddenKey]: hiddenList = [] } = (await browser.storage.local.get(hiddenKey)) as Record<string, string[]>;
+      const hidden = new Set(hiddenList);
+      const visibleTracked = tracked.filter((t) => !hidden.has(t.address.toLowerCase()));
+      const known = new Set(visibleTracked.map((t) => t.address.toLowerCase()));
+      const fresh = discovered.filter((d) => !known.has(d.address.toLowerCase()) && !hidden.has(d.address.toLowerCase()));
       const metaKey = `disc-meta-${cid}`;
       const { [metaKey]: metaCache = {} } = (await browser.storage.local.get(metaKey)) as Record<string, Record<string, TokenMeta>>;
       let cacheDirty = false;
@@ -254,11 +273,17 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       }
       if (cacheDirty) await browser.storage.local.set({ [metaKey]: metaCache });
       const discoveredSet = new Set(verified.map((v) => v.address.toLowerCase()));
-      const balances = await readTokenBalances(clientFor(cid), op.address as `0x${string}`, [...tracked, ...verified]);
+      const balances = await readTokenBalances(clientFor(cid), op.address as `0x${string}`, [...visibleTracked, ...verified]);
       return balances.map((b) => (discoveredSet.has(b.address.toLowerCase()) ? { ...b, discovered: true } : b));
     }
     case "addToken": {
       const meta = await fetchTokenMeta(clientFor(op.chainId), op.address);
+      // Adding by hand reverses a hide: never leave the user in a dead end.
+      const hiddenKey = `hidden-tokens-${op.chainId}`;
+      const { [hiddenKey]: hidden = [] } = (await browser.storage.local.get(hiddenKey)) as Record<string, string[]>;
+      if (hidden.includes(meta.address.toLowerCase())) {
+        await browser.storage.local.set({ [hiddenKey]: hidden.filter((h) => h !== meta.address.toLowerCase()) });
+      }
       const key = TOKENS_KEY(op.chainId);
       const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, TokenMeta[]>;
       if (!list.some((t) => t.address.toLowerCase() === meta.address.toLowerCase())) {
@@ -583,6 +608,31 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         return { ok: false }; // RPC may not support eth_simulateV1; UI falls back to the decode
       }
     }
+    case "getLabels": {
+      const { "addr-labels": labels = {} } = (await browser.storage.local.get("addr-labels")) as { "addr-labels"?: Record<string, string> };
+      return labels;
+    }
+    case "setAddressLabel": {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(op.address)) throw RpcError.invalidParams;
+      const { "addr-labels": labels = {} } = (await browser.storage.local.get("addr-labels")) as { "addr-labels"?: Record<string, string> };
+      const key = op.address.toLowerCase();
+      const label = op.label.trim().slice(0, 24);
+      const next = { ...labels };
+      if (label) next[key] = label;
+      else delete next[key];
+      await browser.storage.local.set({ "addr-labels": next });
+      return { ok: true };
+    }
+    case "removeToken": {
+      // User-added entries are deleted; defaults and discovered ones are hidden.
+      const key = TOKENS_KEY(op.chainId);
+      const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, TokenMeta[]>;
+      await browser.storage.local.set({ [key]: list.filter((t) => t.address.toLowerCase() !== op.address.toLowerCase()) });
+      const hiddenKey = `hidden-tokens-${op.chainId}`;
+      const { [hiddenKey]: hidden = [] } = (await browser.storage.local.get(hiddenKey)) as Record<string, string[]>;
+      if (!hidden.includes(op.address.toLowerCase())) await browser.storage.local.set({ [hiddenKey]: [...hidden, op.address.toLowerCase()] });
+      return { ok: true };
+    }
     case "knownRecipients": {
       // Distinct addresses you've sent to before (across chains) - the trusted
       // set the send flow checks new recipients against for address poisoning.
@@ -631,13 +681,52 @@ async function handleDappRpc(request: JsonRpcRequest, origin: string): Promise<u
     if (request.method === "eth_chainId") return `0x${cid.toString(16)}`;
     if (request.method === "net_version") return String(cid);
     if (request.method === "eth_accounts") return await connectedAccounts(origin);
-    if (request.method === "wallet_switchEthereumChain") return await switchChain(request);
+    if (request.method === "wallet_switchEthereumChain") {
+      // Only sites the user connected may move the wallet between networks.
+      if ((await connectedAccounts(origin)).length === 0) throw RpcError.unauthorized;
+      return await switchChain(request);
+    }
   }
 
-  if (APPROVAL_REQUIRED.has(request.method)) return await enqueueApproval(request, origin);
+  if (APPROVAL_REQUIRED.has(request.method)) {
+    // Signing methods must come from an origin holding a grant for the signer;
+    // only the connect handshake itself is exempt. The check reads the STORED
+    // grant (not the keyring view): a locked wallet must still route to the
+    // approval window so the user gets the unlock-then-sign flow, and
+    // fulfilApproved enforces the lock itself.
+    if (request.method !== "eth_requestAccounts") {
+      const granted = (await grantedFor(origin)).map((a) => a.toLowerCase());
+      const signer = signerOf(request);
+      if (granted.length === 0 || (signer && !granted.includes(signer.toLowerCase()))) throw RpcError.unauthorized;
+    }
+    return await enqueueApproval(request, origin);
+  }
 
   // Everything else on the allowlist: read-only passthrough to the selected chain's pinned RPC.
   return (await publicClient()).request({ method: request.method as never, params: request.params as never });
+}
+
+/** The origin's STORED grant, independent of lock state. */
+async function grantedFor(origin: string): Promise<string[]> {
+  const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
+  return perms[origin] ?? [];
+}
+
+/** The account a dapp request wants to sign with, per method shape. */
+function signerOf(request: JsonRpcRequest): string | null {
+  if (request.method === "eth_sendTransaction") {
+    const tx = (request.params?.[0] ?? {}) as { from?: string };
+    return typeof tx.from === "string" ? tx.from : null;
+  }
+  if (request.method === "personal_sign") {
+    const a = request.params?.[1];
+    return typeof a === "string" ? a : null;
+  }
+  if (request.method === "eth_signTypedData_v4") {
+    const a = request.params?.[0];
+    return typeof a === "string" ? a : null;
+  }
+  return null;
 }
 
 // Switch the wallet to a code-pinned supported chain, or reject (4902) so the
@@ -688,11 +777,31 @@ function startApprovalWindow(): void {
     .create({ url: browser.runtime.getURL("/popup.html#/approve"), type: "popup", width: 380, height: 600 })
     .then((w) => {
       approvalWindowId = w.id ?? null;
+      // Survive a service-worker restart: a stale approval window left behind
+      // after the SW died is swept on the next boot (see sweepOrphanWindows).
+      void browser.storage.session.set({ "approval-window": approvalWindowId });
     })
-    .catch(() => undefined)
+    .catch(() => {
+      // The window could not open at all: a hanging dapp promise is worse than
+      // a rejection, so settle everything that queued for it.
+      for (const [id, p] of pending) {
+        pending.delete(id);
+        p.reject(RpcError.userRejected);
+      }
+    })
     .finally(() => {
       approvalOpening = null;
     });
+}
+
+/** SW restart lost the in-memory pending map: any approval window left over
+ * from the previous life shows "no pending requests" forever. Close it. */
+async function sweepOrphanApprovalWindow(): Promise<void> {
+  const { "approval-window": stale } = (await browser.storage.session.get("approval-window")) as { "approval-window"?: number };
+  if (typeof stale === "number" && stale !== approvalWindowId) {
+    await browser.windows.remove(stale).catch(() => undefined);
+    await browser.storage.session.remove("approval-window");
+  }
 }
 
 browser.windows.onRemoved.addListener((closedId) => {
@@ -767,12 +876,65 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
 // ---- message router --------------------------------------------------------
 
 export default defineBackground(() => {
+  void sweepOrphanApprovalWindow();
   // First install: open onboarding in a full browser tab (a 360px popup is a
   // cramped first impression for seed-phrase setup).
   browser.runtime.onInstalled.addListener((details) => {
+    // Stamp + migrate the storage schema BEFORE anything reads it: future
+    // versions bump SCHEMA_VERSION and add their migration step here.
+    void (async () => {
+      const SCHEMA_VERSION = 1;
+      const { "schema-version": from = 0 } = (await browser.storage.local.get("schema-version")) as { "schema-version"?: number };
+      if (from < SCHEMA_VERSION) {
+        // v0 -> v1: no shape changes; everything shipped at v1 semantics.
+        await browser.storage.local.set({ "schema-version": SCHEMA_VERSION });
+      }
+    })();
     if (details.reason !== "install") return;
     void browser.tabs.create({ url: browser.runtime.getURL("/popup.html#/expanded") });
   });
+  // The chat doubles as the WALLET ASSISTANT: each prompt is grounded with a
+  // compact guide to the wallet plus live data (latest proposals, the user's
+  // balance, worker network), so "what is the newest DAO proposal" just works.
+  let assistantCache: { at: number; text: string } | null = null;
+  async function assistantContext(address: string): Promise<string> {
+    if (assistantCache && Date.now() - assistantCache.at < 300000) {
+      return `${assistantCache.text}\n${await assistantUserLine(address)}`;
+    }
+    const [lcProps, ethProps, net] = await Promise.allSettled([
+      listProposals(9200),
+      listProposals(1),
+      readNetworkStats(clientFor(9200)),
+    ]);
+    const lines: string[] = [];
+    const fmtProps = (label: string, r: PromiseSettledResult<Awaited<ReturnType<typeof listProposals>>>) => {
+      if (r.status !== "fulfilled" || !r.value?.length) return;
+      lines.push(`${label} governor proposals (newest first): ${r.value.slice(0, 3).map((p) => `"${p.title}" [${p.state}]`).join("; ")}`);
+    };
+    fmtProps("LightChain", lcProps);
+    fmtProps("Ethereum", ethProps);
+    if (net.status === "fulfilled") {
+      lines.push(`Worker network: ${net.value.totalWorkers}${net.value.capped ? "+" : ""} workers (${net.value.activeWorkers} active), ${net.value.jobsCompleted} jobs completed, ${net.value.totalEarnedLcai.toFixed(0)} LCAI paid out, min stake ${net.value.minStakeLcai} LCAI.`);
+    }
+    assistantCache = { at: Date.now(), text: lines.join("\n") };
+    return `${assistantCache.text}\n${await assistantUserLine(address)}`;
+  }
+  async function assistantUserLine(address: string): Promise<string> {
+    try {
+      const cid = await selectedChainId();
+      const wei = await clientFor(cid).getBalance({ address: address as `0x${string}` });
+      return `The user's selected network is ${chainById(cid).name}; their balance there is ${(Number(wei) / 1e18).toFixed(4)} ${chainById(cid).nativeCurrency.symbol}.`;
+    } catch {
+      return "";
+    }
+  }
+  const ASSISTANT_GUIDE = [
+    "You are the LightNode Wallet assistant. Answer briefly and helpfully.",
+    "About the wallet: a self-custodial browser extension for LightChain and EVM networks (Ethereum, Base, Arbitrum, Optimism, Polygon). Keys never leave the device.",
+    "Navigation: the home screen has Send, Receive, Swap, AI Chat, and Explorer actions; tabs for Tokens, NFTs, and Activity (with Received/Sent/NFT filters); Worker and Governance cards below open the worker hub and the DAO proposals where the user can vote For/Against/Abstain; the gear icon opens Settings (recovery phrase, private key export, auto-lock, connected sites); the expand icon opens the wallet in a full tab.",
+    "Swap trades on Uniswap v3 and moves LCAI between Ethereum and LightChain. The worker hub shows stake, claimable rewards (withdrawable in-wallet), and how to become a worker at lightnode.app/onboard.",
+  ].join(" ");
+
   browser.runtime.onConnect.addListener((port) => {
     // In-wallet AI chat: a long-lived port from OUR popup streams phases and
     // decrypted chunks. One explicit session consent in the UI, then each
@@ -799,7 +961,9 @@ export default defineBackground(() => {
               const acct = kr?.accountFor(msg.from);
               if (!acct) throw new Error("Wallet is locked.");
               await bumpAutoLock();
-              const result = await runInference(acct.account, msg.model, msg.prompt, {
+              const grounding = await assistantContext(msg.from).catch(() => "");
+              const grounded = `${ASSISTANT_GUIDE}\n\nLive facts:\n${grounding}\n\nUser question: ${msg.prompt}\n\nAnswer:`;
+              const result = await runInference(acct.account, msg.model, grounded, {
                 phase: (ph) => safePost({ type: "phase", phase: ph }),
                 chunk: (t) => safePost({ type: "chunk", text: t }),
               });

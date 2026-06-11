@@ -13,19 +13,46 @@ export default defineContentScript({
       if (event.source !== window) return;
       const data = event.data as PageMessage | undefined;
       if (!data || data.target !== PAGE_TO_CONTENT) return;
-      const response = await browser.runtime.sendMessage({ kind: "dapp-rpc", request: data.request });
-      window.postMessage({ target: CONTENT_TO_PAGE, response }, window.location.origin);
+      // A dapp promise must NEVER hang: if the service worker died or the
+      // extension updated underneath us, settle with a provider error.
+      try {
+        const response = await browser.runtime.sendMessage({ kind: "dapp-rpc", request: data.request });
+        window.postMessage({ target: CONTENT_TO_PAGE, response }, window.location.origin);
+      } catch {
+        window.postMessage(
+          { target: CONTENT_TO_PAGE, response: { id: data.request.id, error: { code: 4900, message: "Wallet disconnected. Reload the page." } } },
+          window.location.origin,
+        );
+      }
     });
 
     // Long-lived port for background -> page provider events (chainChanged /
-    // accountsChanged). Reconnect if the MV3 service worker recycles the port.
+    // accountsChanged). Reconnect with exponential backoff when the MV3 service
+    // worker recycles; stop entirely once the extension context is invalidated
+    // (otherwise every open tab wakes the SW in a tight loop forever).
+    let backoff = 500;
     const connectEvents = () => {
-      const port = browser.runtime.connect({ name: EVENT_PORT });
+      let port: ReturnType<typeof browser.runtime.connect>;
+      try {
+        port = browser.runtime.connect({ name: EVENT_PORT });
+      } catch {
+        return; // context invalidated (extension updated/removed): end the loop
+      }
+      const connectedAt = Date.now();
       port.onMessage.addListener((m: unknown) => {
+        backoff = 500; // a live message proves the channel: reset the backoff
         const e = m as { event?: string; data?: unknown };
         if (e?.event) window.postMessage({ target: CONTENT_TO_PAGE_EVENT, event: e.event, data: e.data }, window.location.origin);
       });
-      port.onDisconnect.addListener(() => setTimeout(connectEvents, 500));
+      port.onDisconnect.addListener(() => {
+        // Provider events are rare: a connection that LIVED for a while was
+        // healthy even if silent (normal MV3 idle recycling), so do not let
+        // the backoff creep toward a minute of deafness.
+        if (Date.now() - connectedAt > 5000) backoff = 500;
+        const wait = backoff;
+        backoff = Math.min(backoff * 2, 60000);
+        setTimeout(connectEvents, wait);
+      });
     };
     connectEvents();
   },

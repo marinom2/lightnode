@@ -179,6 +179,9 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
   const [err, setErr] = useState<string | null>(null);
   const [fee, setFee] = useState<{ value: number; label: string } | null>(null);
   const [known, setKnown] = useState<string[]>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [labelDraft, setLabelDraft] = useState("");
+  const [labelSaved, setLabelSaved] = useState(false);
   const [txState, setTxState] = useState<"pending" | "confirmed" | "failed">("pending");
   const [ens, setEns] = useState<{ name: string; address: string } | "resolving" | null>(null);
   const [speed, setSpeed] = useState<"slow" | "normal" | "fast">("normal");
@@ -207,21 +210,28 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
   const validAddr = /^0x[0-9a-fA-F]{40}$/.test(recipient);
   // Validate against the balance BEFORE the node does: catch "1 LCAI on an
   // empty account" inline instead of surfacing a raw RPC error after signing.
-  const balNum = Number(asset.balance);
+  // balance null = unknown (RPC unreachable): say so, never pretend it is 0.
+  const balKnown = asset.balance !== null;
+  const balNum = balKnown ? Number(asset.balance) : 0;
   const amtNum = Number(amount) || 0;
   const needed = asset.kind === "native" ? amtNum + (fee?.value ?? 0) : amtNum;
-  const insufficient = amtNum > 0 && needed > balNum;
+  const insufficient = balKnown && amtNum > 0 && needed > balNum;
   const quotable = validAddr && amtNum > 0;
   const ok = quotable && !insufficient;
   const risk = validAddr ? assessRecipient(recipient, known, own) : null;
   const setMax = () => {
-    if (asset.kind === "token") return setAmount(asset.balance);
+    if (!balKnown) return;
+    if (asset.kind === "token") return setAmount(asset.balance ?? "0");
     const spendable = Math.max(0, balNum - (fee ? fee.value * 1.1 : 0));
     setAmount(spendable.toFixed(6).replace(/\.?0+$/, "") || "0");
   };
   useEffect(() => {
     wallet<string[]>({ type: "knownRecipients" }).then(setKnown).catch(() => {});
+    wallet<Record<string, string>>({ type: "getLabels" }).then(setLabels).catch(() => {});
   }, []);
+  const saveLabel = () => {
+    void wallet({ type: "setAddressLabel", address: recipient, label: labelDraft }).then(() => setLabelSaved(true)).catch(() => {});
+  };
   useEffect(() => {
     if (!hash) return;
     let live = true;
@@ -294,6 +304,14 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
                 <button className="ghost" style={{ flex: 1 }} disabled={busy} onClick={() => replace("cancel")}>Cancel tx</button>
               </div>
             )}
+            {!labels[recipient.toLowerCase()] && !labelSaved ? (
+              <div className="row" style={{ gap: 8 }}>
+                <input placeholder="Label this recipient (e.g. My worker rig)" maxLength={24} value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} />
+                <button className="ghost" style={{ flexShrink: 0 }} disabled={!labelDraft.trim()} onClick={saveLabel}>Save</button>
+              </div>
+            ) : labelSaved ? (
+              <p className="ok">Saved. Future sends show this name.</p>
+            ) : null}
             <button onClick={onClose}>Done</button>
           </>
         ) : (
@@ -317,10 +335,11 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
               {typedIsEns && ens === "resolving" && <p className="faint" style={{ marginTop: 4 }}>Resolving name…</p>}
               {typedIsEns && ens && ens !== "resolving" && <p className="ok" style={{ marginTop: 4 }}>{ens.name} → {short(ens.address)}</p>}
               {typedIsEns && ens === null && to.trim().length > 5 && <p className="faint" style={{ marginTop: 4 }}>Could not resolve this name on Ethereum.</p>}
+              {!typedIsEns && to.trim().length > 5 && !validAddr && <p className="faint" style={{ marginTop: 4 }}>Not a valid 0x address or ENS name.</p>}
               {!to && known.length > 0 && (
                 <div className="chips" style={{ marginTop: 6, flexWrap: "wrap" }}>
                   {known.slice(0, 3).map((k) => (
-                    <button key={k} className="chip" onClick={() => setTo(k)} title={k}>{short(k)}</button>
+                    <button key={k} className="chip" onClick={() => setTo(k)} title={k}>{labels[k.toLowerCase()] ?? short(k)}</button>
                   ))}
                 </div>
               )}
@@ -335,11 +354,11 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
               <div className="muted" style={{ marginBottom: 6 }}>Amount ({asset.symbol})</div>
               <input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
               <div className="row between" style={{ marginTop: 6 }}>
-                <span className="faint">{fmtBal(asset.balance)} {asset.symbol} available</span>
-                <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={setMax}>Max</button>
+                <span className="faint">{balKnown ? `${fmtBal(asset.balance!)} ${asset.symbol} available` : "Balance unavailable right now (it will not block your send)"}</span>
+                <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} disabled={!balKnown} onClick={setMax}>Max</button>
               </div>
             </div>
-            {insufficient && <p className="err">Not enough {asset.symbol}. You have {fmtBal(asset.balance)}{asset.kind === "native" && fee ? `, and the network fee is ${fee.label}` : ""}.</p>}
+            {insufficient && <p className="err">Not enough {asset.symbol}. You have {fmtBal(asset.balance!)}{asset.kind === "native" && fee ? `, and the network fee is ${fee.label}` : ""}.</p>}
             {!insufficient && fee && (
               <div className="row between">
                 <span className="muted">Network fee ≈ {fee.label}</span>

@@ -19,7 +19,7 @@ export interface TokenMeta {
   decimals: number;
 }
 export interface TokenBalance extends TokenMeta {
-  balance: string; // human-formatted
+  balance: string | null; // human-formatted; null = read failed (NEVER shown as zero)
   discovered?: boolean; // surfaced by the indexer, not added by the user
 }
 
@@ -35,10 +35,12 @@ export const DEFAULT_TOKENS: Record<number, TokenMeta[]> = {
 export async function readTokenBalances(client: PublicClient, owner: `0x${string}`, tokens: TokenMeta[]): Promise<TokenBalance[]> {
   return Promise.all(
     tokens.map(async (t) => {
-      const raw = (await client
-        .readContract({ address: t.address, abi: ERC20_ABI, functionName: "balanceOf", args: [owner] })
-        .catch(() => 0n)) as bigint;
-      return { ...t, balance: formatUnits(raw, t.decimals) };
+      try {
+        const raw = (await client.readContract({ address: t.address, abi: ERC20_ABI, functionName: "balanceOf", args: [owner] })) as bigint;
+        return { ...t, balance: formatUnits(raw, t.decimals) };
+      } catch {
+        return { ...t, balance: null }; // a failed read is unknown, not zero
+      }
     }),
   );
 }

@@ -91,6 +91,9 @@ export type WalletOp =
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }
+  | { type: "getLabels" }
+  | { type: "setAddressLabel"; address: string; label: string }
+  | { type: "removeToken"; chainId: number; address: string }
   | { type: "getPrices"; chainId: number; addresses: string[] }
   | { type: "simulateTx"; from: string; to: string; value?: string; data?: string }
   | { type: "listPending" }
