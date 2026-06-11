@@ -55,3 +55,19 @@ export function explorerFor(id: number): string {
 export function symbolFor(id: number): string {
   return chainById(id).nativeCurrency.symbol;
 }
+
+// Official network marks, bundled (no runtime hotlink). LightChain/LCAI reuses
+// the same logo the bridge + chat already ship.
+const CHAIN_LOGO: Record<number, string> = {
+  9200: "/chains/lightchain.png",
+  8200: "/chains/lightchain.png",
+  1: "/chains/eth.png",
+  8453: "/chains/base.png",
+  42161: "/chains/arbitrum.png",
+  10: "/chains/optimism.png",
+  137: "/chains/polygon.png",
+};
+
+export function logoFor(id: number): string {
+  return CHAIN_LOGO[id] ?? "/chains/lightchain.png";
+}
