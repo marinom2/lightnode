@@ -59,6 +59,7 @@ export type WalletOp =
   | { type: "txStatus"; hash: string }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
+  | { type: "knownRecipients" }
   | { type: "listPending" }
   | { type: "resolvePending"; id: string; approved: boolean };
 
