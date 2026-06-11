@@ -1,6 +1,6 @@
 /**
  * Bridge "Run preview" endpoint - parameterized version of /api/bridge-quote.
- * Used by the BridgeRecipe widget on /build/sdks to give the visitor a real,
+ * Used by the BridgeRecipe widget on /build/bridge to give the visitor a real,
  * CLI-runner-style JSON response when they click Run.
  *
  *   POST /api/bridge-preview

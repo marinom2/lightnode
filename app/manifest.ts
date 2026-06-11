@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "LightNode",
     short_name: "LightNode",
-    description: "One-flow onboarding for LightChain AI workers.",
+    description: "The open toolkit for LightChain AI: SDK, wallet, worker onboarding, and live network dashboards.",
     start_url: "/",
     display: "standalone",
     background_color: "#070710",

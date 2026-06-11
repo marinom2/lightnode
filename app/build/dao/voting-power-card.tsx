@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ShieldCheck, AlertTriangle, ExternalLink, Wallet } from "lucide-react";
 import { useAccount } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
@@ -20,20 +20,27 @@ export function VotingPowerCard({ chain }: { chain: DaoChain }) {
   const { open } = useAppKit();
   const [reads, setReads] = useState<VotingPowerReads | null>(null);
   const [loading, setLoading] = useState(false);
+  // Stale-read guard: a slow read for the previous chain/account must not
+  // overwrite the newer one (same epochRef pattern as the wallet).
+  const epochRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!address) return;
+    const epoch = ++epochRef.current;
+    const live = () => epochRef.current === epoch;
     setLoading(true);
     try {
-      setReads(await loadVotingPower(chain, address));
+      const next = await loadVotingPower(chain, address);
+      if (live()) setReads(next);
     } catch {
-      setReads(null);
+      if (live()) setReads(null);
     } finally {
-      setLoading(false);
+      if (live()) setLoading(false);
     }
   }, [chain, address]);
 
   useEffect(() => {
+    epochRef.current += 1; // invalidate in-flight reads for the old selection
     setReads(null);
     if (isConnected && address) void refresh();
   }, [isConnected, address, chain, refresh]);

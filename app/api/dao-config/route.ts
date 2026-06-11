@@ -4,7 +4,7 @@
  *
  *   GET /api/dao-config?chain=ethereum|lightchain
  *
- * Used by the DAO stepper widget on /build/sdks/dao so the 'Read voting
+ * Used by the DAO stepper widget on /build/dao so the 'Read voting
  * config' option returns real on-chain values without the visitor needing
  * to wire a viem client.
  */

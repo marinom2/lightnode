@@ -10,12 +10,13 @@ import { isDesktop } from "@/lib/tauri";
  * already have a local environment and the buttons just produce dead ends.
  */
 export function HideOnDesktop({ children }: { children: React.ReactNode }) {
-  // Render nothing on the first paint so the SSR markup matches the desktop
-  // (no flash). Then on mount, reveal if we're in a web browser.
-  const [show, setShow] = useState(false);
+  // Render on the server and on first paint so browsers (and crawlers) get the
+  // content immediately. After mount, remove the block only when we detect the
+  // desktop shell - the app sees a brief flash at worst, the web never blanks.
+  const [hide, setHide] = useState(false);
   useEffect(() => {
-    setShow(!isDesktop());
+    setHide(isDesktop());
   }, []);
-  if (!show) return null;
+  if (hide) return null;
   return <>{children}</>;
 }

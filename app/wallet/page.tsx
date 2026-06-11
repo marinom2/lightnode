@@ -9,7 +9,9 @@ export const metadata: Metadata = {
 };
 
 const REPO = "https://github.com/marinom2/lightnode/tree/main/wallet";
-const DOWNLOAD_URL = "https://github.com/marinom2/lightnode/releases/latest/download/lightnode-wallet-chrome.zip";
+// Resolved server-side against the newest wallet-v* release, so the link
+// survives desktop releases overtaking "latest" on GitHub.
+const DOWNLOAD_URL = "/api/download?product=wallet";
 // Set this to the Chrome Web Store listing URL once published (see wallet/PUBLISH.md).
 // When set, the page shows a one-click "Add to Chrome" button instead of the zip download.
 const STORE_URL = "";
@@ -17,10 +19,10 @@ const STORE_URL = "";
 const FEATURES: { icon: typeof Server; title: string; body: string; status: "live" | "soon" }[] = [
   { icon: ShieldCheck, title: "Self-custodial", body: "Keys are generated and encrypted on your device with AES-256-GCM + scrypt. They never leave it. No server, no custody, no smart contract.", status: "live" },
   { icon: Fuel, title: "Gas done right", body: "LightChain fees are negligible, so the wallet drops the gwei sliders and scary fee modals. One tap, fee shown as what it is: nothing.", status: "live" },
-  { icon: Server, title: "Worker control", body: "Your worker, in your wallet: registration, stake, headroom, and claimable rewards at a glance, then stake or top up in a tap.", status: "soon" },
-  { icon: Sparkles, title: "Encrypted AI inference", body: "Ask an AI a question and pay per call from your own key, end-to-end encrypted and settled on-chain - right inside the wallet.", status: "soon" },
-  { icon: Landmark, title: "DAO intelligence", body: "Decoded proposals, quorum distance, and your voting power, surfaced from the registries. Vote on the official DAO in a tap.", status: "soon" },
-  { icon: ArrowLeftRight, title: "Built-in bridge", body: "Move LCAI between Ethereum and LightChain without leaving the wallet, over the Hyperlane warp route.", status: "soon" },
+  { icon: Server, title: "Worker hub", body: "Your worker, in your wallet: status, jobs completed, lifetime earnings, fee split, and one-tap withdrawal of accrued rewards.", status: "live" },
+  { icon: Sparkles, title: "Encrypted AI chat", body: "Ask an AI anything and pay per call from your own key, end-to-end encrypted and settled on-chain - one consent per session, right inside the wallet.", status: "live" },
+  { icon: Landmark, title: "DAO intelligence", body: "Proposals from both governors decoded in-wallet: full text, live tallies, treasury, quorum, your voting power - and cast your vote without leaving it.", status: "live" },
+  { icon: ArrowLeftRight, title: "Swap + bridge", body: "Swap tokens on Ethereum and move LCAI between Ethereum and LightChain over the Hyperlane warp route, without leaving the wallet.", status: "live" },
 ];
 
 function StatusPill({ status }: { status: "live" | "soon" }) {
@@ -53,7 +55,7 @@ export default function WalletPage() {
           <span className="text-gradient">LightNode</span> Wallet
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-content-soft">
-          A self-custodial wallet for the LightChain ecosystem. Hold your LCAI, monitor your worker, run encrypted AI inference, and read the DAO - all in one place. <span className="text-content-primary">Your keys never leave your device.</span>
+          A self-custodial wallet for the LightChain ecosystem. Hold your LCAI and NFTs, chat with on-chain AI, control your worker, swap and bridge, and vote in the DAO - all in one place. <span className="text-content-primary">Your keys never leave your device.</span>
         </p>
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <a
@@ -101,7 +103,7 @@ export default function WalletPage() {
       <section id="install" className="mt-16 scroll-mt-20 rounded-2xl border border-bdr-soft bg-card/50 p-6 backdrop-blur-sm sm:p-8">
         <h2 className="text-xl font-semibold text-content-primary">Install it (no build needed)</h2>
         <p className="mt-1 text-sm text-content-soft">
-          Grab the prebuilt extension and load it in under a minute. A one-click Chrome Web Store listing lands after the security audit.
+          Grab the prebuilt extension and load it in under a minute. The one-click Chrome Web Store listing is being prepared.
         </p>
         <div className="mt-6 space-y-5">
           <Step n={1} title="Download the prebuilt wallet">

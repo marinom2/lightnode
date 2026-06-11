@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchRecentJobs, fetchModels } from "@/lib/subgraph";
 import { fromWei } from "@/lib/utils";
-import type { NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  * short CDN cache; the page polls it on a fast interval.
  */
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   try {
     const [jobs, models] = await Promise.all([fetchRecentJobs(net, 40), fetchModels(net)]);
     const nameById = new Map(models.map((m) => [m.id.toLowerCase(), m.name]));
@@ -29,6 +30,8 @@ export async function GET(req: NextRequest) {
       { headers: { "Cache-Control": "public, s-maxage=8, stale-while-revalidate=30" } },
     );
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
+    // Keep the real error server-side; subgraph URLs must not reach clients.
+    console.error("jobs-stream:", e);
+    return NextResponse.json({ ok: false, error: "upstream unavailable" }, { status: 502 });
   }
 }

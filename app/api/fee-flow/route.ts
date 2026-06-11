@@ -11,7 +11,7 @@ import { createPublicClient, http } from "viem";
 import { WorkerOperator, NETWORKS } from "lightnode-sdk";
 import { fetchRecentJobs, fetchModels } from "@/lib/subgraph";
 import { aggregateFeeRevenue } from "@/lib/analytics";
-import type { NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,7 +19,8 @@ export const runtime = "nodejs";
 const SENTINEL: `0x${string}` = "0x0000000000000000000000000000000000000001";
 
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   const cfg = NETWORKS[net];
   if (!cfg) return NextResponse.json({ ok: false, error: "unknown network" }, { status: 400 });
   try {

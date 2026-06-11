@@ -3,7 +3,7 @@ import { createPublicClient, http } from "viem";
 import { LightNode, WorkerOperator, NETWORKS } from "lightnode-sdk";
 import { fetchRecentJobs, fetchModels } from "@/lib/subgraph";
 import { aggregateModelStats, aggregateWorkerStats, networkAnalytics } from "@/lib/analytics";
-import type { NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,8 @@ interface RiskWorker {
 }
 
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   // Risk enrichment is opt-in (the reliability/risk leaderboard) so the cheaper
   // model-analytics consumers don't pay for the extra worker + config reads.
   const wantRisk = req.nextUrl.searchParams.get("risk") === "1";

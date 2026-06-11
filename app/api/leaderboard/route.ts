@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchWorkers, fetchModels, summarize, isLive } from "@/lib/subgraph";
 import { fromWei } from "@/lib/utils";
-import type { NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   try {
     const [workers, models] = await Promise.all([fetchWorkers(net), fetchModels(net)]);
     const stats = summarize(workers, models);

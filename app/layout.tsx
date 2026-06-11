@@ -8,16 +8,27 @@ import { Nav } from "@/components/nav";
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://lightnode.app";
-const TITLE = "LightNode - Run a LightChain AI worker in one flow";
+const TITLE = "LightNode - The open toolkit for LightChain AI";
 const DESCRIPTION =
-  "Connect a wallet, check your machine, get a tailored setup, and watch your rewards. The friction-free way to join LightChain's decentralized AI network and earn $LCAI.";
+  "Build with encrypted on-chain inference, run a worker in one flow, govern with live DAO intelligence. TypeScript SDK, self-custodial wallet with built-in AI chat, desktop app, and network dashboards - independent and open source.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: TITLE, template: "%s | LightNode" },
   description: DESCRIPTION,
   applicationName: "LightNode",
-  keywords: ["LightChain", "LCAI", "AI worker", "decentralized AI", "Ollama", "node operator", "staking"],
+  keywords: [
+    "LightChain",
+    "LCAI",
+    "decentralized AI",
+    "on-chain inference",
+    "encrypted inference",
+    "AI worker",
+    "web3 wallet",
+    "TypeScript SDK",
+    "DAO governance",
+    "node operator",
+  ],
   authors: [{ name: "LightNode" }],
   openGraph: {
     type: "website",
@@ -25,8 +36,9 @@ export const metadata: Metadata = {
     url: SITE_URL,
     title: TITLE,
     description: DESCRIPTION,
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "LightNode - the open toolkit for LightChain AI" }],
   },
-  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: ["/og.png"] },
   robots: { index: true, follow: true },
 };
 
@@ -55,7 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 LightNode - an independent ecosystem tool for LightChain AI. Not an official LightChain product.
               </p>
               <div className="flex items-center gap-4">
-                <span>Built builder-to-builder for LightChain worker operators</span>
+                <span>Open source, built in the open for the LightChain community</span>
                 <a
                   href="https://github.com/marinom2/lightnode"
                   target="_blank"

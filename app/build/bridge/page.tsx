@@ -5,7 +5,7 @@ import Image from "next/image";
 import { ChevronDown, ArrowLeftRight, CreditCard, Loader2, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useAccount, useWalletClient, useSwitchChain, useChainId } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
-import { createPublicClient, http, parseEther } from "viem";
+import { createPublicClient, http, parseEther, type PublicClient } from "viem";
 import { BRIDGE_ROUTE, HYPERLANE_ROUTER_ABI, ERC20_ABI, addressToBytes32 } from "lightnode-sdk";
 import { CodeTabs } from "@/components/build/console/code-tabs";
 import { humanizeError } from "@/lib/humanize-error";
@@ -102,7 +102,35 @@ interface Fee {
   estimatedSourceGas: string;
 }
 
-const bal4 = (n: number | null) => (n == null ? "0.00" : n.toFixed(4));
+// Unknown (not yet loaded / fetch failed) renders as a dash, never a fake zero.
+const bal4 = (n: number | null) => (n == null ? "-" : n.toFixed(4));
+
+// Native source (LightChain): the bridge tx spends amount + Hyperlane fee + gas
+// from the same balance, so Max keeps a small reserve back; on Ethereum LCAI is
+// an ERC-20 and gas is paid in ETH, so the full balance can go.
+const NATIVE_GAS_RESERVE_LCAI = 0.01;
+
+function maxBridgeAmount(balance: number, sourceIsNative: boolean): string {
+  if (!sourceIsNative) return String(balance);
+  return Math.max(0, balance - NATIVE_GAS_RESERVE_LCAI).toFixed(6).replace(/\.?0+$/, "") || "0";
+}
+
+type GasFeeParams = { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | { gasPrice: bigint };
+
+// Pin chain-estimated fees so MetaMask can render LightChain's tiny gas.
+async function resolveFeeParams(pub: PublicClient): Promise<GasFeeParams | undefined> {
+  try {
+    const f = await pub.estimateFeesPerGas();
+    if (f?.maxFeePerGas) return { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas ?? f.maxFeePerGas };
+    return { gasPrice: await pub.getGasPrice() };
+  } catch {
+    try {
+      return { gasPrice: await pub.getGasPrice() };
+    } catch {
+      return undefined;
+    }
+  }
+}
 
 export default function BridgePanel() {
   const { address, isConnected } = useAccount();
@@ -172,11 +200,7 @@ export default function BridgePanel() {
   const chainId = useChainId();
   const [exec, setExec] = useState<{ phase: "idle" | "working" | "done" | "error"; msg: string; tx?: string }>({ phase: "idle", msg: "" });
 
-  const executeBridge = async () => {
-    if (!isConnected || !walletClient || !address) {
-      open();
-      return;
-    }
+  const validateAmount = (): bigint | null => {
     let amt: bigint;
     try {
       amt = parseEther(amount || "0");
@@ -185,12 +209,47 @@ export default function BridgePanel() {
     }
     if (amt <= 0n) {
       setExec({ phase: "error", msg: "Enter an amount first." });
-      return;
+      return null;
     }
     if (originBalance != null && Number(amount) > originBalance + 1e-9) {
       setExec({ phase: "error", msg: "Amount exceeds your balance on this chain." });
+      return null;
+    }
+    return amt;
+  };
+
+  // ERC-20 side (Ethereum): approve the router for the amount, once.
+  const ensureRouterAllowance = async (pub: PublicClient, src: ReturnType<typeof routeOf>, amt: bigint) => {
+    if (!src.underlying || !walletClient || !address) return;
+    const allowance = (await pub.readContract({ address: src.underlying, abi: ERC20_ABI, functionName: "allowance", args: [address, src.router] })) as bigint;
+    if (allowance >= amt) return;
+    setExec({ phase: "working", msg: "Approve LCAI in your wallet (one-time)..." });
+    const approveTx = await walletClient.writeContract({ address: src.underlying, abi: ERC20_ABI, functionName: "approve", args: [src.router, amt] });
+    await pub.waitForTransactionReceipt({ hash: approveTx });
+  };
+
+  // Once the source-chain tx confirms, the source balance drops immediately;
+  // the relayed LCAI lands on the destination later (~30-60 min), so update
+  // the status honestly and poll a couple more times for the remote balance.
+  const trackSourceConfirmation = (pub: PublicClient, tx: `0x${string}`) => {
+    pub
+      .waitForTransactionReceipt({ hash: tx })
+      .then(() => {
+        setExec({ phase: "done", msg: `Confirmed on ${fromBrand.label}. Your LCAI lands on ${toBrand.label} after the Hyperlane relay (~30-60 min).`, tx });
+        loadBalances();
+        setTimeout(loadBalances, 15_000);
+        setTimeout(loadBalances, 45_000);
+      })
+      .catch(() => {});
+  };
+
+  const executeBridge = async () => {
+    if (!isConnected || !walletClient || !address) {
+      open();
       return;
     }
+    const amt = validateAmount();
+    if (amt == null) return;
     const src = routeOf(fromKey);
     const dst = routeOf(toKey);
     setExec({ phase: "working", msg: chainId !== src.chainId ? `Switching your wallet to ${src.label}...` : "Preparing..." });
@@ -198,27 +257,8 @@ export default function BridgePanel() {
       if (chainId !== src.chainId) await switchChainAsync({ chainId: src.chainId });
       const pub = createPublicClient({ transport: http(src.rpc) });
       const fee = (await pub.readContract({ address: src.router, abi: HYPERLANE_ROUTER_ABI, functionName: "quoteGasPayment", args: [dst.hyperlaneDomain] })) as bigint;
-      // ERC-20 side (Ethereum): approve the router for the amount, once.
-      if (src.underlying) {
-        const allowance = (await pub.readContract({ address: src.underlying, abi: ERC20_ABI, functionName: "allowance", args: [address, src.router] })) as bigint;
-        if (allowance < amt) {
-          setExec({ phase: "working", msg: "Approve LCAI in your wallet (one-time)..." });
-          const approveTx = await walletClient.writeContract({ address: src.underlying, abi: ERC20_ABI, functionName: "approve", args: [src.router, amt] });
-          await pub.waitForTransactionReceipt({ hash: approveTx });
-        }
-      }
-      // Pin chain-estimated fees so MetaMask can render LightChain's tiny gas.
-      let feeParams: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | { gasPrice: bigint } | undefined;
-      try {
-        const f = await pub.estimateFeesPerGas();
-        feeParams = f?.maxFeePerGas ? { maxFeePerGas: f.maxFeePerGas, maxPriorityFeePerGas: f.maxPriorityFeePerGas ?? f.maxFeePerGas } : { gasPrice: await pub.getGasPrice() };
-      } catch {
-        try {
-          feeParams = { gasPrice: await pub.getGasPrice() };
-        } catch {
-          feeParams = undefined;
-        }
-      }
+      await ensureRouterAllowance(pub, src, amt);
+      const feeParams = await resolveFeeParams(pub);
       // HypNative (LightChain): value = amount + fee. HypERC20 (Ethereum): value = fee.
       const value = src.underlying ? fee : amt + fee;
       setExec({ phase: "working", msg: "Confirm the bridge transfer in your wallet..." });
@@ -233,18 +273,7 @@ export default function BridgePanel() {
       });
       setExec({ phase: "done", msg: `Submitted on ${fromBrand.label} - confirming...`, tx });
       setAmount("");
-      // Once the source-chain tx confirms, the source balance drops immediately;
-      // the relayed LCAI lands on the destination later (~30-60 min), so update
-      // the status honestly and poll a couple more times for the remote balance.
-      pub
-        .waitForTransactionReceipt({ hash: tx })
-        .then(() => {
-          setExec({ phase: "done", msg: `Confirmed on ${fromBrand.label}. Your LCAI lands on ${toBrand.label} after the Hyperlane relay (~30-60 min).`, tx });
-          loadBalances();
-          setTimeout(loadBalances, 15_000);
-          setTimeout(loadBalances, 45_000);
-        })
-        .catch(() => {});
+      trackSourceConfirmation(pub, tx);
     } catch (e) {
       setExec({ phase: "error", msg: humanizeError(e, { action: "the bridge transfer" }) });
     }
@@ -288,7 +317,7 @@ export default function BridgePanel() {
                 />
                 <button
                   type="button"
-                  onClick={() => originBalance && originBalance > 0 && setAmount(String(originBalance))}
+                  onClick={() => originBalance != null && originBalance > 0 && setAmount(maxBridgeAmount(originBalance, fromKey === "lightchain"))}
                   disabled={!isConnected || !originBalance}
                   className="flex h-6 min-w-[52px] items-center justify-center rounded-[30px] bg-primary px-3 text-xs font-semibold leading-none text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -296,7 +325,8 @@ export default function BridgePanel() {
                 </button>
               </div>
               <div className="mt-3 flex items-center justify-between text-xs leading-[18px] text-content-soft">
-                <span className="tabular-nums">$0.00</span>
+                {/* No live LCAI price feed here - a dash beats a fake $0.00. */}
+                <span className="tabular-nums">-</span>
                 <span className="font-medium text-primary tabular-nums">Balance: {bal4(originBalance)}</span>
               </div>
             </div>

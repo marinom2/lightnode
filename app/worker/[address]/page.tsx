@@ -10,6 +10,8 @@ import { OperationsPanel } from "@/components/operations-panel";
 import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { useSavedWorkers } from "@/lib/saved-workers";
+import { humanizeError } from "@/lib/humanize-error";
+import { isDesktop } from "@/lib/tauri";
 import { shortAddr } from "@/lib/utils";
 import type { Worker, Job } from "@/lib/subgraph";
 import type { WorkerLivenessReport, WorkerActionCenter } from "lightnode-sdk";
@@ -34,6 +36,10 @@ export default function WorkerPage() {
   // ?demo=liveness renders the stuck-job banner over any worker for previewing.
   const livenessDemo = useLivenessDemo();
   const [error, setError] = useState("");
+  // Worker operations run in the desktop app, never on the web - same gate as
+  // /dashboard. On the web this shareable page is a read-only tracker.
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => setDesktop(isDesktop()), []);
 
   const valid = /^0x[a-fA-F0-9]{40}$/.test(address);
 
@@ -51,8 +57,10 @@ export default function WorkerPage() {
       setLiveness(r.liveness ?? null);
       setActions(r.actions ?? null);
       setProfitability(r.profitability ?? null);
+      // A successful refetch supersedes any earlier failure, so drop the banner.
+      setError("");
     } catch (e) {
-      setError((e as Error).message);
+      setError(humanizeError(e, { action: "the worker lookup" }));
     }
   }, [address, network, valid]);
 
@@ -112,9 +120,11 @@ export default function WorkerPage() {
         </div>
       )}
 
-      <Card className="mt-8 p-6">
-        <OperationsPanel />
-      </Card>
+      {desktop && (
+        <Card className="mt-8 p-6">
+          <OperationsPanel />
+        </Card>
+      )}
     </div>
   );
 }

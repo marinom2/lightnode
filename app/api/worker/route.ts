@@ -4,6 +4,7 @@ import { LightNode, WorkerOperator, type MinimalPublicClient } from "lightnode-s
 import { fetchWorker, fetchWorkerJobs, fetchWorkerModels, fetchModels, isLive } from "@/lib/subgraph";
 import { fetchOnchainRegistered, fetchOnchainEligibleModels } from "@/lib/onchain-status";
 import { NETWORKS, type NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 /**
  * Read-only profitability for the worker's primary served model: worker fee per
@@ -36,7 +37,8 @@ async function computeProfitability(
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   const address = req.nextUrl.searchParams.get("address") || "";
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return NextResponse.json({ ok: false, error: "invalid address" }, { status: 400 });

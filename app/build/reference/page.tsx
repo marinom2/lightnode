@@ -105,6 +105,7 @@ const FRAMEWORK_EXAMPLES = [
 const EXAMPLES_REPO = "marinom2/lightnode-examples";
 
 const CHANGELOG = [
+  { v: "0.19.0", date: "June 2026", line: "Conversation reuses one on-chain session across turns (first send pays createSession, follow-ups submit straight onto it, transparent reopen + one retry on expiry or worker failure; currentSession() exposes the handle); new connectWithKey() returns the SIWE-authenticated gateway, viem clients, and WebSocket ctor for custom session flows; the Minimal* client interfaces are method-typed so real viem PublicClient/WalletClient instances pass into Bridge, DAO, WorkerOperator, and OnchainModelRegistry with zero casts; WorkerOperator.register(encryptionPubKey) completes the lifecycle; typescript added as a devDependency so a standalone sdk/ checkout builds." },
   { v: "0.18.0", date: "June 2026", line: "Consistency + polish: LightNode { timeoutMs } now also applies to the viem transport behind the viem-backed reads (getJobOnchain, getWorkerLiveness, getWorkerActions), so the whole call honors one timeout instead of half of it; the CLI 'worker settle' JSON now uses the 'skipped' field name to match the exported BatchJobOpResult and the scaffolded worker-ops.ts; and the CLI help/usage text now lists 'add worker-operator' and the worker doctor/liveness/profitability diagnostics." },
   { v: "0.17.0", date: "June 2026", line: "New scaffolder: npx lightnode add worker-operator writes a runnable Node console (worker-ops.ts + .env.example + README) over the WorkerOperator surface - status / settle / clearstuck / withdraw / deregister / profitability, no Docker or worker image. The status command prints JSON (a prioritized to-do list + an outOfGas flag) so an operator can cron it and never sit on stuck jobs or unclaimed earnings; the mainnet-slashing commands are gated behind --yes." },
   { v: "0.16.0", date: "June 2026", line: "Cancellation + auth resilience: an AbortSignal on runInference / runInferenceWithKey is now honored at every await - including the mid-stream wait for JobCompleted and the relay-token poll - so a cancel stops the work promptly and closes the relay socket instead of running the poll loops to their deadlines; it rejects with InferenceAbortedError (name 'AbortError', detect via isAbortError). A function bearer on GatewayClient is re-invoked with { forceRefresh: true } on a 401 and the request is replayed once, so a server-side token revocation / clock-skew expiry self-heals (a static-string bearer still surfaces the 401)." },
@@ -184,7 +185,7 @@ export default function BuildReferencePage() {
             {UTIL_HELPERS.map((u) => (
               <li key={u.sig}>
                 <code className="font-mono text-content-default">{u.sig}</code>
-                <span className="text-content-soft"> → {u.returns} — {u.desc}</span>
+                <span className="text-content-soft"> → {u.returns} - {u.desc}</span>
               </li>
             ))}
           </ul>

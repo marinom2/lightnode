@@ -85,8 +85,8 @@ function ConsumerView({
         <Stat label="Cost / month" value={`${lcai(c.perMonth, 0)} LCAI`} />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Stat label="Fee / call" value={`${lcai(model.feeLcai)} LCAI`} sub="paid to the worker pool" />
-        <Stat label="Gas / call (2 txs)" value={`~${lcai(c.txGasLcai)} LCAI`} sub="createSession + submitJob" />
+        <Stat label="Fee / call" value={`${lcai(model.feeLcai)} LCAI`} sub="live on-chain model fee" />
+        <Stat label="Gas / call (2 txs)" value={`~${lcai(c.txGasLcai)} LCAI`} sub="createSession + submitJob · static estimate" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <Stat
@@ -98,7 +98,7 @@ function ConsumerView({
       </div>
       <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-content-soft">
         <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-primary" />
-        The consumer pays the full model fee per call (the submitJob value) plus tiny gas for the two signed txs. A reused session (Conversation) signs createSession once, so multi-turn chats save the per-call session gas.
+        The consumer pays the full model fee per call (the submitJob value) plus gas for the two signed txs - the gas figure is a static per-job estimate, not a live read. A reused session (Conversation) signs createSession once, so multi-turn chats save the per-call session gas.
       </p>
     </div>
   );
@@ -181,14 +181,14 @@ export default function EconomicsPage() {
         title={mode === "operator" ? "Worker earnings & ROI" : "Consumer cost planner"}
         subtitle={
           mode === "operator"
-            ? `Project what a worker earns from the live protocol economics - the AIConfig fee split, the on-chain model fee, the stake floor, and your assumed throughput. Live from ${netLabel}.`
-            : `Budget a user-pays inference feature: the LCAI cost per call / 1k / month at the live model fee, the per-call confirmation wall-clock, and the session-reuse saving. Live from ${netLabel}.`
+            ? `Project what a worker earns from the protocol economics - the AIConfig fee split, model fees, and stake floor are live from ${netLabel}; gas per job is a static estimate, not a live read.`
+            : `Budget a user-pays inference feature: the LCAI cost per call / 1k / month at the live model fee, the per-call confirmation wall-clock, and the session-reuse saving. Model fees are live from ${netLabel}; tx gas is a static estimate.`
         }
       >
         {error && <Notice tone="warn">{error}</Notice>}
         {loading && (
           <div className="flex items-center gap-2 text-sm text-content-soft">
-            <Loader2 className="size-4 animate-spin" /> Reading live economics from {netLabel}...
+            <Loader2 className="size-4 animate-spin" /> Reading economics from {netLabel}...
           </div>
         )}
 
@@ -262,7 +262,7 @@ export default function EconomicsPage() {
                     <span>fee pool {data.config.feePoolBps / 100}%</span>
                   </div>
                   <p className="mt-2">
-                    Gas est. {lcai(data.gasPerJobLcai)} LCAI/job · stake floor {data.config.minStakeLcai.toLocaleString()} LCAI
+                    Static gas est. {lcai(data.gasPerJobLcai)} LCAI/job · stake floor {data.config.minStakeLcai.toLocaleString()} LCAI
                     {data.network.activeWorkers != null && ` · ${data.network.activeWorkers} active workers`}
                   </p>
                 </div>
@@ -279,8 +279,8 @@ export default function EconomicsPage() {
                   <Stat label="Net / month" value={`${lcai(calc.monthlyNet, 0)} LCAI`} tone={calc.monthlyNet >= 0 ? "good" : "warn"} />
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <Stat label="Worker fee / job" value={lcai(calc.workerFeePerJob)} />
-                  <Stat label="Gas / job" value={lcai(data.gasPerJobLcai)} />
+                  <Stat label="Worker fee / job" value={lcai(calc.workerFeePerJob)} sub="from the live fee split" />
+                  <Stat label="Gas / job" value={lcai(data.gasPerJobLcai)} sub="static estimate" />
                   <Stat label="Net / job" value={lcai(calc.netPerJob)} tone={calc.netPerJob >= 0 ? "good" : "warn"} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -304,7 +304,7 @@ export default function EconomicsPage() {
                 )}
                 <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-content-soft">
                   <TrendingUp className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                  Earnings are net of gas only. Stake is locked, not spent - it is returned on exit unless slashed. Yield assumes the stake floor; staking more does not increase per-job pay.
+                  Earnings are net of a static per-job gas estimate, not a live gas read. Stake is locked, not spent - it is returned on exit unless slashed. Yield assumes the stake floor; staking more does not increase per-job pay.
                 </p>
               </div>
               )}
