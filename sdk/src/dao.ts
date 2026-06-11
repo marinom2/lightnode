@@ -154,34 +154,44 @@ export const VOTES_ABI = parseAbi([
   "function delegate(address delegatee) external returns (bool)",
 ]);
 
+// Method shorthand (not function properties) on purpose: TypeScript checks
+// method parameters bivariantly, so a real viem PublicClient - whose methods
+// take much stricter parameter types - is assignable here without casts.
+// Function properties would be strictly contravariant and reject viem clients.
 interface MinimalPublicClient {
-  readContract: (args: {
+  readContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
     args?: readonly unknown[];
-  }) => Promise<unknown>;
+  }): Promise<unknown>;
   // Optional event-scan surface used by `recentProposals`. Made optional so
-  // older callers that only need reads keep type-checking.
-  getBlockNumber?: () => Promise<bigint>;
-  getLogs?: (args: {
-    address?: `0x${string}`;
+  // older callers that only need reads keep type-checking. The parameter and
+  // log-row shapes mirror viem's (optional parameter, address arrays, the
+  // full block-tag union, nullable blockNumber/transactionHash on pending
+  // logs, untyped decoded `args`) so a real PublicClient is assignable.
+  getBlockNumber?(): Promise<bigint>;
+  getLogs?(args?: {
+    address?: `0x${string}` | `0x${string}`[];
     event?: unknown;
-    args?: Record<string, unknown>;
-    fromBlock?: bigint | "earliest" | "latest";
-    toBlock?: bigint | "latest";
-  }) => Promise<ReadonlyArray<{ args?: Record<string, unknown>; blockNumber?: bigint; transactionHash?: `0x${string}` }>>;
+    args?: unknown;
+    fromBlock?: bigint | "earliest" | "latest" | "pending" | "safe" | "finalized";
+    toBlock?: bigint | "earliest" | "latest" | "pending" | "safe" | "finalized";
+  }): Promise<ReadonlyArray<{ args?: unknown; blockNumber?: bigint | null; transactionHash?: `0x${string}` | null }>>;
 }
 
+// Method shorthand for the same bivariance reason as MinimalPublicClient.
+// `args` is optional (matching viem's own optional parameter typing) so the
+// bivariant check succeeds; the SDK always passes it.
 interface MinimalWalletClient {
-  writeContract: (args: {
+  writeContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
-    args: readonly unknown[];
+    args?: readonly unknown[];
     value?: bigint;
     gas?: bigint;
-  }) => Promise<`0x${string}`>;
+  }): Promise<`0x${string}`>;
 }
 
 export interface ProposalSummary {
@@ -451,7 +461,9 @@ export class DAO {
     for (const res of settled) {
       if (res.status !== "fulfilled") continue;
       for (const log of res.value) {
-        const args = log.args ?? {};
+        // The row type leaves decoded `args` untyped (viem types them per-event);
+        // narrow to the ProposalCreated record shape we scan for.
+        const args = (log.args ?? {}) as Record<string, unknown>;
         const id = args.proposalId as bigint | undefined;
         const proposer = args.proposer as `0x${string}` | undefined;
         const description = (args.description as string | undefined) ?? "";

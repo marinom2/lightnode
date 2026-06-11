@@ -1,14 +1,14 @@
 # lightnode-sdk
 
 [![npm](https://img.shields.io/npm/v/lightnode-sdk?color=7064e9)](https://www.npmjs.com/package/lightnode-sdk)
-[![License: MIT](https://img.shields.io/badge/license-MIT-7064e9.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-7064e9.svg)](https://github.com/marinom2/lightnode/blob/main/sdk/LICENSE)
 
 **The community SDK for LightChain AI.** Encrypted on-chain inference, network
 analytics, multi-turn chat, an Ethereum bridge wrapper, an LCAI Governor
 client, an on-chain model registry reader, worker preflight + watch, a full
 worker-operator surface (register, stake, settle, stuck-job recovery, exit),
-and a bundled `lightnode` CLI. Non-custodial. Pure JS (works in Node 18+,
-browsers, StackBlitz, Cloudflare Workers, Bun). Single peer dep: `viem`.
+and a bundled CLI (`npx lightnode-sdk`). Non-custodial. Pure JS (works in
+Node 18+, browsers, StackBlitz, Cloudflare Workers, Bun). Built on `viem`.
 
 ```bash
 npm install lightnode-sdk viem
@@ -18,7 +18,8 @@ LightChain's own docs list official SDKs as "soon"; this fills the gap. Not
 affiliated with LightChain.
 
 New to blockchain or Node.js? Read the
-[Getting Started guide](../GETTING-STARTED.md) first. It covers wallets, testnet
+[Getting Started guide](https://github.com/marinom2/lightnode/blob/main/GETTING-STARTED.md)
+first. It covers wallets, testnet
 vs mainnet, the `.env` file, and your first AI call in about 5 minutes. Then come
 back here for the full reference. The rest of this README assumes you're
 comfortable with TypeScript and a terminal.
@@ -50,10 +51,12 @@ so you don't need to pass a WebSocket explicitly.
 | **`runInferenceWithKey({ network, privateKey, prompt, ... })`** | One call from a wallet. The SDK builds viem clients, runs SIWE, encrypts, signs, decrypts. ~5 lines total. |
 | **`runInference({ gateway, wallet, publicClient, network, prompt, ... })`** | You already have viem clients + a SIWE JWT. Same internals, no setup duplication. The /playground uses this with a Reown wallet. |
 | **`runInferenceStream({ network, privateKey, prompt, ... })`** | Modern `AsyncIterable<string>` of chunks plus a `done` promise for the final receipt. `for await (const chunk of stream) ...` |
-| **`Conversation` / `chat({ network, privateKey })`** | Multi-turn chat helper. Keeps history client-side and **reuses one session across turns** (opens once, skips `createSession` on follow-ups, so a turn costs one tx not two). Optional `system` prompt, `maxHistoryTurns` cap. |
+| **`Conversation` / `chat({ network, privateKey })`** | Multi-turn chat helper. Keeps history client-side and (new in 0.19.0) **keeps one session open across turns**: the first `send` runs SIWE + the one `createSession` tx, and every follow-up costs a single `submitJob`. When the session window expires or the bound worker fails, the next `send` transparently reopens a fresh session and retries the turn once. `currentSession()` exposes the bound session (worker, sessionId, expiry) or null before the first send. Optional `system` prompt, `maxHistoryTurns` cap. |
+| **`connectWithKey({ network, privateKey, ... })`** (new in 0.19.0) | The setup half of `runInferenceWithKey`, reusable on its own: validates the key, builds viem clients, runs the SIWE handshake against the consumer gateway, resolves a WebSocket ctor, and returns a `KeyConnection` (`{ gateway, wallet, publicClient, network, networkId, WebSocket }`). Pair it with `openSession` / `runJobOnSession` for custom session flows - it is exactly what `Conversation` does under the hood. |
 | **`prepareSession`, `submitPrompt`, `decryptResponse`** | Lowest-level: drive the protocol step by step. Build custom retry, batching, multi-turn-with-session-reuse on top. |
 
-All four high-level entry points share:
+The four high-level entry points (`runInference`, `runInferenceWithKey`,
+`runInferenceStream`, `Conversation`) share:
 - Auto-retry on `StalledWorkerError` (default 2 retries, configurable).
 - Auto-resolve `globalThis.WebSocket` in browsers, dynamic-import `ws` in Node.
 - Streaming via `onChunk(piece, totalSoFar)` callback.
@@ -210,10 +213,11 @@ import { Bridge, BRIDGE_ROUTE } from "lightnode-sdk";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-const account = privateKeyToAccount(process.env.PRIVATE_KEY!);
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
 const ethPub = createPublicClient({ transport: http(BRIDGE_ROUTE.ethereum.rpc) });
 const ethWal = createWalletClient({ account, transport: http(BRIDGE_ROUTE.ethereum.rpc) });
 
+// Real viem clients pass straight in - no casts needed.
 const bridge = new Bridge(ethPub, ethWal);
 
 // Quote the Hyperlane gas payment for one message
@@ -245,34 +249,56 @@ Confirmed addresses (baked in):
 
 ### DAO SDK (new in 0.5.0)
 
-OpenZeppelin Governor v5 wrapper for the LCAIGovernor on Ethereum mainnet.
+OpenZeppelin Governor v5 wrapper. The SDK supports **both** deployed LCAI
+governors - pick one with the `DaoChain` key:
+
+- `"ethereum"`: the LCAIGovernor on Ethereum mainnet (chain 1). Voting power
+  comes from LCAI ERC-20 wrapped as LCAI-Ballots (IVotes) at
+  <https://ballots.lightchain.ai>.
+- `"lightchain"`: the governor on LightChain mainnet (chain 9200). Native
+  LCAI itself votes via the NativeVotes precompile
+  (`0x...1001`) - no wrapping step.
 
 ```ts
-import { DAO, VoteSupport, PROPOSAL_STATE_LABEL } from "lightnode-sdk";
+import { DAO, VoteSupport } from "lightnode-sdk";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
-// Read
+// Read. Pass "lightchain" + a chain-9200 RPC for the LightChain governor.
+const publicClient = createPublicClient({ transport: http("https://ethereum-rpc.publicnode.com") });
 const dao = new DAO(publicClient, "ethereum");
 const cfg = await dao.config();                   // delay / period / threshold
 const p = await dao.proposal(12345n);             // state + votes + key blocks
 console.log(p.stateLabel);                        // "active" | "queued" | ...
 
-// Write (needs wallet)
+// Write (needs a wallet). Real viem clients pass straight in - no casts.
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+const walletClient = createWalletClient({ account, transport: http("https://ethereum-rpc.publicnode.com") });
 const daoRW = new DAO(publicClient, "ethereum", walletClient);
 await daoRW.castVote(12345n, VoteSupport.For, "I support this");
+
+const targets: `0x${string}`[] = [dao.addresses.treasury];
+const values = [0n];
+const calldatas: `0x${string}`[] = ["0x"];
+const description = "Example: empty call against the treasury";
 await daoRW.propose({ targets, values, calldatas, description });
+const descriptionHash = daoRW.descriptionHash(description);
 await daoRW.queue({ targets, values, calldatas, descriptionHash });
 await daoRW.execute({ targets, values, calldatas, descriptionHash });
 ```
 
-Confirmed Ethereum addresses (baked in):
-- LCAIGovernor `0x6dfa413B5900a1a7947BC75E68AbBA093cB2492d`
-- LCAITimeLock `0xbE1c37F8C4DA77dD06F4A8AC5098Ec70273093d7`
-- LCAIBallots (IVotes) `0x75F3D01c4D960FE986A598B7954A3b786B29cE49`
-- LCAI ERC-20 `0x9cA8530CA349c966Fe9ef903Df17a75B8A778927`
-- LCAITreasury `0x07A716a551E5f4CA7D6C71Da9dF1cb1429Dba826`
+Confirmed addresses (baked in, exported as `DAO_ADDRESSES`):
 
-Voting params (live-read via `dao.config()`): ~1 day delay, ~14 day period,
-140k LCAI threshold, 3% quorum.
+| Role | Ethereum mainnet (`"ethereum"`) | LightChain mainnet (`"lightchain"`) |
+|------|------|------|
+| Governor | `0x6dfa413B5900a1a7947BC75E68AbBA093cB2492d` | `0x262E9f9232933E8565253918db703baD58DE93aB` |
+| Timelock | `0xbE1c37F8C4DA77dD06F4A8AC5098Ec70273093d7` | `0x79e571420c5473Ca9b0FCd599B1b0062D7793c97` |
+| Votes | LCAIBallots `0x75F3D01c4D960FE986A598B7954A3b786B29cE49` | NativeVotes precompile `0x0000000000000000000000000000000000001001` |
+| Token | LCAI ERC-20 `0x9cA8530CA349c966Fe9ef903Df17a75B8A778927` | native LCAI |
+| Treasury | `0x07A716a551E5f4CA7D6C71Da9dF1cb1429Dba826` | `0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389` |
+
+Voting params for the Ethereum governor (live-read via `dao.config()`):
+~1 day delay, ~14 day period, 140k LCAI threshold, 3% quorum.
 
 ### On-chain Model Registry reader (new in 0.5.0)
 
@@ -357,9 +383,11 @@ import { privateKeyToAccount } from "viem/accounts";
 const chain = { id: 8200, name: "LC Testnet",
   nativeCurrency: { name: "LCAI", symbol: "LCAI", decimals: 18 },
   rpcUrls: { default: { http: ["https://rpc.testnet.lightchain.ai"] } } };
+const account = privateKeyToAccount(process.env.WORKER_KEY as `0x${string}`);
 const publicClient = createPublicClient({ transport: http(chain.rpcUrls.default.http[0]), chain });
-const walletClient = createWalletClient({ account: privateKeyToAccount(process.env.WORKER_KEY!), transport: http(chain.rpcUrls.default.http[0]), chain });
+const walletClient = createWalletClient({ account, transport: http(chain.rpcUrls.default.http[0]), chain });
 
+// Real viem clients pass straight in - no casts needed.
 const op = new WorkerOperator("testnet", { publicClient, walletClient });
 
 // Reads (no wallet needed): status, live protocol config, typed jobs.
@@ -394,6 +422,7 @@ Full method reference (`jobIds` are the worker's IDs from
 | `canDeregister(jobIds)` | no | `{ ok, blockedBy, reason }` without sending a tx |
 | `earnings({ ... })` | no | claimable now vs lifetime vs pending-release |
 | `profitability({ ... })` | no | per-job worker fee net of gas, from the live fee split |
+| `register(encryptionPubKey, opts?)` | yes | (new in 0.19.0) register THIS wallet as a worker, staking native LCAI in the same tx (registerWorker is payable). Stake defaults to the LIVE AIConfig minimum; pass `opts.stakeWei` for more headroom. Pre-flights via eth_call so an ineligible registration reverts with a decoded reason before gas is spent. Follow with `addModel()` so the dispatcher can route jobs to the worker |
 | `claimTimeout(id)` | yes | time out one stuck job (mainnet: realizes a slash) |
 | `clearStuck(jobIds)` | yes | claimTimeout every past-deadline acked job; `{ done, skipped }` (skipped = acked but not yet past deadline) |
 | `releaseJob(id)` | yes | settle one completed job past its window |
@@ -594,40 +623,44 @@ try {
 
 ## CLI
 
-`lightnode` is bundled. Read-only commands work anywhere; chat / wallet / preflight need `PRIVATE_KEY`.
+The CLI is bundled: run it as `npx lightnode-sdk <cmd>` (the bare npm name
+`lightnode` is an unrelated package, so standalone `npx lightnode` runs the
+wrong thing). Inside a project that has `lightnode-sdk` installed, plain
+`npx lightnode <cmd>` resolves to the local bin and works too. Read-only
+commands work anywhere; chat / wallet / preflight need `PRIVATE_KEY`.
 
 ### Read-only (no key)
 
 ```bash
-npx lightnode network                    # network summary JSON
-npx lightnode models [--json]            # registered models + fees (table, or JSON)
-npx lightnode worker 0x...               # one worker + 5 recent jobs
-npx lightnode worker doctor 0x...        # action center: gas, claimable, stuck, settle, to-do
-npx lightnode worker liveness 0x...      # stuck-job + slash-risk + activity diagnostic
-npx lightnode worker profitability 0x... # fee/gas/net per job + projected daily
-npx lightnode jobs 0x... --csv           # job history (also --json)
-npx lightnode registered 0x...           # true | false | null (chain truth)
-npx lightnode fee llama3-8b              # per-job LCAI fee
-npx lightnode analytics --json           # per-model performance (--csv or --json)
-npx lightnode reliability --json         # per-worker reliability (--csv or --json)
-npx lightnode job 1234                   # job status + refundable flag
-npx lightnode worker watch 0x... --interval 30   # JSON event per state change
-npx lightnode <cmd> --help               # usage for just that command
-npx lightnode bridge addresses           # bridge route
-npx lightnode dao addresses              # LCAI Governor addresses
-npx lightnode dao config                 # live voting delay / period / threshold
+npx lightnode-sdk network                    # network summary JSON
+npx lightnode-sdk models [--json]            # registered models + fees (table, or JSON)
+npx lightnode-sdk worker 0x...               # one worker + 5 recent jobs
+npx lightnode-sdk worker doctor 0x...        # action center: gas, claimable, stuck, settle, to-do
+npx lightnode-sdk worker liveness 0x...      # stuck-job + slash-risk + activity diagnostic
+npx lightnode-sdk worker profitability 0x... # fee/gas/net per job + projected daily
+npx lightnode-sdk jobs 0x... --csv           # job history (also --json)
+npx lightnode-sdk registered 0x...           # true | false | null (chain truth)
+npx lightnode-sdk fee llama3-8b              # per-job LCAI fee
+npx lightnode-sdk analytics --json           # per-model performance (--csv or --json)
+npx lightnode-sdk reliability --json         # per-worker reliability (--csv or --json)
+npx lightnode-sdk job 1234                   # job status + refundable flag
+npx lightnode-sdk worker watch 0x... --interval 30   # JSON event per state change
+npx lightnode-sdk <cmd> --help               # usage for just that command
+npx lightnode-sdk bridge addresses           # bridge route
+npx lightnode-sdk dao addresses              # Ethereum LCAI Governor addresses
+npx lightnode-sdk dao config                 # live voting delay / period / threshold (Ethereum governor)
 ```
 
 ### Need PRIVATE_KEY
 
 ```bash
-PRIVATE_KEY=0x... npx lightnode chat "Write me a haiku about LightChain"
-PRIVATE_KEY=0x... npx lightnode batch prompts.json --concurrency 4   # N prompts in parallel
-PRIVATE_KEY=0x... npx lightnode agent "research X and summarize"     # ReAct agent, built-in tools
-PRIVATE_KEY=0x... npx lightnode wallet address
-PRIVATE_KEY=0x... npx lightnode wallet balance --net testnet
-                  npx lightnode wallet new           # generates a fresh key
-PRIVATE_KEY=0x... npx lightnode worker preflight --net testnet
+PRIVATE_KEY=0x... npx lightnode-sdk chat "Write me a haiku about LightChain"
+PRIVATE_KEY=0x... npx lightnode-sdk batch prompts.json --concurrency 4   # N prompts in parallel
+PRIVATE_KEY=0x... npx lightnode-sdk agent "research X and summarize"     # ReAct agent, built-in tools
+PRIVATE_KEY=0x... npx lightnode-sdk wallet address
+PRIVATE_KEY=0x... npx lightnode-sdk wallet balance --net testnet
+                  npx lightnode-sdk wallet new           # generates a fresh key
+PRIVATE_KEY=0x... npx lightnode-sdk worker preflight --net testnet
 ```
 
 ### Worker operator (signs as the worker key)
@@ -638,33 +671,41 @@ controls. Mainnet `clearstuck` and `deregister` realize a slash, so they require
 `--yes`.
 
 ```bash
-                  npx lightnode worker status 0x...        # registration, stake, claimable, live config
-                  npx lightnode worker models 0x...        # models served, reconciled vs chain (servingNow truth)
-PRIVATE_KEY=0x... npx lightnode worker preflight           # one real test inference, print verdict + timings
-PRIVATE_KEY=0x... npx lightnode worker can-deregister      # what blocks the exit, before spending gas
-PRIVATE_KEY=0x... npx lightnode worker settle              # release completed jobs past their window + withdraw
-PRIVATE_KEY=0x... npx lightnode worker withdraw            # pull the earned balance into the worker wallet
-PRIVATE_KEY=0x... npx lightnode worker clearstuck --yes    # claimTimeout acked, past-deadline jobs that block exit
-PRIVATE_KEY=0x... npx lightnode worker deregister --yes    # clear stuck + settle + withdraw + deregister
+                  npx lightnode-sdk worker status 0x...        # registration, stake, claimable, live config
+                  npx lightnode-sdk worker models 0x...        # models served, reconciled vs chain (servingNow truth)
+PRIVATE_KEY=0x... npx lightnode-sdk worker preflight           # one real test inference, print verdict + timings
+PRIVATE_KEY=0x... npx lightnode-sdk worker can-deregister      # what blocks the exit, before spending gas
+PRIVATE_KEY=0x... npx lightnode-sdk worker settle              # release completed jobs past their window + withdraw
+PRIVATE_KEY=0x... npx lightnode-sdk worker withdraw            # pull the earned balance into the worker wallet
+PRIVATE_KEY=0x... npx lightnode-sdk worker clearstuck --yes    # claimTimeout acked, past-deadline jobs that block exit
+PRIVATE_KEY=0x... npx lightnode-sdk worker deregister --yes    # clear stuck + settle + withdraw + deregister
 ```
 
 ### Scaffolders (write files into your project)
 
-Server-paid (you host a backend; your funded wallet pays per call):
+Thirteen `add` targets. Server-paid (you host a backend; your funded wallet
+pays per call):
 
 ```bash
-npx lightnode add inference                    # encrypted inference route or script
-npx lightnode add chat                         # chat UI with conversation history
-npx lightnode add judge                        # pass/fail evaluator route (criteria + evidence)
-npx lightnode add agent                        # scheduled inference (Vercel Cron / setInterval)
-npx lightnode add analytics-dashboard          # read-only network + worker analytics page
-npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
+npx lightnode-sdk add inference                    # encrypted inference route or script
+npx lightnode-sdk add chat                         # chat UI with conversation history
+npx lightnode-sdk add judge                        # pass/fail evaluator route (criteria + evidence)
+npx lightnode-sdk add agent                        # scheduled inference (Vercel Cron / setInterval)
+npx lightnode-sdk add analytics-dashboard          # read-only network + worker analytics page
+npx lightnode-sdk add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
+```
+
+Standalone scripts (run with `npx tsx`; sign with your own key):
+
+```bash
+npx lightnode-sdk add batch                        # batch.ts: N prompts in parallel (runInferenceBatch)
+npx lightnode-sdk add bridge                       # bridge.ts: LCAI across the Hyperlane bridge (mainnet-only)
 ```
 
 For worker operators (a runnable Node console over the on-chain operator surface):
 
 ```bash
-npx lightnode add worker-operator              # worker-ops.ts: status / settle / clearstuck / withdraw / deregister / profitability
+npx lightnode-sdk add worker-operator              # worker-ops.ts: status / settle / clearstuck / withdraw / deregister / profitability
 ```
 
 `add worker-operator` writes a standalone `worker-ops.ts` (plus `.env.example`
@@ -677,10 +718,10 @@ behind `--yes`). Drop `status` in cron and alert when the to-do is non-empty.
 User-paid (no backend; each visitor signs + pays from their own wallet):
 
 ```bash
-npx lightnode add inference-web3               # one-shot inference UI, wallet-signed
-npx lightnode add chat-web3                     # chat UI, wallet-signed (mainnet + testnet aware)
-npx lightnode add judge-web3                    # evaluator UI, wallet-signed
-npx lightnode add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
+npx lightnode-sdk add inference-web3               # one-shot inference UI, wallet-signed
+npx lightnode-sdk add chat-web3                     # chat UI, wallet-signed (mainnet + testnet aware)
+npx lightnode-sdk add judge-web3                    # evaluator UI, wallet-signed
+npx lightnode-sdk add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
 ```
 
 The `*-web3` scaffolders are one command end to end: run in an empty folder and

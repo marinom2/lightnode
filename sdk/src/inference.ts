@@ -292,30 +292,32 @@ function abortableSleep(ms: number, signal: AbortSignal | undefined, stage: stri
 
 // Structurally typed minimum so we don't pull viem's WalletClient/PublicClient
 // generic surface into this file. Anything that walks like a viem client passes.
+// Method shorthand (not function properties) on purpose: methods get bivariant
+// parameter checks, so real viem clients are assignable without casts.
 interface MinimalWalletClient {
-  writeContract: (args: {
+  writeContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
     args: readonly unknown[];
     value?: bigint;
     gas?: bigint;
-  }) => Promise<`0x${string}`>;
+  }): Promise<`0x${string}`>;
 }
 interface MinimalPublicClient {
-  waitForTransactionReceipt: (args: { hash: `0x${string}` }) => Promise<{
+  waitForTransactionReceipt(args: { hash: `0x${string}` }): Promise<{
     status: "success" | "reverted";
     blockHash: `0x${string}`;
     blockNumber: bigint;
   }>;
-  getLogs: (args: {
+  getLogs(args: {
     address: `0x${string}`;
     event?: unknown;
     args?: Record<string, unknown>;
     fromBlock?: bigint;
     toBlock?: bigint | "latest";
     blockHash?: `0x${string}`;
-  }) => Promise<
+  }): Promise<
     Array<{
       transactionHash: `0x${string}`;
       blockNumber: bigint;
@@ -1069,7 +1071,30 @@ export interface RunInferenceWithKeyArgs {
  * console.log(answer);
  * ```
  */
-export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promise<RunInferenceResult> {
+/** Everything a key-based caller needs to run sessions: authenticated gateway,
+ *  viem clients bound to the network's RPC, and a resolved WebSocket ctor. */
+export interface KeyConnection {
+  network: NetworkConfig;
+  networkId: NetworkId;
+  wallet: MinimalWalletClient;
+  publicClient: MinimalPublicClient;
+  gateway: GatewayClient;
+  WebSocket: WebSocketCtor;
+}
+
+export type ConnectWithKeyArgs = Pick<
+  RunInferenceWithKeyArgs,
+  "network" | "privateKey" | "gatewayUrl" | "WebSocket" | "signal"
+>;
+
+/**
+ * The setup half of `runInferenceWithKey`, reusable on its own: validate the
+ * key, build viem clients, run the SIWE handshake against the consumer
+ * gateway, and resolve a WebSocket constructor. `Conversation` uses this once
+ * and then keeps a session open across turns; one-shot calls go through
+ * `runInferenceWithKey` which delegates here.
+ */
+export async function connectWithKey(args: ConnectWithKeyArgs): Promise<KeyConnection> {
   // Resolve the network config and validate the key shape up front so a
   // mistyped key fails BEFORE we touch the RPC or the gateway.
   const network: NetworkConfig = typeof args.network === "string" ? NETWORKS[args.network] : args.network;
@@ -1083,9 +1108,6 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
   // actionable message.
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) {
     throw new Error("runInferenceWithKey: privateKey must be a 0x-prefixed 32-byte hex string");
-  }
-  if (!args.prompt || !args.prompt.trim()) {
-    throw new Error("runInferenceWithKey: prompt must be a non-empty string");
   }
   if (args.signal?.aborted) {
     throw new InferenceAbortedError("before-start");
@@ -1186,18 +1208,33 @@ export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promis
     );
   }
 
-  return runInference({
-    prompt: args.prompt,
-    gateway,
+  return {
+    network,
+    networkId,
     wallet: wallet as unknown as MinimalWalletClient,
     publicClient: publicClient as unknown as MinimalPublicClient,
-    network,
+    gateway,
+    WebSocket: wsCtor,
+  };
+}
+
+export async function runInferenceWithKey(args: RunInferenceWithKeyArgs): Promise<RunInferenceResult> {
+  if (!args.prompt || !args.prompt.trim()) {
+    throw new Error("runInferenceWithKey: prompt must be a non-empty string");
+  }
+  const conn = await connectWithKey(args);
+  return runInference({
+    prompt: args.prompt,
+    gateway: conn.gateway,
+    wallet: conn.wallet,
+    publicClient: conn.publicClient,
+    network: conn.network,
     model: args.model,
     searchEnabled: args.searchEnabled,
     onChunk: args.onChunk,
     maxRetries: args.maxRetries,
     jobCompletedTimeoutMs: args.jobCompletedTimeoutMs,
-    WebSocket: wsCtor,
+    WebSocket: conn.WebSocket,
     relayUrl: args.relayUrl,
     signal: args.signal,
   });

@@ -44,39 +44,50 @@ import type { NetworkConfig, NetworkId } from "./types.js";
 // Structural viem types (soft dependency - same approach as inference.ts).
 // ===========================================================================
 
+// Both Minimal* shapes use method shorthand (not function properties) on
+// purpose: TypeScript checks method parameters bivariantly, so a real viem
+// client - whose methods take much stricter parameter types - is assignable
+// here without casts. Function properties would be strictly contravariant
+// and reject viem clients.
 export interface MinimalWalletClient {
-  writeContract: (args: {
-    address: `0x${string}`;
-    abi: readonly unknown[];
-    functionName: string;
-    args: readonly unknown[];
-    value?: bigint;
-    gas?: bigint;
-  }) => Promise<`0x${string}`>;
-  account?: { address?: `0x${string}` } | `0x${string}`;
-}
-
-export interface MinimalPublicClient {
-  readContract: (args: {
+  // `args` is optional (viem's own parameter type marks it optional), so the
+  // bivariant check succeeds in the viem -> Minimal direction. The SDK always
+  // passes it.
+  writeContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
     args?: readonly unknown[];
-  }) => Promise<unknown>;
-  waitForTransactionReceipt: (args: { hash: `0x${string}` }) => Promise<{
+    value?: bigint;
+    gas?: bigint;
+  }): Promise<`0x${string}`>;
+  account?: { address?: `0x${string}` } | `0x${string}`;
+}
+
+export interface MinimalPublicClient {
+  readContract(args: {
+    address: `0x${string}`;
+    abi: readonly unknown[];
+    functionName: string;
+    args?: readonly unknown[];
+  }): Promise<unknown>;
+  waitForTransactionReceipt(args: { hash: `0x${string}` }): Promise<{
     status: "success" | "reverted";
     blockNumber: bigint;
     gasUsed?: bigint;
     effectiveGasPrice?: bigint;
   }>;
-  simulateContract?: (args: {
+  // `account` also admits viem's Account object shape and null (viem types it
+  // as `Account | Address | null`); the SDK itself only ever passes the bare
+  // address.
+  simulateContract?(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
     args?: readonly unknown[];
-    account?: `0x${string}`;
+    account?: `0x${string}` | { address?: `0x${string}` } | null;
     value?: bigint;
-  }) => Promise<unknown>;
+  }): Promise<unknown>;
 }
 
 // ===========================================================================
@@ -545,6 +556,38 @@ export class WorkerOperator {
     return tx;
   }
 
+  /**
+   * Pre-flight a write via eth_call when the publicClient exposes
+   * simulateContract (viem PublicClients do; bare-bones test doubles may not).
+   * A revert here costs zero gas and still gets the decodeWorkerError
+   * treatment, so the caller learns WHY before anything is broadcast.
+   * No-ops silently when simulation isn't available - the send() path keeps
+   * its own decode-on-failure safety net either way.
+   */
+  private async simulateIfAvailable(
+    op: string,
+    address: `0x${string}`,
+    abi: readonly unknown[],
+    functionName: string,
+    args: readonly unknown[],
+    value?: bigint,
+  ): Promise<void> {
+    if (!this.pub.simulateContract) return;
+    try {
+      await this.pub.simulateContract({
+        address,
+        abi,
+        functionName,
+        args,
+        ...(this.maybeAddr ? { account: this.maybeAddr } : {}),
+        ...(value !== undefined ? { value } : {}),
+      });
+    } catch (err) {
+      const decoded = decodeWorkerError(extractRevertData(err));
+      throw new WorkerOpError(op, `${op} would revert: ${decoded.message}`, { decoded });
+    }
+  }
+
   // ---- 6) Live protocol config -------------------------------------------
 
   /** Live AIConfig parameters (cached after first read). */
@@ -777,6 +820,26 @@ export class WorkerOperator {
   /** Pull the worker's earned balance from the JobRegistry into the wallet. */
   async withdraw(): Promise<`0x${string}`> {
     return this.send("withdraw", this.jobReg, JOB_REGISTRY_OPERATOR_ABI_PARSED, "withdraw", []);
+  }
+
+  /**
+   * Register THIS wallet as a worker on-chain, staking native LCAI in the same
+   * transaction (registerWorker is payable). `encryptionPubKey` is the worker's
+   * encryption public key bytes - the key users encrypt prompts to; the daemon
+   * prints it, and `getWorkerEncryptionKey` reads back what's stored. The stake
+   * defaults to the LIVE AIConfig minimum (never a hardcoded "50,000"), so the
+   * registration can't bounce off a stale floor; pass `opts.stakeWei` to stake
+   * more headroom up front. Pre-flights via eth_call when the publicClient
+   * supports it, so an ineligible registration reverts with a decoded reason
+   * before any gas is spent. Registration alone serves nothing - follow up with
+   * addModel() so the dispatcher can route jobs to this worker.
+   */
+  async register(encryptionPubKey: `0x${string}`, opts?: { stakeWei?: bigint }): Promise<`0x${string}`> {
+    const stakeWei = opts?.stakeWei ?? (await this.config()).minStakeWei;
+    await this.simulateIfAvailable(
+      "register", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "registerWorker", [encryptionPubKey], stakeWei,
+    );
+    return this.send("register", this.workerReg, WORKER_REGISTRY_ABI_PARSED, "registerWorker", [encryptionPubKey], stakeWei);
   }
 
   /** Deregister - releases stake to the wallet. Reverts (ActiveJobsExist) if any in-flight job remains. */
