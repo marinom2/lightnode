@@ -64,6 +64,13 @@ export type WalletOp =
   | { type: "bridgeFee"; direction: "eth-to-lc" | "lc-to-eth" }
   | { type: "bridge"; from: string; direction: "eth-to-lc" | "lc-to-eth"; amount: string }
   | { type: "daoStatus"; chainId: number; address: string }
+  | { type: "getNfts"; chainId: number; owner: string }
+  | { type: "addNft"; chainId: number; owner: string; token: string; tokenId: string }
+  | { type: "removeNft"; chainId: number; owner: string; token: string; tokenId: string }
+  | { type: "sendNft"; from: string; to: string; token: string; tokenId: string; standard: "erc721" | "erc1155" }
+  | { type: "getOrigins" }
+  | { type: "revokeOrigin"; origin: string }
+  | { type: "setAccountName"; index: number; name: string }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }

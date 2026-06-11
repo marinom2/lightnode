@@ -3,12 +3,13 @@ import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
 import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
 import { encodeQR } from "qr";
-import { chainById, CHAIN_LIST, explorerFor, logoFor } from "../../src/rpc/chains";
+import { chainById, CHAIN_LIST, explorerFor, logoFor, nftUrlFor } from "../../src/rpc/chains";
 import type { TokenBalance } from "../../src/rpc/tokens";
 import type { ActivityEntry } from "../../src/provider/protocol";
 import { assessRecipient } from "../../src/rpc/risk";
 import { portfolioUsd, fmtUsd, type Prices } from "../../src/rpc/prices";
 import { humanizeError } from "../../src/rpc/humanize";
+import type { NftItem } from "../../src/rpc/nfts";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
 
 type Asset = { kind: "native"; symbol: string; balance: string } | { kind: "token"; symbol: string; address: string; decimals: number; balance: string };
@@ -42,6 +43,9 @@ const ICONS: Record<string, string> = {
   settings: "M20 7h-9M14 17H5M17 14a3 3 0 100 6 3 3 0 000-6zM7 4a3 3 0 100 6 3 3 0 000-6z",
   plus: "M12 5v14M5 12h14",
   expand: "M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3m13-5v3a2 2 0 01-2 2h-3",
+  edit: "M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z",
+  image: "M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6M8.5 9.5a1 1 0 110-2 1 1 0 010 2z",
+  trash: "M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14",
 };
 function Ic({ name, size = 18 }: { name: string; size?: number }) {
   return (
@@ -231,7 +235,9 @@ function Unlock({ onDone }: { onDone: () => void }) {
 function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
   const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
   const [bal, setBal] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "bridge" | null>(null);
+  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "bridge" | "importToken" | "importNft" | null>(null);
+  const [nftSel, setNftSel] = useState<NftItem | null>(null);
+  const [nfts, setNfts] = useState<NftItem[] | null>(null);
   const [acctOpen, setAcctOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const chain = chainById(state.chainId);
@@ -241,12 +247,13 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [prices, setPrices] = useState<Prices | null>(null);
-  const [tab, setTab] = useState<"tokens" | "activity">("tokens");
+  const [tab, setTab] = useState<"tokens" | "nfts" | "activity">("tokens");
   const chainId = state.chainId;
   const loadBal = useCallback(() => {
     setBal(null);
     setTokens([]);
     setPrices(null);
+    setNfts(null);
     wallet<{ formatted: string }>({ type: "getBalance", address }).then((b) => setBal(b.formatted)).catch(() => setBal("0"));
     wallet<TokenBalance[]>({ type: "getTokens", address }).then((ts) => {
       setTokens(ts);
@@ -255,6 +262,13 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
     wallet<ActivityEntry[]>({ type: "getActivity", chainId }).then(setActivity).catch(() => setActivity([]));
   }, [address, chainId]);
   useEffect(loadBal, [loadBal]);
+  const loadNfts = useCallback(() => {
+    setNfts(null);
+    wallet<NftItem[]>({ type: "getNfts", chainId, owner: address }).then(setNfts).catch(() => setNfts([]));
+  }, [chainId, address]);
+  useEffect(() => {
+    if (tab === "nfts" && nfts === null) loadNfts();
+  }, [tab, nfts, loadNfts]);
   const usd = (sym: string, amount: number, addr?: string) => {
     if (!prices) return null;
     const price = addr ? prices.tokenUsd[addr.toLowerCase()] : prices.nativeUsd;
@@ -270,15 +284,12 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
   const switchChain = (id: number) => void wallet({ type: "setChain", chainId: id }).then(onChange);
   const selectAccount = (i: number) => void wallet({ type: "setActiveAccount", index: i }).then(onChange);
   const addAccount = () => void wallet({ type: "addAccount" }).then(onChange);
-  const addToken = async () => {
-    const addr = window.prompt("Token contract address (0x…) on this network:");
-    if (!addr?.trim()) return;
-    try {
-      await wallet({ type: "addToken", chainId: state.chainId, address: addr.trim() });
-      loadBal();
-    } catch (e) {
-      window.alert((e as Error).message);
-    }
+  const rename = (i: number, name: string) => void wallet({ type: "setAccountName", index: i, name }).then(onChange);
+  const acctName = (i: number) => state.names?.[i]?.trim() || `Account ${i + 1}`;
+  const chg = (addr?: string): number | null => {
+    if (!prices) return null;
+    const c = addr ? prices.tokenChange24h[addr.toLowerCase()] : prices.nativeChange24h;
+    return typeof c === "number" ? c : null;
   };
   const assets: Asset[] = [
     { kind: "native", symbol: sym, balance: bal ?? "0" },
@@ -291,11 +302,11 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
         <div className="net" style={{ minWidth: 0 }}>
           <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
             <span className="avatar" style={{ background: avatarGradient(address), width: 26, height: 26 }} />
-            <span className="acct"><b>Account {state.activeIndex + 1}</b></span>
+            <span className="acct"><b>{acctName(state.activeIndex)}</b></span>
             <Ic name="chevron" size={13} />
           </button>
           {acctOpen && (
-            <AccountMenu accounts={state.accounts} activeIndex={state.activeIndex} onSelect={selectAccount} onAdd={addAccount} onClose={() => setAcctOpen(false)} />
+            <AccountMenu accounts={state.accounts} names={state.names ?? []} activeIndex={state.activeIndex} onSelect={selectAccount} onAdd={addAccount} onRename={rename} onClose={() => setAcctOpen(false)} />
           )}
         </div>
         <span className="spacer" />
@@ -320,34 +331,43 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
       <div className="tabs">
         <button className={`tab${tab === "tokens" ? " active" : ""}`} onClick={() => setTab("tokens")}>Tokens</button>
+        <button className={`tab${tab === "nfts" ? " active" : ""}`} onClick={() => setTab("nfts")}>NFTs</button>
         <button className={`tab${tab === "activity" ? " active" : ""}`} onClick={() => setTab("activity")}>Activity</button>
       </div>
 
-      {tab === "tokens" ? (
+      {tab === "tokens" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <div className="list-row">
             <img className="token-logo" src={logoFor(chainId)} alt="" />
-            <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
+            <div className="grow">
+              <b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b>
+              <div className="faint">{sym}{chg() != null && <Change pct={chg()!} />}</div>
+            </div>
             <div style={{ textAlign: "right" }}>
-              <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
+              {bal == null ? <span className="skel" style={{ width: 64 }} /> : <b style={{ fontSize: 13 }}>{fmtBal(bal)}</b>}
               {bal != null && usd(sym, Number(bal)) && <div className="faint">{usd(sym, Number(bal))}</div>}
             </div>
           </div>
           {tokens.map((t) => (
             <div className="list-row" key={t.address}>
               {tokenLogo(t.symbol) ? <img className="token-logo" src={tokenLogo(t.symbol)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
-              <div className="grow"><b style={{ fontSize: 13 }}>{t.symbol}</b><div className="faint">{short(t.address)}</div></div>
+              <div className="grow">
+                <b style={{ fontSize: 13 }}>{t.symbol}</b>
+                <div className="faint">{short(t.address)}{chg(t.address) != null && <Change pct={chg(t.address)!} />}</div>
+              </div>
               <div style={{ textAlign: "right" }}>
                 <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
                 {usd(t.symbol, Number(t.balance), t.address) && <div className="faint">{usd(t.symbol, Number(t.balance), t.address)}</div>}
               </div>
             </div>
           ))}
-          <button className="ghost" style={{ fontSize: 12, marginTop: 2 }} onClick={addToken}><Ic name="plus" size={13} /> Add token</button>
+          <button className="ghost" style={{ fontSize: 12, marginTop: 2 }} onClick={() => setSheet("importToken")}><Ic name="plus" size={13} /> Add token</button>
         </div>
-      ) : (
-        <ActivityList items={activity} explorer={explorer} />
       )}
+      {tab === "nfts" && (
+        <NftGrid nfts={nfts} onImport={() => setSheet("importNft")} onOpen={setNftSel} />
+      )}
+      {tab === "activity" && <ActivityList items={activity} explorer={explorer} />}
 
       {chainId === 9200 && <WorkerPanel address={address} />}
 
@@ -363,6 +383,9 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
       {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
       {sheet === "bridge" && <BridgeSheet from={address} onClose={() => setSheet(null)} onSent={loadBal} />}
+      {sheet === "importToken" && <ImportTokenSheet chainId={chainId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadBal(); }} />}
+      {sheet === "importNft" && <ImportNftSheet chainId={chainId} owner={address} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadNfts(); }} />}
+      {nftSel && <NftSheet nft={nftSel} from={address} chainId={chainId} explorer={explorer} own={state.accounts} onClose={() => setNftSel(null)} onChanged={() => { setNftSel(null); loadNfts(); }} />}
     </>
   );
 }
@@ -447,17 +470,38 @@ function BridgeSheet({ from, onClose, onSent }: { from: string; onClose: () => v
   );
 }
 
-function AccountMenu({ accounts, activeIndex, onSelect, onAdd, onClose }: { accounts: string[]; activeIndex: number; onSelect: (i: number) => void; onAdd: () => void; onClose: () => void }) {
+function AccountMenu({ accounts, names, activeIndex, onSelect, onAdd, onRename, onClose }: { accounts: string[]; names: string[]; activeIndex: number; onSelect: (i: number) => void; onAdd: () => void; onRename: (i: number, name: string) => void; onClose: () => void }) {
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const save = (i: number) => {
+    onRename(i, draft);
+    setEditing(null);
+  };
   return (
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 20 }} onClick={onClose} />
-      <div className="net-menu" style={{ left: 0, right: "auto", width: 232 }}>
+      <div className="net-menu" style={{ left: 0, right: "auto", width: 248 }}>
         {accounts.map((a, i) => (
-          <button key={a} className={`net-item${i === activeIndex ? " sel" : ""}`} onClick={() => { onSelect(i); onClose(); }}>
-            <span className="avatar" style={{ width: 22, height: 22, background: avatarGradient(a) }} />
-            <span className="grow" style={{ minWidth: 0 }}><b style={{ fontSize: 12 }}>Account {i + 1}</b><span className="faint" style={{ display: "block" }}>{short(a)}</span></span>
-            {i === activeIndex && <span className="check"><Ic name="check" size={14} /></span>}
-          </button>
+          <div key={a} className={`net-item${i === activeIndex ? " sel" : ""}`} style={{ cursor: "default" }}>
+            {editing === i ? (
+              <>
+                <input autoFocus value={draft} placeholder={`Account ${i + 1}`} maxLength={24} style={{ padding: "5px 8px", fontSize: 12 }}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => save(i)}
+                  onKeyDown={(e) => { if (e.key === "Enter") save(i); if (e.key === "Escape") setEditing(null); }} />
+                <button className="icon-btn" style={{ width: 26, height: 26, flexShrink: 0 }} title="Save" onMouseDown={(e) => { e.preventDefault(); save(i); }}><Ic name="check" size={13} /></button>
+              </>
+            ) : (
+              <>
+                <button style={{ all: "unset", display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => { onSelect(i); onClose(); }}>
+                  <span className="avatar" style={{ width: 22, height: 22, background: avatarGradient(a), flexShrink: 0 }} />
+                  <span className="grow" style={{ minWidth: 0 }}><b style={{ fontSize: 12 }}>{names[i]?.trim() || `Account ${i + 1}`}</b><span className="faint" style={{ display: "block" }}>{short(a)}</span></span>
+                </button>
+                {i === activeIndex && <span className="check"><Ic name="check" size={14} /></span>}
+                <button className="icon-btn" style={{ width: 26, height: 26, flexShrink: 0 }} title="Rename" onClick={() => { setEditing(i); setDraft(names[i] ?? ""); }}><Ic name="edit" size={12} /></button>
+              </>
+            )}
+          </div>
         ))}
         <button className="net-item" style={{ color: "var(--brand)", fontWeight: 600 }} onClick={() => { onAdd(); onClose(); }}>
           <Ic name="plus" size={15} /> Add account
@@ -471,6 +515,17 @@ function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onRemoved:
   const [pw, setPw] = useState("");
   const [phrase, setPhrase] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [origins, setOrigins] = useState<string[] | null>(null);
+  useEffect(() => {
+    wallet<string[]>({ type: "getOrigins" }).then(setOrigins).catch(() => setOrigins([]));
+  }, []);
+  const [revokeErr, setRevokeErr] = useState<string | null>(null);
+  const revoke = (origin: string) => {
+    setRevokeErr(null);
+    void wallet({ type: "revokeOrigin", origin })
+      .then(() => setOrigins((o) => (o ?? []).filter((x) => x !== origin)))
+      .catch(() => setRevokeErr("Could not revoke. Try again."));
+  };
   const reveal = async () => {
     setErr(null);
     try {
@@ -504,6 +559,25 @@ function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onRemoved:
               <button className="ghost" disabled={!pw} onClick={reveal} style={{ marginTop: 8, width: "100%" }}>Reveal phrase</button>
             </>
           )}
+        </div>
+        <div className="card">
+          <h2>Connected sites</h2>
+          {origins == null ? (
+            <span className="skel" style={{ width: 140 }} />
+          ) : origins.length === 0 ? (
+            <p className="muted">No sites are connected to this wallet.</p>
+          ) : (
+            origins.map((o) => (
+              <div className="row between" key={o} style={{ marginTop: 6 }}>
+                <span className="addr" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {o.startsWith("http://") && <span className="chg chg-down" style={{ marginLeft: 0, marginRight: 5 }}>http</span>}
+                  {o.replace(/^https:\/\//, "")}
+                </span>
+                <button className="ghost" style={{ padding: "3px 10px", fontSize: 11, flexShrink: 0 }} onClick={() => revoke(o)}>Revoke</button>
+              </div>
+            ))
+          )}
+          {revokeErr && <p className="err">{revokeErr}</p>}
         </div>
         <div className="card">
           <h2>Security</h2>
@@ -559,6 +633,180 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function Change({ pct }: { pct: number }) {
+  // Derive sign from the ROUNDED value so -0.004 never renders a red "-0.00%".
+  const rounded = Number(pct.toFixed(2)) + 0;
+  if (Math.abs(rounded) < 0.005) return <span className="chg faint">0.00%</span>;
+  const up = rounded > 0;
+  return <span className={`chg ${up ? "chg-up" : "chg-down"}`}>{up ? "+" : ""}{rounded.toFixed(2)}%</span>;
+}
+
+function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null; onImport: () => void; onOpen: (n: NftItem) => void }) {
+  if (nfts === null) {
+    return (
+      <div className="nft-grid">
+        {[0, 1].map((i) => (
+          <div className="nft-card" key={i}><div className="nft-img skel-block" /><div className="nft-meta"><span className="skel" style={{ width: 76 }} /></div></div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <>
+      {nfts.length === 0 ? (
+        <div className="empty">
+          <div className="empty-ic"><Ic name="image" size={22} /></div>
+          No NFTs on this network yet.
+          <span className="faint" style={{ display: "block", marginTop: 4 }}>Import one with its contract address and token id.</span>
+        </div>
+      ) : (
+        <div className="nft-grid">
+          {nfts.map((n) => (
+            <button className="nft-card" key={`${n.address}-${n.tokenId}`} onClick={() => onOpen(n)}>
+              {n.image ? <img className="nft-img" src={n.image} alt="" loading="lazy" /> : <div className="nft-img nft-fallback"><Ic name="image" size={26} /></div>}
+              <div className="nft-meta"><b>{n.name}</b><span className="faint">{n.collection || short(n.address)}</span></div>
+            </button>
+          ))}
+        </div>
+      )}
+      <button className="ghost" style={{ fontSize: 12 }} onClick={onImport}><Ic name="plus" size={13} /> Import NFT</button>
+    </>
+  );
+}
+
+function ImportNftSheet({ chainId, owner, onClose, onDone }: { chainId: number; owner: string; onClose: () => void; onDone: () => void }) {
+  const [token, setToken] = useState("");
+  const [tokenId, setTokenId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const valid = /^0x[0-9a-fA-F]{40}$/.test(token.trim()) && /^\d+$/.test(tokenId.trim());
+  const importIt = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await wallet({ type: "addNft", chainId, owner, token: token.trim(), tokenId: tokenId.trim() });
+      onDone();
+    } catch (e) {
+      setErr(humanizeError((e as Error).message));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Import NFT</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <p className="muted">Ownership is verified on-chain before the NFT is added.</p>
+        <div><div className="muted" style={{ marginBottom: 6 }}>Contract address</div><input placeholder="0x…" value={token} onChange={(e) => setToken(e.target.value)} /></div>
+        {token.trim() && !/^0x[0-9a-fA-F]{40}$/.test(token.trim()) && <p className="faint">Not a valid 0x address.</p>}
+        <div><div className="muted" style={{ marginBottom: 6 }}>Token id</div><input inputMode="numeric" placeholder="e.g. 1234" value={tokenId} onChange={(e) => setTokenId(e.target.value.replace(/\D/g, ""))} /></div>
+        {err && <p className="err">{err}</p>}
+        <button disabled={!valid || busy} onClick={importIt}>{busy ? "Verifying…" : "Import NFT"}</button>
+      </div>
+    </div>
+  );
+}
+
+function ImportTokenSheet({ chainId, onClose, onDone }: { chainId: number; onClose: () => void; onDone: () => void }) {
+  const [addr, setAddr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const valid = /^0x[0-9a-fA-F]{40}$/.test(addr.trim());
+  const importIt = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await wallet({ type: "addToken", chainId, address: addr.trim() });
+      onDone();
+    } catch (e) {
+      setErr(humanizeError((e as Error).message));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Add token</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <p className="muted">The symbol and decimals are read from the contract on this network.</p>
+        <div><div className="muted" style={{ marginBottom: 6 }}>Token contract address</div><input placeholder="0x…" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
+        {addr.trim() && !valid && <p className="faint">Not a valid 0x address.</p>}
+        {err && <p className="err">{err}</p>}
+        <button disabled={!valid || busy} onClick={importIt}>{busy ? "Reading…" : "Add token"}</button>
+      </div>
+    </div>
+  );
+}
+
+function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged }: { nft: NftItem; from: string; chainId: number; explorer: string; own: string[]; onClose: () => void; onChanged: () => void }) {
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [hash, setHash] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [known, setKnown] = useState<string[]>([]);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
+  // NFT transfers are irreversible too: same poisoning checks as the Send sheet.
+  const risk = validAddr ? assessRecipient(to.trim(), known, own) : null;
+  useEffect(() => {
+    wallet<string[]>({ type: "knownRecipients" }).then(setKnown).catch(() => {});
+  }, []);
+  const send = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await wallet<{ hash: string }>({ type: "sendNft", from, to: to.trim(), token: nft.address, tokenId: nft.tokenId, standard: nft.standard });
+      setHash(r.hash);
+      void wallet({ type: "addActivity", entry: { hash: r.hash, to: to.trim(), amount: "1", symbol: `NFT ${nft.name.slice(0, 24)}`, chainId, ts: Date.now() } });
+    } catch (e) {
+      setErr(humanizeError((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = () => void wallet({ type: "removeNft", chainId, owner: from, token: nft.address, tokenId: nft.tokenId }).then(onChanged);
+  // The tx is broadcast but unmined: drop it from the list now so the grid does
+  // not keep showing an NFT that is on its way out.
+  const doneAfterSend = () => void wallet({ type: "removeNft", chainId, owner: from, token: nft.address, tokenId: nft.tokenId }).then(onChanged);
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1 className="clamp">{nft.name}</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        {nft.image ? <img className="nft-hero" src={nft.image} alt="" /> : <div className="nft-hero nft-fallback"><Ic name="image" size={34} /></div>}
+        <div className="row between">
+          <span className="muted">{nft.collection || "Collection"} · #{nft.tokenId} · {nft.standard === "erc721" ? "ERC-721" : "ERC-1155"}</span>
+          <a href={nftUrlFor(chainId, nft.address, nft.tokenId)} target="_blank" rel="noreferrer" style={{ fontSize: 12, flexShrink: 0 }}>Explorer →</a>
+        </div>
+        {hash ? (
+          <>
+            <p className="ok">Sent. The NFT leaves this wallet when the transaction confirms.</p>
+            <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
+            <button onClick={doneAfterSend}>Done</button>
+          </>
+        ) : (
+          <>
+            <div><div className="muted" style={{ marginBottom: 6 }}>Send to</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+            {to.trim() && !validAddr && <p className="faint">Not a valid 0x address.</p>}
+            {risk?.kind === "lookalike" && (
+              <p className="danger-box">This address looks like {short(risk.similarTo!)} but is different - a common address-poisoning scam. Verify every character before sending.</p>
+            )}
+            {risk?.kind === "new" && <p className="muted">First time sending to this address.</p>}
+            {risk?.kind === "known" && <p className="ok">You&apos;ve sent to this address before.</p>}
+            {risk?.kind === "self" && <p className="muted">This is one of your own accounts.</p>}
+            {err && <p className="err">{err}</p>}
+            <div className="row" style={{ gap: 8 }}>
+              {confirmRemove ? (
+                <button className="danger" style={{ flex: 1 }} onClick={remove}>Really remove?</button>
+              ) : (
+                <button className="ghost" style={{ flex: 1 }} onClick={() => setConfirmRemove(true)}><Ic name="trash" size={13} /> Remove</button>
+              )}
+              <button style={{ flex: 2 }} disabled={!validAddr || busy} onClick={send}>{busy ? "Sending…" : "Send NFT"}</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

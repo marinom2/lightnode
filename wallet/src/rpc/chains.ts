@@ -71,3 +71,10 @@ const CHAIN_LOGO: Record<number, string> = {
 export function logoFor(id: number): string {
   return CHAIN_LOGO[id] ?? "/chains/lightchain.png";
 }
+
+/** Explorer URL for a specific NFT. LightScan is Blockscout-style (/instance/), the rest are Etherscan-style (?a=). */
+export function nftUrlFor(id: number, token: string, tokenId: string): string {
+  const base = explorerFor(id);
+  if (id === 9200 || id === 8200) return `${base}/token/${token}/instance/${tokenId}`;
+  return `${base}/token/${token}?a=${tokenId}`;
+}
