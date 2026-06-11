@@ -290,7 +290,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
         <div className="net" style={{ minWidth: 0 }}>
           <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
             <span className="avatar" style={{ background: avatarGradient(address), width: 26, height: 26 }} />
-            <span className="acct"><b>Account {state.activeIndex + 1}</b><span className="addr-mini">{short(address)}</span></span>
+            <span className="acct"><b>Account {state.activeIndex + 1}</b></span>
             <Ic name="chevron" size={13} />
           </button>
           {acctOpen && (
@@ -540,9 +540,8 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
   const [open, setOpen] = useState(false);
   return (
     <div className="net">
-      <button className="net-btn" onClick={() => setOpen((o) => !o)}>
+      <button className="net-btn" title={chainById(chainId).name} onClick={() => setOpen((o) => !o)}>
         <img className="net-logo" src={logoFor(chainId)} alt="" />
-        {chainById(chainId).name}
         <Ic name="chevron" size={13} />
       </button>
       {open && (
@@ -748,6 +747,10 @@ function ApproveView() {
   if (!reqs) return <p className="muted">Loading…</p>;
   if (reqs.length === 0) return <p className="muted">No pending requests.</p>;
   const r = reqs[0]!;
+  // On a dangerous decoded call, flip the emphasis: Reject becomes the primary
+  // action and Approve loses the inviting gradient.
+  const txData = r.method === "eth_sendTransaction" ? ((r.params?.[0] ?? {}) as { data?: string }).data : undefined;
+  const dangerous = r.method === "eth_sendTransaction" && decodeDangerousCall(txData as `0x${string}` | undefined).severity === "danger";
   return (
     <div className="card">
       <h2>Approve request</h2>
@@ -755,8 +758,8 @@ function ApproveView() {
       <p><b>{labelFor(r.method)}</b></p>
       <RequestDetail req={r} />
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
-        <button className="ghost" style={{ flex: 1 }} onClick={() => resolve(r.id, false)}>Reject</button>
-        <button style={{ flex: 1 }} onClick={() => resolve(r.id, true)}>Approve</button>
+        <button className={dangerous ? "" : "ghost"} style={{ flex: 1 }} onClick={() => resolve(r.id, false)}>Reject</button>
+        <button className={dangerous ? "danger" : ""} style={{ flex: 1 }} onClick={() => resolve(r.id, true)}>{dangerous ? "Approve anyway" : "Approve"}</button>
       </div>
     </div>
   );
@@ -768,7 +771,7 @@ interface SimResult {
   changes?: { symbol: string; formatted: string; direction: "in" | "out" }[];
 }
 
-function SimPreview({ tx }: { tx: { from?: string; to?: string; value?: string; data?: string } }) {
+function SimPreview({ tx, mute = false }: { tx: { from?: string; to?: string; value?: string; data?: string }; mute?: boolean }) {
   const [sim, setSim] = useState<SimResult | "loading">("loading");
   useEffect(() => {
     wallet<SimResult>({ type: "simulateTx", from: tx.from ?? "", to: tx.to ?? "", value: tx.value, data: tx.data })
@@ -778,7 +781,9 @@ function SimPreview({ tx }: { tx: { from?: string; to?: string; value?: string; 
   if (sim === "loading") return <p className="muted">Simulating the outcome…</p>;
   if (!sim.ok) return null; // RPC can't simulate; the decoded action below still shows
   if (sim.reverted) return <p className="danger-box">This transaction is expected to FAIL on-chain - approving it would just waste gas.</p>;
-  if (!sim.changes?.length) return <p className="ok" style={{ marginBottom: 6 }}>Simulated: no balance changes (e.g. an approval or a no-op).</p>;
+  // No balance movement is NOT a green light when the decoded call is dangerous
+  // (an unlimited approve moves nothing now, but hands over everything later).
+  if (!sim.changes?.length) return <p className={mute ? "muted" : "ok"} style={{ marginBottom: 6 }}>Simulated: no balance changes now{mute ? " - see the warning below" : " (e.g. an approval or a no-op)"}.</p>;
   const fmt = (n: string) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 });
   return (
     <div className="card" style={{ padding: 10, marginBottom: 8 }}>
@@ -808,7 +813,7 @@ function RequestDetail({ req }: { req: PendingRequest }) {
     const decoded = decodeDangerousCall(tx.data as `0x${string}` | undefined);
     return (
       <div className="muted" style={{ fontSize: 12 }}>
-        <SimPreview tx={tx} />
+        <SimPreview tx={tx} mute={decoded.severity === "danger"} />
         <p className="addr">to: {tx.to ?? "(contract creation)"}</p>
         <p>value: {tx.value ? Number(BigInt(tx.value)) / 1e18 : 0}</p>
         {decoded.kind !== "empty" && (
