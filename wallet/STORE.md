@@ -58,16 +58,18 @@ In **Privacy practices**, declare honestly:
 
 ## 5. Graphics to upload
 
-- **Store icon:** 128×128 PNG - use `wallet/public/icon/128.png`.
-- **Screenshots:** 1280×800 (or 640×400), 1-5 images. Capture the loaded extension:
-  1. The home screen (balance hero + Send/Receive + token list).
-  2. The network switcher open (multi-chain).
-  3. The Send sheet with the asset picker.
-  4. A dapp approval showing the decoded-calldata warning.
-  5. The worker panel on LightChain.
-- **Small promo tile (optional):** 440×280 PNG.
+Everything is pre-made in `wallet/store-assets/` - upload as-is:
 
-To capture screenshots: load `wallet/.output/chrome-mv3` unpacked (chrome://extensions -> Developer mode -> Load unpacked), open the popup, and screenshot at a 360px width.
+- **Store icon:** 128×128 PNG - use `wallet/public/icon/128.png`.
+- **Screenshots (1280×800, upload in this order):**
+  1. `store-assets/01-home.png` - home on LightChain (balance hero, actions, tokens, worker).
+  2. `store-assets/02-networks.png` - the network switcher open (multi-chain with official logos).
+  3. `store-assets/03-send.png` - the Send sheet with fee preview and recipient check.
+  4. `store-assets/04-approve.png` - a dapp approval with the decoded-calldata danger warning.
+  5. `store-assets/05-ecosystem.png` - worker, governance, and the bridge on LightChain.
+- **Small promo tile:** `store-assets/promo-tile-440x280.png`.
+
+(If you ever want fresh captures instead: load `wallet/.output/chrome-mv3` unpacked, open the popup, use the expand icon for a full-tab view, and screenshot at 1280×800.)
 
 ## 6. Submit
 
