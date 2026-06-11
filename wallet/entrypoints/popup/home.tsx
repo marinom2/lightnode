@@ -13,12 +13,13 @@ import { SwapSheet } from "./sheets-swap";
 import { DaoSheet } from "./sheets-dao";
 import { WorkerSheet } from "./sheets-worker";
 import { SettingsSheet } from "./sheets-settings";
+import { ChatSheet } from "./sheets-chat";
 
 export function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
   const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
   // undefined = loading, null = unreachable (NEVER shown as zero), string = truth.
   const [bal, setBal] = useState<string | null | undefined>(undefined);
-  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "swap" | "dao" | "worker" | "importToken" | "importNft" | null>(null);
+  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "swap" | "dao" | "worker" | "chat" | "importToken" | "importNft" | null>(null);
   const [nftSel, setNftSel] = useState<NftItem | null>(null);
   const [nfts, setNfts] = useState<NftItem[] | null | undefined>(undefined);
   const [acctOpen, setAcctOpen] = useState(false);
@@ -164,11 +165,12 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
         <button className="copy-chip" onClick={copy}>{copied ? "Copied!" : short(address)} <Ic name="copy" size={13} /></button>
       </div>
 
-      <div className="actions actions-4">
-        <button className="act" onClick={() => setSheet("send")}><span className="ic"><Ic name="send" size={17} /></span>Send</button>
-        <button className="act" onClick={() => setSheet("receive")}><span className="ic"><Ic name="receive" size={17} /></span>Receive</button>
-        <button className="act" onClick={() => setSheet("swap")}><span className="ic"><Ic name="swap" size={16} /></span>Swap</button>
-        <a className="act" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer"><span className="ic"><Ic name="external" size={16} /></span>Explorer</a>
+      <div className="actions actions-5">
+        <button className="act" onClick={() => setSheet("send")}><span className="ic"><Ic name="send" size={16} /></span>Send</button>
+        <button className="act" onClick={() => setSheet("receive")}><span className="ic"><Ic name="receive" size={16} /></span>Receive</button>
+        <button className="act" onClick={() => setSheet("swap")}><span className="ic"><Ic name="swap" size={15} /></span>Swap</button>
+        <button className="act" onClick={() => setSheet("chat")}><span className="ic"><Ic name="chat" size={15} /></span>AI Chat</button>
+        <a className="act" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer"><span className="ic"><Ic name="external" size={15} /></span>Explorer</a>
       </div>
 
       <div className="tabs">
@@ -228,6 +230,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
       {sheet === "swap" && <SwapSheet from={address} chainId={chainId} assets={assets} onClose={() => setSheet(null)} onDone={loadBal} />}
       {sheet === "dao" && <DaoSheet from={address} onClose={() => setSheet(null)} />}
       {sheet === "worker" && <WorkerSheet address={address} onClose={() => setSheet(null)} />}
+      {sheet === "chat" && <ChatSheet from={address} onClose={() => setSheet(null)} />}
       {sheet === "importToken" && <ImportTokenSheet chainId={chainId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadBal(); }} />}
       {sheet === "importNft" && <ImportNftSheet chainId={chainId} owner={address} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadNfts(); }} />}
       {nftSel && <NftSheet nft={nftSel} from={address} chainId={chainId} explorer={explorer} own={state.accounts} onClose={() => setNftSel(null)} onChanged={() => { setNftSel(null); loadNfts(); }} />}
