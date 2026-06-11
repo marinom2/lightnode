@@ -1,4 +1,4 @@
-import { PAGE_TO_CONTENT, CONTENT_TO_PAGE, type ContentMessage } from "../src/provider/protocol";
+import { PAGE_TO_CONTENT, CONTENT_TO_PAGE, CONTENT_TO_PAGE_EVENT, type ContentMessage } from "../src/provider/protocol";
 
 // Injected into the page's MAIN world. Exposes a standard EIP-1193 provider and
 // announces it via EIP-6963 so dapps can pick "LightNode Wallet" alongside any other wallet.
@@ -13,8 +13,14 @@ function createProvider() {
 
   window.addEventListener("message", (event: MessageEvent) => {
     if (event.source !== window) return;
-    const data = event.data as ContentMessage | undefined;
-    if (!data || data.target !== CONTENT_TO_PAGE) return;
+    const data = event.data as (ContentMessage | { target: typeof CONTENT_TO_PAGE_EVENT; event: string; data: unknown }) | undefined;
+    if (!data) return;
+    // Provider events pushed from the wallet (chainChanged / accountsChanged).
+    if (data.target === CONTENT_TO_PAGE_EVENT) {
+      emit(data.event, data.data);
+      return;
+    }
+    if (data.target !== CONTENT_TO_PAGE) return;
     const pendingReq = waiting.get(data.response.id);
     if (!pendingReq) return;
     waiting.delete(data.response.id);
