@@ -60,6 +60,7 @@ export type WalletOp =
   | { type: "sendToken"; from: string; token: string; to: string; amount: string; decimals: number }
   | { type: "quoteSend"; from: string; to: string; valueWei?: string; token?: string; amount?: string; decimals?: number }
   | { type: "txStatus"; hash: string }
+  | { type: "replaceTx"; from: string; hash: string; mode: "speedup" | "cancel" }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }

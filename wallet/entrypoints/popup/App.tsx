@@ -476,6 +476,20 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
       setBusy(false);
     }
   };
+  const replace = async (mode: "speedup" | "cancel") => {
+    if (!hash) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await wallet<{ hash: string }>({ type: "replaceTx", from, hash, mode });
+      setHash(r.hash); // the poll re-tracks the replacement
+      setTxState("pending");
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="sheet" onClick={onClose}>
       <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
@@ -486,6 +500,12 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
               {txState === "pending" ? `Sent ${asset.symbol} - confirming…` : txState === "confirmed" ? `Confirmed. Your ${asset.symbol} arrived.` : "Transaction failed on-chain."}
             </p>
             <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
+            {txState === "pending" && (
+              <div className="row" style={{ gap: 8 }}>
+                <button className="ghost" style={{ flex: 1 }} disabled={busy} onClick={() => replace("speedup")}>Speed up</button>
+                <button className="ghost" style={{ flex: 1 }} disabled={busy} onClick={() => replace("cancel")}>Cancel tx</button>
+              </div>
+            )}
             <button onClick={onClose}>Done</button>
           </>
         ) : (
