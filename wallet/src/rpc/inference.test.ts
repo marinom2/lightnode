@@ -27,8 +27,20 @@ describe("session crypto", () => {
     const unwrapped = gcm(shared, nonce).decrypt(wrapped.slice(77));
     expect(Array.from(unwrapped)).toEqual(Array.from(sessionKey));
   });
+  it("REGRESSION: decodes the gateway's three key formats (bare hex, 0x hex, base64)", () => {
+    const priv = p256.utils.randomSecretKey();
+    const pub = p256.getPublicKey(priv, false); // 65 bytes
+    const hex = Array.from(pub).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const b64 = btoa(String.fromCharCode(...pub));
+    // Bare hex is what the live gateway sends for the worker key: it is ALSO
+    // valid base64 alphabet, which is exactly how the original bug happened.
+    expect(Array.from(decodePublicKey(hex))).toEqual(Array.from(pub));
+    expect(Array.from(decodePublicKey(`0x${hex}`))).toEqual(Array.from(pub));
+    expect(Array.from(decodePublicKey(b64))).toEqual(Array.from(pub));
+  });
   it("rejects malformed recipient keys and short frames", () => {
     expect(() => decodePublicKey("AAAA")).toThrow();
+    expect(() => decodePublicKey("zz".repeat(65))).toThrow();
     expect(() => decryptPayload(new Uint8Array(32), new Uint8Array(5))).toThrow();
   });
 });

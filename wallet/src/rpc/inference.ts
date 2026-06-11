@@ -42,9 +42,24 @@ function b64decode(s: string): Uint8Array {
   return out;
 }
 
-/** Worker keys arrive base64 or hex; either way: 65-byte uncompressed P-256 point. */
+/**
+ * Worker keys arrive base64 OR hex, and the hex form often comes WITHOUT a 0x
+ * prefix. Bare hex is also valid base64 alphabet, so format must be sniffed by
+ * shape (130 hex chars = 65 bytes), exactly like the SDK does: feeding bare hex
+ * to a base64 decoder yields 97 garbage bytes and a false "invalid key" error.
+ */
 export function decodePublicKey(s: string): Uint8Array {
-  const raw = s.startsWith("0x") ? toBytes(s as `0x${string}`) : b64decode(s);
+  const stripped = s.startsWith("0x") ? s.slice(2) : s;
+  let raw: Uint8Array;
+  if (/^[0-9a-fA-F]{130}$/.test(stripped)) {
+    raw = toBytes(`0x${stripped}` as `0x${string}`);
+  } else {
+    try {
+      raw = b64decode(s);
+    } catch {
+      throw new Error("The worker sent an invalid encryption key.");
+    }
+  }
   if (raw.length !== 65 || raw[0] !== 0x04) throw new Error("The worker sent an invalid encryption key.");
   return raw;
 }
