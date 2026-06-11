@@ -46,6 +46,9 @@ const ICONS: Record<string, string> = {
   edit: "M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z",
   image: "M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6M8.5 9.5a1 1 0 110-2 1 1 0 010 2z",
   trash: "M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14",
+  swap: "M16 3l4 4-4 4M20 7H7M8 21l-4-4 4-4M4 17h13",
+  gov: "M3 21h18M5 21V10M19 21V10M3 10l9-6 9 6M9 21v-5h6v5",
+  server: "M3 5h18v6H3zM3 13h18v6H3zM6.5 8h.01M6.5 16h.01",
 };
 function Ic({ name, size = 18 }: { name: string; size?: number }) {
   return (
@@ -235,7 +238,7 @@ function Unlock({ onDone }: { onDone: () => void }) {
 function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
   const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
   const [bal, setBal] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "bridge" | "importToken" | "importNft" | null>(null);
+  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "swap" | "dao" | "worker" | "importToken" | "importNft" | null>(null);
   const [nftSel, setNftSel] = useState<NftItem | null>(null);
   const [nfts, setNfts] = useState<NftItem[] | null>(null);
   const [acctOpen, setAcctOpen] = useState(false);
@@ -297,8 +300,10 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
   }, [address, chainId]);
   useEffect(() => loadBal(), [loadBal]);
   // The user should never have to reopen the popup to see a received payment.
+  // refreshTick also re-fires the DAO/Worker cards (their balances move too).
+  const [refreshTick, setRefreshTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => { tickRef.current += 1; loadBal(true); }, 15000);
+    const t = setInterval(() => { tickRef.current += 1; setRefreshTick(tickRef.current); loadBal(true); }, 15000);
     return () => clearInterval(t);
   }, [loadBal]);
   const loadNfts = useCallback(() => {
@@ -362,9 +367,10 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
         <button className="copy-chip" onClick={copy}>{copied ? "Copied!" : short(address)} <Ic name="copy" size={13} /></button>
       </div>
 
-      <div className="actions">
+      <div className="actions actions-4">
         <button className="act" onClick={() => setSheet("send")}><span className="ic"><Ic name="send" size={17} /></span>Send</button>
         <button className="act" onClick={() => setSheet("receive")}><span className="ic"><Ic name="receive" size={17} /></span>Receive</button>
+        <button className="act" onClick={() => setSheet("swap")}><span className="ic"><Ic name="swap" size={16} /></span>Swap</button>
         <a className="act" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer"><span className="ic"><Ic name="external" size={16} /></span>Explorer</a>
       </div>
 
@@ -408,20 +414,16 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
       )}
       {tab === "activity" && <HistoryList items={history} explorer={explorer} filter={historyFilter} onFilter={setHistoryFilter} onRetry={() => loadBal()} />}
 
-      {chainId === 9200 && <WorkerPanel address={address} />}
+      <WorkerCard address={address} refreshKey={refreshTick} onOpen={() => setSheet("worker")} />
 
-      <GovernanceCard chainId={chainId} address={address} />
-
-      <div className="card">
-        <h2>More</h2>
-        <button className="ghost" style={{ width: "100%" }} onClick={() => setSheet("bridge")}>Bridge LCAI · Ethereum ⇄ LightChain</button>
-        <p className="faint" style={{ marginTop: 8 }}>Encrypted AI inference lands next.</p>
-      </div>
+      <GovernanceCard chainId={chainId} address={address} refreshKey={refreshTick} onOpen={() => setSheet("dao")} />
 
       {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} own={state.accounts} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
       {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
-      {sheet === "bridge" && <BridgeSheet from={address} onClose={() => setSheet(null)} onSent={loadBal} />}
+      {sheet === "swap" && <SwapSheet from={address} chainId={chainId} assets={assets} onClose={() => setSheet(null)} onDone={loadBal} />}
+      {sheet === "dao" && <DaoSheet from={address} onClose={() => setSheet(null)} />}
+      {sheet === "worker" && <WorkerSheet address={address} onClose={() => setSheet(null)} />}
       {sheet === "importToken" && <ImportTokenSheet chainId={chainId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadBal(); }} />}
       {sheet === "importNft" && <ImportNftSheet chainId={chainId} owner={address} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadNfts(); }} />}
       {nftSel && <NftSheet nft={nftSel} from={address} chainId={chainId} explorer={explorer} own={state.accounts} onClose={() => setNftSel(null)} onChanged={() => { setNftSel(null); loadNfts(); }} />}
@@ -431,30 +433,190 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
 type DaoView = { supported: boolean; votingPower: string; delegated: boolean; voteUrl: string };
 
-function GovernanceCard({ chainId, address }: { chainId: number; address: string }) {
+function GovernanceCard({ chainId, address, refreshKey, onOpen }: { chainId: number; address: string; refreshKey: number; onOpen: () => void }) {
   const [st, setSt] = useState<DaoView | null>(null);
   useEffect(() => {
     let live = true;
-    setSt(null);
-    wallet<DaoView>({ type: "daoStatus", chainId, address }).then((r) => { if (live) setSt(r); }).catch(() => { if (live) setSt(null); });
+    // refreshKey re-fires this silently: voting power updates without a reopen.
+    wallet<DaoView>({ type: "daoStatus", chainId, address }).then((r) => { if (live) setSt(r); }).catch(() => {});
     return () => { live = false; };
-  }, [chainId, address]);
-  if (!st || !st.supported) return null;
-  const power = Number(st.votingPower);
+  }, [chainId, address, refreshKey]);
+  const power = st && st.supported ? Number(st.votingPower) : null;
   return (
     <div className="card">
-      <h2>Governance</h2>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span className="muted">Your voting power</span>
-        <b style={{ fontSize: 15 }}>{power.toLocaleString(undefined, { maximumFractionDigits: 4 })}</b>
+      <div className="row between">
+        <h2 style={{ margin: 0 }}><Ic name="gov" size={12} /> Governance</h2>
+        {power != null && <b style={{ fontSize: 14 }}>{power.toLocaleString(undefined, { maximumFractionDigits: 2 })} votes</b>}
       </div>
-      {power > 0 && !st.delegated && <p className="faint" style={{ marginTop: 6 }}>These tokens are not delegated, so they do not count toward any vote yet. Activate them on the DAO.</p>}
-      <a href={st.voteUrl} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 8, fontSize: 12 }}>{power > 0 ? "Vote on the LightChain DAO →" : "Open the LightChain DAO →"}</a>
+      {power != null && power > 0 && st && !st.delegated && <p className="faint" style={{ marginTop: 6 }}>Not delegated yet, so these votes do not count. Delegate on the DAO.</p>}
+      <button className="ghost" style={{ width: "100%", marginTop: 10 }} onClick={onOpen}>Proposals + vote from the wallet →</button>
     </div>
   );
 }
 
-function BridgeSheet({ from, onClose, onSent }: { from: string; onClose: () => void; onSent: () => void }) {
+function WorkerCard({ address, refreshKey, onOpen }: { address: string; refreshKey: number; onOpen: () => void }) {
+  const [s, setS] = useState<WorkerStatusView | null>(null);
+  useEffect(() => {
+    let live = true;
+    wallet<WorkerStatusView>({ type: "workerStatus", address }).then((r) => { if (live) setS(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [address, refreshKey]);
+  return (
+    <div className="card">
+      <div className="row between">
+        <h2 style={{ margin: 0 }}><Ic name="server" size={12} /> Worker</h2>
+        {s?.registered && <span className="pill">registered</span>}
+      </div>
+      {s?.registered ? (
+        <div className="row between" style={{ marginTop: 8 }}>
+          <span className="muted">Claimable</span>
+          <span className={s.claimableLcai > 0 ? "ok" : "addr"}>{s.claimableLcai.toLocaleString(undefined, { maximumFractionDigits: 2 })} LCAI</span>
+        </div>
+      ) : (
+        <p className="muted" style={{ marginTop: 6 }}>Run a LightChain AI worker and earn LCAI for inference jobs.</p>
+      )}
+      <button className="ghost" style={{ width: "100%", marginTop: 10 }} onClick={onOpen}>{s?.registered ? "Open the worker hub →" : "Explore the worker network →"}</button>
+    </div>
+  );
+}
+
+// ---- swap (market swaps + LCAI across networks) ------------------------------
+
+const LCAI_ON_ETH = { symbol: "LCAI", address: "0x9cA8530CA349c966Fe9ef903Df17a75B8A778927", decimals: 18 } as const;
+type SwapQuoteView = { amountOut: string; amountOutWei: string; fee: number } | null;
+
+function SwapSheet({ from, chainId, assets, onClose, onDone }: { from: string; chainId: number; assets: Asset[]; onClose: () => void; onDone: () => void }) {
+  const onLightChain = chainId === 9200 || chainId === 8200;
+  const [mode, setMode] = useState<"market" | "network">(onLightChain ? "network" : "market");
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Swap</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <div className="tabs">
+          <button className={`tab${mode === "market" ? " active" : ""}`} onClick={() => setMode("market")}>Market swap</button>
+          <button className={`tab${mode === "network" ? " active" : ""}`} onClick={() => setMode("network")}>LCAI across networks</button>
+        </div>
+        {mode === "market" ? (
+          onLightChain
+            ? <p className="muted">Market swaps run on Ethereum and the EVM networks (there is no DEX on LightChain). Switch network to swap, or move LCAI across networks here.</p>
+            : <MarketSwap from={from} chainId={chainId} assets={assets} onDone={onDone} />
+        ) : (
+          <NetworkMove from={from} onDone={onDone} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: number; assets: Asset[]; onDone: () => void }) {
+  // "to" candidates: the user's assets plus LCAI on Ethereum (the home token).
+  const toList: Asset[] = chainId === 1 && !assets.some((a) => a.kind === "token" && a.address.toLowerCase() === LCAI_ON_ETH.address.toLowerCase())
+    ? [...assets, { kind: "token", balance: "0", ...LCAI_ON_ETH }]
+    : assets;
+  const [tIn, setTIn] = useState<Asset>(assets[0]!);
+  const [tOut, setTOut] = useState<Asset>(toList.find((a) => a.symbol !== assets[0]!.symbol) ?? toList[0]!);
+  const [amount, setAmount] = useState("");
+  const [quote, setQuote] = useState<SwapQuoteView | "loading" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [hash, setHash] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const amtNum = Number(amount) || 0;
+  const balNum = Number(tIn.balance);
+  const insufficient = amtNum > 0 && amtNum > balNum;
+  const samePair = tIn.symbol === tOut.symbol;
+  const quotable = amtNum > 0 && !samePair;
+  const quoteEpoch = useRef(0);
+  useEffect(() => {
+    if (!quotable) {
+      setQuote(null);
+      return;
+    }
+    setQuote("loading");
+    const epoch = ++quoteEpoch.current;
+    const t = setTimeout(() => {
+      wallet<{ quote: SwapQuoteView }>({
+        type: "quoteSwap", chainId,
+        tokenIn: tIn.kind === "token" ? tIn.address : null, decimalsIn: tIn.kind === "token" ? tIn.decimals : 18,
+        tokenOut: tOut.kind === "token" ? tOut.address : null, decimalsOut: tOut.kind === "token" ? tOut.decimals : 18,
+        amountIn: amount,
+        // Guard: a slow response for a previous amount must not win the race.
+      }).then((r) => { if (quoteEpoch.current === epoch) setQuote(r.quote); }).catch(() => { if (quoteEpoch.current === epoch) setQuote(null); });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [quotable, amount, tIn, tOut, chainId]);
+  const setMax = () => {
+    if (tIn.kind === "token") return setAmount(tIn.balance);
+    // Native in: the swap needs value = amount + gas, so reserve a gas buffer.
+    const reserve = chainId === 1 ? 0.003 : 0.0004;
+    setAmount(Math.max(0, balNum - reserve).toFixed(6).replace(/\.?0+$/, "") || "0");
+  };
+  const swap = async () => {
+    if (!quote || quote === "loading") return;
+    setBusy(true);
+    setErr(null);
+    try {
+      // The background re-quotes and derives the slippage floor itself; we only
+      // pass what we showed the user so it can abort on a large adverse move.
+      const r = await wallet<{ hash: string }>({
+        type: "swap", from, chainId,
+        tokenIn: tIn.kind === "token" ? tIn.address : null, decimalsIn: tIn.kind === "token" ? tIn.decimals : 18,
+        tokenOut: tOut.kind === "token" ? tOut.address : null, decimalsOut: tOut.kind === "token" ? tOut.decimals : 18,
+        amountIn: amount, expectedOutWei: quote.amountOutWei,
+      });
+      setHash(r.hash);
+      void wallet({ type: "addActivity", entry: { hash: r.hash, to: tOut.symbol, amount, symbol: tIn.symbol, chainId, ts: Date.now(), from, kind: tIn.kind === "token" ? "token" : "native" } });
+      onDone();
+    } catch (e) {
+      setErr(humanizeError((e as Error).message, tIn.symbol));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pick = (list: Asset[], current: Asset, set: (a: Asset) => void) => (
+    <div className="tabs" style={{ flexWrap: "wrap" }}>
+      {list.map((a) => (
+        <button key={a.symbol} className={`tab${a.symbol === current.symbol ? " active" : ""}`} onClick={() => set(a)}>{a.symbol}</button>
+      ))}
+    </div>
+  );
+  if (hash) {
+    return (
+      <>
+        <p className="ok">Swap submitted. Your {tOut.symbol} arrives when the transaction confirms.</p>
+        <a className="addr" href={`${explorerFor(chainId)}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
+      </>
+    );
+  }
+  return (
+    <>
+      <div><div className="muted" style={{ marginBottom: 6 }}>You pay</div>{pick(assets, tIn, setTIn)}</div>
+      <div>
+        <input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
+        <div className="row between" style={{ marginTop: 6 }}>
+          <span className="faint">{fmtBal(tIn.balance)} {tIn.symbol} available</span>
+          <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={setMax}>Max</button>
+        </div>
+      </div>
+      <div><div className="muted" style={{ marginBottom: 6 }}>You receive</div>{pick(toList, tOut, setTOut)}</div>
+      {samePair && <p className="faint">Pick two different assets.</p>}
+      {insufficient && <p className="err">Not enough {tIn.symbol}. You have {fmtBal(tIn.balance)}.</p>}
+      {quote === "loading" && <p className="muted">Fetching the best price…</p>}
+      {quote && quote !== "loading" && (
+        <div className="card" style={{ padding: 10 }}>
+          <div className="row between"><span className="muted">You receive ≈</span><b>{Number(quote.amountOut).toLocaleString(undefined, { maximumFractionDigits: 6 })} {tOut.symbol}</b></div>
+          <div className="row between"><span className="faint">Min after 0.5% slippage</span><span className="faint">{(Number(quote.amountOut) * 0.995).toLocaleString(undefined, { maximumFractionDigits: 6 })}</span></div>
+          <div className="row between"><span className="faint">Pool fee</span><span className="faint">{quote.fee / 10000}%</span></div>
+        </div>
+      )}
+      {quote === null && quotable && <p className="muted">No market found for this pair on this network.</p>}
+      {err && <p className="err">{err}</p>}
+      <button disabled={!quote || quote === "loading" || insufficient || busy} onClick={swap}>{busy ? "Swapping…" : "Swap"}</button>
+      <p className="faint">Swaps route through Uniswap v3 with a 0.5% slippage limit. Token approvals are exact-amount only.</p>
+    </>
+  );
+}
+
+function NetworkMove({ from, onDone }: { from: string; onDone: () => void }) {
   const [dir, setDir] = useState<"eth-to-lc" | "lc-to-eth">("eth-to-lc");
   const [amount, setAmount] = useState("");
   const [fee, setFee] = useState<string | null>(null);
@@ -468,40 +630,253 @@ function BridgeSheet({ from, onClose, onSent }: { from: string; onClose: () => v
   const [srcName, dstName] = dir === "eth-to-lc" ? ["Ethereum", "LightChain"] : ["LightChain", "Ethereum"];
   const explorer = dir === "eth-to-lc" ? "https://etherscan.io" : "https://mainnet.lightscan.app";
   const ok = Number(amount) > 0;
-  const bridge = async () => {
+  const move = async () => {
     setBusy(true);
     setErr(null);
     try {
       const r = await wallet<{ hash: string }>({ type: "bridge", from, direction: dir, amount });
       setHash(r.hash);
-      onSent();
+      onDone();
     } catch (e) {
       setErr(humanizeError((e as Error).message, "LCAI"));
     } finally {
       setBusy(false);
     }
   };
+  if (hash) {
+    return (
+      <>
+        <p className="ok">Submitted on {srcName}. Your LCAI lands on {dstName} after the Hyperlane relay (~minutes).</p>
+        <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
+      </>
+    );
+  }
+  return (
+    <>
+      <p className="muted">Moves LCAI between its Ethereum ERC-20 and native LightChain over the Hyperlane route.</p>
+      <div className="tabs">
+        <button className={`tab${dir === "eth-to-lc" ? " active" : ""}`} onClick={() => setDir("eth-to-lc")}>Ethereum → LightChain</button>
+        <button className={`tab${dir === "lc-to-eth" ? " active" : ""}`} onClick={() => setDir("lc-to-eth")}>LightChain → Ethereum</button>
+      </div>
+      <div><div className="muted" style={{ marginBottom: 6 }}>Amount (LCAI)</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
+      {fee && <p className="muted">Relayer fee ≈ {Number(fee).toLocaleString(undefined, { maximumFractionDigits: 6 })} {dir === "eth-to-lc" ? "ETH" : "LCAI"}</p>}
+      <p className="faint">Signs on {srcName}{dir === "eth-to-lc" ? " (approve LCAI, then transfer)" : ""}.</p>
+      {err && <p className="err">{err}</p>}
+      <button disabled={!ok || busy} onClick={move}>{busy ? "Moving…" : `Move to ${dstName}`}</button>
+    </>
+  );
+}
+
+// ---- governance sheet --------------------------------------------------------
+
+type ProposalRow = { id: string; title: string; proposer: string; state: string; forVotes: number; againstVotes: number; abstainVotes: number; blocksLeft: number | null; youVoted: boolean; yourWeight: number };
+const SUPPORT_LABEL: Record<0 | 1 | 2, string> = { 1: "For", 0: "Against", 2: "Abstain" };
+const STATE_TONE: Record<string, string> = { active: "tag-warn", succeeded: "tag-ok", executed: "tag-ok", queued: "tag-ok", defeated: "tag-bad", canceled: "tag-bad", expired: "tag-bad", pending: "" };
+
+function VoteBar({ p }: { p: ProposalRow }) {
+  const total = p.forVotes + p.againstVotes + p.abstainVotes;
+  if (total <= 0) return <p className="faint">No votes yet.</p>;
+  const pct = (n: number) => `${Math.round((n / total) * 100)}%`;
+  return (
+    <>
+      <div className="votebar">
+        <span className="vb-for" style={{ width: pct(p.forVotes) }} />
+        <span className="vb-against" style={{ width: pct(p.againstVotes) }} />
+        <span className="vb-abstain" style={{ width: pct(p.abstainVotes) }} />
+      </div>
+      <div className="row between faint" style={{ fontSize: 10.5 }}>
+        <span>For {pct(p.forVotes)}</span><span>Against {pct(p.againstVotes)}</span><span>Abstain {pct(p.abstainVotes)}</span>
+      </div>
+    </>
+  );
+}
+
+function DaoSheet({ from, onClose }: { from: string; onClose: () => void }) {
+  const [govChain, setGovChain] = useState<1 | 9200>(9200);
+  const [onlyActive, setOnlyActive] = useState(false);
+  const [rows, setRows] = useState<ProposalRow[] | null | undefined>(undefined);
+  const [power, setPower] = useState<number | null>(null);
+  const [voting, setVoting] = useState<string | null>(null); // proposal id in flight
+  const [voted, setVoted] = useState<Record<string, string>>({}); // id -> tx hash
+  const [confirm, setConfirm] = useState<{ id: string; support: 0 | 1 | 2 } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const epoch = useRef(0);
+  const load = useCallback(() => {
+    setRows(undefined);
+    const e = ++epoch.current;
+    // Guard: flipping the chain tab fires two requests; the slow one must not win.
+    wallet<{ proposals: ProposalRow[] | null }>({ type: "getProposals", chainId: govChain, voter: from }).then((r) => { if (epoch.current === e) setRows(r.proposals); }).catch(() => { if (epoch.current === e) setRows(null); });
+    wallet<DaoView>({ type: "daoStatus", chainId: govChain, address: from }).then((r) => { if (epoch.current === e) setPower(r.supported ? Number(r.votingPower) : null); }).catch(() => { if (epoch.current === e) setPower(null); });
+  }, [govChain, from]);
+  useEffect(load, [load]);
+  const govSymbol = govChain === 1 ? "ETH" : "LCAI";
+  const vote = async (id: string, support: 0 | 1 | 2) => {
+    setConfirm(null);
+    setVoting(id);
+    setErr(null);
+    try {
+      const r = await wallet<{ hash: string }>({ type: "castVote", from, chainId: govChain, proposalId: id, support });
+      setVoted((v) => ({ ...v, [id]: r.hash }));
+    } catch (e) {
+      setErr(humanizeError((e as Error).message, govSymbol));
+    } finally {
+      setVoting(null);
+    }
+  };
+  const shown = (rows ?? []).filter((p) => !onlyActive || p.state === "active");
+  const explorer = govChain === 1 ? "https://etherscan.io" : "https://mainnet.lightscan.app";
   return (
     <div className="sheet" onClick={onClose}>
       <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Bridge LCAI</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
-        {hash ? (
-          <>
-            <p className="ok">Submitted on {srcName}. Your LCAI lands on {dstName} after the Hyperlane relay (~minutes).</p>
-            <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
-            <button onClick={onClose}>Done</button>
-          </>
-        ) : (
-          <>
-            <div className="tabs">
-              <button className={`tab${dir === "eth-to-lc" ? " active" : ""}`} onClick={() => setDir("eth-to-lc")}>Eth → LC</button>
-              <button className={`tab${dir === "lc-to-eth" ? " active" : ""}`} onClick={() => setDir("lc-to-eth")}>LC → Eth</button>
+        <div className="sheet-head"><h1>Governance</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        <div className="tabs">
+          <button className={`tab${govChain === 9200 ? " active" : ""}`} onClick={() => setGovChain(9200)}>LightChain</button>
+          <button className={`tab${govChain === 1 ? " active" : ""}`} onClick={() => setGovChain(1)}>Ethereum</button>
+        </div>
+        <div className="row between">
+          <span className="muted">Your voting power</span>
+          <b>{power == null ? "…" : power.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b>
+        </div>
+        <div className="chips">
+          <button className={`chip${!onlyActive ? " active" : ""}`} onClick={() => setOnlyActive(false)}>All</button>
+          <button className={`chip${onlyActive ? " active" : ""}`} onClick={() => setOnlyActive(true)}>Active</button>
+        </div>
+        {rows === undefined && [0, 1].map((i) => <div className="card" key={i}><span className="skel" style={{ width: 180 }} /><div style={{ marginTop: 8 }}><span className="skel" style={{ width: 120 }} /></div></div>)}
+        {rows === null && (
+          <div className="empty">
+            <div className="empty-ic"><Ic name="gov" size={20} /></div>
+            Could not load proposals right now.
+            <button className="ghost" style={{ fontSize: 12, marginTop: 10 }} onClick={load}>Try again</button>
+          </div>
+        )}
+        {rows && shown.length === 0 && <div className="empty">No {onlyActive ? "active " : ""}proposals found on this governor.</div>}
+        {shown.map((p) => (
+          <div className="card" key={p.id}>
+            <div className="row between">
+              <span className={`tag ${STATE_TONE[p.state] ?? ""}`} style={{ marginLeft: 0 }}>{p.state}</span>
+              {p.blocksLeft != null && <span className="faint">~{p.blocksLeft.toLocaleString()} blocks left</span>}
             </div>
-            <div><div className="muted" style={{ marginBottom: 6 }}>Amount (LCAI)</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
-            {fee && <p className="muted">Relayer fee ≈ {Number(fee).toLocaleString(undefined, { maximumFractionDigits: 6 })} {dir === "eth-to-lc" ? "ETH" : "LCAI"}</p>}
-            <p className="faint">Signs on {srcName}{dir === "eth-to-lc" ? " (approve LCAI, then transfer)" : ""}.</p>
+            <b style={{ fontSize: 13, display: "block", marginTop: 6 }}>{p.title}</b>
+            <p className="faint" style={{ margin: "4px 0 8px" }}>by {short(p.proposer)} · #{p.id.slice(0, 10)}…</p>
+            <VoteBar p={p} />
+            {voted[p.id] ? (
+              <p className="ok" style={{ marginTop: 8 }}>Vote submitted. <a href={`${explorer}/tx/${voted[p.id]}`} target="_blank" rel="noreferrer">View →</a></p>
+            ) : p.youVoted ? (
+              <p className="faint" style={{ marginTop: 8 }}>You have already voted on this proposal.</p>
+            ) : p.state === "active" && p.yourWeight > 0 ? (
+              confirm?.id === p.id ? (
+                <div style={{ marginTop: 8 }}>
+                  <p className="faint">Vote <b>{SUPPORT_LABEL[confirm.support]}</b> with {p.yourWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} votes? This signs a transaction on {govChain === 1 ? "Ethereum" : "LightChain"}.</p>
+                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                    <button style={{ flex: 1, padding: "8px 0", fontSize: 12 }} disabled={voting === p.id} onClick={() => vote(p.id, confirm.support)}>{voting === p.id ? "Voting…" : "Confirm"}</button>
+                    <button className="ghost" style={{ flex: 1, padding: "8px 0", fontSize: 12 }} onClick={() => setConfirm(null)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="row" style={{ gap: 6, marginTop: 8 }}>
+                  <button style={{ flex: 1, padding: "8px 0", fontSize: 12 }} onClick={() => setConfirm({ id: p.id, support: 1 })}>For</button>
+                  <button className="danger" style={{ flex: 1, padding: "8px 0", fontSize: 12 }} onClick={() => setConfirm({ id: p.id, support: 0 })}>Against</button>
+                  <button className="ghost" style={{ flex: 1, padding: "8px 0", fontSize: 12 }} onClick={() => setConfirm({ id: p.id, support: 2 })}>Abstain</button>
+                </div>
+              )
+            ) : p.state === "active" ? (
+              <p className="faint" style={{ marginTop: 8 }}>No voting power at this proposal's snapshot. Hold LCAI and delegate before a proposal opens to vote.</p>
+            ) : null}
+          </div>
+        ))}
+        {err && <p className="err">{err}</p>}
+        <a href="https://dao.lightchain.ai" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Full proposal texts on the LightChain DAO →</a>
+      </div>
+    </div>
+  );
+}
+
+// ---- worker hub ----------------------------------------------------------------
+
+type NetStats = { totalWorkers: number; activeWorkers: number; jobsCompleted: number; totalEarnedLcai: number; minStakeLcai: number };
+type Lifetime = { jobsCompleted: number; jobsTimedOut: number; lifetimeEarnedLcai: number; lastSeenAt: string | null } | null;
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="stat">
+      <div className="faint">{label}</div>
+      <b className={tone}>{value}</b>
+    </div>
+  );
+}
+
+function WorkerSheet({ address, onClose }: { address: string; onClose: () => void }) {
+  const [status, setStatus] = useState<WorkerStatusView | null | undefined>(undefined);
+  const [net, setNet] = useState<NetStats | null>(null);
+  const [life, setLife] = useState<Lifetime>(null);
+  const [busy, setBusy] = useState(false);
+  const [hash, setHash] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    wallet<WorkerStatusView>({ type: "workerStatus", address }).then((r) => { if (live) setStatus(r); }).catch(() => { if (live) setStatus(null); });
+    wallet<NetStats>({ type: "networkStats" }).then((r) => { if (live) setNet(r); }).catch(() => {});
+    wallet<{ lifetime: Lifetime }>({ type: "workerLifetime", address }).then((r) => { if (live) setLife(r.lifetime); }).catch(() => {});
+    return () => { live = false; };
+  }, [address]);
+  const withdraw = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await wallet<{ hash: string }>({ type: "withdrawRewards", from: address });
+      setHash(r.hash);
+    } catch (e) {
+      setErr(humanizeError((e as Error).message, "LCAI"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Worker hub</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        {status === undefined && <span className="skel" style={{ width: 160 }} />}
+        {status === null && (
+          <div className="empty">
+            <div className="empty-ic"><Ic name="server" size={20} /></div>
+            Could not reach the worker registry.
+            <button className="ghost" style={{ fontSize: 12, marginTop: 10 }} onClick={onClose}>Close</button>
+          </div>
+        )}
+        {status?.registered && (
+          <>
+            <div className="stat-grid">
+              <Stat label="Stake" value={`${fmt(status.stakeLcai)} LCAI`} />
+              <Stat label="Headroom" value={`${fmt(status.headroomLcai)} LCAI`} tone={status.belowFloor ? "err" : undefined} />
+              <Stat label="Claimable" value={`${fmt(status.claimableLcai)} LCAI`} tone={status.claimableLcai > 0 ? "ok" : undefined} />
+              <Stat label="Jobs done" value={life ? String(life.jobsCompleted) : "…"} />
+              <Stat label="Lifetime earned" value={life ? `${fmt(life.lifetimeEarnedLcai)} LCAI` : "…"} />
+              <Stat label="Timeouts" value={life ? String(life.jobsTimedOut) : "…"} />
+            </div>
+            {status.belowFloor && <p className="warn">Below the stake floor. Top up to keep earning.</p>}
+            {hash ? (
+              <p className="ok">Withdrawal submitted. <a href={`https://mainnet.lightscan.app/tx/${hash}`} target="_blank" rel="noreferrer">View →</a></p>
+            ) : (
+              <button disabled={busy || status.claimableLcai <= 0} onClick={withdraw}>{busy ? "Withdrawing…" : `Withdraw ${fmt(status.claimableLcai)} LCAI`}</button>
+            )}
             {err && <p className="err">{err}</p>}
-            <button disabled={!ok || busy} onClick={bridge}>{busy ? "Bridging…" : `Bridge to ${dstName}`}</button>
+            <a href={`https://lightnode.app/worker/${address}`} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Full dashboard + operations on LightNode →</a>
+          </>
+        )}
+        {status && !status.registered && (
+          <>
+            <p className="muted">This account is not a registered worker. Here is the network it could join:</p>
+            <div className="stat-grid">
+              <Stat label="Workers" value={net ? String(net.totalWorkers) : "…"} />
+              <Stat label="Active" value={net ? String(net.activeWorkers) : "…"} />
+              <Stat label="Jobs completed" value={net ? net.jobsCompleted.toLocaleString() : "…"} />
+              <Stat label="LCAI paid out" value={net ? fmt(net.totalEarnedLcai) : "…"} tone="ok" />
+              <Stat label="Min stake" value={net ? `${fmt(net.minStakeLcai)} LCAI` : "…"} />
+              <Stat label="Network" value="LightChain" />
+            </div>
+            <p className="faint">A worker is a machine serving AI inference jobs. It stakes LCAI, earns per job, and runs from a one-click installer.</p>
+            <button style={{ width: "100%" }} onClick={() => window.open("https://lightnode.app/onboard", "_blank", "noopener")}>Become a worker →</button>
           </>
         )}
       </div>
@@ -1075,34 +1450,6 @@ function ReceiveSheet({ address, chainName, onClose }: { address: string; chainN
         <div className="card addr" style={{ textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>{address}</div>
         <button onClick={copy}>{copied ? "Copied!" : "Copy address"}</button>
       </div>
-    </div>
-  );
-}
-
-function WorkerPanel({ address }: { address: string }) {
-  const [s, setS] = useState<WorkerStatusView | "loading" | "error">("loading");
-  useEffect(() => {
-    setS("loading");
-    wallet<WorkerStatusView>({ type: "workerStatus", address }).then(setS).catch(() => setS("error"));
-  }, [address]);
-  if (s === "loading") return <div className="card"><h2>Worker</h2><p className="muted">Checking the registry…</p></div>;
-  if (s === "error") return <div className="card"><h2>Worker</h2><p className="muted">Could not reach the worker registry.</p></div>;
-  if (!s.registered) {
-    return (
-      <div className="card">
-        <h2>Worker</h2>
-        <p className="muted">Not a registered LightChain worker. <a href="https://lightchain.ai/onboard" target="_blank" rel="noreferrer">Run a worker →</a></p>
-      </div>
-    );
-  }
-  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  return (
-    <div className="card">
-      <div className="row between"><h2 style={{ margin: 0 }}>Worker</h2><span className="pill">registered</span></div>
-      <div className="row between" style={{ marginTop: 8 }}><span className="muted">Stake</span><span className="addr">{fmt(s.stakeLcai)} LCAI</span></div>
-      <div className="row between"><span className="muted">Headroom</span><span className="addr">{fmt(s.headroomLcai)}</span></div>
-      {s.claimableLcai > 0 && <div className="row between"><span className="muted">Claimable</span><span className="ok">{fmt(s.claimableLcai)} LCAI</span></div>}
-      {s.belowFloor && <p className="warn">Below the stake floor - top up to keep earning.</p>}
     </div>
   );
 }
