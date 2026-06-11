@@ -213,6 +213,27 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         return { feeFormatted: null, feeSymbol };
       }
     }
+    case "replaceTx": {
+      // Speed up or cancel a pending tx: rebroadcast with the SAME nonce and a
+      // fee bumped >=30% (replacement needs >=10%). Cancel = 0-value self-send.
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      const cid = await selectedChainId();
+      const client = clientFor(cid);
+      const orig = await client.getTransaction({ hash: op.hash as `0x${string}` });
+      const bump = (v: bigint) => (v * 130n) / 100n;
+      const base = orig.maxFeePerGas ?? orig.gasPrice ?? (await client.getGasPrice());
+      const prio = orig.maxPriorityFeePerGas ?? base / 10n;
+      const { createWalletClient } = await import("viem");
+      const w = createWalletClient({ account: acct.account, chain: chainById(cid), transport: http() });
+      await bumpAutoLock();
+      const tx =
+        op.mode === "cancel"
+          ? { to: op.from as `0x${string}`, value: 0n, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) }
+          : { to: orig.to ?? (op.from as `0x${string}`), value: orig.value, data: orig.input, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) };
+      return { hash: await w.sendTransaction(tx) };
+    }
     case "txStatus": {
       try {
         const r = await (await publicClient()).getTransactionReceipt({ hash: op.hash as `0x${string}` });
