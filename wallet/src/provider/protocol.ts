@@ -23,6 +23,9 @@ export interface JsonRpcResult {
 // page (MAIN) <-> content (ISOLATED)
 export const PAGE_TO_CONTENT = "lc-wallet:to-content";
 export const CONTENT_TO_PAGE = "lc-wallet:to-page";
+// background -> content -> page provider events (chainChanged / accountsChanged)
+export const CONTENT_TO_PAGE_EVENT = "lc-wallet:event";
+export const EVENT_PORT = "lc-events";
 
 export interface PageMessage {
   target: typeof PAGE_TO_CONTENT;

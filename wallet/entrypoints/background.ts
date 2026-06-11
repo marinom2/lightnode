@@ -18,7 +18,7 @@ import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
-import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, RpcError } from "../src/provider/protocol";
+import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
 import { APPROVAL_REQUIRED, LOCAL_READ, isAllowedMethod } from "../src/provider/rpc-methods";
 
 const VAULT_KEY = "vault";
@@ -42,6 +42,24 @@ async function activeIndex(max: number): Promise<number> {
 let live: Keyring | null = null;
 const pending = new Map<string, { request: JsonRpcRequest; origin: string; resolve: (r: unknown) => void; reject: (e: { code: number; message: string }) => void }>();
 let pendingSeq = 0;
+
+// Long-lived ports from each tab's content script. We push EIP-1193 events
+// (chainChanged / accountsChanged) through them when the popup changes state.
+interface EventPort {
+  name: string;
+  postMessage: (msg: unknown) => void;
+  onDisconnect: { addListener: (cb: () => void) => void };
+}
+const eventPorts = new Set<EventPort>();
+function emitEvent(event: string, data: unknown): void {
+  for (const port of eventPorts) {
+    try {
+      port.postMessage({ event, data });
+    } catch {
+      eventPorts.delete(port); // the tab went away mid-send
+    }
+  }
+}
 
 // The user's selected network (persisted). Every read/write/sign uses it.
 async function selectedChainId(): Promise<number> {
@@ -101,10 +119,14 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     case "setChain": {
       if (!isSupportedChain(op.chainId)) throw RpcError.invalidParams;
       await browser.storage.local.set({ [CHAIN_KEY]: op.chainId });
+      emitEvent("chainChanged", `0x${op.chainId.toString(16)}`); // notify connected dapps
       return { chainId: op.chainId };
     }
     case "setActiveAccount": {
       await browser.storage.local.set({ [ACTIVE_KEY]: op.index });
+      const kr = await restore();
+      const addr = kr?.accounts[op.index]?.address;
+      if (addr) emitEvent("accountsChanged", [addr]); // notify connected dapps
       return { ok: true };
     }
     case "revealMnemonic": {
@@ -407,6 +429,12 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
 // ---- message router --------------------------------------------------------
 
 export default defineBackground(() => {
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== EVENT_PORT) return;
+    const p = port as unknown as EventPort;
+    eventPorts.add(p);
+    port.onDisconnect.addListener(() => eventPorts.delete(p));
+  });
   browser.runtime.onMessage.addListener((message: unknown, sender: { origin?: string; url?: string }) => {
     const msg = message as BgMessage;
     if (msg.kind === "wallet") {
