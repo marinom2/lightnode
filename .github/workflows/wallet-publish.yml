@@ -1,0 +1,52 @@
+name: Publish wallet to Chrome Web Store
+
+# Auto-uploads + publishes a new version to the Chrome Web Store so users get the
+# one-click "Add to Chrome" install (and silent auto-updates). Runs on a
+# wallet-v* tag. Requires four repo secrets (see wallet/PUBLISH.md); if they are
+# not set, the job skips gracefully so the build still succeeds.
+on:
+  push:
+    tags: ["wallet-v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build + zip the extension
+        working-directory: wallet
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          npm run zip
+      - name: Upload + publish to the Chrome Web Store
+        env:
+          EXT_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$EXT_ID" ] || [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ] || [ -z "$REFRESH_TOKEN" ]; then
+            echo "::warning::Chrome Web Store secrets not set - skipping auto-publish. See wallet/PUBLISH.md to add CWS_EXTENSION_ID / CWS_CLIENT_ID / CWS_CLIENT_SECRET / CWS_REFRESH_TOKEN."
+            exit 0
+          fi
+          ZIP=$(ls wallet/.output/*-chrome.zip | head -1)
+          echo "Packaging: $ZIP"
+          TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+            -d client_id="$CLIENT_ID" -d client_secret="$CLIENT_SECRET" \
+            -d refresh_token="$REFRESH_TOKEN" -d grant_type=refresh_token \
+            | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+          if [ -z "$TOKEN" ]; then echo "::error::Could not get an OAuth access token (check the secrets)."; exit 1; fi
+          echo "Uploading new version to item $EXT_ID..."
+          curl -s -f -X PUT -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" \
+            -T "$ZIP" "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$EXT_ID"
+          echo
+          echo "Submitting for publication..."
+          curl -s -f -X POST -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$EXT_ID/publish"
+          echo
+          echo "Done. The new version is uploaded and submitted to the Chrome Web Store."

@@ -10,6 +10,9 @@ export const metadata: Metadata = {
 
 const REPO = "https://github.com/marinom2/lightnode/tree/main/wallet";
 const DOWNLOAD_URL = "https://github.com/marinom2/lightnode/releases/latest/download/lightnode-wallet-chrome.zip";
+// Set this to the Chrome Web Store listing URL once published (see wallet/PUBLISH.md).
+// When set, the page shows a one-click "Add to Chrome" button instead of the zip download.
+const STORE_URL = "";
 
 const FEATURES: { icon: typeof Server; title: string; body: string; status: "live" | "soon" }[] = [
   { icon: ShieldCheck, title: "Self-custodial", body: "Keys are generated and encrypted on your device with AES-256-GCM + scrypt. They never leave it. No server, no custody, no smart contract.", status: "live" },
@@ -53,8 +56,13 @@ export default function WalletPage() {
           A self-custodial wallet for the LightChain ecosystem. Hold your LCAI, monitor your worker, run encrypted AI inference, and read the DAO - all in one place. <span className="text-content-primary">Your keys never leave your device.</span>
         </p>
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-          <a href={DOWNLOAD_URL} className="inline-flex items-center gap-2 rounded-xl bg-gradient-primary bg-[length:200%_auto] bg-[position:left_center] px-5 py-3 text-sm font-semibold text-white shadow-[0_2px_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:bg-[position:right_center] hover:brightness-110">
-            <Download className="size-4" /> Download the wallet
+          <a
+            href={STORE_URL || DOWNLOAD_URL}
+            target={STORE_URL ? "_blank" : undefined}
+            rel={STORE_URL ? "noopener noreferrer" : undefined}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-primary bg-[length:200%_auto] bg-[position:left_center] px-5 py-3 text-sm font-semibold text-white shadow-[0_2px_18px_-4px_rgba(112,100,233,0.7)] transition-all hover:bg-[position:right_center] hover:brightness-110"
+          >
+            <Download className="size-4" /> {STORE_URL ? "Add to Chrome" : "Download the wallet"}
           </a>
           <Link href="#install" className="inline-flex items-center gap-2 rounded-xl border border-bdr-soft px-5 py-3 text-sm font-semibold text-content-soft transition-colors hover:border-primary/40 hover:text-content-primary">
             How to install
@@ -63,6 +71,9 @@ export default function WalletPage() {
             <Github className="size-4" /> Source
           </a>
         </div>
+        {!STORE_URL && (
+          <p className="mt-3 text-xs text-content-soft">One-click <span className="text-content-primary">Add to Chrome</span> goes live when the Chrome Web Store listing is published.</p>
+        )}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px] text-content-soft">
           {["No smart contract", "Keys never leave your device", "Coexists with MetaMask (EIP-6963)", "Open source"].map((b) => (
             <span key={b} className="inline-flex items-center gap-1.5 rounded-full border border-bdr-soft px-2.5 py-1">
