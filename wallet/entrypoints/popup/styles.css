@@ -106,6 +106,7 @@ body.expanded-body .onboard.welcome, body.expanded-body .onboard.ready { min-hei
 
 /* actions */
 .actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.actions-4 { grid-template-columns: repeat(4, 1fr); }
 .act { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 13px 0; border-radius: 14px; background: var(--card); border: 1px solid var(--bdr-solid); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; transition: .15s; }
 .act:hover:not(:disabled) { border-color: var(--brand); transform: translateY(-1px); }
 .act:disabled { opacity: .45; cursor: not-allowed; }
@@ -194,6 +195,18 @@ a:hover { text-decoration: underline; }
 .tag-bad { color: var(--bad); background: rgba(248,113,113,.12); }
 .tag-warn { color: var(--warnc); background: rgba(251,191,36,.12); }
 .strike { text-decoration: line-through; color: var(--faint); }
+
+/* stats + governance */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.stat { background: var(--bg-2); border: 1px solid var(--bdr-solid); border-radius: 12px; padding: 9px 10px; }
+.stat .faint { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.stat b { font-size: 13px; display: block; margin-top: 2px; }
+.votebar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--bg-2); margin: 4px 0; }
+.vb-for { background: var(--ok); }
+.vb-against { background: var(--bad); }
+.vb-abstain { background: var(--faint); }
+.tag-ok { color: var(--ok); background: rgba(52,211,153,.12); }
+h2 svg { vertical-align: -1.5px; margin-right: 4px; }
 
 /* micro-interactions */
 .list-row { transition: border-color .15s; }

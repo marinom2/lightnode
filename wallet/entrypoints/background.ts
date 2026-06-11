@@ -12,7 +12,6 @@
 import { createPublicClient, http, parseEther, formatEther, formatUnits, type TypedDataDefinition } from "viem";
 import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
-import { readWorkerStatus } from "../src/rpc/worker";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
 import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
@@ -20,6 +19,9 @@ import { bridgeTransfer, bridgeFee } from "../src/rpc/bridge";
 import { daoStatus } from "../src/rpc/dao";
 import { importNft, stillOwned, nftTransferData, type NftItem } from "../src/rpc/nfts";
 import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history";
+import { quoteSwap, executeSwap, type SwapSide } from "../src/rpc/swap";
+import { listProposals, castVoteData, GOVERNORS } from "../src/rpc/governance";
+import { readWorkerStatus, readNetworkStats, readWorkerLifetime, withdrawTarget } from "../src/rpc/worker";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
@@ -335,6 +337,49 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
           pending: true,
         }));
       return { items: mergeHistory(pending, base) };
+    }
+    case "quoteSwap": {
+      const tIn: SwapSide = { token: op.tokenIn as `0x${string}` | null, decimals: op.decimalsIn };
+      const tOut: SwapSide = { token: op.tokenOut as `0x${string}` | null, decimals: op.decimalsOut };
+      return { quote: await quoteSwap(op.chainId, tIn, tOut, op.amountIn) };
+    }
+    case "swap": {
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      await bumpAutoLock();
+      const tIn: SwapSide = { token: op.tokenIn as `0x${string}` | null, decimals: op.decimalsIn };
+      const tOut: SwapSide = { token: op.tokenOut as `0x${string}` | null, decimals: op.decimalsOut };
+      return executeSwap(acct.account, op.chainId, tIn, tOut, op.amountIn, BigInt(op.expectedOutWei), Math.floor(Date.now() / 1000));
+    }
+    case "getProposals":
+      return { proposals: await listProposals(op.chainId, op.voter) };
+    case "castVote": {
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      const governor = GOVERNORS[op.chainId];
+      if (!governor) throw RpcError.invalidParams;
+      await bumpAutoLock();
+      // Vote on the governor's OWN chain regardless of the selected network.
+      const { createWalletClient } = await import("viem");
+      const w = createWalletClient({ account: acct.account, chain: chainById(op.chainId), transport: http() });
+      return { hash: await w.sendTransaction({ to: governor, data: castVoteData(op.proposalId, op.support) }) };
+    }
+    case "networkStats":
+      return readNetworkStats(clientFor(9200));
+    case "workerLifetime":
+      return { lifetime: await readWorkerLifetime(op.address) };
+    case "withdrawRewards": {
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      await bumpAutoLock();
+      // JobRegistry lives on LightChain mainnet; send there explicitly.
+      const { createWalletClient } = await import("viem");
+      const w = createWalletClient({ account: acct.account, chain: chainById(9200), transport: http() });
+      const t = withdrawTarget();
+      return { hash: await w.sendTransaction({ to: t.to, data: t.data }) };
     }
     case "setAccountName": {
       const max = await accountCount();

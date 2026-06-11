@@ -74,6 +74,13 @@ export type WalletOp =
   | { type: "revokeOrigin"; origin: string }
   | { type: "setAccountName"; index: number; name: string }
   | { type: "getHistory"; chainId: number; address: string; refresh?: boolean }
+  | { type: "quoteSwap"; chainId: number; tokenIn: string | null; decimalsIn: number; tokenOut: string | null; decimalsOut: number; amountIn: string }
+  | { type: "swap"; from: string; chainId: number; tokenIn: string | null; decimalsIn: number; tokenOut: string | null; decimalsOut: number; amountIn: string; expectedOutWei: string }
+  | { type: "getProposals"; chainId: number; voter?: string }
+  | { type: "castVote"; from: string; chainId: number; proposalId: string; support: 0 | 1 | 2 }
+  | { type: "networkStats" }
+  | { type: "workerLifetime"; address: string }
+  | { type: "withdrawRewards"; from: string }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }
