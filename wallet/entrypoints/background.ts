@@ -16,6 +16,7 @@ import { readWorkerStatus } from "../src/rpc/worker";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
 import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
+import { bridgeTransfer, bridgeFee } from "../src/rpc/bridge";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
@@ -233,6 +234,15 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
           ? { to: op.from as `0x${string}`, value: 0n, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) }
           : { to: orig.to ?? (op.from as `0x${string}`), value: orig.value, data: orig.input, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) };
       return { hash: await w.sendTransaction(tx) };
+    }
+    case "bridgeFee":
+      return { fee: await bridgeFee(op.direction) };
+    case "bridge": {
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      await bumpAutoLock();
+      return bridgeTransfer(acct.account, op.direction, op.amount);
     }
     case "txStatus": {
       try {
