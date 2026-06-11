@@ -82,6 +82,9 @@ export type WalletOp =
   | { type: "quoteSwap"; chainId: number; tokenIn: string | null; decimalsIn: number; tokenOut: string | null; decimalsOut: number; amountIn: string }
   | { type: "swap"; from: string; chainId: number; tokenIn: string | null; decimalsIn: number; tokenOut: string | null; decimalsOut: number; amountIn: string; expectedOutWei: string }
   | { type: "getProposals"; chainId: number; voter?: string }
+  | { type: "daoStats"; chainId: number }
+  | { type: "getAvatars" }
+  | { type: "setAvatar"; address: string; image: string | null }
   | { type: "castVote"; from: string; chainId: number; proposalId: string; support: 0 | 1 | 2 }
   | { type: "networkStats" }
   | { type: "workerLifetime"; address: string }

@@ -7,8 +7,8 @@ import type { NftItem } from "../../src/rpc/nfts";
 import type { HistoryItem } from "../../src/rpc/history";
 import { portfolioUsd, fmtUsd, type Prices } from "../../src/rpc/prices";
 import { humanizeError } from "../../src/rpc/humanize";
-import { type Asset, type DaoView, Ic, short, fmtBal, tokenLogo, avatarGradient, timeAgo, isExpanded, openFullTab, Change } from "./shared";
-import { SendSheet, ReceiveSheet, ImportTokenSheet, ImportNftSheet, NftSheet, NftGrid } from "./sheets-assets";
+import { type Asset, type DaoView, Ic, short, fmtBal, tokenLogo, avatarGradient, timeAgo, isExpanded, openFullTab, Change, Avatar } from "./shared";
+import { SendSheet, ReceiveSheet, ImportTokenSheet, ImportNftSheet, NftSheet, NftGrid, AvatarSheet } from "./sheets-assets";
 import { SwapSheet } from "./sheets-swap";
 import { DaoSheet } from "./sheets-dao";
 import { WorkerSheet } from "./sheets-worker";
@@ -35,9 +35,12 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
   const [tab, setTab] = useState<"tokens" | "nfts" | "activity">("tokens");
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all"); // lifted: survives tab switches
   const [labels, setLabels] = useState<Record<string, string>>({});
+  const [avatars, setAvatars] = useState<Record<string, string>>({});
+  const [avatarFor, setAvatarFor] = useState<string | null>(null); // address being customized
   useEffect(() => {
     wallet<Record<string, string>>({ type: "getLabels" }).then(setLabels).catch(() => {});
-  }, [sheet]); // refresh when a sheet closes (a label may have just been saved)
+    wallet<Record<string, string>>({ type: "getAvatars" }).then(setAvatars).catch(() => {});
+  }, [sheet, avatarFor]); // refresh when a sheet closes (a label/avatar may have just been saved)
   const [hideZero, setHideZero] = useState(false);
   useEffect(() => {
     void chrome.storage.local.get("ui-hide-zero").then((r) => setHideZero(Boolean(r["ui-hide-zero"])));
@@ -149,17 +152,21 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
       <div className="header">
         <div className="net" style={{ minWidth: 0 }}>
           <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
-            <span className="avatar" style={{ background: avatarGradient(address), width: 26, height: 26 }} />
+            <Avatar address={address} image={avatars[address.toLowerCase()]} size={26} />
             <span className="acct"><b>{acctName(state.activeIndex)}</b></span>
             <Ic name="chevron" size={13} />
           </button>
           {acctOpen && (
-            <AccountMenu accounts={state.accounts} names={state.names ?? []} activeIndex={state.activeIndex} onSelect={selectAccount} onAdd={addAccount} onRename={rename} onClose={() => setAcctOpen(false)} />
+            <AccountMenu accounts={state.accounts} names={state.names ?? []} avatars={avatars} activeIndex={state.activeIndex} onSelect={selectAccount} onAdd={addAccount} onRename={rename} onAvatar={(a) => { setAcctOpen(false); setAvatarFor(a); }} onClose={() => setAcctOpen(false)} />
           )}
         </div>
         <span className="spacer" />
         <NetworkSwitcher chainId={state.chainId} onSwitch={switchChain} />
-        {!isExpanded() && <button className="icon-btn" title="Open in full tab" onClick={openFullTab}><Ic name="expand" size={15} /></button>}
+        {isExpanded() ? (
+          <button className="icon-btn" title="Back to the popup" onClick={() => window.close()}><Ic name="minimize" size={15} /></button>
+        ) : (
+          <button className="icon-btn" title="Open in full tab" onClick={openFullTab}><Ic name="expand" size={15} /></button>
+        )}
         <button className="icon-btn" title="Settings" onClick={() => setSheet("settings")}><Ic name="settings" size={15} /></button>
         <button className="icon-btn" title="Lock" onClick={() => void wallet({ type: "lock" }).then(onChange)}><Ic name="lock" size={15} /></button>
       </div>
@@ -248,6 +255,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
       {sheet === "dao" && <DaoSheet from={address} onClose={() => setSheet(null)} />}
       {sheet === "worker" && <WorkerSheet address={address} onClose={() => setSheet(null)} />}
       {sheet === "chat" && <ChatSheet from={address} onClose={() => setSheet(null)} />}
+      {avatarFor && <AvatarSheet address={avatarFor} chainId={chainId} current={avatars[avatarFor.toLowerCase()] ?? null} onClose={() => setAvatarFor(null)} />}
       {sheet === "importToken" && <ImportTokenSheet chainId={chainId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadBal(); }} />}
       {sheet === "importNft" && <ImportNftSheet chainId={chainId} owner={address} onClose={() => setSheet(null)} onDone={() => { setSheet(null); loadNfts(); }} />}
       {nftSel && <NftSheet nft={nftSel} from={address} chainId={chainId} explorer={explorer} own={state.accounts} onClose={() => setNftSel(null)} onChanged={() => { setNftSel(null); loadNfts(); }} />}
@@ -305,7 +313,7 @@ function WorkerCard({ address, refreshKey, onOpen }: { address: string; refreshK
     </div>
   );
 }
-function AccountMenu({ accounts, names, activeIndex, onSelect, onAdd, onRename, onClose }: { accounts: string[]; names: string[]; activeIndex: number; onSelect: (i: number) => void; onAdd: () => void; onRename: (i: number, name: string) => void; onClose: () => void }) {
+function AccountMenu({ accounts, names, avatars, activeIndex, onSelect, onAdd, onRename, onAvatar, onClose }: { accounts: string[]; names: string[]; avatars: Record<string, string>; activeIndex: number; onSelect: (i: number) => void; onAdd: () => void; onRename: (i: number, name: string) => void; onAvatar: (address: string) => void; onClose: () => void }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const save = (i: number) => {
@@ -329,10 +337,11 @@ function AccountMenu({ accounts, names, activeIndex, onSelect, onAdd, onRename, 
             ) : (
               <>
                 <button style={{ all: "unset", display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => { onSelect(i); onClose(); }}>
-                  <span className="avatar" style={{ width: 22, height: 22, background: avatarGradient(a), flexShrink: 0 }} />
+                  <Avatar address={a} image={avatars[a.toLowerCase()]} size={22} />
                   <span className="grow" style={{ minWidth: 0 }}><b style={{ fontSize: 12 }}>{names[i]?.trim() || `Account ${i + 1}`}</b><span className="faint" style={{ display: "block" }}>{short(a)}</span></span>
                 </button>
                 {i === activeIndex && <span className="check"><Ic name="check" size={14} /></span>}
+                <button className="icon-btn" style={{ width: 26, height: 26, flexShrink: 0 }} title="Choose avatar" onClick={() => onAvatar(a)}><Ic name="image" size={12} /></button>
                 <button className="icon-btn" style={{ width: 26, height: 26, flexShrink: 0 }} title="Rename" onClick={() => { setEditing(i); setDraft(names[i] ?? ""); }}><Ic name="edit" size={12} /></button>
               </>
             )}
