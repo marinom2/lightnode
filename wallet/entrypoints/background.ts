@@ -19,6 +19,7 @@ import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src
 import { bridgeTransfer, bridgeFee } from "../src/rpc/bridge";
 import { daoStatus } from "../src/rpc/dao";
 import { importNft, stillOwned, nftTransferData, type NftItem } from "../src/rpc/nfts";
+import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
@@ -151,7 +152,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // Clear everything tied to this wallet's identity, not just the vault:
       // stale names/NFT lists must not attach to a different seed imported later.
       const all = (await browser.storage.local.get(null)) as Record<string, unknown>;
-      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-"));
+      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-"));
       await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", ...stale]);
       return { ok: true };
     }
@@ -248,7 +249,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         op.mode === "cancel"
           ? { to: op.from as `0x${string}`, value: 0n, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) }
           : { to: orig.to ?? (op.from as `0x${string}`), value: orig.value, data: orig.input, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) };
-      return { hash: await w.sendTransaction(tx) };
+      const replacement = await w.sendTransaction(tx);
+      // Re-point the local send log at the replacement, or the old hash would
+      // sit in Activity as "pending" forever (the explorer never indexes it).
+      const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
+      await browser.storage.local.set({ activity: activity.map((e) => (e.hash.toLowerCase() === op.hash.toLowerCase() ? { ...e, hash: replacement } : e)) });
+      return { hash: replacement };
     }
     case "daoStatus":
       return daoStatus(op.chainId, op.address);
@@ -293,6 +299,42 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await browser.storage.local.set({ [PERMS_KEY]: rest });
       emitEvent("accountsChanged", [], op.origin); // ONLY the revoked site sees the disconnect
       return true;
+    }
+    case "getHistory": {
+      // Stale-while-revalidate, driven by the popup: refresh=false returns the
+      // cache instantly (no network); refresh=true (or no cache yet) fetches.
+      // items=null means UNKNOWN (explorer unreachable, no cache) - never
+      // conflate that with an empty history.
+      const cacheKey = `history-${op.chainId}-${op.address.toLowerCase()}`;
+      const { [cacheKey]: cached = null } = (await browser.storage.local.get(cacheKey)) as Record<string, HistoryItem[] | null>;
+      const symbol = chainById(op.chainId).nativeCurrency.symbol;
+      let base: HistoryItem[] | null = cached;
+      if (op.refresh || cached === null) {
+        const fresh = await fetchHistory(op.chainId, op.address, symbol).catch(() => null);
+        if (fresh) {
+          // A partial answer (one endpoint 429ed) must not erase cached rows.
+          base = fresh.complete ? fresh.items : mergeHistory(fresh.items, cached ?? []);
+          if (fresh.complete) await browser.storage.local.set({ [cacheKey]: base });
+        }
+      }
+      if (base === null) return { items: null };
+      const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
+      const indexed = new Set(base.map((h) => h.hash.toLowerCase()));
+      const me = op.address.toLowerCase();
+      const pending: HistoryItem[] = activity
+        .filter((e) => e.chainId === op.chainId && e.from?.toLowerCase() === me && !indexed.has(e.hash.toLowerCase()))
+        .map((e) => ({
+          hash: e.hash,
+          direction: "out" as const,
+          kind: e.kind ?? (e.symbol === symbol ? ("native" as const) : ("token" as const)),
+          label: e.symbol.replace(/^NFT /, ""),
+          amount: e.kind === "nft" ? "" : e.amount,
+          counterparty: e.to,
+          ts: e.ts,
+          failed: false,
+          pending: true,
+        }));
+      return { items: mergeHistory(pending, base) };
     }
     case "setAccountName": {
       const max = await accountCount();

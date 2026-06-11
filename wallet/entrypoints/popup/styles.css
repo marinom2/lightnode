@@ -183,6 +183,18 @@ a:hover { text-decoration: underline; }
 .skel { display: inline-block; height: 13px; border-radius: 6px; background: var(--card-2); animation: shimmer 1.3s ease-in-out infinite; }
 .skel-block { animation: shimmer 1.3s ease-in-out infinite; }
 
+/* activity */
+.chips { display: flex; gap: 6px; }
+.chip { padding: 5px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--card); border: 1px solid var(--bdr-solid); color: var(--soft); cursor: pointer; transition: .15s; }
+.chip:hover { border-color: var(--brand); color: var(--text); }
+.chip.active { background: rgba(112,100,233,.16); border-color: var(--brand); color: var(--text); }
+.dir-in { color: var(--ok); background: rgba(52,211,153,.1); }
+.dir-out { color: var(--soft); }
+.tag { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 6px; text-transform: uppercase; letter-spacing: .03em; }
+.tag-bad { color: var(--bad); background: rgba(248,113,113,.12); }
+.tag-warn { color: var(--warnc); background: rgba(251,191,36,.12); }
+.strike { text-decoration: line-through; color: var(--faint); }
+
 /* micro-interactions */
 .list-row { transition: border-color .15s; }
 .list-row:hover { border-color: rgba(112,100,233,.45); }
