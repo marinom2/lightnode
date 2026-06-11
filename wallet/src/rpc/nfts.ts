@@ -31,6 +31,7 @@ export interface NftItem {
   name: string;
   collection: string;
   image: string | null;
+  spam?: string; // set = flagged, value is the human reason
 }
 
 /** ipfs:// and ERC-1155 {id} templates -> a fetchable https URL. */

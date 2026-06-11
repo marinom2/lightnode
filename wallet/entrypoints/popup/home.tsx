@@ -42,6 +42,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     wallet<Record<string, string>>({ type: "getAvatars" }).then(setAvatars).catch(() => {});
   }, [sheet, avatarFor]); // refresh when a sheet closes (a label/avatar may have just been saved)
   const [hideZero, setHideZero] = useState(false);
+  const [showSpam, setShowSpam] = useState(false);
   useEffect(() => {
     void chrome.storage.local.get("ui-hide-zero").then((r) => setHideZero(Boolean(r["ui-hide-zero"])));
   }, []);
@@ -144,7 +145,8 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
   };
   const assets: Asset[] = [
     { kind: "native", symbol: sym, balance: typeof bal === "string" ? bal : null },
-    ...(tokens ?? []).map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals, balance: t.balance })),
+    // Flagged spam never reaches the Send/Swap pickers.
+    ...(tokens ?? []).filter((t) => !t.spam).map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals, balance: t.balance })),
   ];
 
   return (
@@ -216,7 +218,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
             <div className="list-row" key={`skel-${i}`}><span className="token-ic skel-block" /><div className="grow"><span className="skel" style={{ width: 90 }} /></div><span className="skel" style={{ width: 50 }} /></div>
           ))}
           {tokens === null && <p className="faint" style={{ padding: "2px 4px" }}>Could not refresh token balances. They will retry automatically.</p>}
-          {(tokens ?? []).filter((t) => !hideZero || t.balance === null || Number(t.balance) > 0).map((t) => (
+          {(tokens ?? []).filter((t) => !t.spam).filter((t) => !hideZero || t.balance === null || Number(t.balance) > 0).map((t) => (
             <div className="list-row" key={t.address}>
               {tokenLogo(t.address) ? <img className="token-logo" src={tokenLogo(t.address)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
               <div className="grow">
@@ -233,6 +235,26 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
               </button>
             </div>
           ))}
+          {(tokens ?? []).some((t) => t.spam) && (
+            <div>
+              <button className="ghost" style={{ fontSize: 12, width: "100%" }} onClick={() => setShowSpam((v) => !v)}>
+                Suspected spam ({(tokens ?? []).filter((t) => t.spam).length}) {showSpam ? "▴" : "▾"}
+              </button>
+              {showSpam && (tokens ?? []).filter((t) => t.spam).map((t) => (
+                <div className="list-row" key={t.address} style={{ marginTop: 6, opacity: 0.75 }}>
+                  <span className="token-ic">{t.symbol.slice(0, 2)}</span>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <b style={{ fontSize: 13 }}>{t.symbol}<span className="tag tag-bad">likely scam</span></b>
+                    <div className="faint">{t.spam}</div>
+                  </div>
+                  <button className="icon-btn row-hide" style={{ opacity: 1, position: "static" }} title="Hide forever"
+                    onClick={() => void wallet({ type: "removeToken", chainId, address: t.address }).then(() => loadBal())}>
+                    <Ic name="x" size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="row" style={{ gap: 8, marginTop: 2 }}>
             <button className="ghost" style={{ fontSize: 12, flex: 1 }} onClick={() => setSheet("importToken")}><Ic name="plus" size={13} /> Add token</button>
             <button className={`chip${hideZero ? " active" : ""}`} style={{ flexShrink: 0 }} onClick={toggleHideZero}>Hide zero</button>

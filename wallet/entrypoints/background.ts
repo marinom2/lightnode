@@ -26,6 +26,7 @@ import { listProposals, castVoteData, readDaoStats, GOVERNORS } from "../src/rpc
 import { readWorkerStatus, readNetworkStats, readWorkerLifetime, readWorkerModels, readProtocolParams, withdrawTarget } from "../src/rpc/worker";
 import { readGasTiers, type GasSpeed } from "../src/rpc/gas";
 import { resolveEnsName } from "../src/rpc/ens";
+import { assessTokenRisk, assessNftRisk } from "../src/rpc/spam";
 import { runInference, listChatModels, type ChatModel } from "../src/rpc/inference";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
@@ -99,6 +100,11 @@ async function selectedChainId(): Promise<number> {
 }
 const clientFor = (id: number) => createPublicClient({ chain: chainById(id), transport: http() });
 const publicClient = async () => clientFor(await selectedChainId());
+
+// Contracts allowed to wear blue-chip symbols (the shipped defaults).
+const OFFICIAL_TOKEN_ADDRESSES = new Set(
+  Object.values(DEFAULT_TOKENS).flat().map((t) => t.address.toLowerCase()),
+);
 
 // Tracked tokens per chain = the shipped defaults + any the user added.
 const TOKENS_KEY = (chainId: number) => `tokens-${chainId}`;
@@ -274,7 +280,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (cacheDirty) await browser.storage.local.set({ [metaKey]: metaCache });
       const discoveredSet = new Set(verified.map((v) => v.address.toLowerCase()));
       const balances = await readTokenBalances(clientFor(cid), op.address as `0x${string}`, [...visibleTracked, ...verified]);
-      return balances.map((b) => (discoveredSet.has(b.address.toLowerCase()) ? { ...b, discovered: true } : b));
+      return balances.map((b) => {
+        if (!discoveredSet.has(b.address.toLowerCase())) return b;
+        // Discovered = unsolicited: run the scam heuristics before display.
+        const risk = assessTokenRisk(b.symbol, b.address, OFFICIAL_TOKEN_ADDRESSES);
+        return { ...b, discovered: true, ...(risk.spam ? { spam: risk.reason } : {}) };
+      });
     }
     case "addToken": {
       const meta = await fetchTokenMeta(clientFor(op.chainId), op.address);
@@ -359,7 +370,10 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const owned = await Promise.all(list.map((n) => stillOwned(clientFor(op.chainId), op.owner as `0x${string}`, n)));
       const kept = list.filter((_, i) => owned[i]);
       if (kept.length !== list.length) await browser.storage.local.set({ [key]: kept });
-      return kept;
+      return kept.map((n) => {
+        const risk = assessNftRisk(n.name, n.collection);
+        return risk.spam ? { ...n, spam: risk.reason } : n;
+      });
     }
     case "addNft": {
       const item = await importNft(clientFor(op.chainId), op.owner as `0x${string}`, op.token as `0x${string}`, op.tokenId);

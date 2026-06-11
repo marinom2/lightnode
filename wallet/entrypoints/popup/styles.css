@@ -167,9 +167,9 @@ a:hover { text-decoration: underline; }
 .danger-box { border: 1px solid rgba(248,113,113,.4); background: rgba(248,113,113,.08); border-radius: 11px; padding: 10px; font-size: 12px; color: #fca5a5; }
 
 /* tokens / list rows */
-.row-hide { width: 22px; height: 22px; border-radius: 7px; opacity: 0; flex-shrink: 0; margin-left: -4px; }
+.row-hide { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 7px; opacity: 0; background: rgba(12,12,26,.85); }
 .list-row:hover .row-hide, .row-hide:focus-visible { opacity: 1; }
-.list-row { font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--bdr-solid); }
+.list-row { position: relative; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--bdr-solid); }
 a.list-row, a.list-row b { color: var(--text); }
 .token-ic { width: 32px; height: 32px; border-radius: 50%; background: var(--card-2); display: grid; place-items: center; font-weight: 700; font-size: 12px; color: var(--brand); }
 .token-logo { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; object-fit: cover; background: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
@@ -243,6 +243,25 @@ a.ghost-btnlike:hover { color: var(--text); border-color: var(--brand); text-dec
 .vb-abstain { background: var(--faint); }
 .tag-ok { color: var(--ok); background: rgba(52,211,153,.12); }
 .card h2 svg { vertical-align: -1.5px; margin-right: 4px; }
+
+/* bridge widget (mirrors the site's LCAI Bridge) */
+.bridge-pair { display: flex; align-items: center; gap: 8px; background: var(--bg-2); border: 1px solid var(--bdr-solid); border-radius: 14px; padding: 10px 12px; }
+.coin { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
+.coin b { font-size: 14px; display: block; }
+.coin .faint { font-size: 11px; }
+.coin-right { justify-content: flex-end; }
+.coin-badge { position: relative; width: 34px; height: 34px; flex-shrink: 0; }
+.coin-main { width: 34px; height: 34px; border-radius: 50%; background: #fff; object-fit: cover; }
+.coin-chain { position: absolute; right: -3px; bottom: -3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid #14152c; object-fit: cover; }
+.flip-btn { flex-shrink: 0; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: var(--card-2); border: 1px solid var(--bdr-solid); color: var(--brand); padding: 0; }
+.flip-btn:hover { border-color: var(--brand); filter: none; }
+.amount-box { background: var(--bg-2); border: 1px solid var(--bdr-solid); border-radius: 14px; padding: 12px; }
+.amount-input { background: none; border: none; padding: 0; font-size: 26px; font-weight: 700; letter-spacing: -.4px; width: 100%; font-variant-numeric: tabular-nums; }
+.amount-input:focus { border: none; }
+
+/* hero gradient CTA (the site's bridge button) */
+.btn-hero { width: 100%; padding: 14px; font-size: 15px; font-weight: 700; border-radius: 999px; background: linear-gradient(90deg, #e623b4 0%, #9b4dee 55%, #7c6bf2 100%); box-shadow: 0 8px 26px -8px rgba(221, 0, 172, 0.55); }
+.btn-hero:hover:not(:disabled) { filter: brightness(1.1); }
 
 /* proposal reader */
 .proposal-text { font-size: 12px; line-height: 1.6; color: var(--soft); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; background: var(--bg-2); border: 1px solid var(--bdr-solid); border-radius: 11px; padding: 10px; }

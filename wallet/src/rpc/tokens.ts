@@ -21,11 +21,17 @@ export interface TokenMeta {
 export interface TokenBalance extends TokenMeta {
   balance: string | null; // human-formatted; null = read failed (NEVER shown as zero)
   discovered?: boolean; // surfaced by the indexer, not added by the user
+  spam?: string; // set = quarantined, value is the human reason
 }
 
 // Canonical USDC per chain (verified addresses). LightChain's value token is native LCAI.
 export const DEFAULT_TOKENS: Record<number, TokenMeta[]> = {
-  1: [{ address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", symbol: "USDC", decimals: 6 }],
+  1: [
+    // The ecosystem token ships by default: its balance must appear instantly
+    // from on-chain reads, never waiting on an indexer to discover it.
+    { address: "0x9cA8530CA349c966Fe9ef903Df17a75B8A778927", symbol: "LCAI", decimals: 18 },
+    { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", symbol: "USDC", decimals: 6 },
+  ],
   8453: [{ address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", symbol: "USDC", decimals: 6 }],
   42161: [{ address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", symbol: "USDC", decimals: 6 }],
   10: [{ address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", symbol: "USDC", decimals: 6 }],
@@ -63,7 +69,7 @@ export function erc20TransferData(to: string, amount: string, decimals: number):
 // ---- automatic discovery via Blockscout --------------------------------------
 
 const DISCOVER_CAP = 30;
-const DISCOVER_TIMEOUT_MS = 10000;
+const DISCOVER_TIMEOUT_MS = 15000;
 export const stripControls = (s: string): string => s.replace(/[\u202A-\u202E\u2066-\u2069\u200E\u200F\u0000-\u001F\u007F]/g, "").slice(0, 12);
 
 interface BsTokenBalance {
