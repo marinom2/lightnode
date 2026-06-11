@@ -19,10 +19,10 @@ import { CG_NATIVE, CG_PLATFORM, LCAI_PRICE_CONTRACT, type Prices } from "../src
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
 import { bridgeTransfer, bridgeFee, bridgeSourceBalance } from "../src/rpc/bridge";
 import { daoStatus } from "../src/rpc/dao";
-import { importNft, stillOwned, nftTransferData, type NftItem } from "../src/rpc/nfts";
+import { importNft, stillOwned, nftTransferData, safeImageUrl, type NftItem } from "../src/rpc/nfts";
 import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history";
 import { quoteSwap, executeSwap, type SwapSide } from "../src/rpc/swap";
-import { listProposals, castVoteData, GOVERNORS } from "../src/rpc/governance";
+import { listProposals, castVoteData, readDaoStats, GOVERNORS } from "../src/rpc/governance";
 import { readWorkerStatus, readNetworkStats, readWorkerLifetime, readWorkerModels, readProtocolParams, withdrawTarget } from "../src/rpc/worker";
 import { readGasTiers, type GasSpeed } from "../src/rpc/gas";
 import { resolveEnsName } from "../src/rpc/ens";
@@ -203,7 +203,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // stale names/NFT lists must not attach to a different seed imported later.
       const all = (await browser.storage.local.get(null)) as Record<string, unknown>;
       const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-") || k.startsWith("disc-meta-") || k.startsWith("hidden-tokens-"));
-      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", "addr-labels", ...stale]);
+      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", "addr-labels", "avatars", ...stale]);
       return { ok: true };
     }
     case "createVault":
@@ -448,6 +448,24 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const meta = op.tokenIn ? (await trackedTokens(op.chainId)).find((t) => t.address.toLowerCase() === op.tokenIn!.toLowerCase()) : null;
       void logActivity({ hash: res.hash, to: "swap", amount: op.amountIn, symbol: meta?.symbol ?? chainById(op.chainId).nativeCurrency.symbol, chainId: op.chainId, ts: Date.now(), from: op.from, kind: op.tokenIn ? "token" : "native" });
       return res;
+    }
+    case "daoStats":
+      return readDaoStats(op.chainId);
+    case "getAvatars": {
+      const { "avatars": avatars = {} } = (await browser.storage.local.get("avatars")) as { avatars?: Record<string, string> };
+      return avatars;
+    }
+    case "setAvatar": {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(op.address)) throw RpcError.invalidParams;
+      const { "avatars": avatars = {} } = (await browser.storage.local.get("avatars")) as { avatars?: Record<string, string> };
+      const key = op.address.toLowerCase();
+      const next = { ...avatars };
+      // Only an https/data:image URL that already passed the NFT pipeline.
+      const safe = op.image ? safeImageUrl(op.image) : null;
+      if (safe) next[key] = safe;
+      else delete next[key];
+      await browser.storage.local.set({ avatars: next });
+      return { ok: true };
     }
     case "getProposals":
       return { proposals: await listProposals(op.chainId, op.voter) };
@@ -909,7 +927,13 @@ export default defineBackground(() => {
     const lines: string[] = [];
     const fmtProps = (label: string, r: PromiseSettledResult<Awaited<ReturnType<typeof listProposals>>>) => {
       if (r.status !== "fulfilled" || !r.value?.length) return;
-      lines.push(`${label} governor proposals (newest first): ${r.value.slice(0, 3).map((p) => `"${p.title}" [${p.state}]`).join("; ")}`);
+      const rows = r.value.slice(0, 3).map((p, i) => {
+        const total = p.forVotes + p.againstVotes + p.abstainVotes;
+        const pct = (n: number) => (total > 0 ? `${Math.round((n / total) * 100)}%` : "0%");
+        const results = total > 0 ? ` Results: For ${pct(p.forVotes)}, Against ${pct(p.againstVotes)}, Abstain ${pct(p.abstainVotes)}.` : " No votes yet.";
+        return `${i + 1}. "${p.title}" [${p.state}].${results}`;
+      });
+      lines.push(`${label} governor proposals, NEWEST FIRST (item 1 is the latest):\n${rows.join("\n")}`);
     };
     fmtProps("LightChain", lcProps);
     fmtProps("Ethereum", ethProps);

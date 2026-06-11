@@ -6,7 +6,7 @@ import { assessRecipient } from "../../src/rpc/risk";
 import { humanizeError } from "../../src/rpc/humanize";
 import { logoFor, nftUrlFor } from "../../src/rpc/chains";
 import type { NftItem } from "../../src/rpc/nfts";
-import { type Asset, assetKey, Ic, short, fmtBal, tokenLogo, Sheet } from "./shared";
+import { type Asset, assetKey, Ic, short, fmtBal, tokenLogo, Sheet, avatarGradient } from "./shared";
 import { looksLikeEnsName } from "../../src/rpc/ens";
 
 export function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null | undefined; onImport: () => void; onOpen: (n: NftItem) => void }) {
@@ -389,6 +389,44 @@ export function ReceiveSheet({ address, chainName, onClose }: { address: string;
         <div className="qr" dangerouslySetInnerHTML={{ __html: encodeQR(address, "svg") }} />
         <div className="card addr" style={{ textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>{address}</div>
         <button onClick={copy}>{copied ? "Copied!" : "Copy address"}</button>
+    </Sheet>
+  );
+}
+
+/** Pick an account avatar: any owned NFT image on this network, or the gradient. */
+export function AvatarSheet({ address, chainId, current, onClose }: { address: string; chainId: number; current: string | null; onClose: () => void }) {
+  const [nfts, setNfts] = useState<NftItem[] | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    wallet<NftItem[]>({ type: "getNfts", chainId, owner: address }).then(setNfts).catch(() => setNfts(null));
+  }, [chainId, address]);
+  const pick = async (image: string | null) => {
+    setBusy(true);
+    try {
+      await wallet({ type: "setAvatar", address, image });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const withImages = (nfts ?? []).filter((n) => n.image);
+  return (
+    <Sheet title="Choose avatar" onClose={onClose} busy={busy}>
+      <p className="muted">Pick one of your NFTs as this account's face, or keep the gradient.</p>
+      <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+        <button className={`avatar-pick${current === null ? " sel" : ""}`} title="Default gradient" onClick={() => pick(null)}>
+          <span className="avatar" style={{ background: avatarGradient(address) }} />
+        </button>
+        {withImages.map((n) => (
+          <button key={`${n.address}-${n.tokenId}`} className={`avatar-pick${current === n.image ? " sel" : ""}`} title={n.name} onClick={() => pick(n.image)}>
+            <img src={n.image!} alt={n.name} />
+          </button>
+        ))}
+      </div>
+      {nfts === undefined && <span className="skel" style={{ width: 140 }} />}
+      {nfts !== undefined && withImages.length === 0 && (
+        <p className="faint">No NFT images on this network yet. Import an NFT (NFTs tab) and it appears here.</p>
+      )}
     </Sheet>
   );
 }

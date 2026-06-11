@@ -7,6 +7,8 @@
 import { createPublicClient, decodeEventLog, encodeFunctionData, formatEther, http, parseAbi, parseAbiItem, toEventSelector } from "viem";
 import { chainById } from "./chains";
 import { BLOCKSCOUT } from "./history";
+import { LCAI_ERC20 } from "./bridge";
+import { decodeDangerousCall } from "../provider/decode-call";
 
 export const GOVERNORS: Record<number, `0x${string}`> = {
   1: "0x6dfa413B5900a1a7947BC75E68AbBA093cB2492d",
@@ -32,9 +34,17 @@ const GOV_ABI = parseAbi([
 export const STATE_LABELS = ["pending", "active", "canceled", "defeated", "succeeded", "queued", "expired", "executed"] as const;
 export type ProposalState = (typeof STATE_LABELS)[number];
 
+export interface ProposalAction {
+  target: string;
+  valueLcai: number;
+  label: string; // decoded calldata meaning ("Token transfer", "Contract call"...)
+  dangerous: boolean;
+}
+
 export interface ProposalView {
   id: string; // uint256 as decimal string
   title: string;
+  description: string; // full on-chain text, clamped
   proposer: string;
   state: ProposalState;
   forVotes: number; // LCAI
@@ -44,7 +54,11 @@ export interface ProposalView {
   blocksLeft: number | null; // null when not active
   youVoted: boolean;
   yourWeight: number; // voting power at the proposal snapshot (LCAI)
+  actions: ProposalAction[];
 }
+
+const DESCRIPTION_CAP = 4000;
+const stripControls = (t: string): string => t.replace(/[\u202A-\u202E\u2066-\u2069\u200E\u200F\u0000-\u0008\u000E-\u001F\u007F]/g, "");
 
 /** First non-empty line of the on-chain description, control chars stripped. */
 export function titleFrom(description: string, id: string): string {
@@ -66,23 +80,54 @@ interface BsLog {
  * Decode ProposalCreated events out of raw Blockscout log items. Pre-filtered by
  * topic0 so we never waste a decode on the VoteCast logs that dominate the feed.
  */
-export function parseProposalLogs(json: unknown): { id: string; proposer: string; description: string }[] {
+export interface RawProposal {
+  id: string;
+  proposer: string;
+  description: string;
+  targets: string[];
+  values: bigint[];
+  calldatas: `0x${string}`[];
+}
+
+export function parseProposalLogs(json: unknown): RawProposal[] {
   const items = ((json ?? {}) as { items?: BsLog[] }).items;
   if (!Array.isArray(items)) return [];
-  const out: { id: string; proposer: string; description: string }[] = [];
+  const out: RawProposal[] = [];
   for (const it of items) {
     const data = typeof it?.data === "string" ? (it.data as `0x${string}`) : null;
     const topics = Array.isArray(it?.topics) ? (it.topics.filter((t) => typeof t === "string" && t !== null) as `0x${string}`[]) : [];
     if (!data || topics[0]?.toLowerCase() !== PROPOSAL_CREATED_TOPIC.toLowerCase()) continue;
     try {
       const dec = decodeEventLog({ abi: [PROPOSAL_CREATED], data, topics: topics as [`0x${string}`, ...`0x${string}`[]] });
-      const a = dec.args as unknown as { proposalId: bigint; proposer: string; description: string };
-      out.push({ id: a.proposalId.toString(), proposer: a.proposer, description: typeof a.description === "string" ? a.description : "" });
+      const a = dec.args as unknown as { proposalId: bigint; proposer: string; targets: readonly string[]; values: readonly bigint[]; calldatas: readonly `0x${string}`[]; description: string };
+      out.push({
+        id: a.proposalId.toString(),
+        proposer: a.proposer,
+        description: typeof a.description === "string" ? stripControls(a.description).slice(0, DESCRIPTION_CAP) : "",
+        targets: Array.isArray(a.targets) ? [...a.targets] : [],
+        values: Array.isArray(a.values) ? [...a.values] : [],
+        calldatas: Array.isArray(a.calldatas) ? [...a.calldatas] : [],
+      });
     } catch {
       continue; // malformed log
     }
   }
   return out;
+}
+
+/** Decode what a proposal would EXECUTE, reusing the wallet's calldata decoder. */
+export function decodeActions(p: RawProposal): ProposalAction[] {
+  return p.targets.slice(0, 10).map((target, i) => {
+    const calldata = p.calldatas[i];
+    const value = p.values[i] ?? 0n;
+    const dec = calldata && calldata.length > 2 ? decodeDangerousCall(calldata) : null;
+    return {
+      target,
+      valueLcai: Number(formatEther(value)),
+      label: dec && dec.kind !== "empty" ? `${dec.label}. ${dec.detail}` : value > 0n ? "Native transfer" : "Contract call",
+      dangerous: dec?.severity === "danger",
+    };
+  });
 }
 
 const LIST_TIMEOUT_MS = 12000;
@@ -94,7 +139,7 @@ const MAX_PROPOSALS = 8;
  * bury ProposalCreated entirely (the bug that showed "no proposals" while the
  * Ethereum governor held 30). topic0 filtering pushes the search server-side.
  */
-async function fetchProposalLogs(base: string, governor: string): Promise<{ id: string; proposer: string; description: string }[]> {
+async function fetchProposalLogs(base: string, governor: string): Promise<RawProposal[]> {
   const url = `${base}/api?module=logs&action=getLogs&fromBlock=0&toBlock=latest&address=${governor}&topic0=${PROPOSAL_CREATED_TOPIC}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`explorer ${res.status}`);
@@ -109,7 +154,7 @@ export async function listProposals(chainId: number, voter?: string): Promise<Pr
   const governor = GOVERNORS[chainId];
   const base = BLOCKSCOUT[chainId];
   if (!governor || !base) return null;
-  let created: { id: string; proposer: string; description: string }[];
+  let created: RawProposal[];
   try {
     created = await fetchProposalLogs(base, governor);
   } catch {
@@ -143,6 +188,8 @@ export async function listProposals(chainId: number, voter?: string): Promise<Pr
         return {
           id: p.id,
           title: titleFrom(p.description, p.id),
+          description: p.description,
+          actions: decodeActions(p),
           proposer: p.proposer,
           state: label,
           againstVotes: Number(formatEther(votes[0])),
@@ -163,4 +210,40 @@ export async function listProposals(chainId: number, voter?: string): Promise<Pr
 
 export function castVoteData(proposalId: string, support: 0 | 1 | 2): `0x${string}` {
   return encodeFunctionData({ abi: GOV_ABI, functionName: "castVote", args: [BigInt(proposalId), support] });
+}
+
+// ---- DAO stats (treasury + quorum) ---------------------------------------------
+
+const TREASURIES: Record<number, `0x${string}`> = {
+  1: "0x07A716a551E5f4CA7D6C71Da9dF1cb1429Dba826",
+  9200: "0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389",
+};
+const QUORUM_ABI = parseAbi([
+  "function quorumNumerator() view returns (uint256)",
+  "function quorumDenominator() view returns (uint256)",
+]);
+const BALANCE_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+
+export interface DaoStatsView {
+  treasuryLcai: number | null; // null = unreadable right now
+  quorumPct: number | null;
+}
+
+/** Treasury holds the ERC-20 on Ethereum and native LCAI on LightChain. */
+export async function readDaoStats(chainId: number): Promise<DaoStatsView> {
+  const governor = GOVERNORS[chainId];
+  const treasury = TREASURIES[chainId];
+  if (!governor || !treasury) return { treasuryLcai: null, quorumPct: null };
+  const pub = createPublicClient({ chain: chainById(chainId), transport: http() });
+  const [bal, num, den] = await Promise.all([
+    chainId === 1
+      ? (pub.readContract({ address: LCAI_ERC20, abi: BALANCE_ABI, functionName: "balanceOf", args: [treasury] }).catch(() => null) as Promise<bigint | null>)
+      : pub.getBalance({ address: treasury }).then((b): bigint | null => b).catch(() => null),
+    pub.readContract({ address: governor, abi: QUORUM_ABI, functionName: "quorumNumerator" }).catch(() => null) as Promise<bigint | null>,
+    pub.readContract({ address: governor, abi: QUORUM_ABI, functionName: "quorumDenominator" }).catch(() => 100n) as Promise<bigint | null>,
+  ]);
+  return {
+    treasuryLcai: bal === null ? null : Number(formatEther(bal)),
+    quorumPct: num === null || den === null || den === 0n ? null : Number((num * 10000n) / den) / 100,
+  };
 }
