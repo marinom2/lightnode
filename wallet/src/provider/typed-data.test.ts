@@ -64,6 +64,10 @@ describe("siweOriginMismatch", () => {
     const r = siweOriginMismatch(msg, "https://app.unlswap.org");
     expect(r).toEqual({ stated: "app.uniswap.org", actual: "app.unlswap.org" });
   });
+  it("accepts the EIP-4361 scheme-prefixed form without a false alarm", () => {
+    const msg = "https://app.uniswap.org wants you to sign in with your Ethereum account:\n0xabc";
+    expect(siweOriginMismatch(msg, "https://app.uniswap.org")).toBeNull();
+  });
   it("passes a matching origin and ignores non-SIWE text", () => {
     const msg = "app.uniswap.org wants you to sign in with your Ethereum account:\n0xabc";
     expect(siweOriginMismatch(msg, "https://app.uniswap.org")).toBeNull();

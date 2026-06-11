@@ -161,12 +161,13 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const kr = await restore();
       const addr = kr?.accounts[op.index]?.address;
       if (addr) {
-        // Keep grants consistent with what eth_accounts will now answer, and
-        // tell ONLY connected origins (a global broadcast leaks the address).
+        // Grants are PER ORIGIN consents: switching the active account must
+        // never hand the new account to sites the user only connected with an
+        // old one. Notify exactly the origins already granted this account.
         const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
-        const next = Object.fromEntries(Object.keys(perms).map((o) => [o, [addr]]));
-        await browser.storage.local.set({ [PERMS_KEY]: next });
-        await emitToConnected("accountsChanged", [addr]);
+        for (const [o, grant] of Object.entries(perms)) {
+          if (grant.some((g) => g.toLowerCase() === addr.toLowerCase())) emitEvent("accountsChanged", [addr], o);
+        }
       }
       return { ok: true };
     }
@@ -277,6 +278,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     }
     case "addToken": {
       const meta = await fetchTokenMeta(clientFor(op.chainId), op.address);
+      // Adding by hand reverses a hide: never leave the user in a dead end.
+      const hiddenKey = `hidden-tokens-${op.chainId}`;
+      const { [hiddenKey]: hidden = [] } = (await browser.storage.local.get(hiddenKey)) as Record<string, string[]>;
+      if (hidden.includes(meta.address.toLowerCase())) {
+        await browser.storage.local.set({ [hiddenKey]: hidden.filter((h) => h !== meta.address.toLowerCase()) });
+      }
       const key = TOKENS_KEY(op.chainId);
       const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, TokenMeta[]>;
       if (!list.some((t) => t.address.toLowerCase() === meta.address.toLowerCase())) {
@@ -683,9 +690,12 @@ async function handleDappRpc(request: JsonRpcRequest, origin: string): Promise<u
 
   if (APPROVAL_REQUIRED.has(request.method)) {
     // Signing methods must come from an origin holding a grant for the signer;
-    // only the connect handshake itself is exempt.
+    // only the connect handshake itself is exempt. The check reads the STORED
+    // grant (not the keyring view): a locked wallet must still route to the
+    // approval window so the user gets the unlock-then-sign flow, and
+    // fulfilApproved enforces the lock itself.
     if (request.method !== "eth_requestAccounts") {
-      const granted = (await connectedAccounts(origin)).map((a) => a.toLowerCase());
+      const granted = (await grantedFor(origin)).map((a) => a.toLowerCase());
       const signer = signerOf(request);
       if (granted.length === 0 || (signer && !granted.includes(signer.toLowerCase()))) throw RpcError.unauthorized;
     }
@@ -694,6 +704,12 @@ async function handleDappRpc(request: JsonRpcRequest, origin: string): Promise<u
 
   // Everything else on the allowlist: read-only passthrough to the selected chain's pinned RPC.
   return (await publicClient()).request({ method: request.method as never, params: request.params as never });
+}
+
+/** The origin's STORED grant, independent of lock state. */
+async function grantedFor(origin: string): Promise<string[]> {
+  const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
+  return perms[origin] ?? [];
 }
 
 /** The account a dapp request wants to sign with, per method shape. */

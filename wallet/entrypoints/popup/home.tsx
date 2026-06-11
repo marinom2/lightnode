@@ -122,7 +122,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     const price = addr ? prices.tokenUsd[addr.toLowerCase()] : prices.nativeUsd;
     return price ? fmtUsd(price * amount) : null;
   };
-  const total = prices && typeof bal === "string" ? portfolioUsd(Number(bal), prices, (tokens ?? []).map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
+  const total = prices && typeof bal === "string" ? portfolioUsd(Number(bal), prices, (tokens ?? []).filter((t) => t.balance !== null).map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
 
   const copy = () => {
     void navigator.clipboard.writeText(address);
@@ -209,7 +209,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
             <div className="list-row" key={`skel-${i}`}><span className="token-ic skel-block" /><div className="grow"><span className="skel" style={{ width: 90 }} /></div><span className="skel" style={{ width: 50 }} /></div>
           ))}
           {tokens === null && <p className="faint" style={{ padding: "2px 4px" }}>Could not refresh token balances. They will retry automatically.</p>}
-          {(tokens ?? []).filter((t) => !hideZero || Number(t.balance) > 0).map((t) => (
+          {(tokens ?? []).filter((t) => !hideZero || t.balance === null || Number(t.balance) > 0).map((t) => (
             <div className="list-row" key={t.address}>
               {tokenLogo(t.address) ? <img className="token-logo" src={tokenLogo(t.address)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
               <div className="grow">
@@ -217,8 +217,8 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
                 <div className="faint">{short(t.address)}{chg(t.address) != null && <Change pct={chg(t.address)!} />}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
-                {usd(t.symbol, Number(t.balance), t.address) && <div className="faint">{usd(t.symbol, Number(t.balance), t.address)}</div>}
+                {t.balance === null ? <b style={{ fontSize: 13 }} title="Could not refresh">--</b> : <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>}
+                {t.balance !== null && usd(t.symbol, Number(t.balance), t.address) && <div className="faint">{usd(t.symbol, Number(t.balance), t.address)}</div>}
               </div>
               <button className="icon-btn row-hide" title={`Hide ${t.symbol}`} aria-label={`Hide ${t.symbol}`}
                 onClick={() => void wallet({ type: "removeToken", chainId, address: t.address }).then(() => loadBal())}>

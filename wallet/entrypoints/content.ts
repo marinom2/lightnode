@@ -38,12 +38,17 @@ export default defineContentScript({
       } catch {
         return; // context invalidated (extension updated/removed): end the loop
       }
+      const connectedAt = Date.now();
       port.onMessage.addListener((m: unknown) => {
         backoff = 500; // a live message proves the channel: reset the backoff
         const e = m as { event?: string; data?: unknown };
         if (e?.event) window.postMessage({ target: CONTENT_TO_PAGE_EVENT, event: e.event, data: e.data }, window.location.origin);
       });
       port.onDisconnect.addListener(() => {
+        // Provider events are rare: a connection that LIVED for a while was
+        // healthy even if silent (normal MV3 idle recycling), so do not let
+        // the backoff creep toward a minute of deafness.
+        if (Date.now() - connectedAt > 5000) backoff = 500;
         const wait = backoff;
         backoff = Math.min(backoff * 2, 60000);
         setTimeout(connectEvents, wait);

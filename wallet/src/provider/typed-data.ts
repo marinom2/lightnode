@@ -173,7 +173,8 @@ export function siweOriginMismatch(messageText: string, requestOrigin: string): 
   const firstLine = messageText.split("\n")[0] ?? "";
   const m = firstLine.match(/^([^\s]+) wants you to sign in with your Ethereum account/);
   if (!m) return null; // not a SIWE message
-  const stated = m[1]!.toLowerCase();
+  // EIP-4361 allows an optional scheme prefix on the stated domain.
+  const stated = m[1]!.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").toLowerCase();
   let actual = "";
   try {
     actual = new URL(requestOrigin).host.toLowerCase();
