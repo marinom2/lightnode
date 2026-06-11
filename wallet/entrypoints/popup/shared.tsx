@@ -3,7 +3,8 @@ import { useEffect, type ReactNode } from "react";
 import { CHAIN_LIST } from "../../src/rpc/chains";
 import type { Severity } from "../../src/provider/decode-call";
 
-export type Asset = { kind: "native"; symbol: string; balance: string } | { kind: "token"; symbol: string; address: string; decimals: number; balance: string };
+// balance null = unknown right now (RPC unreachable): never render it as zero.
+export type Asset = { kind: "native"; symbol: string; balance: string | null } | { kind: "token"; symbol: string; address: string; decimals: number; balance: string | null };
 export type DaoView = { supported: boolean; votingPower: string; delegated: boolean; voteUrl: string };
 
 /** Stable identity for an asset (symbols are attacker-chosen; addresses are not). */

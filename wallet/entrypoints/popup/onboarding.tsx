@@ -29,13 +29,63 @@ function BackBar({ title, onBack }: { title: string; onBack: () => void }) {
     </div>
   );
 }
+/** Pick 3 random word positions; each gets 6 shuffled candidates from the phrase. */
+function makeQuiz(words: string[]): { pos: number; options: string[] }[] {
+  const positions: number[] = [];
+  while (positions.length < 3) {
+    const p = Math.floor(Math.random() * words.length);
+    if (!positions.includes(p)) positions.push(p);
+  }
+  return positions.sort((a, b) => a - b).map((pos) => {
+    const options = new Set<string>([words[pos]!]);
+    while (options.size < Math.min(6, new Set(words).size)) {
+      options.add(words[Math.floor(Math.random() * words.length)]!);
+    }
+    return { pos, options: [...options].sort(() => Math.random() - 0.5) };
+  });
+}
+
+function VerifyStep({ words, onVerified, onBack }: { words: string[]; onVerified: () => void; onBack: () => void }) {
+  const [quiz] = useState(() => makeQuiz(words));
+  const [picked, setPicked] = useState<Record<number, string>>({});
+  const [failed, setFailed] = useState(false);
+  const allPicked = quiz.every((q) => picked[q.pos]);
+  const check = () => {
+    const ok = quiz.every((q) => picked[q.pos] === words[q.pos]);
+    if (ok) onVerified();
+    else {
+      setFailed(true);
+      setPicked({});
+    }
+  };
+  return (
+    <div className="onboard">
+      <BackBar title="Verify your backup" onBack={onBack} />
+      <p className="muted">Pick the right word for each position. This is the only proof your backup actually exists.</p>
+      {quiz.map((q) => (
+        <div key={q.pos}>
+          <div className="faint" style={{ marginBottom: 6 }}>Word #{q.pos + 1}</div>
+          <div className="chips" style={{ flexWrap: "wrap" }}>
+            {q.options.map((w) => (
+              <button key={w} className={`chip${picked[q.pos] === w ? " active" : ""}`} onClick={() => setPicked((p) => ({ ...p, [q.pos]: w }))}>{w}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {failed && <p className="err">Not quite. Check your written backup and try again.</p>}
+      <button disabled={!allPicked} onClick={check}>Verify backup</button>
+    </div>
+  );
+}
+
 function CreateFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
   const [mnemonic] = useState(createMnemonic);
-  const [step, setStep] = useState<"phrase" | "ready">("phrase");
+  const [step, setStep] = useState<"phrase" | "verify" | "password" | "ready">("phrase");
   const [address, setAddress] = useState("");
   const [reveal, setReveal] = useState(false);
   const [saved, setSaved] = useState(false);
   const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const create = async () => {
@@ -52,6 +102,21 @@ function CreateFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void
     }
   };
   if (step === "ready") return <ReadyScreen address={address} onDone={onDone} />;
+  if (step === "verify") return <VerifyStep words={mnemonic.split(" ")} onVerified={() => setStep("password")} onBack={() => setStep("phrase")} />;
+  if (step === "password") {
+    const mismatch = pw2.length > 0 && pw !== pw2;
+    return (
+      <div className="onboard">
+        <BackBar title="Set your password" onBack={() => setStep("verify")} />
+        <p className="muted">It unlocks the wallet on this device. Your recovery phrase stays the master key.</p>
+        <input type="password" placeholder="Password (min 8 characters)" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} />
+        <input type="password" placeholder="Confirm password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+        {mismatch && <p className="err">The passwords do not match.</p>}
+        {err && <p className="err">{err}</p>}
+        <button disabled={pw.length < 8 || pw !== pw2 || busy} onClick={create}>{busy ? "Creating…" : "Create wallet"}</button>
+      </div>
+    );
+  }
   return (
     <div className="onboard">
       <BackBar title="Your recovery phrase" onBack={onBack} />
@@ -63,9 +128,8 @@ function CreateFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void
         {!reveal && <button className="reveal-overlay" onClick={() => setReveal(true)}><Ic name="external" size={16} /> Tap to reveal</button>}
       </div>
       <label className="check-row"><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I have saved my recovery phrase</label>
-      <input type="password" placeholder="Set a password (min 8 characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
       {err && <p className="err">{err}</p>}
-      <button disabled={!saved || pw.length < 8 || busy} onClick={create}>{busy ? "Creating…" : "Create wallet"}</button>
+      <button disabled={!saved || !reveal} onClick={() => setStep("verify")}>Continue</button>
     </div>
   );
 }
@@ -74,9 +138,11 @@ function ImportFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void
   const [step, setStep] = useState<"form" | "ready">("form");
   const [address, setAddress] = useState("");
   const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const valid = isValidMnemonic(mnemonic);
+  const mismatch = pw2.length > 0 && pw !== pw2;
   const importIt = async () => {
     setBusy(true);
     setErr(null);
@@ -98,8 +164,10 @@ function ImportFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void
       <textarea placeholder="word1 word2 word3 …" value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} />
       {mnemonic && !valid && <p className="err">Not a valid BIP-39 recovery phrase.</p>}
       <input type="password" placeholder="Set a password (min 8 characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
+      <input type="password" placeholder="Confirm password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+      {mismatch && <p className="err">The passwords do not match.</p>}
       {err && <p className="err">{err}</p>}
-      <button disabled={!valid || pw.length < 8 || busy} onClick={importIt}>{busy ? "Importing…" : "Import wallet"}</button>
+      <button disabled={!valid || pw.length < 8 || pw !== pw2 || busy} onClick={importIt}>{busy ? "Importing…" : "Import wallet"}</button>
     </div>
   );
 }
