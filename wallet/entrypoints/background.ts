@@ -173,6 +173,22 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await bumpAutoLock();
       return { hash: await signAndSend(acct.account, op.to as `0x${string}`, parseEther(op.valueWei)) };
     }
+    case "quoteSend": {
+      // Estimate the network fee (gas x fee/gas) before the user signs.
+      const cid = await selectedChainId();
+      const client = clientFor(cid);
+      const feeSymbol = chainById(cid).nativeCurrency.symbol;
+      try {
+        const gas = op.token
+          ? await client.estimateGas({ account: op.from as `0x${string}`, to: op.token as `0x${string}`, data: erc20TransferData(op.to, op.amount ?? "0", op.decimals ?? 18) })
+          : await client.estimateGas({ account: op.from as `0x${string}`, to: op.to as `0x${string}`, value: parseEther(op.valueWei ?? "0") });
+        const fees = await client.estimateFeesPerGas().catch(() => null);
+        const perGas = fees?.maxFeePerGas ?? (await client.getGasPrice());
+        return { feeFormatted: formatEther(gas * perGas), feeSymbol };
+      } catch {
+        return { feeFormatted: null, feeSymbol };
+      }
+    }
     case "sendToken": {
       const kr = await restore();
       const acct = kr?.accountFor(op.from);

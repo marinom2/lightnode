@@ -402,7 +402,23 @@ function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from:
   const [busy, setBusy] = useState(false);
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [fee, setFee] = useState<string | null>(null);
   const ok = /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && Number(amount) > 0;
+  useEffect(() => {
+    if (!ok) {
+      setFee(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      const req = asset.kind === "native"
+        ? { type: "quoteSend" as const, from, to: to.trim(), valueWei: amount }
+        : { type: "quoteSend" as const, from, to: to.trim(), token: asset.address, amount, decimals: asset.decimals };
+      wallet<{ feeFormatted: string | null; feeSymbol: string }>(req)
+        .then((q) => setFee(q.feeFormatted ? `${Number(q.feeFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${q.feeSymbol}` : null))
+        .catch(() => setFee(null));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [ok, to, amount, asset, from]);
   const send = async () => {
     setBusy(true);
     setErr(null);
@@ -440,6 +456,7 @@ function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from:
             )}
             <div><div className="muted" style={{ marginBottom: 6 }}>Recipient</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
             <div><div className="muted" style={{ marginBottom: 6 }}>Amount ({asset.symbol})</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
+            {fee && <p className="muted">Network fee ≈ {fee}</p>}
             {err && <p className="err">{err}</p>}
             <button disabled={!ok || busy} onClick={send}>{busy ? "Sending…" : `Send ${asset.symbol}`}</button>
           </>

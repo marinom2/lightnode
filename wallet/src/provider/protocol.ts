@@ -55,6 +55,7 @@ export type WalletOp =
   | { type: "workerStatus"; address: string }
   | { type: "send"; from: string; to: string; valueWei: string }
   | { type: "sendToken"; from: string; token: string; to: string; amount: string; decimals: number }
+  | { type: "quoteSend"; from: string; to: string; valueWei?: string; token?: string; amount?: string; decimals?: number }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "listPending" }
