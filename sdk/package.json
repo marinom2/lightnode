@@ -51,7 +51,7 @@
     "url": "https://github.com/marinom2/lightnode/issues"
   },
   "dependencies": {
-    "@noble/ciphers": "^1.0.0",
+    "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^1.0.0",
     "viem": "^2"
   },
