@@ -87,27 +87,22 @@ export function parseProposalLogs(json: unknown): { id: string; proposer: string
 
 const LIST_TIMEOUT_MS = 12000;
 const MAX_PROPOSALS = 8;
-const MAX_PAGES = 5; // VoteCast logs crowd the feed; page until we have enough proposals
 
-const pageQuery = (params: unknown): string => {
-  if (!params || typeof params !== "object") return "";
-  const entries = Object.entries(params as Record<string, unknown>).filter(([, v]) => v != null);
-  return entries.length ? `?${entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&")}` : "";
-};
-
-/** Page the governor's logs (topic-filtered) until we have MAX_PROPOSALS or run out. */
+/**
+ * Topic-filtered, full-range log query (Blockscout v1 getLogs). The v2 address
+ * feed pages 50 newest logs of ALL kinds: on a live governor VoteCast events
+ * bury ProposalCreated entirely (the bug that showed "no proposals" while the
+ * Ethereum governor held 30). topic0 filtering pushes the search server-side.
+ */
 async function fetchProposalLogs(base: string, governor: string): Promise<{ id: string; proposer: string; description: string }[]> {
-  const collected: { id: string; proposer: string; description: string }[] = [];
-  let next: unknown = null;
-  for (let page = 0; page < MAX_PAGES && collected.length < MAX_PROPOSALS; page += 1) {
-    const res = await fetch(`${base}/api/v2/addresses/${governor}/logs${pageQuery(next)}`, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`explorer ${res.status}`);
-    const json = (await res.json()) as { next_page_params?: unknown };
-    collected.push(...parseProposalLogs(json));
-    next = json.next_page_params;
-    if (!next) break;
-  }
-  return collected.slice(0, MAX_PROPOSALS);
+  const url = `${base}/api?module=logs&action=getLogs&fromBlock=0&toBlock=latest&address=${governor}&topic0=${PROPOSAL_CREATED_TOPIC}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`explorer ${res.status}`);
+  const json = (await res.json()) as { result?: unknown };
+  const items = Array.isArray(json.result) ? json.result : [];
+  // v1 returns ascending block order: the NEWEST proposals are at the end.
+  const decoded = parseProposalLogs({ items: items as never });
+  return decoded.slice(-MAX_PROPOSALS).reverse();
 }
 
 export async function listProposals(chainId: number, voter?: string): Promise<ProposalView[] | null> {

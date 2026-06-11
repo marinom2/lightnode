@@ -140,6 +140,47 @@ export async function readWorkerLifetime(address: string): Promise<WorkerLifetim
   }
 }
 
+export interface WorkerModelView {
+  modelId: string;
+  active: boolean;
+}
+
+/** Models this worker serves, per the indexer (display-only). */
+export async function readWorkerModels(address: string): Promise<WorkerModelView[]> {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return [];
+  try {
+    const data = await gql<{ workermodels: { model_id?: string; is_active?: boolean }[] }>(`{ workermodels(where:{worker:"${address}"}) { model_id is_active } }`);
+    return (data.workermodels ?? [])
+      .filter((m) => typeof m?.model_id === "string")
+      .slice(0, 12)
+      .map((m) => ({ modelId: String(m.model_id).slice(0, 32), active: Boolean(m.is_active) }));
+  } catch {
+    return [];
+  }
+}
+
+const FEE_ABI = parseAbi([
+  "function getProtocolFeeBps() view returns (uint256)",
+  "function getWorkerFeeBps() view returns (uint256)",
+  "function getFeePoolBps() view returns (uint256)",
+]);
+
+export interface ProtocolParamsView {
+  workerBps: number;
+  protocolBps: number;
+  poolBps: number;
+}
+
+/** How each job fee splits between the worker, the protocol, and the fee pool. */
+export async function readProtocolParams(client: PublicClient): Promise<ProtocolParamsView> {
+  const [protocolBps, workerBps, poolBps] = await Promise.all([
+    client.readContract({ address: AI_CONFIG, abi: FEE_ABI, functionName: "getProtocolFeeBps" }),
+    client.readContract({ address: AI_CONFIG, abi: FEE_ABI, functionName: "getWorkerFeeBps" }),
+    client.readContract({ address: AI_CONFIG, abi: FEE_ABI, functionName: "getFeePoolBps" }),
+  ]);
+  return { workerBps: Number(workerBps), protocolBps: Number(protocolBps), poolBps: Number(poolBps) };
+}
+
 const WITHDRAW_ABI = parseAbi(["function withdraw()"]);
 
 /** Calldata for JobRegistry.withdraw() - pulls the claimable balance to the worker. */

@@ -23,7 +23,7 @@
 body {
   margin: 0;
   width: 360px;
-  min-height: 560px;
+  min-height: 600px;
   background: radial-gradient(120% 80% at 50% -10%, #181434 0%, var(--bg) 55%);
   color: var(--text);
   font: 14px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif;
@@ -35,6 +35,10 @@ body {
 body.expanded-body { width: 100%; min-height: 100vh; background: radial-gradient(90% 60% at 50% -5%, #1b1640 0%, var(--bg) 50%); }
 .wrap.expanded { max-width: 460px; margin: 0 auto; padding: 28px 18px 40px; min-height: 100vh; }
 body.expanded-body .onboard.welcome, body.expanded-body .onboard.ready { min-height: 80vh; justify-content: center; }
+/* In the full-tab view a bottom sheet must not stretch across the monitor:
+   it becomes a centered modal card with full rounded corners. */
+body.expanded-body .sheet { align-items: center; justify-content: center; padding: 24px; }
+body.expanded-body .sheet-card { max-width: 480px; border-radius: 20px; border: 1px solid var(--bdr-solid); box-shadow: 0 40px 90px -20px rgba(0,0,0,.85); max-height: 86vh; }
 
 /* onboarding */
 .onboard { display: flex; flex-direction: column; gap: 14px; }
