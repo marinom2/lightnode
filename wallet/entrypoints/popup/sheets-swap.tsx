@@ -4,7 +4,7 @@ import { wallet } from "./wallet-api";
 import { humanizeError } from "../../src/rpc/humanize";
 import { explorerFor } from "../../src/rpc/chains";
 import { LCAI_ERC20 } from "../../src/rpc/bridge";
-import { type Asset, assetKey, Ic, fmtBal } from "./shared";
+import { type Asset, assetKey, Ic, fmtBal, Sheet } from "./shared";
 
 const LCAI_ON_ETH = { symbol: "LCAI", address: LCAI_ERC20, decimals: 18 } as const;
 type SwapQuoteView = { amountOut: string; amountOutWei: string; fee: number; impactBps: number | null } | null;
@@ -13,9 +13,7 @@ export function SwapSheet({ from, chainId, assets, onClose, onDone }: { from: st
   const onLightChain = chainId === 9200 || chainId === 8200;
   const [mode, setMode] = useState<"market" | "network">(onLightChain ? "network" : "market");
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Swap</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Swap" onClose={onClose} dirty>
         <div className="tabs">
           <button className={`tab${mode === "market" ? " active" : ""}`} onClick={() => setMode("market")}>Market swap</button>
           <button className={`tab${mode === "network" ? " active" : ""}`} onClick={() => setMode("network")}>LCAI across networks</button>
@@ -27,8 +25,7 @@ export function SwapSheet({ from, chainId, assets, onClose, onDone }: { from: st
         ) : (
           <NetworkMove from={from} onDone={onDone} />
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -88,7 +85,6 @@ function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: 
         amountIn: amount, expectedOutWei: quote.amountOutWei,
       });
       setHash(r.hash);
-      void wallet({ type: "addActivity", entry: { hash: r.hash, to: tOut.symbol, amount, symbol: tIn.symbol, chainId, ts: Date.now(), from, kind: tIn.kind === "token" ? "token" : "native" } });
       onDone();
     } catch (e) {
       setErr(humanizeError((e as Error).message, tIn.symbol));

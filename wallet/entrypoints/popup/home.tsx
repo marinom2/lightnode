@@ -6,6 +6,7 @@ import type { TokenBalance } from "../../src/rpc/tokens";
 import type { NftItem } from "../../src/rpc/nfts";
 import type { HistoryItem } from "../../src/rpc/history";
 import { portfolioUsd, fmtUsd, type Prices } from "../../src/rpc/prices";
+import { humanizeError } from "../../src/rpc/humanize";
 import { type Asset, type DaoView, Ic, short, fmtBal, tokenLogo, avatarGradient, timeAgo, isExpanded, openFullTab, Change } from "./shared";
 import { SendSheet, ReceiveSheet, ImportTokenSheet, ImportNftSheet, NftSheet, NftGrid } from "./sheets-assets";
 import { SwapSheet } from "./sheets-swap";
@@ -15,22 +16,33 @@ import { SettingsSheet } from "./sheets-settings";
 
 export function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
   const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
-  const [bal, setBal] = useState<string | null>(null);
+  // undefined = loading, null = unreachable (NEVER shown as zero), string = truth.
+  const [bal, setBal] = useState<string | null | undefined>(undefined);
   const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "swap" | "dao" | "worker" | "importToken" | "importNft" | null>(null);
   const [nftSel, setNftSel] = useState<NftItem | null>(null);
-  const [nfts, setNfts] = useState<NftItem[] | null>(null);
+  const [nfts, setNfts] = useState<NftItem[] | null | undefined>(undefined);
   const [acctOpen, setAcctOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const chain = chainById(state.chainId);
   const sym = chain.nativeCurrency.symbol;
   const explorer = explorerFor(state.chainId);
 
-  const [tokens, setTokens] = useState<TokenBalance[]>([]);
+  const [tokens, setTokens] = useState<TokenBalance[] | null | undefined>(undefined);
   // undefined = loading, null = explorer unreachable with no cache, [] = truly empty.
   const [history, setHistory] = useState<HistoryItem[] | null | undefined>(undefined);
   const [prices, setPrices] = useState<Prices | null>(null);
   const [tab, setTab] = useState<"tokens" | "nfts" | "activity">("tokens");
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all"); // lifted: survives tab switches
+  const [hideZero, setHideZero] = useState(false);
+  useEffect(() => {
+    void chrome.storage.local.get("ui-hide-zero").then((r) => setHideZero(Boolean(r["ui-hide-zero"])));
+  }, []);
+  const toggleHideZero = () => {
+    setHideZero((v) => {
+      void chrome.storage.local.set({ "ui-hide-zero": !v });
+      return !v;
+    });
+  };
   const chainId = state.chainId;
   // Guards in-flight responses: after an account/chain switch, a slow reply for
   // the OLD pair must not overwrite the new view (wrong-chain explorer links).
@@ -41,27 +53,27 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     const epoch = ++epochRef.current;
     const live = () => epochRef.current === epoch;
     if (!silent) {
-      setBal(null);
-      setTokens([]);
+      setBal(undefined);
+      setTokens(undefined);
       setPrices(null);
-      setNfts(null);
+      setNfts(undefined);
       setHistory(undefined);
     }
     wallet<{ formatted: string }>({ type: "getBalance", address })
       .then((b) => live() && setBal(b.formatted))
-      .catch(() => !silent && live() && setBal("0"));
+      .catch(() => !silent && live() && setBal(null)); // unreachable, not zero
     wallet<TokenBalance[]>({ type: "getTokens", address }).then((ts) => {
       if (!live()) return;
       setTokens((prev) => {
         // Prices barely move tick to tick (CoinGecko rate limit), but a token
         // that APPEARS mid-session still needs its first quote.
-        const newAddrs = ts.some((t) => !prev.some((p) => p.address.toLowerCase() === t.address.toLowerCase()));
+        const newAddrs = ts.some((t) => !(prev ?? []).some((p) => p.address.toLowerCase() === t.address.toLowerCase()));
         if (!silent || newAddrs || tickRef.current % 4 === 0) {
           wallet<Prices>({ type: "getPrices", chainId, addresses: ts.map((t) => t.address) }).then((p) => live() && setPrices(p)).catch(() => {});
         }
         return ts;
       });
-    }).catch(() => !silent && live() && setTokens([]));
+    }).catch(() => !silent && live() && setTokens(null));
     // Stale-while-revalidate: paint the cache instantly, then fetch fresh.
     if (!silent) {
       wallet<{ items: HistoryItem[] | null }>({ type: "getHistory", chainId, address })
@@ -85,18 +97,18 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     return () => clearInterval(t);
   }, [loadBal]);
   const loadNfts = useCallback(() => {
-    setNfts(null);
-    wallet<NftItem[]>({ type: "getNfts", chainId, owner: address }).then(setNfts).catch(() => setNfts([]));
+    setNfts(undefined);
+    wallet<NftItem[]>({ type: "getNfts", chainId, owner: address }).then(setNfts).catch(() => setNfts(null));
   }, [chainId, address]);
   useEffect(() => {
-    if (tab === "nfts" && nfts === null) loadNfts();
+    if (tab === "nfts" && nfts === undefined) loadNfts();
   }, [tab, nfts, loadNfts]);
   const usd = (sym: string, amount: number, addr?: string) => {
     if (!prices) return null;
     const price = addr ? prices.tokenUsd[addr.toLowerCase()] : prices.nativeUsd;
     return price ? fmtUsd(price * amount) : null;
   };
-  const total = prices && bal != null ? portfolioUsd(Number(bal), prices, tokens.map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
+  const total = prices && typeof bal === "string" ? portfolioUsd(Number(bal), prices, (tokens ?? []).map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
 
   const copy = () => {
     void navigator.clipboard.writeText(address);
@@ -114,8 +126,8 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     return typeof c === "number" ? c : null;
   };
   const assets: Asset[] = [
-    { kind: "native", symbol: sym, balance: bal ?? "0" },
-    ...tokens.map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals, balance: t.balance })),
+    { kind: "native", symbol: sym, balance: typeof bal === "string" ? bal : "0" },
+    ...(tokens ?? []).map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals, balance: t.balance })),
   ];
 
   return (
@@ -140,7 +152,14 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
 
       <div className="hero">
         <div className="hero-chain"><img className="net-logo" src={logoFor(chainId)} alt="" /> {chain.name}</div>
-        <div><span className="bal">{bal == null ? "…" : fmtBal(bal)}</span><span className="sym">{sym}</span></div>
+        <div>
+          {bal === undefined ? (
+            <span className="skel" style={{ width: 120, height: 30, verticalAlign: "middle" }} />
+          ) : (
+            <span className="bal" title={bal === null ? "Could not refresh; retrying" : undefined}>{bal === null ? "--" : fmtBal(bal)}</span>
+          )}
+          <span className="sym">{sym}</span>
+        </div>
         {total > 0 && <div className="sub">≈ {fmtUsd(total)} total</div>}
         <button className="copy-chip" onClick={copy}>{copied ? "Copied!" : short(address)} <Ic name="copy" size={13} /></button>
       </div>
@@ -167,15 +186,19 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
               <div className="faint">{sym}{chg() != null && <Change pct={chg()!} />}</div>
             </div>
             <div style={{ textAlign: "right" }}>
-              {bal == null ? <span className="skel" style={{ width: 64 }} /> : <b style={{ fontSize: 13 }}>{fmtBal(bal)}</b>}
-              {bal != null && usd(sym, Number(bal)) && <div className="faint">{usd(sym, Number(bal))}</div>}
+              {bal === undefined ? <span className="skel" style={{ width: 64 }} /> : bal === null ? <b style={{ fontSize: 13 }} title="Could not refresh">--</b> : <b style={{ fontSize: 13 }}>{fmtBal(bal)}</b>}
+              {typeof bal === "string" && usd(sym, Number(bal)) && <div className="faint">{usd(sym, Number(bal))}</div>}
             </div>
           </div>
-          {tokens.map((t) => (
+          {tokens === undefined && [0, 1].map((i) => (
+            <div className="list-row" key={`skel-${i}`}><span className="token-ic skel-block" /><div className="grow"><span className="skel" style={{ width: 90 }} /></div><span className="skel" style={{ width: 50 }} /></div>
+          ))}
+          {tokens === null && <p className="faint" style={{ padding: "2px 4px" }}>Could not refresh token balances. They will retry automatically.</p>}
+          {(tokens ?? []).filter((t) => !hideZero || Number(t.balance) > 0).map((t) => (
             <div className="list-row" key={t.address}>
-              {tokenLogo(t.symbol) ? <img className="token-logo" src={tokenLogo(t.symbol)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
+              {tokenLogo(t.address) ? <img className="token-logo" src={tokenLogo(t.address)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
               <div className="grow">
-                <b style={{ fontSize: 13 }}>{t.symbol}</b>
+                <b style={{ fontSize: 13 }}>{t.symbol}{t.discovered && <span className="tag tag-auto" title="Found automatically; verify before trusting">auto</span>}</b>
                 <div className="faint">{short(t.address)}{chg(t.address) != null && <Change pct={chg(t.address)!} />}</div>
               </div>
               <div style={{ textAlign: "right" }}>
@@ -184,13 +207,16 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
               </div>
             </div>
           ))}
-          <button className="ghost" style={{ fontSize: 12, marginTop: 2 }} onClick={() => setSheet("importToken")}><Ic name="plus" size={13} /> Add token</button>
+          <div className="row" style={{ gap: 8, marginTop: 2 }}>
+            <button className="ghost" style={{ fontSize: 12, flex: 1 }} onClick={() => setSheet("importToken")}><Ic name="plus" size={13} /> Add token</button>
+            <button className={`chip${hideZero ? " active" : ""}`} style={{ flexShrink: 0 }} onClick={toggleHideZero}>Hide zero</button>
+          </div>
         </div>
       )}
       {tab === "nfts" && (
         <NftGrid nfts={nfts} onImport={() => setSheet("importNft")} onOpen={setNftSel} />
       )}
-      {tab === "activity" && <HistoryList items={history} explorer={explorer} filter={historyFilter} onFilter={setHistoryFilter} onRetry={() => loadBal()} />}
+      {tab === "activity" && <HistoryList items={history} explorer={explorer} owner={address} filter={historyFilter} onFilter={setHistoryFilter} onRetry={() => loadBal()} />}
 
       <WorkerCard address={address} refreshKey={refreshTick} onOpen={() => setSheet("worker")} />
 
@@ -307,14 +333,29 @@ const HISTORY_FILTERS: { key: HistoryFilter; label: string }[] = [
   { key: "nft", label: "NFTs" },
 ];
 
-function HistoryRow({ h, explorer }: { h: HistoryItem; explorer: string }) {
+function HistoryRow({ h, explorer, owner, onChanged }: { h: HistoryItem; explorer: string; owner: string; onChanged: () => void }) {
   const inbound = h.direction === "in";
   const self = h.direction === "self";
+  const [busy, setBusy] = useState(false);
+  const [rowErr, setRowErr] = useState<string | null>(null);
   const title = h.kind === "contract" ? h.label : self ? `Self transfer · ${h.label}` : `${inbound ? "Received" : "Sent"} ${h.label}`;
   const amountClass = h.failed ? "strike" : inbound ? "ok" : "";
   const sign = self ? "" : inbound ? "+" : "-";
-  return (
-    <a className="list-row" href={`${explorer}/tx/${h.hash}`} target="_blank" rel="noreferrer" title="View on explorer" style={{ textDecoration: "none" }}>
+  const replace = async (mode: "speedup" | "cancel") => {
+    setBusy(true);
+    setRowErr(null);
+    try {
+      await wallet({ type: "replaceTx", from: owner, hash: h.hash, mode });
+      onChanged();
+    } catch (e) {
+      setRowErr(humanizeError((e as Error).message, h.label));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const actionable = h.pending && !h.failed && h.direction === "out";
+  const body = (
+    <>
       <span className={`token-ic ${inbound ? "dir-in" : "dir-out"}`}><Ic name={inbound ? "receive" : "send"} size={14} /></span>
       <div className="grow" style={{ minWidth: 0 }}>
         <b style={{ fontSize: 13, display: "block" }} className="clamp">{title}</b>
@@ -329,11 +370,30 @@ function HistoryRow({ h, explorer }: { h: HistoryItem; explorer: string }) {
       ) : h.amount ? (
         <b style={{ fontSize: 13, flexShrink: 0 }} className={amountClass}>{sign}{fmtBal(h.amount)}</b>
       ) : null}
-    </a>
+    </>
+  );
+  if (!actionable) {
+    return (
+      <a className="list-row" href={`${explorer}/tx/${h.hash}`} target="_blank" rel="noreferrer" title="View on explorer" style={{ textDecoration: "none" }}>
+        {body}
+      </a>
+    );
+  }
+  // Pending own tx: same row plus inline rescue actions (no explorer-only dead end).
+  return (
+    <div className="list-row" style={{ flexWrap: "wrap" }}>
+      {body}
+      <div className="row" style={{ gap: 6, width: "100%", marginTop: 8 }}>
+        <button className="ghost" style={{ flex: 1, padding: "6px 0", fontSize: 11 }} disabled={busy} onClick={() => replace("speedup")}>Speed up</button>
+        <button className="ghost" style={{ flex: 1, padding: "6px 0", fontSize: 11 }} disabled={busy} onClick={() => replace("cancel")}>Cancel</button>
+        <a className="ghost-btnlike" href={`${explorer}/tx/${h.hash}`} target="_blank" rel="noreferrer">View</a>
+      </div>
+      {rowErr && <p className="err" style={{ width: "100%" }}>{rowErr}</p>}
+    </div>
   );
 }
 
-function HistoryList({ items, explorer, filter, onFilter, onRetry }: { items: HistoryItem[] | null | undefined; explorer: string; filter: HistoryFilter; onFilter: (f: HistoryFilter) => void; onRetry: () => void }) {
+function HistoryList({ items, explorer, owner, filter, onFilter, onRetry }: { items: HistoryItem[] | null | undefined; explorer: string; owner: string; filter: HistoryFilter; onFilter: (f: HistoryFilter) => void; onRetry: () => void }) {
   if (items === undefined) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -370,7 +430,7 @@ function HistoryList({ items, explorer, filter, onFilter, onRetry }: { items: Hi
           {filter === "all" ? "No activity yet on this network." : `Nothing ${filter === "nft" ? "NFT-related" : filter === "in" ? "received" : "sent"} yet on this network.`}
         </div>
       ) : (
-        shown.map((h) => <HistoryRow key={h.logIndex != null ? `${h.hash}-${h.logIndex}` : `${h.hash}-${h.kind}-${h.direction}-${h.label}-${h.amount}`} h={h} explorer={explorer} />)
+        shown.map((h) => <HistoryRow key={h.logIndex != null ? `${h.hash}-${h.logIndex}` : `${h.hash}-${h.kind}-${h.direction}-${h.label}-${h.amount}`} h={h} explorer={explorer} owner={owner} onChanged={onRetry} />)
       )}
     </div>
   );

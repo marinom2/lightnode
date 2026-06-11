@@ -6,8 +6,13 @@ export function createMnemonic(): string {
   return generateMnemonic(wordlist, 256);
 }
 
+/** Pasted phrases arrive with stray newlines/double spaces; normalize first. */
+export function normalizeMnemonic(phrase: string): string {
+  return phrase.trim().toLowerCase().split(/\s+/).join(" ");
+}
+
 export function isValidMnemonic(phrase: string): boolean {
-  return validateMnemonic(phrase.trim(), wordlist);
+  return validateMnemonic(normalizeMnemonic(phrase), wordlist);
 }
 
 /**
@@ -15,5 +20,5 @@ export function isValidMnemonic(phrase: string): boolean {
  * sets one it must be supplied at every unlock. Returns the raw 64-byte seed.
  */
 export function mnemonicToSeed(phrase: string, passphrase = ""): Uint8Array {
-  return mnemonicToSeedSync(phrase.trim(), passphrase);
+  return mnemonicToSeedSync(normalizeMnemonic(phrase), passphrase);
 }

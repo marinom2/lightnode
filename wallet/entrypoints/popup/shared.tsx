@@ -1,4 +1,5 @@
 /** Shared popup primitives: icons, formatting helpers, tiny display atoms. */
+import { useEffect, type ReactNode } from "react";
 import { CHAIN_LIST } from "../../src/rpc/chains";
 import type { Severity } from "../../src/provider/decode-call";
 
@@ -12,8 +13,26 @@ export const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "
 export const SUPPORTED_IDS = CHAIN_LIST.map((c) => c.id);
 export const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 // Bundled token marks; unknown tokens fall back to a monogram chip.
-export const tokenLogo = (symbol: string): string | null => (symbol.toUpperCase() === "USDC" ? "/tokens/usdc.png" : null);
-export const fmtBal = (s: string) => Number(s).toLocaleString(undefined, { maximumFractionDigits: Number(s) >= 1 ? 4 : 6 });
+// Official token marks are keyed by CONTRACT ADDRESS, never by symbol: a
+// discovered scam token calling itself "USDC" must not wear the real logo.
+const OFFICIAL_TOKEN_LOGOS: Record<string, string> = {
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "/tokens/usdc.png", // USDC Ethereum
+  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "/tokens/usdc.png", // USDC Base
+  "0xaf88d065e77c8cc2239327c5edb3a432268e5831": "/tokens/usdc.png", // USDC Arbitrum
+  "0x0b2c639c533813f4aa9d7837caf62653d097ff85": "/tokens/usdc.png", // USDC Optimism
+  "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": "/tokens/usdc.png", // USDC Polygon
+  "0x9ca8530ca349c966fe9ef903df17a75b8a778927": "/chains/lightchain.png", // LCAI Ethereum
+};
+export const tokenLogo = (address: string): string | null => OFFICIAL_TOKEN_LOGOS[address.toLowerCase()] ?? null;
+/** Magnitude-aware: whales get compact notation, dust never lies as "0". */
+export const fmtBal = (s: string): string => {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return "0";
+  if (n !== 0 && Math.abs(n) < 0.000001) return "<0.000001";
+  if (Math.abs(n) >= 1e9) return n.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 2 });
+  const digits = Math.abs(n) >= 1000 ? 2 : Math.abs(n) >= 1 ? 4 : 6;
+  return n.toLocaleString(undefined, { maximumFractionDigits: digits });
+};
 export const isApproveWindow = () => window.location.hash.includes("approve");
 export const isExpanded = () => window.location.hash.includes("expanded");
 export const openFullTab = () => void chrome.tabs.create({ url: chrome.runtime.getURL("popup.html#/expanded") });
@@ -73,6 +92,29 @@ export function Stat({ label, value, tone }: { label: string; value: string; ton
     <div className="stat">
       <div className="faint">{label}</div>
       <b className={tone}>{value}</b>
+    </div>
+  );
+}
+
+/**
+ * Modal sheet with real dialog behavior: Escape closes (unless a tx is in
+ * flight), overlay clicks never wipe a dirty form, and screen readers get
+ * dialog semantics. Every sheet in the popup goes through this.
+ */
+export function Sheet({ title, onClose, busy = false, dirty = false, children }: { title: string; onClose: () => void; busy?: boolean; dirty?: boolean; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
+  return (
+    <div className="sheet" onClick={() => !busy && !dirty && onClose()}>
+      <div className="sheet-card" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1 className="clamp">{title}</h1><button className="icon-btn" aria-label="Close" disabled={busy} onClick={onClose}><Ic name="x" size={15} /></button></div>
+        {children}
+      </div>
     </div>
   );
 }

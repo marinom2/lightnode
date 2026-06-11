@@ -1,19 +1,31 @@
 /** Dapp approval window: decode, simulate, approve/reject. */
 import { useCallback, useEffect, useState } from "react";
-import { wallet, type PendingRequest } from "./wallet-api";
+import { wallet, type PendingRequest, type WalletState } from "./wallet-api";
 import { decodeDangerousCall } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
-import { SEVERITY_CLASS, SUPPORTED_IDS } from "./shared";
+import { chainById, logoFor } from "../../src/rpc/chains";
+import { SEVERITY_CLASS, SUPPORTED_IDS, avatarGradient, short } from "./shared";
 
 export function ApproveView() {
   const [reqs, setReqs] = useState<PendingRequest[] | null>(null);
-  const load = useCallback(() => wallet<PendingRequest[]>({ type: "listPending" }).then(setReqs).catch(() => setReqs([])), []);
+  const [state, setState] = useState<WalletState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    void wallet<PendingRequest[]>({ type: "listPending" }).then(setReqs).catch(() => setReqs([]));
+    void wallet<WalletState>({ type: "getState" }).then(setState).catch(() => {});
+  }, []);
   useEffect(() => {
     void load();
   }, [load]);
   const resolve = async (id: string, approved: boolean) => {
-    await wallet({ type: "resolvePending", id, approved });
-    const left = (reqs ?? []).filter((r) => r.id !== id);
+    setBusy(true);
+    try {
+      await wallet({ type: "resolvePending", id, approved });
+    } finally {
+      setBusy(false);
+    }
+    // Re-poll: another request may have queued into this window meanwhile.
+    const left = await wallet<PendingRequest[]>({ type: "listPending" }).catch(() => []);
     if (left.length === 0) window.close();
     else setReqs(left);
   };
@@ -22,20 +34,51 @@ export function ApproveView() {
   const r = reqs[0]!;
   // On a dangerous decoded call, flip the emphasis: Reject becomes the primary
   // action and Approve loses the inviting gradient.
-  const txData = r.method === "eth_sendTransaction" ? ((r.params?.[0] ?? {}) as { data?: string }).data : undefined;
-  const dangerous = r.method === "eth_sendTransaction" && decodeDangerousCall(txData as `0x${string}` | undefined).severity === "danger";
+  const txParam = r.method === "eth_sendTransaction" ? ((r.params?.[0] ?? {}) as { from?: string; to?: string; value?: string; data?: string }) : null;
+  const dangerous = txParam != null && decodeDangerousCall(txParam.data as `0x${string}` | undefined).severity === "danger";
+  const chain = state ? chainById(state.chainId) : null;
+  const signer = txParam?.from ?? state?.accounts[state?.activeIndex ?? 0];
+  const signerName = state && signer ? (state.names?.[state.accounts.findIndex((a) => a.toLowerCase() === signer.toLowerCase())]?.trim() || short(signer)) : null;
   return (
     <div className="card">
-      <h2>Approve request</h2>
-      <p className="muted">{r.origin}</p>
-      <p><b>{labelFor(r.method)}</b></p>
+      <span className="origin-pill" title={r.origin}>{r.origin.replace(/^https:\/\//, "")}</span>
+      <h1 style={{ fontSize: 17, margin: "10px 0 2px" }}>{labelFor(r.method)}</h1>
+      {reqs.length > 1 && <p className="faint">Request 1 of {reqs.length}</p>}
+      {chain && signer && (
+        <div className="ctx-row">
+          <span className="ctx-item"><img className="net-logo" src={logoFor(state!.chainId)} alt="" /> {chain.name}</span>
+          <span className="ctx-item"><span className="avatar" style={{ width: 14, height: 14, background: avatarGradient(signer) }} /> {signerName}</span>
+        </div>
+      )}
       <RequestDetail req={r} />
+      {txParam && <FeeEstimate tx={txParam} />}
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
-        <button className={dangerous ? "" : "ghost"} style={{ flex: 1 }} onClick={() => resolve(r.id, false)}>Reject</button>
-        <button className={dangerous ? "danger" : ""} style={{ flex: 1 }} onClick={() => resolve(r.id, true)}>{dangerous ? "Approve anyway" : "Approve"}</button>
+        <button className={dangerous ? "" : "ghost"} style={{ flex: 1 }} disabled={busy} onClick={() => resolve(r.id, false)}>Reject</button>
+        <button className={dangerous ? "danger" : ""} style={{ flex: 1 }} disabled={busy} onClick={() => resolve(r.id, true)}>{busy ? "Working…" : dangerous ? "Approve anyway" : "Approve"}</button>
       </div>
     </div>
   );
+}
+
+/** Network-fee preview for dapp transactions, reusing the send-quote path. */
+function FeeEstimate({ tx }: { tx: { from?: string; to?: string; value?: string; data?: string } }) {
+  const [fee, setFee] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tx.from || !tx.to) return;
+    let valueEth = "0";
+    try {
+      valueEth = tx.value ? (Number(BigInt(tx.value)) / 1e18).toString() : "0";
+    } catch {
+      return; // unparseable value: skip the estimate, the approval still shows
+    }
+    // The estimate must include the calldata: a contract call costs far more
+    // than the bare transfer the old quote priced.
+    wallet<{ feeFormatted: string | null; feeSymbol: string }>({ type: "quoteSend", from: tx.from, to: tx.to, valueWei: valueEth, data: tx.data })
+      .then((q) => setFee(q.feeFormatted ? `${Number(q.feeFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${q.feeSymbol}` : null))
+      .catch(() => {});
+  }, [tx.from, tx.to, tx.value, tx.data]);
+  if (!fee) return null;
+  return <p className="muted" style={{ marginTop: 6 }}>Network fee ≈ {fee}</p>;
 }
 
 interface SimResult {

@@ -1,6 +1,6 @@
 /** First-run + unlock flows. */
 import { useState } from "react";
-import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
+import { createMnemonic, isValidMnemonic, normalizeMnemonic } from "../../src/keyring/mnemonic";
 import { wallet, type WalletState } from "./wallet-api";
 import { Ic, avatarGradient, short } from "./shared";
 
@@ -81,7 +81,7 @@ function ImportFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void
     setBusy(true);
     setErr(null);
     try {
-      await wallet({ type: "importVault", mnemonic: mnemonic.trim(), password: pw });
+      await wallet({ type: "importVault", mnemonic: normalizeMnemonic(mnemonic), password: pw });
       const st = await wallet<WalletState>({ type: "getState" });
       setAddress(st.accounts[0] ?? "");
       setStep("ready");
@@ -123,6 +123,12 @@ export function Unlock({ onDone }: { onDone: () => void }) {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [recover, setRecover] = useState<"hidden" | "warn" | "import">("hidden");
+  const [confirmText, setConfirmText] = useState("");
+  const wipeAndRestore = async () => {
+    await wallet({ type: "removeWallet" });
+    setRecover("import");
+  };
   const unlock = async () => {
     setBusy(true);
     setErr(null);
@@ -134,6 +140,9 @@ export function Unlock({ onDone }: { onDone: () => void }) {
       setBusy(false);
     }
   };
+  // After the wipe there is no vault to unlock: Back must route to onboarding,
+  // not back to a password screen that can no longer accept anything.
+  if (recover === "import") return <ImportFlow onDone={onDone} onBack={onDone} />;
   return (
     <div className="onboard welcome">
       <div className="welcome-logo sm"><img src="/lightnode.png" alt="" /></div>
@@ -142,6 +151,20 @@ export function Unlock({ onDone }: { onDone: () => void }) {
       <input type="password" placeholder="Password" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} />
       {err && <p className="err">{err}</p>}
       <button disabled={!pw || busy} onClick={unlock}>{busy ? "Unlocking…" : "Unlock"}</button>
+      {recover === "hidden" && (
+        <button className="ghost" style={{ fontSize: 12 }} onClick={() => setRecover("warn")}>Forgot password? Restore with your recovery phrase</button>
+      )}
+      {recover === "warn" && (
+        <div className="card" style={{ textAlign: "left" }}>
+          <p className="danger-box">This erases the wallet stored on THIS device. The only way back in is your recovery phrase. If you do not have it, do not continue: your funds would be unreachable.</p>
+          <p className="muted" style={{ marginTop: 8 }}>Type <b>restore</b> to confirm.</p>
+          <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="restore" style={{ marginTop: 6 }} />
+          <div className="row" style={{ gap: 8, marginTop: 10 }}>
+            <button className="ghost" style={{ flex: 1 }} onClick={() => { setRecover("hidden"); setConfirmText(""); }}>Cancel</button>
+            <button className="danger" style={{ flex: 1 }} disabled={confirmText.trim().toLowerCase() !== "restore"} onClick={() => void wipeAndRestore()}>Erase + restore</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,8 +12,13 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  if (isApproveWindow()) return <Shell><Brand /><ApproveView /></Shell>;
   if (!state) return <Shell><Brand /><p className="muted">Loading…</p></Shell>;
+  // The approval window must never PRETEND to work while locked: approving
+  // would throw and silently reject the dapp. Demand the password first.
+  if (isApproveWindow()) {
+    if (state.hasVault && !state.unlocked) return <Shell><Brand /><Unlock onDone={refresh} /></Shell>;
+    return <Shell><Brand /><ApproveView /></Shell>;
+  }
   if (!state.hasVault) return <Shell><Onboarding onDone={refresh} /></Shell>;
   if (!state.unlocked) return <Shell><Unlock onDone={refresh} /></Shell>;
   return <Shell><WalletHome state={state} onChange={refresh} /></Shell>;

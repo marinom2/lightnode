@@ -4,8 +4,13 @@
  * Prices are best-effort - if a coin/chain isn't listed, the UI just omits USD.
  */
 
+// LCAI's canonical Ethereum ERC-20: CoinGecko quotes it by contract address,
+// which is how the LightChain NATIVE balance gets a USD value too.
+export const LCAI_PRICE_CONTRACT = "0x9cA8530CA349c966Fe9ef903Df17a75B8A778927";
+
 // CoinGecko coin id for each chain's NATIVE gas token. Ethereum, Base, Arbitrum,
-// and Optimism all use ETH. LightChain's LCAI is not listed (null -> no USD).
+// and Optimism all use ETH. LightChain's LCAI is priced via its Ethereum
+// ERC-20 contract instead (see LCAI_PRICE_CONTRACT).
 export const CG_NATIVE: Record<number, string | null> = {
   1: "ethereum",
   8453: "ethereum",

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { wallet, type WorkerStatusView } from "./wallet-api";
 import { humanizeError } from "../../src/rpc/humanize";
-import { Ic, Stat } from "./shared";
+import { Ic, Stat, Sheet } from "./shared";
 
 type NetStats = { totalWorkers: number; activeWorkers: number; jobsCompleted: number; totalEarnedLcai: number; minStakeLcai: number; capped: boolean };
 type Lifetime = { jobsCompleted: number; jobsTimedOut: number; lifetimeEarnedLcai: number; lastSeenAt: string | null } | null;
@@ -35,9 +35,7 @@ export function WorkerSheet({ address, onClose }: { address: string; onClose: ()
   };
   const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Worker hub</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Worker hub" onClose={onClose} busy={busy}>
         {status === undefined && <span className="skel" style={{ width: 160 }} />}
         {status === null && (
           <div className="empty">
@@ -81,7 +79,6 @@ export function WorkerSheet({ address, onClose }: { address: string; onClose: ()
             <button style={{ width: "100%" }} onClick={() => window.open("https://lightnode.app/onboard", "_blank", "noopener")}>Become a worker →</button>
           </>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
