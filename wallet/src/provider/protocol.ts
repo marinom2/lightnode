@@ -13,6 +13,8 @@ export interface ActivityEntry {
   symbol: string;
   chainId: number;
   ts: number;
+  from?: string; // sender account (multi-account: only show under its owner)
+  kind?: "native" | "token" | "nft";
 }
 export interface JsonRpcResult {
   id: number | string;
@@ -71,6 +73,7 @@ export type WalletOp =
   | { type: "getOrigins" }
   | { type: "revokeOrigin"; origin: string }
   | { type: "setAccountName"; index: number; name: string }
+  | { type: "getHistory"; chainId: number; address: string; refresh?: boolean }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }
