@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
 import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
@@ -19,6 +19,8 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const tokenLogo = (symbol: string): string | null => (symbol.toUpperCase() === "USDC" ? "/tokens/usdc.png" : null);
 const fmtBal = (s: string) => Number(s).toLocaleString(undefined, { maximumFractionDigits: Number(s) >= 1 ? 4 : 6 });
 const isApproveWindow = () => window.location.hash.includes("approve");
+const isExpanded = () => window.location.hash.includes("expanded");
+const openFullTab = () => void chrome.tabs.create({ url: chrome.runtime.getURL("popup.html#/expanded") });
 
 function avatarGradient(addr: string): string {
   let h = 0;
@@ -31,12 +33,14 @@ const ICONS: Record<string, string> = {
   receive: "M12 4v15M19 12l-7 7-7-7",
   copy: "M9 9h10v10H9zM5 15V5h10",
   chevron: "M6 9l6 6 6-6",
+  back: "M15 18l-6-6 6-6",
   lock: "M7 11V8a5 5 0 0110 0v3M5 11h14v9H5z",
   check: "M5 12l5 5L20 7",
   external: "M14 4h6v6M20 4l-9 9M10 5H5v14h14v-5",
   x: "M6 6l12 12M18 6 6 18",
   settings: "M20 7h-9M14 17H5M17 14a3 3 0 100 6 3 3 0 000-6zM7 4a3 3 0 100 6 3 3 0 000-6z",
   plus: "M12 5v14M5 12h14",
+  expand: "M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3m13-5v3a2 2 0 01-2 2h-3",
 };
 function Ic({ name, size = 18 }: { name: string; size?: number }) {
   return (
@@ -53,11 +57,19 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  if (isApproveWindow()) return <div className="wrap"><Brand /><ApproveView /></div>;
-  if (!state) return <div className="wrap"><Brand /><p className="muted">Loading…</p></div>;
-  if (!state.hasVault) return <div className="wrap"><Brand /><Onboarding onDone={refresh} /></div>;
-  if (!state.unlocked) return <div className="wrap"><Brand /><Unlock onDone={refresh} /></div>;
-  return <div className="wrap"><WalletHome state={state} onChange={refresh} /></div>;
+  if (isApproveWindow()) return <Shell><Brand /><ApproveView /></Shell>;
+  if (!state) return <Shell><Brand /><p className="muted">Loading…</p></Shell>;
+  if (!state.hasVault) return <Shell><Onboarding onDone={refresh} /></Shell>;
+  if (!state.unlocked) return <Shell><Unlock onDone={refresh} /></Shell>;
+  return <Shell><WalletHome state={state} onChange={refresh} /></Shell>;
+}
+
+function Shell({ children }: { children: ReactNode }) {
+  const expanded = isExpanded();
+  useEffect(() => {
+    if (expanded) document.body.classList.add("expanded-body");
+  }, [expanded]);
+  return <div className={`wrap${expanded ? " expanded" : ""}`}>{children}</div>;
 }
 
 function Brand() {
@@ -68,22 +80,36 @@ function Brand() {
 
 function Onboarding({ onDone }: { onDone: () => void }) {
   const [mode, setMode] = useState<"choose" | "create" | "import">("choose");
-  if (mode === "create") return <CreateFlow onDone={onDone} />;
-  if (mode === "import") return <ImportFlow onDone={onDone} />;
+  if (mode === "create") return <CreateFlow onDone={onDone} onBack={() => setMode("choose")} />;
+  if (mode === "import") return <ImportFlow onDone={onDone} onBack={() => setMode("choose")} />;
   return (
-    <div className="card">
-      <h1>Self-custodial. Your keys.</h1>
-      <p className="muted" style={{ marginTop: 6 }}>Generated and encrypted on this device. They never leave it - no server, no custody.</p>
-      <div className="row" style={{ marginTop: 14, gap: 8 }}>
-        <button onClick={() => setMode("create")} style={{ flex: 1 }}>Create wallet</button>
-        <button className="ghost" onClick={() => setMode("import")} style={{ flex: 1 }}>Import</button>
+    <div className="onboard welcome">
+      <div className="welcome-logo"><img src="/lightnode.png" alt="" /></div>
+      <h1 className="welcome-title">LightNode Wallet</h1>
+      <p className="welcome-sub">A self-custodial wallet for LightChain and EVM networks. Your keys are generated and encrypted on this device, and never leave it.</p>
+      <div className="welcome-cta">
+        <button onClick={() => setMode("create")}>Create a new wallet</button>
+        <button className="ghost" onClick={() => setMode("import")}>I already have a wallet</button>
       </div>
+      <p className="faint center">No account, no server, no custody.</p>
     </div>
   );
 }
 
-function CreateFlow({ onDone }: { onDone: () => void }) {
+function BackBar({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className="back-bar">
+      <button className="icon-btn" onClick={onBack} aria-label="Back"><Ic name="back" size={16} /></button>
+      <h1>{title}</h1>
+    </div>
+  );
+}
+
+function CreateFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
   const [mnemonic] = useState(createMnemonic);
+  const [step, setStep] = useState<"phrase" | "ready">("phrase");
+  const [address, setAddress] = useState("");
+  const [reveal, setReveal] = useState(false);
   const [saved, setSaved] = useState(false);
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
@@ -93,29 +119,37 @@ function CreateFlow({ onDone }: { onDone: () => void }) {
     setErr(null);
     try {
       await wallet({ type: "createVault", mnemonic, password: pw });
-      onDone();
+      const st = await wallet<WalletState>({ type: "getState" });
+      setAddress(st.accounts[0] ?? "");
+      setStep("ready");
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
     }
   };
+  if (step === "ready") return <ReadyScreen address={address} onDone={onDone} />;
   return (
-    <div className="card">
-      <h1>Your recovery phrase</h1>
-      <div className="seed" style={{ marginTop: 10 }}>{mnemonic}</div>
-      <p className="danger-box" style={{ marginTop: 10 }}>Write these 24 words down offline. Anyone with them controls your funds. We can never recover them.</p>
-      <label className="row muted" style={{ gap: 7, marginTop: 10 }}>
-        <input type="checkbox" style={{ width: "auto" }} checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I saved my phrase
-      </label>
-      <input type="password" placeholder="Set a password (min 8)" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 10 }} />
+    <div className="onboard">
+      <BackBar title="Your recovery phrase" onBack={onBack} />
+      <p className="muted">Write these 24 words down offline and keep them safe. Anyone with them controls your funds, and we can never recover them.</p>
+      <div className={`word-grid${reveal ? "" : " blurred"}`}>
+        {mnemonic.split(" ").map((w, i) => (
+          <div className="word" key={i}><span className="word-n">{i + 1}</span>{w}</div>
+        ))}
+        {!reveal && <button className="reveal-overlay" onClick={() => setReveal(true)}><Ic name="external" size={16} /> Tap to reveal</button>}
+      </div>
+      <label className="check-row"><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> I have saved my recovery phrase</label>
+      <input type="password" placeholder="Set a password (min 8 characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
       {err && <p className="err">{err}</p>}
-      <button disabled={!saved || pw.length < 8 || busy} onClick={create} style={{ marginTop: 10, width: "100%" }}>{busy ? "Creating…" : "Create wallet"}</button>
+      <button disabled={!saved || pw.length < 8 || busy} onClick={create}>{busy ? "Creating…" : "Create wallet"}</button>
     </div>
   );
 }
 
-function ImportFlow({ onDone }: { onDone: () => void }) {
+function ImportFlow({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
   const [mnemonic, setMnemonic] = useState("");
+  const [step, setStep] = useState<"form" | "ready">("form");
+  const [address, setAddress] = useState("");
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -125,20 +159,41 @@ function ImportFlow({ onDone }: { onDone: () => void }) {
     setErr(null);
     try {
       await wallet({ type: "importVault", mnemonic: mnemonic.trim(), password: pw });
-      onDone();
+      const st = await wallet<WalletState>({ type: "getState" });
+      setAddress(st.accounts[0] ?? "");
+      setStep("ready");
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
     }
   };
+  if (step === "ready") return <ReadyScreen address={address} onDone={onDone} />;
   return (
-    <div className="card">
-      <h1>Import a phrase</h1>
-      <textarea placeholder="word1 word2 …" value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} style={{ marginTop: 10 }} />
-      {mnemonic && !valid && <p className="err">Not a valid BIP-39 phrase.</p>}
-      <input type="password" placeholder="Set a password (min 8)" value={pw} onChange={(e) => setPw(e.target.value)} style={{ marginTop: 10 }} />
+    <div className="onboard">
+      <BackBar title="Import a wallet" onBack={onBack} />
+      <p className="muted">Enter your 12 or 24 word recovery phrase. It is processed only on this device.</p>
+      <textarea placeholder="word1 word2 word3 …" value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} />
+      {mnemonic && !valid && <p className="err">Not a valid BIP-39 recovery phrase.</p>}
+      <input type="password" placeholder="Set a password (min 8 characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
       {err && <p className="err">{err}</p>}
-      <button disabled={!valid || pw.length < 8 || busy} onClick={importIt} style={{ marginTop: 10, width: "100%" }}>{busy ? "Importing…" : "Import wallet"}</button>
+      <button disabled={!valid || pw.length < 8 || busy} onClick={importIt}>{busy ? "Importing…" : "Import wallet"}</button>
+    </div>
+  );
+}
+
+function ReadyScreen({ address, onDone }: { address: string; onDone: () => void }) {
+  return (
+    <div className="onboard ready">
+      <div className="ready-check"><Ic name="check" size={36} /></div>
+      <h1 className="welcome-title">Your wallet is ready</h1>
+      <p className="welcome-sub">Self-custodial and encrypted on this device. You are ready to send, receive, and bridge across LightChain and EVM.</p>
+      {address && (
+        <div className="ready-addr">
+          <span className="avatar" style={{ background: avatarGradient(address) }} />
+          <span className="addr">{short(address)}</span>
+        </div>
+      )}
+      <button onClick={onDone}>Open wallet</button>
     </div>
   );
 }
@@ -159,11 +214,13 @@ function Unlock({ onDone }: { onDone: () => void }) {
     }
   };
   return (
-    <div className="card">
-      <h1>Welcome back</h1>
-      <input type="password" placeholder="Password" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} style={{ marginTop: 10 }} />
+    <div className="onboard welcome">
+      <div className="welcome-logo sm"><img src="/lightnode.png" alt="" /></div>
+      <h1 className="welcome-title">Welcome back</h1>
+      <p className="welcome-sub">Enter your password to unlock LightNode Wallet.</p>
+      <input type="password" placeholder="Password" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} />
       {err && <p className="err">{err}</p>}
-      <button disabled={!pw || busy} onClick={unlock} style={{ marginTop: 10, width: "100%" }}>{busy ? "Unlocking…" : "Unlock"}</button>
+      <button disabled={!pw || busy} onClick={unlock}>{busy ? "Unlocking…" : "Unlock"}</button>
     </div>
   );
 }
@@ -242,6 +299,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
         </div>
         <span className="spacer" />
         <NetworkSwitcher chainId={state.chainId} onSwitch={switchChain} />
+        {!isExpanded() && <button className="icon-btn" title="Open in full tab" onClick={openFullTab}><Ic name="expand" size={15} /></button>}
         <button className="icon-btn" title="Settings" onClick={() => setSheet("settings")}><Ic name="settings" size={15} /></button>
         <button className="icon-btn" title="Lock" onClick={() => void wallet({ type: "lock" }).then(onChange)}><Ic name="lock" size={15} /></button>
       </div>

@@ -463,6 +463,12 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
 // ---- message router --------------------------------------------------------
 
 export default defineBackground(() => {
+  // First install: open onboarding in a full browser tab (a 360px popup is a
+  // cramped first impression for seed-phrase setup).
+  browser.runtime.onInstalled.addListener((details) => {
+    if (details.reason !== "install") return;
+    void browser.tabs.create({ url: browser.runtime.getURL("/popup.html#/expanded") });
+  });
   browser.runtime.onConnect.addListener((port) => {
     if (port.name !== EVENT_PORT) return;
     const p = port as unknown as EventPort;
