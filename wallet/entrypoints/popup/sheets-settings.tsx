@@ -1,7 +1,7 @@
 /** Settings: reveal phrase, connected sites, remove wallet. */
 import { useEffect, useState } from "react";
 import { wallet } from "./wallet-api";
-import { Ic } from "./shared";
+import { Ic, Sheet } from "./shared";
 
 export function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onRemoved: () => void }) {
   const [pw, setPw] = useState("");
@@ -33,9 +33,7 @@ export function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onR
     onRemoved();
   };
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Settings</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Settings" onClose={onClose}>
         <div className="card">
           <h2>Recovery phrase</h2>
           {phrase ? (
@@ -76,7 +74,6 @@ export function SettingsSheet({ onClose, onRemoved }: { onClose: () => void; onR
           <p className="muted">Auto-locks after 15 minutes of inactivity and after a browser restart.</p>
           <button className="danger" onClick={remove} style={{ marginTop: 10, width: "100%" }}>Remove wallet from this device</button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

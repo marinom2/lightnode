@@ -6,10 +6,20 @@ import { assessRecipient } from "../../src/rpc/risk";
 import { humanizeError } from "../../src/rpc/humanize";
 import { logoFor, nftUrlFor } from "../../src/rpc/chains";
 import type { NftItem } from "../../src/rpc/nfts";
-import { type Asset, assetKey, Ic, short, fmtBal, tokenLogo } from "./shared";
+import { type Asset, assetKey, Ic, short, fmtBal, tokenLogo, Sheet } from "./shared";
+import { looksLikeEnsName } from "../../src/rpc/ens";
 
-export function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null; onImport: () => void; onOpen: (n: NftItem) => void }) {
+export function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null | undefined; onImport: () => void; onOpen: (n: NftItem) => void }) {
   if (nfts === null) {
+    return (
+      <div className="empty">
+        <div className="empty-ic"><Ic name="image" size={22} /></div>
+        Could not check your NFTs right now.
+        <span className="faint" style={{ display: "block", marginTop: 4 }}>The network may be busy. This retries automatically.</span>
+      </div>
+    );
+  }
+  if (nfts === undefined) {
     return (
       <div className="nft-grid">
         {[0, 1].map((i) => (
@@ -58,17 +68,14 @@ export function ImportNftSheet({ chainId, owner, onClose, onDone }: { chainId: n
     }
   };
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Import NFT</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Import NFT" onClose={onClose} dirty={Boolean(token || tokenId)} busy={busy}>
         <p className="muted">Ownership is verified on-chain before the NFT is added.</p>
         <div><div className="muted" style={{ marginBottom: 6 }}>Contract address</div><input placeholder="0x…" value={token} onChange={(e) => setToken(e.target.value)} /></div>
         {token.trim() && !/^0x[0-9a-fA-F]{40}$/.test(token.trim()) && <p className="faint">Not a valid 0x address.</p>}
         <div><div className="muted" style={{ marginBottom: 6 }}>Token id</div><input inputMode="numeric" placeholder="e.g. 1234" value={tokenId} onChange={(e) => setTokenId(e.target.value.replace(/\D/g, ""))} /></div>
         {err && <p className="err">{err}</p>}
         <button disabled={!valid || busy} onClick={importIt}>{busy ? "Verifying…" : "Import NFT"}</button>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 export function ImportTokenSheet({ chainId, onClose, onDone }: { chainId: number; onClose: () => void; onDone: () => void }) {
@@ -88,16 +95,13 @@ export function ImportTokenSheet({ chainId, onClose, onDone }: { chainId: number
     }
   };
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Add token</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Add token" onClose={onClose} dirty={Boolean(addr)} busy={busy}>
         <p className="muted">The symbol and decimals are read from the contract on this network.</p>
         <div><div className="muted" style={{ marginBottom: 6 }}>Token contract address</div><input placeholder="0x…" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
         {addr.trim() && !valid && <p className="faint">Not a valid 0x address.</p>}
         {err && <p className="err">{err}</p>}
         <button disabled={!valid || busy} onClick={importIt}>{busy ? "Reading…" : "Add token"}</button>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged }: { nft: NftItem; from: string; chainId: number; explorer: string; own: string[]; onClose: () => void; onChanged: () => void }) {
@@ -119,7 +123,6 @@ export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged
     try {
       const r = await wallet<{ hash: string }>({ type: "sendNft", from, to: to.trim(), token: nft.address, tokenId: nft.tokenId, standard: nft.standard });
       setHash(r.hash);
-      void wallet({ type: "addActivity", entry: { hash: r.hash, to: to.trim(), amount: "1", symbol: `NFT ${nft.name.slice(0, 24)}`, chainId, ts: Date.now(), from, kind: "nft" } });
     } catch (e) {
       setErr(humanizeError((e as Error).message));
     } finally {
@@ -131,9 +134,7 @@ export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged
   // not keep showing an NFT that is on its way out.
   const doneAfterSend = () => void wallet({ type: "removeNft", chainId, owner: from, token: nft.address, tokenId: nft.tokenId }).then(onChanged);
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1 className="clamp">{nft.name}</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title={nft.name} onClose={onClose} dirty={Boolean(to)} busy={busy}>
         {nft.image ? <img className="nft-hero" src={nft.image} alt="" /> : <div className="nft-hero nft-fallback"><Ic name="image" size={34} /></div>}
         <div className="row between">
           <span className="muted">{nft.collection || "Collection"} · #{nft.tokenId} · {nft.standard === "erc721" ? "ERC-721" : "ERC-1155"}</span>
@@ -166,8 +167,7 @@ export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
 export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { from: string; assets: Asset[]; explorer: string; chainId: number; own: string[]; onClose: () => void; onSent: () => void }) {
@@ -180,7 +180,31 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
   const [fee, setFee] = useState<{ value: number; label: string } | null>(null);
   const [known, setKnown] = useState<string[]>([]);
   const [txState, setTxState] = useState<"pending" | "confirmed" | "failed">("pending");
-  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
+  const [ens, setEns] = useState<{ name: string; address: string } | "resolving" | null>(null);
+  const [speed, setSpeed] = useState<"slow" | "normal" | "fast">("normal");
+  // ENS names resolve to the address actually used for checks and the send.
+  const typedIsEns = looksLikeEnsName(to.trim());
+  useEffect(() => {
+    if (!typedIsEns) {
+      setEns(null);
+      return;
+    }
+    setEns("resolving");
+    const name = to.trim();
+    let liveResolve = true; // a slow resolution for a PREVIOUS name must not win
+    const t = setTimeout(() => {
+      wallet<{ address: string | null }>({ type: "resolveEns", name })
+        .then((r) => liveResolve && setEns(r.address ? { name, address: r.address } : null))
+        .catch(() => liveResolve && setEns(null));
+    }, 500);
+    return () => {
+      liveResolve = false;
+      clearTimeout(t);
+    };
+  }, [to, typedIsEns]);
+  // Belt AND suspenders: the resolved pair must match what is in the input NOW.
+  const recipient = typedIsEns && ens && ens !== "resolving" && ens.name === to.trim() ? ens.address : to.trim();
+  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(recipient);
   // Validate against the balance BEFORE the node does: catch "1 LCAI on an
   // empty account" inline instead of surfacing a raw RPC error after signing.
   const balNum = Number(asset.balance);
@@ -189,7 +213,7 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
   const insufficient = amtNum > 0 && needed > balNum;
   const quotable = validAddr && amtNum > 0;
   const ok = quotable && !insufficient;
-  const risk = validAddr ? assessRecipient(to.trim(), known, own) : null;
+  const risk = validAddr ? assessRecipient(recipient, known, own) : null;
   const setMax = () => {
     if (asset.kind === "token") return setAmount(asset.balance);
     const spendable = Math.max(0, balNum - (fee ? fee.value * 1.1 : 0));
@@ -219,23 +243,22 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
     }
     const t = setTimeout(() => {
       const req = asset.kind === "native"
-        ? { type: "quoteSend" as const, from, to: to.trim(), valueWei: amount }
-        : { type: "quoteSend" as const, from, to: to.trim(), token: asset.address, amount, decimals: asset.decimals };
+        ? { type: "quoteSend" as const, from, to: recipient, valueWei: amount }
+        : { type: "quoteSend" as const, from, to: recipient, token: asset.address, amount, decimals: asset.decimals };
       wallet<{ feeFormatted: string | null; feeSymbol: string }>(req)
         .then((q) => setFee(q.feeFormatted ? { value: Number(q.feeFormatted), label: `${Number(q.feeFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${q.feeSymbol}` } : null))
         .catch(() => setFee(null));
     }, 500);
     return () => clearTimeout(t);
-  }, [quotable, to, amount, asset, from]);
+  }, [quotable, recipient, amount, asset, from]);
   const send = async () => {
     setBusy(true);
     setErr(null);
     try {
       const r = asset.kind === "native"
-        ? await wallet<{ hash: string }>({ type: "send", from, to: to.trim(), valueWei: amount })
-        : await wallet<{ hash: string }>({ type: "sendToken", from, token: asset.address, to: to.trim(), amount, decimals: asset.decimals });
+        ? await wallet<{ hash: string }>({ type: "send", from, to: recipient, valueWei: amount, speed })
+        : await wallet<{ hash: string }>({ type: "sendToken", from, token: asset.address, to: recipient, amount, decimals: asset.decimals, speed });
       setHash(r.hash);
-      void wallet({ type: "addActivity", entry: { hash: r.hash, to: to.trim(), amount, symbol: asset.symbol, chainId, ts: Date.now(), from, kind: asset.kind } });
       onSent();
     } catch (e) {
       setErr(humanizeError((e as Error).message, asset.symbol));
@@ -258,9 +281,7 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
     }
   };
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Send</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Send" onClose={onClose} dirty={Boolean(to || amount)} busy={busy}>
         {hash ? (
           <>
             <p className={txState === "failed" ? "err" : "ok"}>
@@ -280,7 +301,7 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
             {assets.length > 1 && (
               <div className="tabs" style={{ flexWrap: "wrap" }}>
                 {assets.map((a) => {
-                  const logo = a.kind === "native" ? logoFor(chainId) : tokenLogo(a.symbol);
+                  const logo = a.kind === "native" ? logoFor(chainId) : tokenLogo(a.address);
                   return (
                     <button key={assetKey(a)} className={`tab${assetKey(a) === assetKey(asset) ? " active" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={() => setAsset(a)}>
                       {logo && <img src={logo} alt="" style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} />}
@@ -290,7 +311,20 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
                 })}
               </div>
             )}
-            <div><div className="muted" style={{ marginBottom: 6 }}>Recipient</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+            <div>
+              <div className="muted" style={{ marginBottom: 6 }}>Recipient</div>
+              <input placeholder="0x address or ENS name" value={to} onChange={(e) => setTo(e.target.value)} />
+              {typedIsEns && ens === "resolving" && <p className="faint" style={{ marginTop: 4 }}>Resolving name…</p>}
+              {typedIsEns && ens && ens !== "resolving" && <p className="ok" style={{ marginTop: 4 }}>{ens.name} → {short(ens.address)}</p>}
+              {typedIsEns && ens === null && to.trim().length > 5 && <p className="faint" style={{ marginTop: 4 }}>Could not resolve this name on Ethereum.</p>}
+              {!to && known.length > 0 && (
+                <div className="chips" style={{ marginTop: 6, flexWrap: "wrap" }}>
+                  {known.slice(0, 3).map((k) => (
+                    <button key={k} className="chip" onClick={() => setTo(k)} title={k}>{short(k)}</button>
+                  ))}
+                </div>
+              )}
+            </div>
             {risk?.kind === "lookalike" && (
               <p className="danger-box">This address looks like {short(risk.similarTo!)} but is different - a common address-poisoning scam. Verify every character before sending.</p>
             )}
@@ -306,13 +340,21 @@ export function SendSheet({ from, assets, explorer, chainId, own, onClose, onSen
               </div>
             </div>
             {insufficient && <p className="err">Not enough {asset.symbol}. You have {fmtBal(asset.balance)}{asset.kind === "native" && fee ? `, and the network fee is ${fee.label}` : ""}.</p>}
-            {!insufficient && fee && <p className="muted">Network fee ≈ {fee.label}</p>}
+            {!insufficient && fee && (
+              <div className="row between">
+                <span className="muted">Network fee ≈ {fee.label}</span>
+                <span className="chips">
+                  {(["slow", "normal", "fast"] as const).map((sp) => (
+                    <button key={sp} className={`chip${speed === sp ? " active" : ""}`} style={{ padding: "3px 9px", fontSize: 10.5 }} onClick={() => setSpeed(sp)}>{sp === "slow" ? "Slow" : sp === "normal" ? "Normal" : "Fast"}</button>
+                  ))}
+                </span>
+              </div>
+            )}
             {err && <p className="err">{err}</p>}
             <button disabled={!ok || busy} onClick={send}>{busy ? "Sending…" : `Send ${asset.symbol}`}</button>
           </>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
 export function ReceiveSheet({ address, chainName, onClose }: { address: string; chainName: string; onClose: () => void }) {
@@ -323,14 +365,11 @@ export function ReceiveSheet({ address, chainName, onClose }: { address: string;
     setTimeout(() => setCopied(false), 1200);
   };
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Receive</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Receive" onClose={onClose}>
         <p className="muted">Your address on {chainName} - the same on every EVM chain:</p>
         <div className="qr" dangerouslySetInnerHTML={{ __html: encodeQR(address, "svg") }} />
         <div className="card addr" style={{ textAlign: "center", fontSize: 13, lineHeight: 1.7 }}>{address}</div>
         <button onClick={copy}>{copied ? "Copied!" : "Copy address"}</button>
-      </div>
-    </div>
+    </Sheet>
   );
 }

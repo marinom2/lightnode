@@ -12,8 +12,8 @@
 import { createPublicClient, http, parseEther, formatEther, formatUnits, type TypedDataDefinition } from "viem";
 import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
-import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
-import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
+import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, discoverTokens, stripControls, type TokenMeta } from "../src/rpc/tokens";
+import { CG_NATIVE, CG_PLATFORM, LCAI_PRICE_CONTRACT, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
 import { bridgeTransfer, bridgeFee, bridgeSourceBalance } from "../src/rpc/bridge";
 import { daoStatus } from "../src/rpc/dao";
@@ -22,10 +22,13 @@ import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history
 import { quoteSwap, executeSwap, type SwapSide } from "../src/rpc/swap";
 import { listProposals, castVoteData, GOVERNORS } from "../src/rpc/governance";
 import { readWorkerStatus, readNetworkStats, readWorkerLifetime, withdrawTarget } from "../src/rpc/worker";
+import { readGasTiers, type GasSpeed } from "../src/rpc/gas";
+import { resolveEnsName } from "../src/rpc/ens";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
 import { APPROVAL_REQUIRED, LOCAL_READ, isAllowedMethod } from "../src/provider/rpc-methods";
+import { canonicalizeDappTx } from "../src/provider/dapp-tx";
 
 const VAULT_KEY = "vault";
 const SESSION_KEY = "session-mnemonic";
@@ -154,7 +157,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // Clear everything tied to this wallet's identity, not just the vault:
       // stale names/NFT lists must not attach to a different seed imported later.
       const all = (await browser.storage.local.get(null)) as Record<string, unknown>;
-      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-"));
+      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-") || k.startsWith("disc-meta-"));
       await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", ...stale]);
       return { ok: true };
     }
@@ -193,8 +196,36 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     }
     case "getTokens": {
       const cid = await selectedChainId();
-      const tokens = await trackedTokens(cid);
-      return readTokenBalances(clientFor(cid), op.address as `0x${string}`, tokens);
+      const [tracked, discovered] = await Promise.all([trackedTokens(cid), discoverTokens(cid, op.address)]);
+      // Merge: tracked wins on duplicates; discovery is additive. Balances are
+      // re-read on-chain for ALL of them, so the indexer never sets a number.
+      // Discovered symbol/decimals are re-read ON-CHAIN once (cached): the
+      // indexer must not control what the send path divides by.
+      const known = new Set(tracked.map((t) => t.address.toLowerCase()));
+      const fresh = discovered.filter((d) => !known.has(d.address.toLowerCase()));
+      const metaKey = `disc-meta-${cid}`;
+      const { [metaKey]: metaCache = {} } = (await browser.storage.local.get(metaKey)) as Record<string, Record<string, TokenMeta>>;
+      let cacheDirty = false;
+      const verified: TokenMeta[] = [];
+      for (const d of fresh) {
+        const k = d.address.toLowerCase();
+        let m = metaCache[k];
+        if (!m) {
+          try {
+            const onchain = await fetchTokenMeta(clientFor(cid), d.address);
+            m = { ...onchain, symbol: stripControls(onchain.symbol) || "?" };
+            metaCache[k] = m;
+            cacheDirty = true;
+          } catch {
+            continue; // unverifiable contract: do not show it at all
+          }
+        }
+        verified.push(m);
+      }
+      if (cacheDirty) await browser.storage.local.set({ [metaKey]: metaCache });
+      const discoveredSet = new Set(verified.map((v) => v.address.toLowerCase()));
+      const balances = await readTokenBalances(clientFor(cid), op.address as `0x${string}`, [...tracked, ...verified]);
+      return balances.map((b) => (discoveredSet.has(b.address.toLowerCase()) ? { ...b, discovered: true } : b));
     }
     case "addToken": {
       const meta = await fetchTokenMeta(clientFor(op.chainId), op.address);
@@ -214,8 +245,14 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const acct = kr?.accountFor(op.from);
       if (!acct) throw RpcError.locked;
       await bumpAutoLock();
-      return { hash: await signAndSend(acct.account, op.to as `0x${string}`, parseEther(op.valueWei)) };
+      const hash = await signAndSend(acct.account, op.to as `0x${string}`, parseEther(op.valueWei), undefined, op.speed);
+      void logActivity({ hash, to: op.to, amount: op.valueWei, symbol: chainById(await selectedChainId()).nativeCurrency.symbol, chainId: await selectedChainId(), ts: Date.now(), from: op.from, kind: "native" });
+      return { hash };
     }
+    case "gasTiers":
+      return readGasTiers(clientFor(await selectedChainId()));
+    case "resolveEns":
+      return { address: await resolveEnsName(op.name) };
     case "quoteSend": {
       // Estimate the network fee (gas x fee/gas) before the user signs.
       const cid = await selectedChainId();
@@ -224,7 +261,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       try {
         const gas = op.token
           ? await client.estimateGas({ account: op.from as `0x${string}`, to: op.token as `0x${string}`, data: erc20TransferData(op.to, op.amount ?? "0", op.decimals ?? 18) })
-          : await client.estimateGas({ account: op.from as `0x${string}`, to: op.to as `0x${string}`, value: parseEther(op.valueWei ?? "0") });
+          : await client.estimateGas({ account: op.from as `0x${string}`, to: op.to as `0x${string}`, value: parseEther(op.valueWei ?? "0"), data: op.data && /^0x[0-9a-fA-F]*$/.test(op.data) ? (op.data as `0x${string}`) : undefined });
         const fees = await client.estimateFeesPerGas().catch(() => null);
         const perGas = fees?.maxFeePerGas ?? (await client.getGasPrice());
         return { feeFormatted: formatEther(gas * perGas), feeSymbol };
@@ -289,7 +326,9 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!acct) throw RpcError.locked;
       await bumpAutoLock();
       const data = nftTransferData(op.standard, op.from, op.to, op.tokenId);
-      return { hash: await signAndSend(acct.account, op.token as `0x${string}`, 0n, data) };
+      const hash = await signAndSend(acct.account, op.token as `0x${string}`, 0n, data);
+      void logActivity({ hash, to: op.to, amount: "1", symbol: "NFT", chainId: await selectedChainId(), ts: Date.now(), from: op.from, kind: "nft" });
+      return { hash };
     }
     case "getOrigins": {
       const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
@@ -350,7 +389,10 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await bumpAutoLock();
       const tIn: SwapSide = { token: op.tokenIn as `0x${string}` | null, decimals: op.decimalsIn };
       const tOut: SwapSide = { token: op.tokenOut as `0x${string}` | null, decimals: op.decimalsOut };
-      return executeSwap(acct.account, op.chainId, tIn, tOut, op.amountIn, BigInt(op.expectedOutWei), Math.floor(Date.now() / 1000));
+      const res = await executeSwap(acct.account, op.chainId, tIn, tOut, op.amountIn, BigInt(op.expectedOutWei), Math.floor(Date.now() / 1000));
+      const meta = op.tokenIn ? (await trackedTokens(op.chainId)).find((t) => t.address.toLowerCase() === op.tokenIn!.toLowerCase()) : null;
+      void logActivity({ hash: res.hash, to: "swap", amount: op.amountIn, symbol: meta?.symbol ?? chainById(op.chainId).nativeCurrency.symbol, chainId: op.chainId, ts: Date.now(), from: op.from, kind: op.tokenIn ? "token" : "native" });
+      return res;
     }
     case "getProposals":
       return { proposals: await listProposals(op.chainId, op.voter) };
@@ -412,7 +454,11 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!acct) throw RpcError.locked;
       await bumpAutoLock();
       const data = erc20TransferData(op.to, op.amount, op.decimals);
-      return { hash: await signAndSend(acct.account, op.token as `0x${string}`, 0n, data) };
+      const hash = await signAndSend(acct.account, op.token as `0x${string}`, 0n, data, op.speed);
+      const cid = await selectedChainId();
+      const meta = (await trackedTokens(cid)).find((t) => t.address.toLowerCase() === op.token.toLowerCase());
+      void logActivity({ hash, to: op.to, amount: op.amount, symbol: meta?.symbol ?? "tokens", chainId: cid, ts: Date.now(), from: op.from, kind: "token" });
+      return { hash };
     }
     case "addActivity": {
       const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
@@ -434,6 +480,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
           const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${native}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
           out.nativeUsd = j[native]?.usd ?? null;
           out.nativeChange24h = j[native]?.usd_24h_change ?? null;
+        } else if (op.chainId === 9200 || op.chainId === 8200) {
+          // LightChain's native LCAI is priced via its Ethereum ERC-20.
+          const key = LCAI_PRICE_CONTRACT.toLowerCase();
+          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${key}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
+          out.nativeUsd = j[key]?.usd ?? null;
+          out.nativeChange24h = j[key]?.usd_24h_change ?? null;
         }
         if (platform && op.addresses.length) {
           const list = op.addresses.map((a) => a.toLowerCase()).join(",");
@@ -511,6 +563,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
   }
 }
 
+/** Record an activity entry the moment a hash exists, regardless of popup life. */
+async function logActivity(entry: ActivityEntry): Promise<void> {
+  const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
+  await browser.storage.local.set({ activity: [entry, ...activity].slice(0, 40) });
+}
+
 /** Send a tx on an EXPLICIT chain (governance, rewards: not the selected one). */
 async function signAndSendOn(chainId: number, account: Keyring["accounts"][number]["account"], to: `0x${string}`, data: `0x${string}`): Promise<string> {
   const { createWalletClient } = await import("viem");
@@ -518,11 +576,15 @@ async function signAndSendOn(chainId: number, account: Keyring["accounts"][numbe
   return wallet.sendTransaction({ to, data });
 }
 
-async function signAndSend(account: Keyring["accounts"][number]["account"], to: `0x${string}`, value: bigint, data?: `0x${string}`): Promise<string> {
+async function signAndSend(account: Keyring["accounts"][number]["account"], to: `0x${string}`, value: bigint, data?: `0x${string}`, speed?: GasSpeed): Promise<string> {
   const { createWalletClient } = await import("viem");
-  const chain = chainById(await selectedChainId());
+  const cid = await selectedChainId();
+  const chain = chainById(cid);
   const wallet = createWalletClient({ account, chain, transport: http() });
-  return wallet.sendTransaction({ to, value, data });
+  if (!speed || speed === "normal") return wallet.sendTransaction({ to, value, data });
+  const tiers = await readGasTiers(clientFor(cid));
+  const t = tiers[speed];
+  return wallet.sendTransaction({ to, value, data, maxFeePerGas: BigInt(t.maxFeePerGas), maxPriorityFeePerGas: BigInt(t.maxPriorityFeePerGas) });
 }
 
 // ---- dapp RPC + approval queue ---------------------------------------------
@@ -562,13 +624,52 @@ async function connectedAccounts(origin: string): Promise<string[]> {
   return kr ? granted.filter((a) => kr.accountFor(a)) : [];
 }
 
+// One approval window at a time: new requests queue into it; closing it
+// rejects everything still pending (a dapp promise must never hang forever).
+let approvalWindowId: number | null = null;
+// Synchronous guard: two requests racing before windows.create resolves must
+// share ONE window, or the id tracks only the second and closes go unobserved.
+let approvalOpening: Promise<void> | null = null;
+
 function enqueueApproval(request: JsonRpcRequest, origin: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const id = `req-${++pendingSeq}`;
     pending.set(id, { request, origin, resolve, reject });
-    void browser.windows.create({ url: browser.runtime.getURL("/popup.html#/approve"), type: "popup", width: 380, height: 600 });
+    if (approvalOpening) return; // a window is being created; it will drain the queue
+    if (approvalWindowId !== null) {
+      // Focus the existing window; its queue drains request by request.
+      void browser.windows.update(approvalWindowId, { focused: true, drawAttention: true }).catch(() => {
+        approvalWindowId = null;
+        startApprovalWindow();
+      });
+      return;
+    }
+    startApprovalWindow();
   });
 }
+
+function startApprovalWindow(): void {
+  if (approvalOpening) return;
+  approvalOpening = browser.windows
+    .create({ url: browser.runtime.getURL("/popup.html#/approve"), type: "popup", width: 380, height: 600 })
+    .then((w) => {
+      approvalWindowId = w.id ?? null;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      approvalOpening = null;
+    });
+}
+
+browser.windows.onRemoved.addListener((closedId) => {
+  if (closedId !== approvalWindowId) return;
+  approvalWindowId = null;
+  // Dismissing the window IS a rejection for everything still queued.
+  for (const [id, p] of pending) {
+    pending.delete(id);
+    p.reject(RpcError.userRejected);
+  }
+});
 
 async function resolvePending(id: string, approved: boolean): Promise<void> {
   const p = pending.get(id);
@@ -599,11 +700,14 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
     return acct.account.signMessage({ message: { raw: data } });
   }
   if (request.method === "eth_sendTransaction") {
-    // approve==sign: sign exactly the canonical tx the popup displayed (review H1).
-    const [tx] = request.params as [{ from: string; to: `0x${string}`; value?: `0x${string}`; data?: `0x${string}` }];
-    const acct = kr.accountFor(tx.from);
+    // approve==sign: sign exactly the canonical tx the popup displayed (review H1),
+    // INCLUDING the calldata - without it every dapp contract call would silently
+    // become an empty transfer.
+    const [raw] = request.params as [{ from: string; to?: string; value?: string; data?: string }];
+    const acct = kr.accountFor(raw.from);
     if (!acct) throw RpcError.unauthorized;
-    return signAndSend(acct.account, tx.to, tx.value ? BigInt(tx.value) : 0n);
+    const tx = canonicalizeDappTx(raw);
+    return signAndSend(acct.account, tx.to, tx.value, tx.data);
   }
   if (request.method === "eth_signTypedData_v4") {
     const [address, json] = request.params as [string, string];

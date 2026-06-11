@@ -58,9 +58,11 @@ export type WalletOp =
   | { type: "getTokens"; address: string }
   | { type: "addToken"; chainId: number; address: string }
   | { type: "workerStatus"; address: string }
-  | { type: "send"; from: string; to: string; valueWei: string }
-  | { type: "sendToken"; from: string; token: string; to: string; amount: string; decimals: number }
-  | { type: "quoteSend"; from: string; to: string; valueWei?: string; token?: string; amount?: string; decimals?: number }
+  | { type: "send"; from: string; to: string; valueWei: string; speed?: "slow" | "normal" | "fast" }
+  | { type: "sendToken"; from: string; token: string; to: string; amount: string; decimals: number; speed?: "slow" | "normal" | "fast" }
+  | { type: "gasTiers" }
+  | { type: "resolveEns"; name: string }
+  | { type: "quoteSend"; from: string; to: string; valueWei?: string; token?: string; amount?: string; decimals?: number; data?: string }
   | { type: "txStatus"; hash: string }
   | { type: "replaceTx"; from: string; hash: string; mode: "speedup" | "cancel" }
   | { type: "bridgeFee"; direction: "eth-to-lc" | "lc-to-eth" }

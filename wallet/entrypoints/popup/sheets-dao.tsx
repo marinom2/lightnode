@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { wallet } from "./wallet-api";
 import { humanizeError } from "../../src/rpc/humanize";
-import { type DaoView, Ic, short } from "./shared";
+import { type DaoView, Ic, short, Sheet } from "./shared";
 
 type ProposalRow = { id: string; title: string; proposer: string; state: string; forVotes: number; againstVotes: number; abstainVotes: number; blocksLeft: number | null; youVoted: boolean; yourWeight: number };
 const SUPPORT_LABEL: Record<0 | 1 | 2, string> = { 1: "For", 0: "Against", 2: "Abstain" };
@@ -61,9 +61,7 @@ export function DaoSheet({ from, onClose }: { from: string; onClose: () => void 
   const shown = (rows ?? []).filter((p) => !onlyActive || p.state === "active");
   const explorer = govChain === 1 ? "https://etherscan.io" : "https://mainnet.lightscan.app";
   return (
-    <div className="sheet" onClick={onClose}>
-      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h1>Governance</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+    <Sheet title="Governance" onClose={onClose} busy={voting !== null}>
         <div className="tabs">
           <button className={`tab${govChain === 9200 ? " active" : ""}`} onClick={() => setGovChain(9200)}>LightChain</button>
           <button className={`tab${govChain === 1 ? " active" : ""}`} onClick={() => setGovChain(1)}>Ethereum</button>
@@ -121,7 +119,6 @@ export function DaoSheet({ from, onClose }: { from: string; onClose: () => void 
         ))}
         {err && <p className="err">{err}</p>}
         <a href="https://dao.lightchain.ai" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Full proposal texts on the LightChain DAO →</a>
-      </div>
-    </div>
+    </Sheet>
   );
 }
