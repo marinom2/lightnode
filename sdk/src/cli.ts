@@ -202,25 +202,18 @@ const viemChain = (n: LightNode) => ({
 function readOperator(n: LightNode, address: string): WorkerOperator {
   const chain = viemChain(n);
   const publicClient = createPublicClient({ transport: http(n.network.rpc), chain });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new WorkerOperator(n.network, { publicClient: publicClient as any, workerAddress: address as `0x${string}` });
+  return new WorkerOperator(n.network, { publicClient, workerAddress: address as `0x${string}` });
 }
 
 /** A write-capable WorkerOperator signed by PRIVATE_KEY / --key. The viem clients
- *  are cast to the SDK's structural Minimal* types (same boundary cast the
- *  inference module uses) - viem's strict writeContract union does not accept the
- *  intentionally-loose Minimal shape directly. */
+ *  satisfy the SDK's structural Minimal* types directly - the Minimal* interfaces
+ *  use method shorthand (bivariant parameters), so no boundary cast is needed. */
 function writeOperator(n: LightNode): WorkerOperator {
   const chain = viemChain(n);
   const account = privateKeyToAccount(pickKey());
   const publicClient = createPublicClient({ transport: http(n.network.rpc), chain });
   const walletClient = createWalletClient({ account, transport: http(n.network.rpc), chain });
-  return new WorkerOperator(n.network, {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    publicClient: publicClient as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    walletClient: walletClient as any,
-  });
+  return new WorkerOperator(n.network, { publicClient, walletClient });
 }
 
 /** The worker's job IDs from the indexer, used to drive on-chain settle/clear. */
@@ -602,9 +595,9 @@ async function main() {
         const ethRpc = flag("--rpc") ?? "https://ethereum-rpc.publicnode.com";
         const pub = createPublicClient({ transport: http(ethRpc) });
         // The DAO ctor accepts a structurally-typed MinimalPublicClient; viem's
-        // PublicClient satisfies it. The unknown cast is the standard SDK pattern
-        // for keeping the public API free of viem generic noise.
-        const dao = new DAO(pub as unknown as ConstructorParameters<typeof DAO>[0], "ethereum");
+        // PublicClient satisfies it directly (the Minimal shape uses bivariant
+        // method members), so no cast is needed.
+        const dao = new DAO(pub, "ethereum");
         let cfg;
         try {
           cfg = await dao.config();

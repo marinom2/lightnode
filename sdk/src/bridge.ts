@@ -104,13 +104,17 @@ export function addressToBytes32(addr: `0x${string}`): `0x${string}` {
 // Read-only helpers (no signer required).
 // =============================================================================
 
+// Method shorthand (not a function property) on purpose: TypeScript checks
+// method parameters bivariantly, so a real viem PublicClient - whose
+// readContract takes a much stricter parameter type - is assignable here.
+// A function property would be strictly contravariant and reject viem clients.
 interface MinimalPublicClient {
-  readContract: (args: {
+  readContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
     args?: readonly unknown[];
-  }) => Promise<unknown>;
+  }): Promise<unknown>;
 }
 
 /**
@@ -179,15 +183,19 @@ export async function bridgeAllowance(
 // Write helpers (require a viem WalletClient).
 // =============================================================================
 
+// Method shorthand for the same bivariance reason as MinimalPublicClient:
+// it lets a real viem WalletClient type-check without casts. `args` is
+// optional (matching viem's own optional parameter typing) so the bivariant
+// check succeeds; the SDK always passes it.
 interface MinimalWalletClient {
-  writeContract: (args: {
+  writeContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
-    args: readonly unknown[];
+    args?: readonly unknown[];
     value?: bigint;
     gas?: bigint;
-  }) => Promise<`0x${string}`>;
+  }): Promise<`0x${string}`>;
 }
 
 /**
@@ -217,7 +225,11 @@ export interface BridgeTransferArgs {
   to: BridgeChain;
   /** Amount to bridge in raw wei (18 decimals for LCAI on both sides). */
   amount: bigint;
-  /** Recipient EVM address on the destination chain. Defaults to the signer's address. */
+  /**
+   * Recipient EVM address on the DESTINATION chain - usually your own address
+   * on the other side. Required: the wallet client carries no address here,
+   * so the SDK cannot infer it for you.
+   */
   recipient: `0x${string}`;
   /**
    * Bridge fee in wei to attach as `msg.value`. Get from `quoteBridgeFee()`.

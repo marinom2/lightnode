@@ -37,6 +37,7 @@ import {
   runInferenceStream,
   openSession,
   runJobOnSession,
+  connectWithKey,
   LightChatSession,
 } from "./inference.js";
 import { Conversation, chat } from "./chat.js";
@@ -657,7 +658,7 @@ export class LightNode {
  * (especially in registry-proxy environments like StackBlitz where lockfiles
  * may pin an older minor than the local install command suggests).
  */
-export const SDK_VERSION = "0.18.3";
+export const SDK_VERSION = "0.19.0";
 
 export {
   NETWORKS,
@@ -715,7 +716,10 @@ export {
   openSession,
   runJobOnSession,
   LightChatSession,
-  // v0.5.0 multi-turn conversation helper (history client-side; one inference per turn).
+  // v0.19.0 key-based setup half of runInferenceWithKey (clients + SIWE + gateway).
+  connectWithKey,
+  // v0.5.0 multi-turn conversation helper (history client-side); since v0.19.0
+  // it keeps ONE session open across turns, so follow-ups skip createSession.
   Conversation,
   chat,
   // v0.6.0 batch runner: many prompts, capped parallelism, stable result order.
@@ -784,7 +788,7 @@ export {
   analyzeSettlement,
 };
 export type { BearerSource, GatewayClientOptions, SelectSessionResult, PrepareSessionResult, UploadBlobResult, SessionTokenResult } from "./gateway.js";
-export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult, OpenSession, OpenSessionArgs, RunJobOpts, WebSearchSource } from "./inference.js";
+export type { SessionPreparation, RunInferenceArgs, RunInferenceResult, RunInferenceWithKeyArgs, RunInferenceStreamResult, OpenSession, OpenSessionArgs, RunJobOpts, WebSearchSource, KeyConnection, ConnectWithKeyArgs } from "./inference.js";
 export type { ChatRole, ChatMessage, ConversationOptions, ConversationSendResult } from "./chat.js";
 export type { BatchPrompt, BatchResult, RunInferenceBatchArgs } from "./batch.js";
 export type { AgentTool, AgentStep, AgentOptions, AgentRunResult } from "./agent.js";

@@ -120,13 +120,17 @@ export interface Benchmark {
   active: boolean;
 }
 
+// Method shorthand (not a function property) on purpose: TypeScript checks
+// method parameters bivariantly, so a real viem PublicClient - whose
+// readContract takes a much stricter parameter type - is assignable here.
+// A function property would be strictly contravariant and reject viem clients.
 interface MinimalPublicClient {
-  readContract: (args: {
+  readContract(args: {
     address: `0x${string}`;
     abi: readonly unknown[];
     functionName: string;
     args?: readonly unknown[];
-  }) => Promise<unknown>;
+  }): Promise<unknown>;
 }
 
 export interface OnchainModelRegistryOptions {
