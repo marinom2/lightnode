@@ -594,6 +594,38 @@ function ApproveView() {
   );
 }
 
+interface SimResult {
+  ok: boolean;
+  reverted?: boolean;
+  changes?: { symbol: string; formatted: string; direction: "in" | "out" }[];
+}
+
+function SimPreview({ tx }: { tx: { from?: string; to?: string; value?: string; data?: string } }) {
+  const [sim, setSim] = useState<SimResult | "loading">("loading");
+  useEffect(() => {
+    wallet<SimResult>({ type: "simulateTx", from: tx.from ?? "", to: tx.to ?? "", value: tx.value, data: tx.data })
+      .then(setSim)
+      .catch(() => setSim({ ok: false }));
+  }, [tx.from, tx.to, tx.value, tx.data]);
+  if (sim === "loading") return <p className="muted">Simulating the outcome…</p>;
+  if (!sim.ok) return null; // RPC can't simulate; the decoded action below still shows
+  if (sim.reverted) return <p className="danger-box">This transaction is expected to FAIL on-chain - approving it would just waste gas.</p>;
+  if (!sim.changes?.length) return <p className="ok" style={{ marginBottom: 6 }}>Simulated: no balance changes (e.g. an approval or a no-op).</p>;
+  const fmt = (n: string) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 });
+  return (
+    <div className="card" style={{ padding: 10, marginBottom: 8 }}>
+      <div className="faint" style={{ marginBottom: 5 }}>Estimated balance changes</div>
+      {sim.changes.map((c, i) => (
+        <div key={i} className="row between" style={{ fontSize: 13 }}>
+          <span className={c.direction === "in" ? "ok" : "err"} style={{ fontSize: 13 }}>
+            {c.direction === "in" ? "+" : "-"}{fmt(c.formatted)} {c.symbol}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function labelFor(method: string): string {
   if (method === "eth_requestAccounts") return "Connect this site to your wallet";
   if (method === "personal_sign") return "Sign a message";
@@ -604,10 +636,11 @@ function labelFor(method: string): string {
 
 function RequestDetail({ req }: { req: PendingRequest }) {
   if (req.method === "eth_sendTransaction") {
-    const tx = (req.params?.[0] ?? {}) as { to?: string; value?: string; data?: string };
+    const tx = (req.params?.[0] ?? {}) as { from?: string; to?: string; value?: string; data?: string };
     const decoded = decodeDangerousCall(tx.data as `0x${string}` | undefined);
     return (
       <div className="muted" style={{ fontSize: 12 }}>
+        <SimPreview tx={tx} />
         <p className="addr">to: {tx.to ?? "(contract creation)"}</p>
         <p>value: {tx.value ? Number(BigInt(tx.value)) / 1e18 : 0}</p>
         {decoded.kind !== "empty" && (
