@@ -13,6 +13,7 @@ export interface WalletState {
   accounts: string[];
   activeIndex: number;
   chainId: number;
+  names: string[];
 }
 export interface PendingRequest {
   id: string;

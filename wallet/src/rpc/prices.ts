@@ -29,7 +29,9 @@ export const CG_PLATFORM: Record<number, string | null> = {
 
 export interface Prices {
   nativeUsd: number | null;
+  nativeChange24h: number | null; // percent over 24h, e.g. -3.42
   tokenUsd: Record<string, number>; // keyed by lowercase contract address
+  tokenChange24h: Record<string, number>;
 }
 
 /** Total USD value of a native balance + a set of token balances. */

@@ -18,6 +18,7 @@ import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
 import { bridgeTransfer, bridgeFee } from "../src/rpc/bridge";
 import { daoStatus } from "../src/rpc/dao";
+import { importNft, stillOwned, nftTransferData, type NftItem } from "../src/rpc/nfts";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
@@ -29,6 +30,9 @@ const PERMS_KEY = "connected-origins";
 const CHAIN_KEY = "selected-chain";
 const COUNT_KEY = "account-count";
 const ACTIVE_KEY = "active-account";
+const NAMES_KEY = "account-names";
+// Per-owner: account A's prune must never touch account B's imports (review).
+const NFTS_KEY = (chainId: number, owner: string) => `nfts-${chainId}-${owner.toLowerCase()}`;
 const AUTO_LOCK_MIN = 15;
 
 // How many accounts to derive (persisted, so added accounts survive lock/unlock).
@@ -51,10 +55,14 @@ interface EventPort {
   name: string;
   postMessage: (msg: unknown) => void;
   onDisconnect: { addListener: (cb: () => void) => void };
+  sender?: { url?: string; origin?: string };
 }
-const eventPorts = new Set<EventPort>();
-function emitEvent(event: string, data: unknown): void {
-  for (const port of eventPorts) {
+// port -> the page origin it belongs to, so per-origin events (e.g. a revoke)
+// reach only that site instead of broadcasting a disconnect to every tab.
+const eventPorts = new Map<EventPort, string>();
+function emitEvent(event: string, data: unknown, onlyOrigin?: string): void {
+  for (const [port, origin] of eventPorts) {
+    if (onlyOrigin && origin !== onlyOrigin) continue;
     try {
       port.postMessage({ event, data });
     } catch {
@@ -110,12 +118,14 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const { [VAULT_KEY]: vault } = await browser.storage.local.get(VAULT_KEY);
       const kr = await restore();
       const accounts = kr ? kr.accounts.map((a) => a.address) : [];
+      const { [NAMES_KEY]: names = [] } = (await browser.storage.local.get(NAMES_KEY)) as { [NAMES_KEY]?: string[] };
       return {
         hasVault: Boolean(vault),
         unlocked: Boolean(kr),
         accounts,
         activeIndex: await activeIndex(accounts.length || 1),
         chainId: await selectedChainId(),
+        names,
       };
     }
     case "setChain": {
@@ -138,7 +148,11 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     }
     case "removeWallet": {
       await lock();
-      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY]);
+      // Clear everything tied to this wallet's identity, not just the vault:
+      // stale names/NFT lists must not attach to a different seed imported later.
+      const all = (await browser.storage.local.get(null)) as Record<string, unknown>;
+      const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-"));
+      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", ...stale]);
       return { ok: true };
     }
     case "createVault":
@@ -238,6 +252,58 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     }
     case "daoStatus":
       return daoStatus(op.chainId, op.address);
+    case "getNfts": {
+      // Return the imported list, pruning anything the account no longer owns.
+      const key = NFTS_KEY(op.chainId, op.owner);
+      const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, NftItem[]>;
+      const owned = await Promise.all(list.map((n) => stillOwned(clientFor(op.chainId), op.owner as `0x${string}`, n)));
+      const kept = list.filter((_, i) => owned[i]);
+      if (kept.length !== list.length) await browser.storage.local.set({ [key]: kept });
+      return kept;
+    }
+    case "addNft": {
+      const item = await importNft(clientFor(op.chainId), op.owner as `0x${string}`, op.token as `0x${string}`, op.tokenId);
+      const key = NFTS_KEY(op.chainId, op.owner);
+      const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, NftItem[]>;
+      const dup = list.some((n) => n.address.toLowerCase() === item.address.toLowerCase() && n.tokenId === item.tokenId);
+      if (!dup) await browser.storage.local.set({ [key]: [...list, item] });
+      return item;
+    }
+    case "removeNft": {
+      const key = NFTS_KEY(op.chainId, op.owner);
+      const { [key]: list = [] } = (await browser.storage.local.get(key)) as Record<string, NftItem[]>;
+      await browser.storage.local.set({ [key]: list.filter((n) => !(n.address.toLowerCase() === op.token.toLowerCase() && n.tokenId === op.tokenId)) });
+      return true;
+    }
+    case "sendNft": {
+      const kr = await restore();
+      const acct = kr?.accountFor(op.from);
+      if (!acct) throw RpcError.locked;
+      await bumpAutoLock();
+      const data = nftTransferData(op.standard, op.from, op.to, op.tokenId);
+      return { hash: await signAndSend(acct.account, op.token as `0x${string}`, 0n, data) };
+    }
+    case "getOrigins": {
+      const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
+      return Object.keys(perms);
+    }
+    case "revokeOrigin": {
+      const { [PERMS_KEY]: perms = {} } = (await browser.storage.local.get(PERMS_KEY)) as { [PERMS_KEY]?: Record<string, string[]> };
+      const { [op.origin]: _gone, ...rest } = perms;
+      await browser.storage.local.set({ [PERMS_KEY]: rest });
+      emitEvent("accountsChanged", [], op.origin); // ONLY the revoked site sees the disconnect
+      return true;
+    }
+    case "setAccountName": {
+      const max = await accountCount();
+      if (!Number.isInteger(op.index) || op.index < 0 || op.index >= max) throw RpcError.invalidParams;
+      const { [NAMES_KEY]: names = [] } = (await browser.storage.local.get(NAMES_KEY)) as { [NAMES_KEY]?: string[] };
+      // Densify: sparse arrays JSON-serialize holes to null and would leak into the UI.
+      const next = Array.from({ length: Math.max(names.length, op.index + 1) }, (_, i) => names[i] ?? "");
+      next[op.index] = op.name.trim().slice(0, 24);
+      await browser.storage.local.set({ [NAMES_KEY]: next });
+      return true;
+    }
     case "bridgeFee":
       return { fee: await bridgeFee(op.direction) };
     case "bridge": {
@@ -277,16 +343,20 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // permission). Failures just leave USD blank in the UI.
       const native = CG_NATIVE[op.chainId];
       const platform = CG_PLATFORM[op.chainId];
-      const out: Prices = { nativeUsd: null, tokenUsd: {} };
+      const out: Prices = { nativeUsd: null, nativeChange24h: null, tokenUsd: {}, tokenChange24h: {} };
       try {
         if (native) {
-          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${native}&vs_currencies=usd`)).json()) as Record<string, { usd?: number }>;
+          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${native}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
           out.nativeUsd = j[native]?.usd ?? null;
+          out.nativeChange24h = j[native]?.usd_24h_change ?? null;
         }
         if (platform && op.addresses.length) {
           const list = op.addresses.map((a) => a.toLowerCase()).join(",");
-          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${list}&vs_currencies=usd`)).json()) as Record<string, { usd?: number }>;
-          for (const [addr, v] of Object.entries(j)) out.tokenUsd[addr.toLowerCase()] = v?.usd ?? 0;
+          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${list}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
+          for (const [addr, v] of Object.entries(j)) {
+            out.tokenUsd[addr.toLowerCase()] = v?.usd ?? 0;
+            if (typeof v?.usd_24h_change === "number") out.tokenChange24h[addr.toLowerCase()] = v.usd_24h_change;
+          }
         }
       } catch {
         return out; // prices are optional; surface what we have
@@ -472,7 +542,8 @@ export default defineBackground(() => {
   browser.runtime.onConnect.addListener((port) => {
     if (port.name !== EVENT_PORT) return;
     const p = port as unknown as EventPort;
-    eventPorts.add(p);
+    const origin = p.sender?.origin ?? (p.sender?.url ? new URL(p.sender.url).origin : "");
+    eventPorts.set(p, origin);
     port.onDisconnect.addListener(() => eventPorts.delete(p));
   });
   browser.runtime.onMessage.addListener((message: unknown, sender: { origin?: string; url?: string }) => {
