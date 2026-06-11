@@ -63,6 +63,7 @@ export type WalletOp =
   | { type: "replaceTx"; from: string; hash: string; mode: "speedup" | "cancel" }
   | { type: "bridgeFee"; direction: "eth-to-lc" | "lc-to-eth" }
   | { type: "bridge"; from: string; direction: "eth-to-lc" | "lc-to-eth"; amount: string }
+  | { type: "daoStatus"; chainId: number; address: string }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }
