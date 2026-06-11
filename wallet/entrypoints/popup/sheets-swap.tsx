@@ -2,9 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { wallet } from "./wallet-api";
 import { humanizeError } from "../../src/rpc/humanize";
-import { explorerFor } from "../../src/rpc/chains";
+import { explorerFor, logoFor } from "../../src/rpc/chains";
 import { LCAI_ERC20 } from "../../src/rpc/bridge";
-import { type Asset, assetKey, Ic, fmtBal, Sheet } from "./shared";
+import { type Asset, assetKey, Ic, fmtBal, Sheet, tokenLogo } from "./shared";
 
 const LCAI_ON_ETH = { symbol: "LCAI", address: LCAI_ERC20, decimals: 18 } as const;
 type SwapQuoteView = { amountOut: string; amountOutWei: string; fee: number; impactBps: number | null } | null;
@@ -94,10 +94,14 @@ function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: 
       setBusy(false);
     }
   };
+  const assetLogo = (a: Asset): string | null => (a.kind === "native" ? logoFor(chainId) : tokenLogo(a.address));
   const pick = (list: Asset[], current: Asset, set: (a: Asset) => void) => (
     <div className="tabs" style={{ flexWrap: "wrap" }}>
       {list.map((a) => (
-        <button key={assetKey(a)} className={`tab${assetKey(a) === assetKey(current) ? " active" : ""}`} onClick={() => set(a)}>{a.symbol}</button>
+        <button key={assetKey(a)} className={`tab${assetKey(a) === assetKey(current) ? " active" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={() => set(a)}>
+          {assetLogo(a) ? <img src={assetLogo(a)!} alt="" style={{ width: 15, height: 15, borderRadius: "50%", background: "#fff" }} /> : <span className="token-ic" style={{ width: 15, height: 15, fontSize: 8 }}>{a.symbol.slice(0, 2)}</span>}
+          {a.symbol}
+        </button>
       ))}
     </div>
   );
@@ -138,7 +142,7 @@ function MarketSwap({ from, chainId, assets, onDone }: { from: string; chainId: 
         <p className="warn">High price impact: this trade moves the pool by {(quote.impactBps / 100).toFixed(1)}%. Consider a smaller amount.</p>
       )}
       {err && <p className="err">{err}</p>}
-      <button disabled={!quote || quote === "loading" || insufficient || busy} onClick={swap}>{busy ? "Swapping…" : "Swap"}</button>
+      <button className="btn-hero" disabled={!quote || quote === "loading" || insufficient || busy} onClick={swap}>{busy ? "Swapping…" : "Swap"}</button>
       <p className="faint">Swaps route through Uniswap v3 with a 0.5% slippage limit. Token approvals are exact-amount only.</p>
     </>
   );
@@ -152,14 +156,19 @@ function NetworkMove({ from, onDone }: { from: string; onDone: () => void }) {
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [srcBal, setSrcBal] = useState<string | null>(null);
+  const [dstBal, setDstBal] = useState<string | null>(null);
   useEffect(() => {
     setFee(null);
     setSrcBal(null);
+    setDstBal(null);
     wallet<{ fee: string }>({ type: "bridgeFee", direction: dir }).then((f) => setFee(f.fee)).catch(() => setFee(null));
-    // Validate against the source-side balance before the node does.
+    // Validate against the source-side balance before the node does; show the
+    // destination balance too, like the bridge widget on the site.
     wallet<{ balance: string }>({ type: "bridgeBalance", direction: dir, account: from }).then((b) => setSrcBal(b.balance)).catch(() => {});
+    wallet<{ balance: string }>({ type: "bridgeBalance", direction: dir === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc", account: from }).then((b) => setDstBal(b.balance)).catch(() => {});
   }, [dir, from]);
   const [srcName, dstName] = dir === "eth-to-lc" ? ["Ethereum", "LightChain"] : ["LightChain", "Ethereum"];
+  const [srcChainLogo, dstChainLogo] = dir === "eth-to-lc" ? ["/chains/eth.png", "/chains/lightchain.png"] : ["/chains/lightchain.png", "/chains/eth.png"];
   const explorer = dir === "eth-to-lc" ? "https://etherscan.io" : "https://mainnet.lightscan.app";
   const amtNum = Number(amount) || 0;
   const insufficient = srcBal !== null && amtNum > 0 && amtNum > Number(srcBal);
@@ -187,26 +196,39 @@ function NetworkMove({ from, onDone }: { from: string; onDone: () => void }) {
   }
   return (
     <>
-      <p className="muted">Moves LCAI between its Ethereum ERC-20 and native LightChain over the Hyperlane route.</p>
-      <div className="tabs">
-        <button className={`tab${dir === "eth-to-lc" ? " active" : ""}`} onClick={() => setDir("eth-to-lc")}>Ethereum → LightChain</button>
-        <button className={`tab${dir === "lc-to-eth" ? " active" : ""}`} onClick={() => setDir("lc-to-eth")}>LightChain → Ethereum</button>
+      <div className="bridge-pair">
+        <div className="coin">
+          <span className="coin-badge">
+            <img className="coin-main" src="/chains/lightchain.png" alt="" />
+            <img className="coin-chain" src={srcChainLogo} alt="" />
+          </span>
+          <div><b>LCAI</b><div className="faint">{srcName}</div></div>
+        </div>
+        <button className="flip-btn" aria-label="Flip direction" onClick={() => setDir(dir === "eth-to-lc" ? "lc-to-eth" : "eth-to-lc")}><Ic name="swap" size={15} /></button>
+        <div className="coin coin-right">
+          <div style={{ textAlign: "right" }}><b>LCAI</b><div className="faint">{dstName}</div></div>
+          <span className="coin-badge">
+            <img className="coin-main" src="/chains/lightchain.png" alt="" />
+            <img className="coin-chain" src={dstChainLogo} alt="" />
+          </span>
+        </div>
       </div>
-      <div>
-        <div className="muted" style={{ marginBottom: 6 }}>Amount (LCAI)</div>
-        <input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
-        {srcBal !== null && (
-          <div className="row between" style={{ marginTop: 6 }}>
-            <span className="faint">{fmtBal(srcBal)} LCAI on {srcName}</span>
-            <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={() => setAmount(srcBal)}>Max</button>
-          </div>
-        )}
+      <div className="amount-box">
+        <div className="row between">
+          <input className="amount-input" inputMode="decimal" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
+          <button className="chip active" style={{ flexShrink: 0 }} disabled={srcBal === null} onClick={() => srcBal && setAmount(srcBal)}>Max</button>
+        </div>
+        <div className="row between" style={{ marginTop: 6 }}>
+          <span className="faint">on {srcName}</span>
+          <span className="faint">Balance: {srcBal === null ? "…" : fmtBal(srcBal)}</span>
+        </div>
       </div>
+      {dstBal !== null && <div className="row between faint" style={{ fontSize: 11.5 }}><span>Arrives on {dstName}</span><span>Remote balance: {fmtBal(dstBal)}</span></div>}
       {insufficient && <p className="err">Not enough LCAI on {srcName}. You have {fmtBal(srcBal!)}.</p>}
-      {fee && <p className="muted">Relayer fee ≈ {Number(fee).toLocaleString(undefined, { maximumFractionDigits: 6 })} {dir === "eth-to-lc" ? "ETH" : "LCAI"}</p>}
-      <p className="faint">Signs on {srcName}{dir === "eth-to-lc" ? " (approve LCAI, then transfer)" : ""}.</p>
+      <p className="muted">Fees: {fee === null ? "…" : `≈ ${Number(fee).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${dir === "eth-to-lc" ? "ETH" : "LCAI"} relayer fee`}</p>
       {err && <p className="err">{err}</p>}
-      <button disabled={!ok || busy} onClick={move}>{busy ? "Moving…" : `Move to ${dstName}`}</button>
+      <button className="btn-hero" disabled={!ok || busy} onClick={move}>{busy ? "Moving…" : `Bridge to ${dstName}`}</button>
+      <p className="faint" style={{ textAlign: "center" }}>Live Hyperlane warp route. Signs on {srcName}{dir === "eth-to-lc" ? " (approve LCAI, then transfer)" : ""}; LCAI lands on {dstName} after the relay.</p>
     </>
   );
 }

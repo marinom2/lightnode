@@ -39,9 +39,12 @@ export function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null | u
       ) : (
         <div className="nft-grid">
           {nfts.map((n) => (
-            <button className="nft-card" key={`${n.address}-${n.tokenId}`} onClick={() => onOpen(n)}>
+            <button className="nft-card" key={`${n.address}-${n.tokenId}`} style={n.spam ? { opacity: 0.7 } : undefined} title={n.spam} onClick={() => onOpen(n)}>
               {n.image ? <img className="nft-img" src={n.image} alt="" loading="lazy" /> : <div className="nft-img nft-fallback"><Ic name="image" size={26} /></div>}
-              <div className="nft-meta"><b>{n.name}</b><span className="faint">{n.collection || short(n.address)}</span></div>
+              <div className="nft-meta">
+                <b>{n.name}{n.spam && <span className="tag tag-bad">scam?</span>}</b>
+                <span className="faint">{n.collection || short(n.address)}</span>
+              </div>
             </button>
           ))}
         </div>
@@ -140,6 +143,7 @@ export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged
           <span className="muted">{nft.collection || "Collection"} · #{nft.tokenId} · {nft.standard === "erc721" ? "ERC-721" : "ERC-1155"}</span>
           <a href={nftUrlFor(chainId, nft.address, nft.tokenId)} target="_blank" rel="noreferrer" style={{ fontSize: 12, flexShrink: 0 }}>Explorer →</a>
         </div>
+        {nft.spam && <p className="danger-box"><b>Likely scam.</b> {nft.spam} Never visit sites or follow instructions from an NFT.</p>}
         {hash ? (
           <>
             <p className="ok">Sent. The NFT leaves this wallet when the transaction confirms.</p>
