@@ -17,6 +17,7 @@ import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, t
 import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
 import { bridgeTransfer, bridgeFee } from "../src/rpc/bridge";
+import { daoStatus } from "../src/rpc/dao";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
@@ -235,6 +236,8 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
           : { to: orig.to ?? (op.from as `0x${string}`), value: orig.value, data: orig.input, nonce: orig.nonce, maxFeePerGas: bump(base), maxPriorityFeePerGas: bump(prio) };
       return { hash: await w.sendTransaction(tx) };
     }
+    case "daoStatus":
+      return daoStatus(op.chainId, op.address);
     case "bridgeFee":
       return { fee: await bridgeFee(op.direction) };
     case "bridge": {

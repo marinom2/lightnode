@@ -291,10 +291,11 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
       {chainId === 9200 && <WorkerPanel address={address} />}
 
+      <GovernanceCard chainId={chainId} address={address} />
+
       <div className="card">
         <h2>More</h2>
         <button className="ghost" style={{ width: "100%" }} onClick={() => setSheet("bridge")}>Bridge LCAI · Ethereum ⇄ LightChain</button>
-        <a href="https://dao.lightchain.ai" target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 8, fontSize: 12 }}>Vote on the LightChain DAO →</a>
         <p className="faint" style={{ marginTop: 8 }}>Encrypted AI inference lands next.</p>
       </div>
 
@@ -303,6 +304,31 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
       {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
       {sheet === "bridge" && <BridgeSheet from={address} onClose={() => setSheet(null)} onSent={loadBal} />}
     </>
+  );
+}
+
+type DaoView = { supported: boolean; votingPower: string; delegated: boolean; voteUrl: string };
+
+function GovernanceCard({ chainId, address }: { chainId: number; address: string }) {
+  const [st, setSt] = useState<DaoView | null>(null);
+  useEffect(() => {
+    let live = true;
+    setSt(null);
+    wallet<DaoView>({ type: "daoStatus", chainId, address }).then((r) => { if (live) setSt(r); }).catch(() => { if (live) setSt(null); });
+    return () => { live = false; };
+  }, [chainId, address]);
+  if (!st || !st.supported) return null;
+  const power = Number(st.votingPower);
+  return (
+    <div className="card">
+      <h2>Governance</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <span className="muted">Your voting power</span>
+        <b style={{ fontSize: 15 }}>{power.toLocaleString(undefined, { maximumFractionDigits: 4 })}</b>
+      </div>
+      {power > 0 && !st.delegated && <p className="faint" style={{ marginTop: 6 }}>These tokens are not delegated, so they do not count toward any vote yet. Activate them on the DAO.</p>}
+      <a href={st.voteUrl} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 8, fontSize: 12 }}>{power > 0 ? "Vote on the LightChain DAO →" : "Open the LightChain DAO →"}</a>
+    </div>
   );
 }
 
