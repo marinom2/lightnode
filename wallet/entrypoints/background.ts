@@ -26,6 +26,7 @@ import { listProposals, castVoteData, GOVERNORS } from "../src/rpc/governance";
 import { readWorkerStatus, readNetworkStats, readWorkerLifetime, readWorkerModels, readProtocolParams, withdrawTarget } from "../src/rpc/worker";
 import { readGasTiers, type GasSpeed } from "../src/rpc/gas";
 import { resolveEnsName } from "../src/rpc/ens";
+import { runInference, listChatModels, type ChatModel } from "../src/rpc/inference";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, EVENT_PORT, RpcError } from "../src/provider/protocol";
@@ -740,7 +741,11 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
     const acct = kr.accountFor(raw.from);
     if (!acct) throw RpcError.unauthorized;
     const tx = canonicalizeDappTx(raw);
-    return signAndSend(acct.account, tx.to, tx.value, tx.data);
+    const hash = await signAndSend(acct.account, tx.to, tx.value, tx.data);
+    // Dapp txs deserve the same Activity row + Speed up/Cancel as wallet sends.
+    const cid = await selectedChainId();
+    void logActivity({ hash, to: tx.to, amount: formatEther(tx.value), symbol: chainById(cid).nativeCurrency.symbol, chainId: cid, ts: Date.now(), from: raw.from, kind: tx.data ? "token" : "native" });
+    return hash;
   }
   if (request.method === "eth_signTypedData_v4") {
     const [address, json] = request.params as [string, string];
@@ -769,6 +774,45 @@ export default defineBackground(() => {
     void browser.tabs.create({ url: browser.runtime.getURL("/popup.html#/expanded") });
   });
   browser.runtime.onConnect.addListener((port) => {
+    // In-wallet AI chat: a long-lived port from OUR popup streams phases and
+    // decrypted chunks. One explicit session consent in the UI, then each
+    // message auto-signs its two LightChain txs here (first-party feature,
+    // never reachable by dapps).
+    if (port.name === "lc-chat") {
+      const safePost = (m: unknown) => {
+        try {
+          port.postMessage(m);
+        } catch {
+          // popup closed mid-stream; the tx already carries the answer fee
+        }
+      };
+      port.onMessage.addListener((raw: unknown) => {
+        void (async () => {
+          const msg = raw as { type: string; from?: string; model?: ChatModel; prompt?: string };
+          try {
+            if (msg.type === "models") {
+              safePost({ type: "models", models: await listChatModels() });
+              return;
+            }
+            if (msg.type === "send" && msg.from && msg.model && typeof msg.prompt === "string") {
+              const kr = await restore();
+              const acct = kr?.accountFor(msg.from);
+              if (!acct) throw new Error("Wallet is locked.");
+              await bumpAutoLock();
+              const result = await runInference(acct.account, msg.model, msg.prompt, {
+                phase: (ph) => safePost({ type: "phase", phase: ph }),
+                chunk: (t) => safePost({ type: "chunk", text: t }),
+              });
+              void logActivity({ hash: result.submitHash, to: "AI chat", amount: result.feeLcai.toString(), symbol: "LCAI", chainId: 9200, ts: Date.now(), from: msg.from, kind: "native" });
+              safePost({ type: "done", feeLcai: result.feeLcai, hash: result.submitHash });
+            }
+          } catch (e) {
+            safePost({ type: "error", message: (e as Error).message });
+          }
+        })();
+      });
+      return;
+    }
     if (port.name !== EVENT_PORT) return;
     const p = port as unknown as EventPort;
     const origin = p.sender?.origin ?? (p.sender?.url ? new URL(p.sender.url).origin : "");

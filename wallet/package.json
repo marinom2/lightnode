@@ -13,6 +13,8 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
     "@noble/hashes": "^1.6.1",
     "@scure/bip32": "^1.6.2",
     "@scure/bip39": "^1.5.4",

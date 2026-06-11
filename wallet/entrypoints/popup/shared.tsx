@@ -62,6 +62,7 @@ const ICONS: Record<string, string> = {
   swap: "M16 3l4 4-4 4M20 7H7M8 21l-4-4 4-4M4 17h13",
   gov: "M3 21h18M5 21V10M19 21V10M3 10l9-6 9 6M9 21v-5h6v5",
   server: "M3 5h18v6H3zM3 13h18v6H3zM6.5 8h.01M6.5 16h.01",
+  chat: "M21 11.5a8.38 8.38 0 01-9 8.37 8.5 8.5 0 01-3.8-.9L3 21l2-5.2a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 018.5-8.5 8.38 8.38 0 018.4 8z",
 };
 export function Ic({ name, size = 18 }: { name: string; size?: number }) {
   return (
