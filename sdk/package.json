@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@noble/ciphers": "^1.0.0",
-    "@noble/curves": "^1.0.0",
+    "@noble/curves": "^2.2.0",
     "viem": "^2"
   },
   "devDependencies": {
