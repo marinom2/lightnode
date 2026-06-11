@@ -6,6 +6,7 @@ import { encodeQR } from "qr";
 import { chainById, CHAIN_LIST, explorerFor } from "../../src/rpc/chains";
 import type { TokenBalance } from "../../src/rpc/tokens";
 import type { ActivityEntry } from "../../src/provider/protocol";
+import { assessRecipient } from "../../src/rpc/risk";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
 
 type Asset = { kind: "native"; symbol: string } | { kind: "token"; symbol: string; address: string; decimals: number };
@@ -271,7 +272,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
       {chainId === 9200 && <WorkerPanel address={address} />}
 
-      {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} onClose={() => setSheet(null)} onSent={loadBal} />}
+      {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} own={state.accounts} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
       {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
     </>
@@ -395,7 +396,7 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
   );
 }
 
-function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from: string; assets: Asset[]; explorer: string; chainId: number; onClose: () => void; onSent: () => void }) {
+function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { from: string; assets: Asset[]; explorer: string; chainId: number; own: string[]; onClose: () => void; onSent: () => void }) {
   const [asset, setAsset] = useState<Asset>(assets[0]!);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -403,8 +404,14 @@ function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from:
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [fee, setFee] = useState<string | null>(null);
+  const [known, setKnown] = useState<string[]>([]);
   const [txState, setTxState] = useState<"pending" | "confirmed" | "failed">("pending");
-  const ok = /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && Number(amount) > 0;
+  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
+  const ok = validAddr && Number(amount) > 0;
+  const risk = validAddr ? assessRecipient(to.trim(), known, own) : null;
+  useEffect(() => {
+    wallet<string[]>({ type: "knownRecipients" }).then(setKnown).catch(() => {});
+  }, []);
   useEffect(() => {
     if (!hash) return;
     let live = true;
@@ -472,6 +479,12 @@ function SendSheet({ from, assets, explorer, chainId, onClose, onSent }: { from:
               </div>
             )}
             <div><div className="muted" style={{ marginBottom: 6 }}>Recipient</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+            {risk?.kind === "lookalike" && (
+              <p className="danger-box">This address looks like {short(risk.similarTo!)} but is different - a common address-poisoning scam. Verify every character before sending.</p>
+            )}
+            {risk?.kind === "new" && <p className="muted">First time sending to this address.</p>}
+            {risk?.kind === "known" && <p className="ok">You&apos;ve sent to this address before.</p>}
+            {risk?.kind === "self" && <p className="muted">This is one of your own accounts.</p>}
             <div><div className="muted" style={{ marginBottom: 6 }}>Amount ({asset.symbol})</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
             {fee && <p className="muted">Network fee ≈ {fee}</p>}
             {err && <p className="err">{err}</p>}

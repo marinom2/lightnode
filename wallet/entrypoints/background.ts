@@ -214,6 +214,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
       return activity.filter((e) => e.chainId === op.chainId);
     }
+    case "knownRecipients": {
+      // Distinct addresses you've sent to before (across chains) - the trusted
+      // set the send flow checks new recipients against for address poisoning.
+      const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
+      return [...new Set(activity.map((e) => e.to.toLowerCase()))];
+    }
     case "listPending":
       return [...pending.entries()].map(([id, p]) => ({ id, method: p.request.method, origin: p.origin, params: p.request.params }));
     case "resolvePending":
