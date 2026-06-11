@@ -173,7 +173,7 @@ function Unlock({ onDone }: { onDone: () => void }) {
 function WalletHome({ state, onChange }: { state: WalletState; onChange: () => void }) {
   const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
   const [bal, setBal] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | null>(null);
+  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "bridge" | null>(null);
   const [acctOpen, setAcctOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const chain = chainById(state.chainId);
@@ -291,10 +291,73 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
       {chainId === 9200 && <WorkerPanel address={address} />}
 
+      <div className="card">
+        <h2>More</h2>
+        <button className="ghost" style={{ width: "100%" }} onClick={() => setSheet("bridge")}>Bridge LCAI · Ethereum ⇄ LightChain</button>
+        <a href="https://dao.lightchain.ai" target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 8, fontSize: 12 }}>Vote on the LightChain DAO →</a>
+        <p className="faint" style={{ marginTop: 8 }}>Encrypted AI inference lands next.</p>
+      </div>
+
       {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} own={state.accounts} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
       {sheet === "settings" && <SettingsSheet onClose={() => setSheet(null)} onRemoved={onChange} />}
+      {sheet === "bridge" && <BridgeSheet from={address} onClose={() => setSheet(null)} onSent={loadBal} />}
     </>
+  );
+}
+
+function BridgeSheet({ from, onClose, onSent }: { from: string; onClose: () => void; onSent: () => void }) {
+  const [dir, setDir] = useState<"eth-to-lc" | "lc-to-eth">("eth-to-lc");
+  const [amount, setAmount] = useState("");
+  const [fee, setFee] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [hash, setHash] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setFee(null);
+    wallet<{ fee: string }>({ type: "bridgeFee", direction: dir }).then((f) => setFee(f.fee)).catch(() => setFee(null));
+  }, [dir]);
+  const [srcName, dstName] = dir === "eth-to-lc" ? ["Ethereum", "LightChain"] : ["LightChain", "Ethereum"];
+  const explorer = dir === "eth-to-lc" ? "https://etherscan.io" : "https://mainnet.lightscan.app";
+  const ok = Number(amount) > 0;
+  const bridge = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await wallet<{ hash: string }>({ type: "bridge", from, direction: dir, amount });
+      setHash(r.hash);
+      onSent();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h1>Bridge LCAI</h1><button className="icon-btn" onClick={onClose}><Ic name="x" size={15} /></button></div>
+        {hash ? (
+          <>
+            <p className="ok">Submitted on {srcName}. Your LCAI lands on {dstName} after the Hyperlane relay (~minutes).</p>
+            <a className="addr" href={`${explorer}/tx/${hash}`} target="_blank" rel="noreferrer">View transaction →</a>
+            <button onClick={onClose}>Done</button>
+          </>
+        ) : (
+          <>
+            <div className="tabs">
+              <button className={`tab${dir === "eth-to-lc" ? " active" : ""}`} onClick={() => setDir("eth-to-lc")}>Eth → LC</button>
+              <button className={`tab${dir === "lc-to-eth" ? " active" : ""}`} onClick={() => setDir("lc-to-eth")}>LC → Eth</button>
+            </div>
+            <div><div className="muted" style={{ marginBottom: 6 }}>Amount (LCAI)</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
+            {fee && <p className="muted">Relayer fee ≈ {Number(fee).toLocaleString(undefined, { maximumFractionDigits: 6 })} {dir === "eth-to-lc" ? "ETH" : "LCAI"}</p>}
+            <p className="faint">Signs on {srcName}{dir === "eth-to-lc" ? " (approve LCAI, then transfer)" : ""}.</p>
+            {err && <p className="err">{err}</p>}
+            <button disabled={!ok || busy} onClick={bridge}>{busy ? "Bridging…" : `Bridge to ${dstName}`}</button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

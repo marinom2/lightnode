@@ -61,6 +61,8 @@ export type WalletOp =
   | { type: "quoteSend"; from: string; to: string; valueWei?: string; token?: string; amount?: string; decimals?: number }
   | { type: "txStatus"; hash: string }
   | { type: "replaceTx"; from: string; hash: string; mode: "speedup" | "cancel" }
+  | { type: "bridgeFee"; direction: "eth-to-lc" | "lc-to-eth" }
+  | { type: "bridge"; from: string; direction: "eth-to-lc" | "lc-to-eth"; amount: string }
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }
