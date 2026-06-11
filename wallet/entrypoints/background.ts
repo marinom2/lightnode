@@ -14,6 +14,7 @@ import { Keyring } from "../src/keyring/keyring";
 import { parseTypedData } from "../src/provider/typed-data";
 import { readWorkerStatus } from "../src/rpc/worker";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
+import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { encryptVault, decryptVault, type EncryptedVault } from "../src/keyring/vault";
 import { chainById, isSupportedChain, DEFAULT_CHAIN_ID } from "../src/rpc/chains";
 import { type BgMessage, type WalletOp, type JsonRpcRequest, type ActivityEntry, RpcError } from "../src/provider/protocol";
@@ -213,6 +214,27 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     case "getActivity": {
       const { activity = [] } = (await browser.storage.local.get("activity")) as { activity?: ActivityEntry[] };
       return activity.filter((e) => e.chainId === op.chainId);
+    }
+    case "getPrices": {
+      // Best-effort USD prices from CoinGecko's public API (needs the host
+      // permission). Failures just leave USD blank in the UI.
+      const native = CG_NATIVE[op.chainId];
+      const platform = CG_PLATFORM[op.chainId];
+      const out: Prices = { nativeUsd: null, tokenUsd: {} };
+      try {
+        if (native) {
+          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${native}&vs_currencies=usd`)).json()) as Record<string, { usd?: number }>;
+          out.nativeUsd = j[native]?.usd ?? null;
+        }
+        if (platform && op.addresses.length) {
+          const list = op.addresses.map((a) => a.toLowerCase()).join(",");
+          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${list}&vs_currencies=usd`)).json()) as Record<string, { usd?: number }>;
+          for (const [addr, v] of Object.entries(j)) out.tokenUsd[addr.toLowerCase()] = v?.usd ?? 0;
+        }
+      } catch {
+        return out; // prices are optional; surface what we have
+      }
+      return out;
     }
     case "knownRecipients": {
       // Distinct addresses you've sent to before (across chains) - the trusted

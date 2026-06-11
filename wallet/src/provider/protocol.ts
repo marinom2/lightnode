@@ -60,6 +60,7 @@ export type WalletOp =
   | { type: "addActivity"; entry: ActivityEntry }
   | { type: "getActivity"; chainId: number }
   | { type: "knownRecipients" }
+  | { type: "getPrices"; chainId: number; addresses: string[] }
   | { type: "listPending" }
   | { type: "resolvePending"; id: string; approved: boolean };
 

@@ -32,7 +32,7 @@ export default function WalletPrivacyPage() {
       </Section>
 
       <Section title="Network requests">
-        <p>To show balances and broadcast transactions, the extension talks directly to public blockchain RPC endpoints (LightChain, Ethereum, Base, Arbitrum, Optimism, Polygon) and, on LightChain, the public worker-registry contracts. These requests go from your browser to those public endpoints; they are not routed through any server we run. Public RPC providers may log requests under their own policies.</p>
+        <p>To show balances and broadcast transactions, the extension talks directly to public blockchain RPC endpoints (LightChain, Ethereum, Base, Arbitrum, Optimism, Polygon) and, on LightChain, the public worker-registry contracts. To show USD values it also requests coin and token prices from CoinGecko&apos;s public API (which sees the token contract addresses, not your wallet address). These requests go from your browser to those public endpoints; they are not routed through any server we run. Public RPC and price providers may log requests under their own policies.</p>
       </Section>
 
       <Section title="Permissions">

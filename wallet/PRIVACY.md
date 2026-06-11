@@ -13,7 +13,7 @@ LightNode Wallet is a **self-custodial** browser extension. It is built so that 
 
 ## Network requests
 
-To show balances and broadcast transactions, the extension talks **directly** to public blockchain RPC endpoints (e.g. LightChain, Ethereum, Base, Arbitrum, Optimism, Polygon) and, on the LightChain network, the public worker-registry contracts. These requests go from your browser to those public endpoints; they are not routed through any server we run. Public RPC providers may log requests under their own policies.
+To show balances and broadcast transactions, the extension talks **directly** to public blockchain RPC endpoints (e.g. LightChain, Ethereum, Base, Arbitrum, Optimism, Polygon) and, on the LightChain network, the public worker-registry contracts. To show USD values it also requests coin and token prices from CoinGecko's public API (which sees the token contract addresses, not your wallet address). These requests go from your browser to those public endpoints; they are not routed through any server we run. Public RPC and price providers may log requests under their own policies.
 
 ## Permissions
 

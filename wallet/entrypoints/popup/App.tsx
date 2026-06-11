@@ -7,6 +7,7 @@ import { chainById, CHAIN_LIST, explorerFor } from "../../src/rpc/chains";
 import type { TokenBalance } from "../../src/rpc/tokens";
 import type { ActivityEntry } from "../../src/provider/protocol";
 import { assessRecipient } from "../../src/rpc/risk";
+import { portfolioUsd, fmtUsd, type Prices } from "../../src/rpc/prices";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
 
 type Asset = { kind: "native"; symbol: string } | { kind: "token"; symbol: string; address: string; decimals: number };
@@ -181,16 +182,27 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [prices, setPrices] = useState<Prices | null>(null);
   const [tab, setTab] = useState<"tokens" | "activity">("tokens");
   const chainId = state.chainId;
   const loadBal = useCallback(() => {
     setBal(null);
     setTokens([]);
+    setPrices(null);
     wallet<{ formatted: string }>({ type: "getBalance", address }).then((b) => setBal(b.formatted)).catch(() => setBal("0"));
-    wallet<TokenBalance[]>({ type: "getTokens", address }).then(setTokens).catch(() => setTokens([]));
+    wallet<TokenBalance[]>({ type: "getTokens", address }).then((ts) => {
+      setTokens(ts);
+      wallet<Prices>({ type: "getPrices", chainId, addresses: ts.map((t) => t.address) }).then(setPrices).catch(() => {});
+    }).catch(() => setTokens([]));
     wallet<ActivityEntry[]>({ type: "getActivity", chainId }).then(setActivity).catch(() => setActivity([]));
   }, [address, chainId]);
   useEffect(loadBal, [loadBal]);
+  const usd = (sym: string, amount: number, addr?: string) => {
+    if (!prices) return null;
+    const price = addr ? prices.tokenUsd[addr.toLowerCase()] : prices.nativeUsd;
+    return price ? fmtUsd(price * amount) : null;
+  };
+  const total = prices && bal != null ? portfolioUsd(Number(bal), prices, tokens.map((t) => ({ address: t.address, balance: Number(t.balance) }))) : 0;
 
   const copy = () => {
     void navigator.clipboard.writeText(address);
@@ -236,6 +248,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
 
       <div className="hero">
         <div><span className="bal">{bal == null ? "…" : fmtBal(bal)}</span><span className="sym">{sym}</span></div>
+        {total > 0 && <div className="sub">≈ {fmtUsd(total)} total</div>}
         <button className="copy-chip" onClick={copy}>{copied ? "Copied!" : short(address)} <Ic name="copy" size={13} /></button>
       </div>
 
@@ -255,13 +268,19 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
           <div className="list-row">
             <span className="token-ic" style={{ color: netColor(chainId) }}>{sym.slice(0, 2)}</span>
             <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
-            <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
+            <div style={{ textAlign: "right" }}>
+              <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
+              {bal != null && usd(sym, Number(bal)) && <div className="faint">{usd(sym, Number(bal))}</div>}
+            </div>
           </div>
           {tokens.map((t) => (
             <div className="list-row" key={t.address}>
               <span className="token-ic">{t.symbol.slice(0, 2)}</span>
               <div className="grow"><b style={{ fontSize: 13 }}>{t.symbol}</b><div className="faint">{short(t.address)}</div></div>
-              <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
+              <div style={{ textAlign: "right" }}>
+                <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
+                {usd(t.symbol, Number(t.balance), t.address) && <div className="faint">{usd(t.symbol, Number(t.balance), t.address)}</div>}
+              </div>
             </div>
           ))}
           <button className="ghost" style={{ fontSize: 12, marginTop: 2 }} onClick={addToken}><Ic name="plus" size={13} /> Add token</button>
