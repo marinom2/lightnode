@@ -189,6 +189,14 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
         return { feeFormatted: null, feeSymbol };
       }
     }
+    case "txStatus": {
+      try {
+        const r = await (await publicClient()).getTransactionReceipt({ hash: op.hash as `0x${string}` });
+        return { status: r.status === "success" ? "confirmed" : "failed" };
+      } catch {
+        return { status: "pending" }; // receipt not mined yet
+      }
+    }
     case "sendToken": {
       const kr = await restore();
       const acct = kr?.accountFor(op.from);
