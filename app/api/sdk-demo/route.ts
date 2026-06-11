@@ -96,7 +96,12 @@ export async function POST(req: NextRequest) {
         result = await ln.getWorkerStats(1000, 20);
         break;
       case "job":
-        if (!arg) return NextResponse.json({ error: "job: arg must be a job id" }, { status: 400 });
+        // Job ids are 0x-prefixed hex strings. Validate strictly BEFORE the id
+        // reaches the subgraph query string, so a crafted arg can't inject
+        // GraphQL into the lookup.
+        if (!arg || !/^0x[0-9a-fA-F]{1,128}$/.test(arg)) {
+          return NextResponse.json({ error: "job: arg must be a 0x-prefixed hex job id" }, { status: 400 });
+        }
         result = (await ln.getJobStatus(arg)) ?? { jobId: arg, status: "not-indexed" };
         break;
     }

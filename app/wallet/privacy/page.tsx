@@ -32,11 +32,12 @@ export default function WalletPrivacyPage() {
       </Section>
 
       <Section title="Network requests">
-        <p>To show balances and broadcast transactions, the extension talks directly to public blockchain RPC endpoints (LightChain, Ethereum, Base, Arbitrum, Optimism, Polygon) and, on LightChain, the public worker-registry contracts. To show USD values it also requests coin and token prices from CoinGecko&apos;s public API (which sees the token contract addresses, not your wallet address). These requests go from your browser to those public endpoints; they are not routed through any server we run. Public RPC and price providers may log requests under their own policies.</p>
+        <p>To show balances and broadcast transactions, the extension talks directly to public blockchain RPC endpoints (LightChain, Ethereum, Base, Arbitrum, Optimism, Polygon) and, on LightChain, the public worker-registry contracts. To show USD values it also requests coin and token prices from CoinGecko&apos;s public API (which sees the token contract addresses, not your wallet address). Block-explorer APIs (Blockscout, Etherscan) are queried to build your activity list and discover tokens. These requests go from your browser to those public endpoints. Public providers may log requests under their own policies.</p>
+        <p>The optional <span className="text-content-primary">AI chat</span> feature additionally contacts the LightChain consumer gateway through a stateless pass-through proxy at lightnode.app (needed because the gateway does not allow direct browser requests). Your prompts and replies are end-to-end encrypted on your device before they leave it; the proxy and gateway relay ciphertext and routing metadata only and store nothing. Streamed replies arrive over LightChain&apos;s public relay WebSocket and are decrypted locally. If you never open AI chat, none of these requests happen.</p>
       </Section>
 
       <Section title="Permissions">
-        <p><code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono">storage</code> keeps the encrypted vault and settings on your device. <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono">alarms</code> auto-locks after inactivity. <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono">notifications</code> are optional request alerts. The page content script injects the standard wallet provider so sites can request to connect; it holds no keys.</p>
+        <p><code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono">storage</code> keeps the encrypted vault and settings on your device. <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono">alarms</code> auto-locks after inactivity. The page content script injects the standard wallet provider so sites can request to connect; it holds no keys.</p>
       </Section>
 
       <Section title="Your control">

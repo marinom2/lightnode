@@ -192,6 +192,7 @@ export default function DashboardPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="0x... worker address"
+            aria-label="Worker address"
             className="h-11 w-full rounded-xl border border-bdr-soft bg-surface-base-subtle pl-9 pr-3 font-mono text-sm text-content-primary outline-none focus:border-primary"
           />
         </div>
@@ -205,8 +206,8 @@ export default function DashboardPage() {
         )}
       </form>
       <p className="mt-2 text-xs text-content-soft">
-        Tip: your worker address is printed by <code className="rounded bg-surface-base-light px-1 py-0.5">08-run-worker</code> /{" "}
-        <code className="rounded bg-surface-base-light px-1 py-0.5">status</code>. It&apos;s the generated worker key, not your funder wallet.
+        Tip: the desktop app shows your worker address in its dashboard and status view. It&apos;s the generated
+        worker key, not your funder wallet.
       </p>
 
       <WatchGrid

@@ -1,6 +1,6 @@
 /**
  * Read-only preview endpoint for the WorkerOperator SDK. Drives the
- * /build/sdks/operator stepper.
+ * /build/worker stepper.
  *
  *   GET /api/operator-preview?action=config&net=testnet|mainnet
  *   GET /api/operator-preview?action=status&net=...&worker=0x...
@@ -12,7 +12,8 @@
  */
 import { NextResponse } from "next/server";
 import { createPublicClient, http, parseAbi, getAddress } from "viem";
-import { WorkerOperator, NETWORKS, LightNode, type NetworkId } from "lightnode-sdk";
+import { WorkerOperator, NETWORKS, LightNode } from "lightnode-sdk";
+import { parseNet } from "@/lib/api-validate";
 
 // EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1.
 // Every LightChain protocol contract stores its logic address here (verified live).
@@ -26,7 +27,10 @@ const MAINNET_SERVICE_EOAS = [
   { name: "Disputer", role: "Opens disputes on bad results", address: "0xED60d14E586219D7c984bDf0AA720a6Bd96B5F73" },
 ] as const;
 
-const STUCK_DEADLINE_SEC = 60 * 60; // SDK default completion timeout
+// Heuristic window chosen by this dashboard, not a protocol value: an
+// acknowledged job older than this is bucketed as "stuck". The live completion
+// timeout comes from AIConfig (see the `config` action).
+const STUCK_DEADLINE_SEC = 60 * 60;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,8 +43,8 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const action = url.searchParams.get("action") ?? "";
-    const netParam = (url.searchParams.get("net") ?? "mainnet") as NetworkId;
-    const net: NetworkId = netParam === "testnet" ? "testnet" : "mainnet";
+    const net = parseNet(url.searchParams.get("net"));
+    if (!net) return bad("invalid net");
     const network = NETWORKS[net];
     if (!network) return bad("unknown network");
     const publicClient = createPublicClient({ transport: http(network.rpc) });

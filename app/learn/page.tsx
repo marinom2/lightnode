@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { LiveStats } from "@/components/live-stats";
 
 export const metadata = {
-  title: "How LightChain AI works - LightNode",
+  title: "How LightChain AI works",
   description:
     "What LightChain AI is, why decentralized inference matters, and how a single encrypted job flows from your wallet through a worker and back. Non-technical, with live data.",
 };
@@ -74,8 +74,8 @@ const ECOSYSTEM = [
   },
   {
     name: "Worker explorer",
-    line: "Public dashboard of registered workers, stake, and recent jobs across mainnet + testnet.",
-    href: "https://workers-testnet.lightchain.ai",
+    line: "Public dashboard of registered workers, stake, and recent jobs on mainnet. Testnet has its own at workers-testnet.lightchain.ai.",
+    href: "https://workers.lightchain.ai",
   },
   {
     name: "AI Chat",

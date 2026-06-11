@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Users, Crown, ExternalLink } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Users, Crown, ExternalLink, RefreshCw } from "lucide-react";
 import { short } from "@/components/build/console/panel-kit";
 import { formatLcaiWei } from "./dao-math";
 import type { DaoChain } from "./dao-chain";
@@ -42,27 +41,30 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 export function VotersPanel({ chain }: { chain: DaoChain }) {
-  const [data, setData] = useState<VotersResp | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Tri-state: undefined = loading, null = fetch failed, otherwise loaded
+  // (possibly genuinely empty) - a failed read must not look like "no votes".
+  const [data, setData] = useState<VotersResp | null | undefined>(undefined);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let live = true;
-    setLoading(true);
-    setData(null);
+    setData(undefined);
     fetch(`/api/dao-voters?chain=${chain}`)
       .then((r) => r.json())
       .then((d: VotersResp) => {
-        if (live && !d.error) setData(d);
+        if (live) setData(d.error ? null : d);
       })
-      .catch(() => {})
-      .finally(() => live && setLoading(false));
+      .catch(() => {
+        if (live) setData(null);
+      });
     return () => {
       live = false;
     };
-  }, [chain]);
+  }, [chain, attempt]);
 
-  if (loading) return <div className="h-56 animate-pulse rounded-2xl border border-bdr-soft bg-surface-base-faint" />;
-  if (!data || data.totalVotes === 0) {
+  if (data === undefined) return <div className="h-56 animate-pulse rounded-2xl border border-bdr-soft bg-surface-base-faint" />;
+  if (data === null) return <VotesLoadError chain={chain} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (data.totalVotes === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-bdr-soft px-4 py-8 text-center text-sm text-content-soft">
         No votes recorded on {chain} yet.
@@ -83,6 +85,21 @@ export function VotersPanel({ chain }: { chain: DaoChain }) {
         <DelegateBoard rows={data.delegates} explorer={data.explorer} chain={chain} />
         <VoterBoard rows={data.voters} explorer={data.explorer} chain={chain} />
       </div>
+    </div>
+  );
+}
+
+function VotesLoadError({ chain, onRetry }: { chain: DaoChain; onRetry: () => void }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-bdr-soft px-4 py-8 text-center text-sm text-content-soft">
+      <p>Could not load votes for {chain}.</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary transition-colors hover:underline"
+      >
+        <RefreshCw className="size-3.5" /> Retry
+      </button>
     </div>
   );
 }

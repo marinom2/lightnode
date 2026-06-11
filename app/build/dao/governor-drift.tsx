@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { ArrowLeftRight, Loader2 } from "lucide-react";
+import { ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { humanizeDuration, quorumPercent, formatLcaiWei } from "./dao-math";
 import type { DaoChain } from "./dao-chain";
@@ -23,11 +23,35 @@ const CHAIN_META: Record<DaoChain, { label: string; icon: string }> = {
 };
 const fmtPct = (p: number) => (p % 1 === 0 ? `${p}%` : `${p.toFixed(1)}%`);
 
+// Proposal counts come from a full-history governor scan, which is expensive.
+// Remember each chain's total for the session so revisits to /build/dao reuse
+// it (or the total the page already scanned) instead of rescanning.
+const proposalTotalCache = new Map<DaoChain, number>();
+
+function seedProposalTotals(totals?: Partial<Record<DaoChain, number>>): void {
+  if (!totals) return;
+  for (const chain of ["ethereum", "lightchain"] as const) {
+    const total = totals[chain];
+    if (total != null) proposalTotalCache.set(chain, total);
+  }
+}
+
+async function fetchProposalTotal(chain: DaoChain): Promise<number> {
+  const cached = proposalTotalCache.get(chain);
+  if (cached != null) return cached;
+  const res = await fetch(`/api/dao-proposals?chain=${chain}&limit=1`);
+  const prop = (await res.json()) as { total?: number; error?: string };
+  if (!res.ok || prop.error) throw new Error(prop.error ?? "proposal scan failed");
+  const total = Number(prop.total ?? 0);
+  proposalTotalCache.set(chain, total);
+  return total;
+}
+
 async function loadChain(chain: DaoChain): Promise<ChainStats | null> {
   try {
-    const [ov, prop] = await Promise.all([
+    const [ov, total] = await Promise.all([
       fetch(`/api/dao-overview?chain=${chain}`).then((r) => r.json()),
-      fetch(`/api/dao-proposals?chain=${chain}&limit=1`).then((r) => r.json()),
+      fetchProposalTotal(chain),
     ]);
     if (ov.error || !ov.schedule) return null;
     const s = ov.schedule;
@@ -38,7 +62,7 @@ async function loadChain(chain: DaoChain): Promise<ChainStats | null> {
       timelockQueue: humanizeDuration(s.timelockSeconds),
       quorum: fmtPct(quorumPercent(ov.quorum.numerator, ov.quorum.denominator)),
       threshold: `${formatLcaiWei(BigInt(s.proposalThresholdWei), 0)} ${sym}`,
-      proposals: String(prop.total ?? 0),
+      proposals: String(total),
       treasury: `${formatLcaiWei(BigInt(ov.treasuryWei), 2)} LCAI`,
     };
   } catch {
@@ -65,28 +89,49 @@ function ChainHead({ chain }: { chain: DaoChain }) {
   );
 }
 
-export function GovernorDrift() {
-  const [eth, setEth] = useState<ChainStats | null>(null);
-  const [lc, setLc] = useState<ChainStats | null>(null);
+function withTotal(stats: ChainStats, total?: number): ChainStats {
+  return total == null ? stats : { ...stats, proposals: String(total) };
+}
+
+interface GovernorDriftProps {
+  /** Proposal totals the page has already scanned - reused instead of rescanning. */
+  knownTotals?: Partial<Record<DaoChain, number>>;
+  /** Hold our scans until the page's own scan settles (it feeds knownTotals). */
+  ready?: boolean;
+}
+
+export function GovernorDrift({ knownTotals, ready = true }: GovernorDriftProps) {
+  const [ethStats, setEthStats] = useState<ChainStats | null>(null);
+  const [lcStats, setLcStats] = useState<ChainStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Seed the session cache with totals the page already paid for. Declared
+  // before the load effect so the seed lands first within the same commit.
   useEffect(() => {
+    seedProposalTotals(knownTotals);
+  }, [knownTotals]);
+
+  useEffect(() => {
+    if (!ready) return;
     let live = true;
     Promise.all([loadChain("ethereum"), loadChain("lightchain")])
       .then(([e, l]) => {
         if (!live) return;
-        setEth(e);
-        setLc(l);
+        setEthStats(e);
+        setLcStats(l);
       })
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, []);
+  }, [ready]);
 
   if (loading) return <div className="h-64 animate-pulse rounded-2xl border border-bdr-soft bg-surface-base-faint" />;
-  if (!eth || !lc) return null;
+  if (!ethStats || !lcStats) return null;
 
+  // Prefer the freshest totals the page has scanned (e.g. after a chain switch).
+  const eth = withTotal(ethStats, knownTotals?.ethereum);
+  const lc = withTotal(lcStats, knownTotals?.lightchain);
   const driftCount = ROWS.filter((r) => eth[r.key] !== lc[r.key]).length;
 
   return (
@@ -109,12 +154,18 @@ export function GovernorDrift() {
         })}
       </div>
 
-      <p className="border-t border-bdr-soft px-4 py-3 text-[11px] leading-relaxed text-content-soft">
-        Governance is live on <span className="text-content-default">Ethereum</span> ({eth.proposals} proposals, {eth.votingPeriod} voting). The
-        LightChain native DAO is deployed but still on its initial {lc.votingPeriod}/{lc.quorum} settings - the
-        migration onto LightChain is in progress, which is why the two governors drift.
-      </p>
+      <DriftFooter eth={eth} lc={lc} />
     </div>
+  );
+}
+
+function DriftFooter({ eth, lc }: { eth: ChainStats; lc: ChainStats }) {
+  return (
+    <p className="border-t border-bdr-soft px-4 py-3 text-[11px] leading-relaxed text-content-soft">
+      Governance is live on <span className="text-content-default">Ethereum</span> ({eth.proposals} proposals, {eth.votingPeriod} voting). The
+      LightChain native DAO is deployed but still on its initial {lc.votingPeriod}/{lc.quorum} settings - the
+      migration onto LightChain is in progress, which is why the two governors drift.
+    </p>
   );
 }
 

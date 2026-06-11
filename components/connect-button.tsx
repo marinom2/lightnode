@@ -8,7 +8,10 @@ import { NETWORKS } from "@/lib/network";
 import { useNetwork } from "@/lib/network-context";
 import { shortAddr } from "@/lib/utils";
 
-const SUPPORTED = new Set<number>([NETWORKS.mainnet.chainId, NETWORKS.testnet.chainId]);
+// Ethereum (1) is registered in lib/wagmi.ts on purpose: the bridge signs its
+// inbound ETH -> LightChain leg there. Treating it as "wrong network" would
+// fight the bridge flow with a destructive switch prompt mid-transfer.
+const SUPPORTED = new Set<number>([NETWORKS.mainnet.chainId, NETWORKS.testnet.chainId, 1]);
 
 /** Deterministic gradient for the wallet avatar, derived from the address. */
 function avatarGradient(addr: string): string {

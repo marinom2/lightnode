@@ -32,8 +32,9 @@ async function safeQuote(
     const wei = await quoteBridgeFee(client, from, to);
     return { ok: true, wei: wei.toString() };
   } catch (e) {
-    const msg = (e as Error).message ?? "unknown";
-    return { ok: false, error: msg.split("\n")[0] };
+    // Log the real error server-side; the raw message can embed the RPC URL.
+    console.error(`bridge-quote ${from} -> ${to}:`, e);
+    return { ok: false, error: "upstream unavailable" };
   }
 }
 
@@ -56,6 +57,7 @@ export async function GET() {
       fetchedAt: Date.now(),
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message?.split("\n")[0] ?? "fetch failed" }, { status: 500 });
+    console.error("bridge-quote:", e);
+    return NextResponse.json({ error: "upstream unavailable" }, { status: 500 });
   }
 }

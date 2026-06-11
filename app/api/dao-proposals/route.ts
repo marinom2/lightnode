@@ -6,7 +6,7 @@
  * real on-chain governance data without connecting a wallet.
  *
  * Strategy: pull `ProposalCreated` events from the Governor via getLogs,
- * then for each id do a multi-read (state, votes, deadline). Page size 5
+ * then for each id do a multi-read (state, votes, deadline). Page size 12
  * by default to keep RPC pressure low.
  */
 import { NextResponse } from "next/server";
@@ -76,8 +76,8 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const chainParam = (url.searchParams.get("chain") ?? "ethereum") as "ethereum" | "lightchain";
     const chain = chainParam === "lightchain" ? "lightchain" : "ethereum";
-    // `limit` paginates the per-call slice. Default 6 keeps initial page
-    // load cheap; max 30 protects free RPCs from getting hammered when a
+    // `limit` paginates the per-call slice. Default 12 keeps initial page
+    // load cheap; max 100 protects free RPCs from getting hammered when a
     // visitor clicks 'See more' a few times.
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "12")));
     // Optional state filter (e.g. ?state=executed). When set we read state for
@@ -163,7 +163,9 @@ export async function GET(req: Request) {
       fetchedAt: Date.now(),
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message?.split("\n")[0] ?? "fetch failed" }, { status: 500 });
+    // Log the real error server-side; raw messages can embed RPC endpoints.
+    console.error("dao-proposals GET:", e);
+    return NextResponse.json({ error: "upstream unavailable" }, { status: 500 });
   }
 }
 
@@ -191,7 +193,7 @@ export async function POST(req: Request) {
         continue;
       }
     }
-    if (!pub) throw new Error("no Ethereum RPC reachable");
+    if (!pub) throw new Error(`no ${chain} RPC reachable`);
     const abi = GOVERNOR_ABI;
     const id = BigInt(body.id);
     const [stateRaw, votes, snapshot, deadline, proposer] = (await Promise.all([
@@ -216,6 +218,8 @@ export async function POST(req: Request) {
       quorumWei: quorumWei.toString(),
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message?.split("\n")[0] ?? "fetch failed" }, { status: 500 });
+    // Log the real error server-side; raw messages can embed RPC endpoints.
+    console.error("dao-proposals POST:", e);
+    return NextResponse.json({ error: "upstream unavailable" }, { status: 500 });
   }
 }

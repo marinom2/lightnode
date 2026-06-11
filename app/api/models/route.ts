@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchModels } from "@/lib/subgraph";
-import type { NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   try {
     const models = await fetchModels(net);
     return NextResponse.json(

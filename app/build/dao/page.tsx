@@ -161,23 +161,35 @@ export default function DaoPanel() {
   const [data, setData] = useState<DaoResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Unfiltered scan totals per chain - GovernorDrift reuses them instead of
+  // rescanning the governors; firstScanDone tells it our scan has settled.
+  const [seenTotals, setSeenTotals] = useState<Partial<Record<DaoChain, number>>>({});
+  const [firstScanDone, setFirstScanDone] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Stale-response guard: a slow fetch for a previous chain/limit/filter must
+  // not overwrite the newer selection (same epochRef pattern as the wallet).
+  const loadEpochRef = useRef(0);
 
   const load = useCallback(async (c: DaoChain, lim: number, sf: string | null) => {
+    const epoch = ++loadEpochRef.current;
+    const live = () => loadEpochRef.current === epoch;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/dao-proposals?chain=${c}&limit=${lim}${sf ? `&state=${sf}` : ""}`);
       const d = (await res.json()) as DaoResponse & { error?: string };
+      if (!live()) return;
       if (!res.ok || d.error) {
         setError(d.error ?? "Could not reach the governor RPC.");
         return;
       }
       setData(d);
+      if (!sf) setSeenTotals((prev) => ({ ...prev, [c]: d.total }));
     } catch {
-      setError("Network error fetching proposals.");
+      if (live()) setError("Network error fetching proposals.");
     } finally {
-      setLoading(false);
+      if (live()) setLoading(false);
+      setFirstScanDone(true);
     }
   }, []);
 
@@ -404,7 +416,7 @@ export default function DaoPanel() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-content-soft">Ethereum vs LightChain</h2>
-        <GovernorDrift />
+        <GovernorDrift knownTotals={seenTotals} ready={firstScanDone} />
       </section>
 
       <section className="space-y-3">

@@ -89,12 +89,16 @@ export default function NetworkPage() {
               <span
                 className={cn("dot", !r ? "dot-idle" : r.status === "active" ? "dot-live" : "dot-down")}
               />
-              <Link
-                href={`/worker/${r?.id ?? ""}`}
-                className="flex-1 font-mono text-content-primary hover:text-primary"
-              >
-                {r ? shortAddr(r.id) : "-"}
-              </Link>
+              {r ? (
+                <Link
+                  href={`/worker/${r.id}`}
+                  className="flex-1 font-mono text-content-primary hover:text-primary"
+                >
+                  {shortAddr(r.id)}
+                </Link>
+              ) : (
+                <span className="flex-1 font-mono text-content-soft">-</span>
+              )}
               <span className="hidden w-28 text-right text-content-soft sm:block">
                 {r ? `${fmt(r.jobs_completed, 0)} jobs` : "-"}
               </span>

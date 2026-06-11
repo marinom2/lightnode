@@ -37,17 +37,17 @@ import { HideOnDesktop } from "@/components/hide-on-desktop";
 import { ShowOnDesktop } from "@/components/show-on-desktop";
 import { DEFAULT_MODEL, HARDWARE } from "@/lib/network";
 
-// What the builder track gives you. Nine high-level capabilities in one package.
+// What the builder track gives you. High-level capabilities in one package.
 const BUILDER_SDKS = [
   { icon: Zap, name: "Encrypted inference", line: "5-line API. Wallet signs, SDK encrypts + streams the answer." },
-  { icon: Search, name: "Web search inference (0.10)", line: "searchEnabled routes to a search-capable worker; result carries cited sources." },
+  { icon: Search, name: "Web search inference", line: "searchEnabled routes to a search-capable worker; result carries cited sources." },
   { icon: Workflow, name: "Multi-turn Conversation", line: "History + system prompt. Reuses one session, one tx per turn." },
-  { icon: Database, name: "Read-only network client", line: "14 methods for workers, jobs, models, stats. No key needed." },
+  { icon: Database, name: "Read-only network client", line: "Read workers, jobs, models, and stats. No key needed." },
   { icon: Coins, name: "Bridge SDK", line: "Move LCAI Ethereum <-> LightChain. Quote, approve, transfer." },
   { icon: ShieldCheck, name: "DAO SDK", line: "Read + vote on both governors (Ethereum + LightChain)." },
   { icon: Gauge, name: "Worker preflight + watch", line: "One real test inference; event stream on state change." },
-  { icon: Layers3, name: "runInferenceBatch (0.6.0)", line: "Parallel inference with capped concurrency. Per-slot errors." },
-  { icon: Bot, name: "Agent class (0.6.0)", line: "ReAct-style tool calling. Works on llama3-8b." },
+  { icon: Layers3, name: "Batch inference", line: "Parallel inference with capped concurrency. Per-slot errors." },
+  { icon: Bot, name: "Agent class", line: "ReAct-style tool calling. Works on llama3-8b." },
 ];
 
 // Worker-track install steps. Same flow as before, slightly reordered.
@@ -114,7 +114,7 @@ export default function Home() {
                 brings the node online. Earn LCAI per inference job.
               </p>
               <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm" variant="gradient">
+                <Button asChild size="sm">
                   <Link href="/onboard">
                     Run a worker <ArrowRight />
                   </Link>
@@ -181,7 +181,7 @@ export default function Home() {
         <div className="mb-8 text-center">
           <Badge tone="brand" className="mb-2">For builders</Badge>
           <h2 className="text-2xl font-semibold tracking-tight text-content-primary">
-            One install, nine SDKs.
+            One install, every SDK.
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-content-soft">
             <code className="rounded bg-surface-base-faint px-1 py-0.5 font-mono text-content-default">npm install lightnode-sdk viem</code>

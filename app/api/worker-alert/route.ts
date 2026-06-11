@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LightNode } from "lightnode-sdk";
-import type { NetworkId } from "@/lib/network";
+import { parseNet } from "@/lib/api-validate";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
  * with a single sed without jq.
  */
 export async function GET(req: NextRequest) {
-  const net = (req.nextUrl.searchParams.get("net") as NetworkId) || "mainnet";
+  const net = parseNet(req.nextUrl.searchParams.get("net"));
+  if (!net) return NextResponse.json({ ok: false, error: "invalid net" }, { status: 400 });
   const address = req.nextUrl.searchParams.get("address") || "";
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return NextResponse.json({ ok: false, error: "invalid address" }, { status: 400 });
@@ -40,6 +41,9 @@ export async function GET(req: NextRequest) {
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } },
     );
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
+    // Keep the real error server-side; RPC/subgraph URLs must not reach the
+    // watchdog's logs or any other client.
+    console.error("worker-alert:", e);
+    return NextResponse.json({ ok: false, error: "upstream unavailable" }, { status: 502 });
   }
 }

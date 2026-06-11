@@ -16,9 +16,9 @@ createAppKit({
   defaultNetwork: networks[0],
   metadata: {
     name: "LightNode",
-    description: "One-flow onboarding for LightChain AI workers.",
+    description: "The open toolkit for LightChain AI: SDK, wallet, worker onboarding, and live dashboards.",
     url: "https://lightnode.app",
-    icons: ["https://lightnode.app/icon.svg"],
+    icons: ["https://lightnode.app/lightnode-mark.png"],
   },
   themeMode: "dark",
   // Coinbase/Base connectors bundle their own IndexedDB telemetry, which throws
