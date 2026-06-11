@@ -3,7 +3,7 @@ import { createMnemonic, isValidMnemonic } from "../../src/keyring/mnemonic";
 import { decodeDangerousCall, type Severity } from "../../src/provider/decode-call";
 import { summarizeTypedData } from "../../src/provider/typed-data";
 import { encodeQR } from "qr";
-import { chainById, CHAIN_LIST, explorerFor } from "../../src/rpc/chains";
+import { chainById, CHAIN_LIST, explorerFor, logoFor } from "../../src/rpc/chains";
 import type { TokenBalance } from "../../src/rpc/tokens";
 import type { ActivityEntry } from "../../src/provider/protocol";
 import { assessRecipient } from "../../src/rpc/risk";
@@ -14,9 +14,9 @@ type Asset = { kind: "native"; symbol: string } | { kind: "token"; symbol: strin
 
 const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "warn", danger: "danger-box" };
 const SUPPORTED_IDS = CHAIN_LIST.map((c) => c.id);
-const NET_COLOR: Record<number, string> = { 9200: "#7064e9", 8200: "#a78bfa", 1: "#627eea", 8453: "#0052ff", 42161: "#28a0f0", 10: "#ff0420", 137: "#8247e5" };
-const netColor = (id: number) => NET_COLOR[id] ?? "#7064e9";
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+// Bundled token marks; unknown tokens fall back to a monogram chip.
+const tokenLogo = (symbol: string): string | null => (symbol.toUpperCase() === "USDC" ? "/tokens/usdc.png" : null);
 const fmtBal = (s: string) => Number(s).toLocaleString(undefined, { maximumFractionDigits: Number(s) >= 1 ? 4 : 6 });
 const isApproveWindow = () => window.location.hash.includes("approve");
 
@@ -61,7 +61,7 @@ export function App() {
 }
 
 function Brand() {
-  return <div className="brand"><span className="dot" /> LightNode Wallet</div>;
+  return <div className="brand"><img className="brand-mark" src="/lightnode.png" alt="" /> LightNode Wallet</div>;
 }
 
 // ---- onboarding ------------------------------------------------------------
@@ -247,6 +247,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
       </div>
 
       <div className="hero">
+        <div className="hero-chain"><img className="net-logo" src={logoFor(chainId)} alt="" /> {chain.name}</div>
         <div><span className="bal">{bal == null ? "…" : fmtBal(bal)}</span><span className="sym">{sym}</span></div>
         {total > 0 && <div className="sub">≈ {fmtUsd(total)} total</div>}
         <button className="copy-chip" onClick={copy}>{copied ? "Copied!" : short(address)} <Ic name="copy" size={13} /></button>
@@ -266,7 +267,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
       {tab === "tokens" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <div className="list-row">
-            <span className="token-ic" style={{ color: netColor(chainId) }}>{sym.slice(0, 2)}</span>
+            <img className="token-logo" src={logoFor(chainId)} alt="" />
             <div className="grow"><b style={{ fontSize: 13 }}>{chain.nativeCurrency.name}</b><div className="faint">{sym}</div></div>
             <div style={{ textAlign: "right" }}>
               <b style={{ fontSize: 13 }}>{bal == null ? "…" : fmtBal(bal)}</b>
@@ -275,7 +276,7 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
           </div>
           {tokens.map((t) => (
             <div className="list-row" key={t.address}>
-              <span className="token-ic">{t.symbol.slice(0, 2)}</span>
+              {tokenLogo(t.symbol) ? <img className="token-logo" src={tokenLogo(t.symbol)!} alt="" /> : <span className="token-ic">{t.symbol.slice(0, 2)}</span>}
               <div className="grow"><b style={{ fontSize: 13 }}>{t.symbol}</b><div className="faint">{short(t.address)}</div></div>
               <div style={{ textAlign: "right" }}>
                 <b style={{ fontSize: 13 }}>{fmtBal(t.balance)}</b>
@@ -482,7 +483,7 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
   return (
     <div className="net">
       <button className="net-btn" onClick={() => setOpen((o) => !o)}>
-        <span className="net-dot" style={{ background: netColor(chainId) }} />
+        <img className="net-logo" src={logoFor(chainId)} alt="" />
         {chainById(chainId).name}
         <Ic name="chevron" size={13} />
       </button>
@@ -492,7 +493,7 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
           <div className="net-menu">
             {CHAIN_LIST.map((c) => (
               <button key={c.id} className={`net-item${c.id === chainId ? " sel" : ""}`} onClick={() => { onSwitch(c.id); setOpen(false); }}>
-                <span className="net-dot" style={{ background: netColor(c.id) }} />
+                <img className="net-logo" src={logoFor(c.id)} alt="" />
                 {c.name}
                 {c.id === chainId && <span className="check"><Ic name="check" size={15} /></span>}
               </button>
