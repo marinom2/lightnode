@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { wallet, type PendingRequest, type WalletState } from "./wallet-api";
 import { decodeDangerousCall } from "../../src/provider/decode-call";
-import { summarizeTypedData, siweOriginMismatch } from "../../src/provider/typed-data";
+import { summarizeTypedData, siweOriginMismatch, siweChainId, decodeSignText } from "../../src/provider/typed-data";
 import { chainById, logoFor } from "../../src/rpc/chains";
 import { SEVERITY_CLASS, SUPPORTED_IDS, avatarGradient, short } from "./shared";
 
@@ -27,7 +27,7 @@ export function ApproveView() {
     // Re-poll: another request may have queued into this window meanwhile.
     const left = await wallet<PendingRequest[]>({ type: "listPending" }).catch(() => []);
     if (left.length === 0) window.close();
-    else setReqs(left);
+    else load(); // state too: a SIWE approval may just have switched the network
   };
   if (!reqs) return <p className="muted">Loading…</p>;
   if (reqs.length === 0) return <p className="muted">No pending requests.</p>;
@@ -50,7 +50,7 @@ export function ApproveView() {
           <span className="ctx-item"><span className="avatar" style={{ width: 14, height: 14, background: avatarGradient(signer) }} /> {signerName}</span>
         </div>
       )}
-      <RequestDetail req={r} />
+      <RequestDetail req={r} activeChainId={state?.chainId} />
       {txParam && <FeeEstimate tx={txParam} />}
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
         <button className={dangerous ? "" : "ghost"} style={{ flex: 1 }} disabled={busy} onClick={() => resolve(r.id, false)}>Reject</button>
@@ -123,7 +123,7 @@ function labelFor(method: string): string {
   return method;
 }
 
-function RequestDetail({ req }: { req: PendingRequest }) {
+function RequestDetail({ req, activeChainId }: { req: PendingRequest; activeChainId?: number }) {
   if (req.method === "eth_sendTransaction") {
     const tx = (req.params?.[0] ?? {}) as { from?: string; to?: string; value?: string; data?: string };
     const decoded = decodeDangerousCall(tx.data as `0x${string}` | undefined);
@@ -171,15 +171,20 @@ function RequestDetail({ req }: { req: PendingRequest }) {
   }
   if (req.method === "personal_sign") {
     const raw = String(req.params?.[0] ?? "");
-    const text = decodeUtf8(raw);
+    const text = decodeSignText(raw);
     if (text == null) return <p className="warn">You are signing unreadable (non-text) data. This can authorize transfers - reject unless you know exactly what it is.</p>;
     const mismatch = siweOriginMismatch(text, req.origin);
+    const siweTarget = siweChainId(text);
+    const switchTo = !mismatch && siweTarget != null && SUPPORTED_IDS.includes(siweTarget) && siweTarget !== activeChainId ? chainById(siweTarget) : null;
     return (
       <>
         {mismatch && (
           <p className="danger-box"><b>Sign-in domain mismatch.</b> The message claims to be from <b>{mismatch.stated}</b> but the request comes from <b>{mismatch.actual}</b>. This is how lookalike sites steal sessions; reject it.</p>
         )}
-        <p className="seed" style={{ fontSize: 12 }}>{text}</p>
+        {switchTo && (
+          <p className="muted" style={{ marginBottom: 6 }}>This sign-in is for <b>{switchTo.name}</b> - approving switches the wallet to that network.</p>
+        )}
+        <p className="seed sign-text">{text}</p>
       </>
     );
   }
@@ -192,16 +197,5 @@ function txValueEth(value?: string): string {
     return `${n.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
   } catch {
     return "unreadable";
-  }
-}
-
-function decodeUtf8(hex: string): string | null {
-  if (!/^0x[0-9a-fA-F]*$/.test(hex)) return hex || null;
-  try {
-    const bytes = new Uint8Array((hex.slice(2).match(/../g) ?? []).map((h) => parseInt(h, 16)));
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return /[\x00-\x08\x0e-\x1f]/.test(text) ? null : text;
-  } catch {
-    return null;
   }
 }

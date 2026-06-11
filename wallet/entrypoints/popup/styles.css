@@ -40,6 +40,9 @@ body {
 
 /* full-tab (expanded) layout */
 body.expanded-body { width: 100%; min-height: 100vh; background: radial-gradient(90% 60% at 50% -5%, #1b1640 0%, var(--bg) 50%); }
+/* approval window: content stays centered even when the OS hands us a big window */
+body.approve-body { width: auto; min-width: 360px; }
+body.approve-body .wrap { max-width: 392px; margin: 0 auto; }
 .wrap.expanded { max-width: 460px; margin: 0 auto; padding: 28px 18px 40px; min-height: 100vh; }
 body.expanded-body .onboard.welcome, body.expanded-body .onboard.ready { min-height: 80vh; justify-content: center; }
 /* In the full-tab view a bottom sheet must not stretch across the monitor:
@@ -158,6 +161,8 @@ button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--bran
 button.danger { background: none; border: 1px solid var(--bad); color: var(--bad); }
 .addr { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
 .seed { font-family: ui-monospace, monospace; background: var(--bg-2); border: 1px solid var(--bdr-solid); border-radius: 12px; padding: 13px; word-spacing: 4px; line-height: 1.9; }
+/* Signed-message body: keep the dapp's line breaks, wrap long nonces instead of overflowing. */
+.sign-text { font-size: 12px; word-spacing: normal; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .err { color: var(--bad); font-size: 12px; }
 .ok { color: var(--ok); font-size: 12px; }
 .pill { font-size: 11px; padding: 2px 9px; border-radius: 999px; background: rgba(112,100,233,.15); color: var(--brand); font-weight: 600; }

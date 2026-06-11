@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decodeTypedPermit, summarizeTypedData, siweOriginMismatch } from "./typed-data";
+import { decodeTypedPermit, summarizeTypedData, siweOriginMismatch, siweChainId, decodeSignText } from "./typed-data";
 
 const SPENDER = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
 const TOKEN = "0x9cA8530CA349c966Fe9ef903Df17a75B8A778927";
@@ -72,5 +72,37 @@ describe("siweOriginMismatch", () => {
     const msg = "app.uniswap.org wants you to sign in with your Ethereum account:\n0xabc";
     expect(siweOriginMismatch(msg, "https://app.uniswap.org")).toBeNull();
     expect(siweOriginMismatch("hello world", "https://x.com")).toBeNull();
+  });
+});
+
+describe("siweChainId", () => {
+  const siwe = (chainLine: string) =>
+    `chat.lightchain.ai wants you to sign in with your Ethereum account:\n0x73C0B2238...\n\nSign in with Lightchain AI to LCAI Chat\n\nURI: https://chat.lightchain.ai\nVersion: 1\n${chainLine}\nNonce: bff2e044aef53847\nIssued At: 2026-06-11T19:39:32.484Z`;
+
+  it("reads the declared chain from a SIWE message", () => {
+    expect(siweChainId(siwe("Chain ID: 9200"))).toBe(9200);
+    expect(siweChainId(siwe("Chain ID: 1"))).toBe(1);
+  });
+  it("returns null without a parseable chain line", () => {
+    expect(siweChainId(siwe("Chain ID: soon"))).toBeNull();
+    expect(siweChainId(siwe("Chain ID: 9200 extra"))).toBeNull();
+  });
+  it("never reads a chain out of non-SIWE text", () => {
+    expect(siweChainId("hello\nChain ID: 9200")).toBeNull();
+  });
+});
+
+describe("decodeSignText", () => {
+  it("decodes hex payloads to readable text", () => {
+    const hex = `0x${Buffer.from("sign me in", "utf8").toString("hex")}`;
+    expect(decodeSignText(hex)).toBe("sign me in");
+  });
+  it("passes plain-text payloads through and rejects empties", () => {
+    expect(decodeSignText("already text")).toBe("already text");
+    expect(decodeSignText("")).toBeNull();
+  });
+  it("returns null for non-UTF8 or control-character bytes", () => {
+    expect(decodeSignText("0xff00fe")).toBeNull();
+    expect(decodeSignText("0x680168")).toBeNull();
   });
 });
