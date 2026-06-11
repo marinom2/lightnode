@@ -1,11 +1,19 @@
 # Releasing
 
-This repo ships two independently-versioned artifacts:
+This repo ships three independently-versioned artifacts:
 
-- **`lightnode-sdk`** (npm) - the published SDK + CLI. Currently `0.18.x`.
-- **The desktop worker app** (Tauri installers on a GitHub Release). Currently `0.1.x`.
+- **`lightnode-sdk`** (npm) - the SDK + CLI. `0.19.0` in the repo; the npm
+  `latest` may lag until the next publish (the npm badge in the root README
+  shows what is live).
+- **The desktop worker app** (Tauri installers on a GitHub Release, `v*` tags).
+  Currently `0.1.x`.
+- **The LightNode Wallet extension** (`wallet/`, prebuilt zip on a GitHub
+  Release, `wallet-v*` tags).
 
-Their versions are unrelated; release them separately.
+Their versions are unrelated; release them separately. The site's
+`/api/download` resolves each product against its own tag family (desktop `v*`,
+wallet `wallet-v*`), so one product's release never hijacks another's download
+button.
 
 ## Releasing the SDK (npm)
 
@@ -24,20 +32,22 @@ Publishing is automated by **`.github/workflows/publish-sdk.yml`**: pushing a
 # 2. Add a changelog entry (app/build/reference/page.tsx CHANGELOG) + the
 #    sdk/README.md notes for the new version. Merge to main.
 # 3. Tag main at the new version and push - CI does the rest:
-git tag sdk-v0.18.1 && git push origin sdk-v0.18.1
+git tag sdk-v0.19.1 && git push origin sdk-v0.19.1
 ```
 
-The workflow refuses to publish if the tag (`sdk-v0.18.1`) does not match the
-package version (`0.18.1`), so a forgotten bump fails loudly instead of shipping
-the wrong version. A **prerelease** version (e.g. `0.18.2-beta.0`) is published to
+The workflow refuses to publish if the tag (`sdk-v0.19.1`) does not match the
+package version (`0.19.1`), so a forgotten bump fails loudly instead of shipping
+the wrong version. A **prerelease** version (e.g. `0.19.1-beta.0`) is published to
 the `beta` dist-tag automatically, so a plain `npm install lightnode-sdk` (which
-resolves `latest`) is unaffected. `create-lightnode-app` pins `^0.18.0`, so a new
+resolves `latest`) is unaffected. `create-lightnode-app` pins `^0.19.0`, so a new
 minor reaches freshly-scaffolded projects automatically; bump that pin
 (`create-lightnode-app/src/templates.ts`) on a new MAJOR.
 
 **One-time setup:** add an automation npm token as the `NPM_TOKEN` repo secret
-(Settings -> Secrets and variables -> Actions). **Manual fallback** (if CI is
-unavailable): verify locally, then `cd sdk && npm publish` after a
+(Settings -> Secrets and variables -> Actions). Until that secret exists and a
+tag is pushed, nothing publishes and the npm `latest` stays at the last
+published version. **Manual fallback** (if CI is unavailable): verify locally,
+then `cd sdk && npm publish` after a
 `npx tsc --noEmit && npx vitest run && (cd sdk && npm run build)`.
 
 ## Releasing the desktop app
@@ -59,6 +69,26 @@ enter a tag). The job builds all three OSes and publishes the release with:
 
 Without signing secrets the installers still work; users just see a one-time OS
 warning (macOS: right-click -> Open; Windows: SmartScreen -> More info -> Run).
+
+## Releasing the wallet extension
+
+Two workflows fire on a `wallet-v*` tag (the wallet is self-contained - its own
+dependencies, no SDK build step):
+
+- **`.github/workflows/wallet-release.yml`** builds + zips the extension and
+  attaches `lightnode-wallet-chrome.zip` to a GitHub Release. The site's
+  download button (`/api/download?product=wallet`, linked from
+  `lightnode.app/wallet`) always serves the newest `wallet-v*` release.
+- **`.github/workflows/wallet-publish.yml`** uploads + publishes the same build
+  to the Chrome Web Store. It needs four repo secrets (see `wallet/PUBLISH.md`);
+  until they are set, the job skips gracefully and the zip release still ships.
+
+### Cut a wallet release
+```bash
+# bump wallet/package.json "version", then:
+git tag wallet-v0.1.1
+git push origin wallet-v0.1.1
+```
 
 ## Enable code-signing + notarization (no more warnings)
 Add these repository secrets (Settings -> Secrets and variables -> Actions), then

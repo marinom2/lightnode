@@ -1,21 +1,26 @@
 <div align="center">
 
-<img src="public/lightnode-mark.png" alt="LightNode" width="88" />
+<img src="public/og.png" alt="LightNode - the open toolkit for LightChain AI" width="720" />
 
 # LightNode
 
-**Build with, and run for, LightChain AI.**
+**The open toolkit for LightChain AI.**
 
-A community-built developer and operator suite for the LightChain AI network. It
-has a published SDK for encrypted inference, scaffolders that drop the SDK into
-any project with one command, a live in-browser playground, and a desktop app
-for running a worker. One project, two tracks.
+Encrypted on-chain inference from five lines of TypeScript. A self-custodial
+wallet with an AI chat built in. A desktop app that turns your machine into a
+paid worker in one flow. Live dashboards over the whole network. One repo,
+independent and community-built.
 
 [![CI](https://github.com/marinom2/lightnode/actions/workflows/ci.yml/badge.svg)](https://github.com/marinom2/lightnode/actions/workflows/ci.yml)
 [![lightnode-sdk on npm](https://img.shields.io/npm/v/lightnode-sdk?color=7064e9&label=lightnode-sdk)](https://www.npmjs.com/package/lightnode-sdk)
 [![create-lightnode-app on npm](https://img.shields.io/npm/v/create-lightnode-app?color=7064e9&label=create-lightnode-app)](https://www.npmjs.com/package/create-lightnode-app)
 [![License: MIT](https://img.shields.io/badge/license-MIT-7064e9.svg)](LICENSE)
 [![LightChain AI](https://img.shields.io/badge/LightChain%20AI-ecosystem%20tool-dd00ac.svg)](https://lightchain.ai)
+
+[**Try the playground**](https://lightnode.app/playground) ·
+[**Get the wallet**](https://lightnode.app/wallet) ·
+[**Run a worker**](https://lightnode.app/onboard) ·
+[**Docs**](https://lightnode.app/build)
 
 </div>
 
@@ -30,8 +35,8 @@ you're already comfortable with a terminal and TypeScript.
 
 ## What you can do with this
 
-Two completely separate use cases live in this repo. Pick the one that matches
-what you actually want.
+Three products live in this repo. Pick the one that matches what you actually
+want.
 
 1. **You are a developer.** You want to add AI to your own app, paying per call,
    on a decentralized network instead of a single hosted vendor. Install
@@ -39,43 +44,61 @@ what you actually want.
    prompts on the LightChain AI network. The network is decentralized, so it is
    not one company running it. Your wallet pays for each call directly on chain.
 
-2. **You have a decent computer.** You want to make a bit of LCAI by serving
+2. **You hold LCAI.** You want one self-custodial home for it: send, receive,
+   swap, bridge, talk to an on-chain AI, watch your worker, and vote in the DAO,
+   without your keys ever leaving your device. Install the **LightNode Wallet**
+   browser extension.
+
+3. **You have a decent computer.** You want to make a bit of LCAI by serving
    prompts to other people's apps. Install the LightNode desktop app, click
    through the install wizard, and your machine becomes a worker on the network.
    The app handles the keys, the staking, the Docker container, and watches the
    worker so it stays online.
 
-The two halves share one codebase and one community, but most people only need
-one of them.
+The three share one codebase and one community, but most people only need one
+of them.
 
 ## Recently shipped
 
-- `lightnode-sdk@0.18.x`. **Consistency pass.** `LightNode`'s `timeoutMs` deadline
+SDK versions below are the repo's changelog; the npm badge above always shows
+what is currently published (the registry can lag the repo until the next tag
+is pushed).
+
+- SDK `0.19.x`. **Conversation got cheap, and viem clients just work.** -
+  `Conversation` / `chat()` now keeps ONE on-chain session open across turns
+  (first send pays createSession, every follow-up is a single submitJob;
+  expired sessions reopen transparently and the turn retries). New
+  `connectWithKey` exposes the SIWE + clients setup half of
+  `runInferenceWithKey` for custom flows. The `Minimal*` client interfaces are
+  method-typed, so real viem `PublicClient`/`WalletClient` instances pass into
+  `Bridge`, `DAO`, and `WorkerOperator` without casts, and
+  `WorkerOperator.register()` completes the registration lifecycle.
+- SDK `0.18.x`. **Consistency pass.** `LightNode`'s `timeoutMs` deadline
   now also applies to the viem-backed reads (`getJobOnchain`,
   `getWorkerLiveness`, `getWorkerActions`), so the whole call honors one timeout;
   plus CLI output-field and help/docs alignment.
-- `lightnode-sdk@0.17.x`. **A code-first worker-operator console.** `npx lightnode
+- SDK `0.17.x`. **A code-first worker-operator console.** `npx lightnode
   add worker-operator` scaffolds a runnable `worker-ops.ts` over the
   `WorkerOperator` surface (`status` / `settle` / `clearstuck` / `withdraw` /
   `deregister` / `profitability`) - no Docker, no worker image. `status` prints
   JSON (a prioritized to-do list + an `outOfGas` flag) for cron.
-- `lightnode-sdk@0.16.x`. **Mid-stream cancellation + auth resilience.** An
+- SDK `0.16.x`. **Mid-stream cancellation + auth resilience.** An
   `AbortSignal` is honored at every await of an inference (relay-token poll,
   WebSocket connect, the wait for `JobCompleted`), surfaced as
   `InferenceAbortedError` (detect with `isAbortError`); and a function-type
   `bearer` on `GatewayClient` is re-minted with `{ forceRefresh: true }` on a
   `401`, so a revoked/expired token self-heals.
-- `lightnode-sdk@0.15.x`. **Read tuning + a unified batch-op shape.** `new
+- SDK `0.15.x`. **Read tuning + a unified batch-op shape.** `new
   LightNode("mainnet", { timeoutMs })` bounds every subgraph + on-chain read
   (`DEFAULT_SUBGRAPH_TIMEOUT_MS` / `DEFAULT_ONCHAIN_TIMEOUT_MS` exported), and
   `WorkerOperator.clearStuck` / `releaseAll` now return one shape,
   `BatchJobOpResult { done, skipped }`, where each skip carries a reason.
-- `lightnode-sdk@0.14.x`. **Gateway reliability + a read cache.** `GatewayClient`
+- SDK `0.14.x`. **Gateway reliability + a read cache.** `GatewayClient`
   auto-retries `429` (any method) and `5xx` (GETs only) with `Retry-After`-aware
   backoff and classifies errors (`isRateLimited` / `isAuthError` /
   `isServerError` + `retryAfterMs`); `new LightNode("mainnet", { cacheTtlMs })`
   TTL-memoizes the network-wide reads (with `clearCache()`).
-- `lightnode-sdk@0.10.x`. **Web search inference and a streaming UX pass.** Set
+- SDK `0.10.x`. **Web search inference and a streaming UX pass.** Set
   `searchEnabled: true` on `runInference` / `runInferenceWithKey` /
   `Conversation` to route a prompt to a search-capable worker; the decrypted
   result carries `sources` (a typed `WebSearchSource[]` of citations). An
@@ -83,12 +106,12 @@ one of them.
   "Uploading prompt to chain...", "Thinking..."), and **session reuse** opens a
   session once and runs many turns on it, skipping `createSession` on follow-ups
   so multi-turn chat costs one transaction per turn instead of two.
-- `lightnode-sdk@0.8.x`. **One-command `*-web3` scaffolders.** `npx lightnode add
+- SDK `0.8.x`. **One-command `*-web3` scaffolders.** `npx lightnode add
   chat-web3` (and `inference-web3` / `judge-web3`) now go end to end in an empty
   folder: scaffold a themed Next.js app, write the page with a wired Connect
   button, bundle the wagmi config + providers, wrap the layout, and `npm install`
   the deps. Run inside an existing Next.js app and they add only what is missing.
-- `lightnode-sdk@0.7.x`. The **worker-operator** surface: run a worker's full
+- SDK `0.7.x`. The **worker-operator** surface: run a worker's full
   on-chain lifecycle from code, the part that previously needed the worker
   Docker image or reverse-engineering unverified contracts. `WorkerOperator`
   covers register, stake (`topUpStake` / `withdrawStake` / `reinstate`), settle
@@ -99,14 +122,14 @@ one of them.
   reverts. New CLI: `lightnode worker status | can-deregister | settle |
   clearstuck | withdraw | deregister`, all gas-correct so a worker can exit and
   recover its stake with no toolkit clone, no Docker, and no running container.
-- `lightnode-sdk@0.6.x`. Higher-level abstractions on top of the encrypted
+- SDK `0.6.x`. Higher-level abstractions on top of the encrypted
   inference layer: **`runInferenceBatch`** (parallel inference with capped
   concurrency, stable result order, per-slot errors), the **`Agent`** class
   (ReAct-style tool calling with `<tool>` / `<answer>` markers, works on
   llama3-8b without native function calling), and **`AbortSignal`** support
   across `runInference` + `runInferenceWithKey` so a UI can cancel pending
   awaits. CLI gains `lightnode batch <prompts.json>` and `lightnode agent <task>`.
-- `lightnode-sdk@0.5.x`. Six SDK modules in one ecosystem release: **Bridge
+- SDK `0.5.x`. Six SDK modules in one ecosystem release: **Bridge
   SDK** (Hyperlane Warp Route, LCAI between Ethereum and LightChain),
   **DAO SDK** (LCAIGovernor on Ethereum + LightChainGovernor with NativeVotes
   precompile on chain 9200), **OnchainModelRegistry reader**, **multi-turn
@@ -132,9 +155,9 @@ one of them.
 
 <table>
 <tr>
-<td width="50%" valign="top">
+<td width="34%" valign="top">
 
-### Build with LightChain AI
+### Build
 
 You want **encrypted inference in your dApp**.
 
@@ -149,8 +172,8 @@ You want **encrypted inference in your dApp**.
 # Brand-new project:
 npm create lightnode-app my-app
 
-# Existing project (auto-detects Next.js, Hono, or Node):
-npx lightnode add inference
+# Existing project:
+npx lightnode-sdk add inference
 ```
 
 Try it first: <https://lightnode.app/playground>
@@ -158,9 +181,32 @@ Try it first: <https://lightnode.app/playground>
 Builder hub: <https://lightnode.app/build>
 
 </td>
-<td width="50%" valign="top">
+<td width="33%" valign="top">
 
-### Run a LightChain AI worker
+### Hold
+
+You want **one wallet for the whole ecosystem**.
+
+- Self-custodial browser extension: keys are generated and encrypted on
+  your device, never transmitted.
+- Send, receive, swap on Ethereum, bridge LCAI both ways.
+- Encrypted AI chat, your worker's stats + withdraw, and DAO proposals
+  with in-wallet voting.
+- Flags scam tokens and NFTs before they reach your main list.
+
+```bash
+# Prebuilt zip + 1-minute install:
+# https://lightnode.app/wallet
+```
+
+Wallet page: <https://lightnode.app/wallet>
+
+Source + threat model: [wallet/README.md](wallet/README.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Run
 
 You want to **earn LCAI** by serving inference jobs.
 
@@ -171,10 +217,10 @@ You want to **earn LCAI** by serving inference jobs.
 
 ```bash
 # Download the desktop app:
-# https://github.com/marinom2/lightnode/releases
-
-# Or use the web version (copy/paste commands):
 # https://lightnode.app/onboard
+
+# (Releases page: pick the latest
+#  "LightNode vX.Y.Z" release.)
 ```
 
 Web app: <https://lightnode.app>
@@ -193,8 +239,8 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 
 | Package | Version | What it does |
 | --- | --- | --- |
-| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | `0.18.x` | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation`, `runInferenceBatch`, `Agent`, optional web search via `searchEnabled` + `sources`, `onStage` progress + session reuse, `AbortSignal` mid-stream cancellation with `InferenceAbortedError` / `isAbortError`, lower-level `prepareSession` + `submitPrompt` + `decryptResponse`), read-only chain client (`LightNode` methods + CSV exporters, with `{ cacheTtlMs }` TTL caching + `{ timeoutMs }` read deadlines), a `GatewayClient` with auto-retry + error classification + 401 token auto-refresh, Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister, returning `BatchJobOpResult`), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + eleven `add` scaffolders (incl. the worker-operator console). |
-| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | `0.2.x` | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins `lightnode-sdk ^0.18.0` so new projects get the full ecosystem out of the box. |
+| [`lightnode-sdk`](https://www.npmjs.com/package/lightnode-sdk) | see the npm badge | Full ecosystem: encrypted inference (`runInferenceWithKey`, `runInference`, `runInferenceStream`, `Conversation` with cross-turn session reuse, `runInferenceBatch`, `Agent`, optional web search via `searchEnabled` + `sources`, `onStage` progress, `AbortSignal` mid-stream cancellation with `InferenceAbortedError` / `isAbortError`, lower-level `openSession` + `runJobOnSession` + `connectWithKey`), read-only chain client (`LightNode` methods + CSV exporters, with `{ cacheTtlMs }` TTL caching + `{ timeoutMs }` read deadlines), a `GatewayClient` with auto-retry + error classification + 401 token auto-refresh, Bridge SDK, DAO SDK (both governors), OnchainModelRegistry reader, worker preflight + watch, the `WorkerOperator` write surface (register / stake / settle / stuck-job recovery / deregister, returning `BatchJobOpResult`), job-status / refund query. Plus the `lightnode` CLI with read-only + worker-operator subcommands + thirteen `add` scaffolders (incl. the worker-operator console). |
+| [`create-lightnode-app`](https://www.npmjs.com/package/create-lightnode-app) | see the npm badge | One-command scaffolder for a brand-new LightChain dApp. Three templates: Node CLI, Next.js, Hono. Pins the matching `lightnode-sdk` so new projects get the full ecosystem out of the box. |
 | `lightnode add` (inside `lightnode-sdk`) | n/a | Patch an existing project. Auto-detects the framework, writes the right files. Safe to re-run. |
 
 ### The `add` catalog
@@ -202,27 +248,29 @@ Operator manual: [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md)
 Server-paid (you host a backend; your funded wallet pays per call):
 
 ```bash
-npx lightnode add inference                    # encrypted inference route or script
-npx lightnode add chat                         # chat UI with conversation history
-npx lightnode add judge                        # pass/fail evaluator route (criteria + evidence)
-npx lightnode add agent                        # scheduled inference (Vercel Cron or setInterval)
-npx lightnode add analytics-dashboard          # read-only network + worker analytics page
-npx lightnode add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
+npx lightnode-sdk add inference                    # encrypted inference route or script
+npx lightnode-sdk add chat                         # chat UI with conversation history
+npx lightnode-sdk add judge                        # pass/fail evaluator route (criteria + evidence)
+npx lightnode-sdk add agent                        # scheduled inference (Vercel Cron or setInterval)
+npx lightnode-sdk add analytics-dashboard          # read-only network + worker analytics page
+npx lightnode-sdk add nft-mint-with-inference      # AI-generated NFT metadata with on-chain provenance
+npx lightnode-sdk add batch                        # parallel multi-prompt runner (capped concurrency)
+npx lightnode-sdk add bridge                       # LCAI bridge script (Ethereum <-> LightChain)
 ```
 
 For worker operators (a runnable, Docker-free ops console):
 
 ```bash
-npx lightnode add worker-operator              # worker-ops.ts: status/settle/clearstuck/withdraw/deregister/profitability
+npx lightnode-sdk add worker-operator              # worker-ops.ts: status/settle/clearstuck/withdraw/deregister/profitability
 ```
 
 User-paid (no backend; each visitor signs + pays from their own wallet):
 
 ```bash
-npx lightnode add inference-web3               # one-shot inference UI, wallet-signed
-npx lightnode add chat-web3                     # chat UI, wallet-signed (mainnet + testnet aware)
-npx lightnode add judge-web3                    # evaluator UI, wallet-signed
-npx lightnode add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
+npx lightnode-sdk add inference-web3               # one-shot inference UI, wallet-signed
+npx lightnode-sdk add chat-web3                     # chat UI, wallet-signed (mainnet + testnet aware)
+npx lightnode-sdk add judge-web3                    # evaluator UI, wallet-signed
+npx lightnode-sdk add wagmi-setup                   # wallet wiring: lib/wagmi + providers + connect button
 ```
 
 The `*-web3` scaffolders are one command end to end: run in an empty folder and
@@ -231,6 +279,10 @@ the wagmi config + providers + connect button, wrap your layout with
 `<Providers>`, and `npm install` the deps. Run inside an existing Next.js app
 and they skip the scaffold and just add what's missing. Opt out with
 `--no-scaffold` and `--no-install`.
+
+Once `lightnode-sdk` is installed in your project, the bare `npx lightnode
+add <name>` alias works too (the local bin wins). Standalone, always use
+`npx lightnode-sdk ...` - npm's `lightnode` name belongs to an unrelated package.
 
 All `add` commands accept `--template auto|nextjs-api|hono|node`,
 `--net testnet|mainnet`, `--force`, `--no-install`, and `--no-scaffold`.
@@ -292,13 +344,13 @@ and what file ends up where.
 | --- | --- | --- |
 | Nothing yet, just want to try | `npm create lightnode-app my-app` | A new project with Node, Next.js, or Hono. Pick one, fill in `.env`, `npm start`. |
 | Empty terminal, one prompt | `git clone marinom2/lightnode-examples && cd quickstart-inference && npm start` | A 30-line script. First run prints address + faucet; second run fires the prompt. |
-| An existing Next.js app | `cd your-app && npx lightnode add inference` | A new `app/api/inference/route.ts`. POST a JSON body, get the answer back. Wallet stays server-side. |
-| An existing Next.js app + a chatbot UI | `cd your-app && npx lightnode add chat` | A streaming chat page with conversation history. Same protocol, plus session reuse. |
-| A scheduled task (daily summary, monitoring agent) | `cd your-app && npx lightnode add agent` | A Vercel Cron route in Next.js, or a `setInterval` script in plain Node. Includes `CRON_SECRET` Bearer-auth in the Next.js variant. |
+| An existing Next.js app | `cd your-app && npx lightnode-sdk add inference` | A new `app/api/inference/route.ts`. POST a JSON body, get the answer back. Wallet stays server-side. |
+| An existing Next.js app + a chatbot UI | `cd your-app && npx lightnode-sdk add chat` | A streaming chat page with conversation history. Same protocol, plus session reuse. |
+| A scheduled task (daily summary, monitoring agent) | `cd your-app && npx lightnode-sdk add agent` | A Vercel Cron route in Next.js, or a `setInterval` script in plain Node. Includes `CRON_SECRET` Bearer-auth in the Next.js variant. |
 | A Discord bot, Cloudflare Worker, or CLI tool | `npm install lightnode-sdk viem ws` plus the `hono-server` snippet | A Hono `/inference` endpoint you can host anywhere with Node. |
-| A user-facing leaderboard or worker dashboard | `cd your-app && npx lightnode add analytics-dashboard` | A read-only page that pulls live network + worker stats and renders them. No keys, no wallet. |
-| An NFT mint where each mint generates unique metadata with AI | `cd your-app && npx lightnode add nft-mint-with-inference` | A mint flow that runs an inference, anchors the answer to a content hash, and returns metadata. |
-| You want users to pay per call from their own wallet (no server custody) | `npx lightnode add chat-web3` (or `inference-web3` / `judge-web3`) | One command, even in an empty folder: scaffolds Next.js, writes the page with a wired Connect button, bundles wagmi + providers, wraps the layout, and installs deps. Each visitor signs `createSession` + `submitJob` in their browser and pays the LCAI directly - no backend, no `.env`. |
+| A user-facing leaderboard or worker dashboard | `cd your-app && npx lightnode-sdk add analytics-dashboard` | A read-only page that pulls live network + worker stats and renders them. No keys, no wallet. |
+| An NFT mint where each mint generates unique metadata with AI | `cd your-app && npx lightnode-sdk add nft-mint-with-inference` | A mint flow that runs an inference, anchors the answer to a content hash, and returns metadata. |
+| You want users to pay per call from their own wallet (no server custody) | `npx lightnode-sdk add chat-web3` (or `inference-web3` / `judge-web3`) | One command, even in an empty folder: scaffolds Next.js, writes the page with a wired Connect button, bundles wagmi + providers, wraps the layout, and installs deps. Each visitor signs `createSession` + `submitJob` in their browser and pays the LCAI directly - no backend, no `.env`. |
 
 ### Two patterns: server-pays vs user-pays
 
@@ -341,8 +393,10 @@ Decrypted output, full receipts, and the source that ran them all live on
 
 Runnable examples live in their own small repo so cloud IDEs clone them in
 seconds: [`marinom2/lightnode-examples`](https://github.com/marinom2/lightnode-examples).
-The repo has quickstart-inference (about 30 lines, auto-bootstraps a testnet
-key on first run), nextjs-api-route, and hono-server.
+Eight runnable examples, one per SDK surface: quickstart-inference (about 30
+lines, auto-bootstraps a testnet key on first run), multi-turn-chat,
+nextjs-api-route, hono-server, bridge-transfer, dao-vote, model-registry-read,
+and worker-preflight.
 
 What is in this repo:
 
@@ -385,7 +439,7 @@ project as the build track, completely separate user flow.
 
 | Step | Where |
 | --- | --- |
-| 1. Download the desktop app | [Releases](https://github.com/marinom2/lightnode/releases/latest) |
+| 1. Download the desktop app | <https://lightnode.app/onboard> (picks the right installer), or the [Releases page](https://github.com/marinom2/lightnode/releases) - choose the latest "LightNode vX.Y.Z" release (wallet releases are tagged `wallet-v*`) |
 | 2. Or use the web app and copy/run commands | <https://lightnode.app/onboard> |
 | 3. Full operator manual | [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md) |
 
@@ -396,6 +450,39 @@ project as the build track, completely separate user flow.
 | macOS (Apple Silicon) | Tested end-to-end on testnet and mainnet. |
 | Linux | Installers build in CI and commands are syntax-checked. Full flow not yet hardware-verified. Community testing welcome. |
 | Windows | Installers build in CI and PowerShell is parse-checked. Full flow not yet hardware-verified. Community testing welcome. |
+
+---
+
+## LightNode Wallet
+
+A self-custodial browser extension for the LightChain ecosystem, built in this
+repo at [`wallet/`](wallet). Not a fork of anything: a from-scratch MV3
+extension with its own keyring, glass UI, and protocol integrations.
+
+<p align="center">
+  <img src="wallet/store-assets/01-home.png" alt="Wallet home" width="30%" />
+  <img src="wallet/store-assets/05-ecosystem.png" alt="Ecosystem tools" width="30%" />
+  <img src="wallet/store-assets/04-approve.png" alt="Transaction approval" width="30%" />
+</p>
+
+- **Self-custodial.** BIP-39/44 keyring generated on-device, sealed with
+  AES-256-GCM under a scrypt-derived key. Keys never leave your machine.
+- **Multi-chain.** LightChain mainnet/testnet, Ethereum, Base, Arbitrum,
+  Optimism, Polygon. Token discovery with scam-token quarantine, NFTs with
+  phishing flags, ENS sends, gas tiers, speed-up/cancel.
+- **Encrypted AI chat.** Pay-per-message inference on LightChain, end-to-end
+  encrypted, one consent per session - plus a wallet assistant grounded in
+  live network facts.
+- **Ecosystem tools.** Worker hub (status, lifetime earnings, withdraw), DAO
+  reader with in-wallet voting on both governors, Uniswap swaps on Ethereum,
+  and the LCAI bridge.
+- **Dapp-native.** EIP-6963 provider with calldata decoding, permit/Seaport
+  warnings, SIWE domain checks, and per-origin permissions.
+
+Install: grab the prebuilt zip at <https://lightnode.app/wallet> (Chrome Web
+Store listing in preparation). Privacy policy:
+<https://lightnode.app/wallet/privacy>. Honest gate: an external security
+audit is still pending - treat it as a testnet-grade preview until then.
 
 ---
 
@@ -423,7 +510,7 @@ addresses.
 - **Desktop.** Tauri v2 shell that loads the hosted web UI and exposes a few
   native commands over IPC. A `vercel --prod` deploy reaches the desktop app on
   its next page load. No new installer needed for most changes.
-- **SDK.** Pure TypeScript, ESM, ships to npm. Single peer dep: `viem`. Works in
+- **SDK.** Pure TypeScript, ESM, ships to npm. Built on `viem`. Works in
   both browser and Node (Web Crypto via `globalThis`). Source of truth for the
   SDK ABI, the gateway client, the relay frame format, and the analytics
   aggregators.
@@ -470,7 +557,10 @@ Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 ├── lib/                 # scriptgen, install-progress diagnoser, subgraph client, hardware scoring, ...
 ├── sdk/                 # lightnode-sdk source (published to npm)
 ├── create-lightnode-app/# create-lightnode-app source (published to npm)
+├── wallet/              # LightNode Wallet browser extension (WXT, MV3, own test suite)
 ├── desktop/             # Tauri v2 shell (src-tauri)
+├── examples/            # In-repo example projects (more in marinom2/lightnode-examples)
+├── scripts/             # Repo maintenance scripts
 ├── tests/unit + tests/e2e/  # Vitest + Playwright
 └── docs/                # Worker lifecycle, architecture, UI/design, releasing
 ```
@@ -485,9 +575,10 @@ npm run test:e2e
 cd sdk && npm run typecheck && npm run build
 ```
 
-State on `main`: lint clean, typecheck clean, 229 unit tests across 16 test
-files, 13 Playwright end-to-end smoke tests, production build clean, SDK build
-clean, both CLIs smoke-tested live against real testnet and mainnet inferences.
+State on `main`: lint clean, typecheck clean, 500+ unit tests across 40+ test
+files (plus 125 wallet tests in `wallet/`), 13 Playwright end-to-end smoke
+tests, production build clean, SDK build clean, both CLIs smoke-tested live
+against real testnet and mainnet inferences.
 
 ---
 
@@ -507,6 +598,12 @@ Every guide in one place. Start with the one that matches what you are doing.
   scaffolder and its three templates.
 - [lightnode.app/build](https://lightnode.app/build) - the live builder hub:
   runnable snippets, real network data, and the in-browser playground.
+
+**Holding LCAI**
+- [wallet/README.md](wallet/README.md) - the LightNode Wallet: features, build
+  instructions, and the threat model.
+- [lightnode.app/wallet](https://lightnode.app/wallet) - download and install
+  in under a minute; [privacy policy](https://lightnode.app/wallet/privacy).
 
 **Running a worker**
 - [docs/WORKER_LIFECYCLE.md](docs/WORKER_LIFECYCLE.md) - the operator's manual:

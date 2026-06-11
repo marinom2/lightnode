@@ -1,0 +1,45 @@
+name: Bug report
+description: Something broken in the website, SDK, wallet, or desktop app
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part?
+      options:
+        - lightnode-sdk (npm package / CLI)
+        - LightNode Wallet (browser extension)
+        - Website (lightnode.app)
+        - Desktop app (worker onboarding)
+        - create-lightnode-app (scaffolder)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you got. Paste exact error text where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: SDK version, wallet version, or app/site (find SDK via `npx lightnode-sdk --version`)
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: macOS 15 / Chrome 126 / Node 22 / mainnet
+  - type: markdown
+    attributes:
+      value: |
+        **Security issues:** do NOT file them here. Use [private vulnerability reporting](https://github.com/marinom2/lightnode/security/advisories/new) instead.

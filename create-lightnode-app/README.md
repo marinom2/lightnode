@@ -18,7 +18,7 @@ running `npm install` or `npm run dev`. Running them in the parent folder fails
 with `npm error Missing script: "dev"`.
 
 Want to add inference to a folder you already have instead of making a new
-project? Use `npx lightnode add inference` (see
+project? Use `npx lightnode-sdk add inference` (see
 [the SDK](https://www.npmjs.com/package/lightnode-sdk)). That writes files into
 your current folder and does not create a subfolder.
 
@@ -56,7 +56,8 @@ Plus framework deps for `nextjs-api` (`next`, `react`, `react-dom`) or `hono`
 (`hono`, `@hono/node-server`).
 
 The project is **SDK-ready the moment it scaffolds**: `lightnode-sdk` (pinned to
-the current `0.18.x` line), `viem`, and `ws` are already in `package.json`, so
+the current `^0.19.0` line; npm may lag the repo until the next publish), `viem`,
+and `ws` are already in `package.json`, so
 you just `import { ... } from "lightnode-sdk"` and start building. See the
 [SDK README](https://www.npmjs.com/package/lightnode-sdk) for the full API
 surface (read client, inference, the `WorkerOperator`, the CLI).
@@ -84,13 +85,15 @@ inference costs ~0.022 LCAI per call.
 
 ## Want to add inference to an existing project?
 
-Use the `lightnode` CLI from the `lightnode-sdk` package instead:
+Use the CLI from the `lightnode-sdk` package instead:
 
 ```bash
-npx lightnode add inference --template nextjs-api
+npx lightnode-sdk add inference --template nextjs-api
 ```
 
-It detects your stack and patches the right files.
+It detects your stack and patches the right files. (Once `lightnode-sdk` is
+installed in the project, bare `npx lightnode <cmd>` works too; standalone,
+`npx lightnode` resolves to an unrelated npm package, so use `npx lightnode-sdk`.)
 
 ## Where this fits
 

@@ -17,7 +17,7 @@ an answer back, like calling any hosted AI API, except:
 - You pay per request from your own wallet instead of a monthly bill.
 
 This repo (`lightnode`) is a community toolkit that makes that easy:
-`lightnode-sdk` (a code library plus a `lightnode` command) and
+`lightnode-sdk` (a code library plus a CLI you run with `npx lightnode-sdk`) and
 `create-lightnode-app` (a project generator).
 
 ## The words you need to know
@@ -49,8 +49,12 @@ If that errors or shows a version below 18, install the latest LTS from
 ### 2. Make a wallet
 
 ```bash
-npx lightnode wallet new
+npx lightnode-sdk wallet new
 ```
+
+Note the package name: outside a project that has `lightnode-sdk` installed,
+always run `npx lightnode-sdk ...`. A bare `npx lightnode` downloads an
+unrelated npm package that happens to own that name.
 
 This prints two things:
 
@@ -71,7 +75,7 @@ per day, which is plenty for many test calls.
 ### 4. Check it arrived
 
 ```bash
-PRIVATE_KEY=0x...your-key... npx lightnode wallet balance --net testnet
+PRIVATE_KEY=0x...your-key... npx lightnode-sdk wallet balance --net testnet
 ```
 
 You should see a balance above 0 LCAI. Setup is done.
@@ -81,7 +85,7 @@ You should see a balance above 0 LCAI. Setup is done.
 The fastest possible test is one command, straight from the terminal:
 
 ```bash
-PRIVATE_KEY=0x...your-key... npx lightnode chat "Write a one-line fun fact about the ocean." --net testnet
+PRIVATE_KEY=0x...your-key... npx lightnode-sdk chat "Write a one-line fun fact about the ocean." --net testnet
 ```
 
 It signs a request, runs it on testnet, and streams the answer back. If you see
@@ -125,7 +129,7 @@ npm run dev              # (nextjs template) then open http://localhost:3000
 If you see `npm error Missing script: "dev"`, you ran it in the wrong folder. The
 commands only work inside `my-app/`. Run `cd my-app` first.
 
-### Tool B: `lightnode add` (bolt onto a project you already have)
+### Tool B: `lightnode-sdk add` (bolt onto a project you already have)
 
 Use this when you already have a folder or project and want to drop AI files into
 it. These commands write files into your current folder. They do not create a new
@@ -134,13 +138,15 @@ one.
 **Server-paid** (your funded wallet pays per call, needs a `PRIVATE_KEY`):
 
 ```bash
-npx lightnode add inference                  # a basic prompt-to-answer file
-npx lightnode add chat                        # chat UI with conversation history
-npx lightnode add judge                       # pass/fail evaluator (criteria + evidence)
-npx lightnode add agent                       # scheduled / loop inference
-npx lightnode add analytics-dashboard         # read-only network + worker stats page
-npx lightnode add nft-mint-with-inference     # generate NFT metadata with AI
-npx lightnode add worker-operator             # worker ops console: status, settle, clearstuck, withdraw, deregister, profitability
+npx lightnode-sdk add inference              # a basic prompt-to-answer file
+npx lightnode-sdk add chat                    # chat UI with conversation history
+npx lightnode-sdk add judge                   # pass/fail evaluator (criteria + evidence)
+npx lightnode-sdk add agent                   # scheduled / loop inference
+npx lightnode-sdk add batch                   # run many prompts as parallel inferences
+npx lightnode-sdk add bridge                  # Ethereum <-> LightChain LCAI bridge script (mainnet-only)
+npx lightnode-sdk add analytics-dashboard     # read-only network + worker stats page
+npx lightnode-sdk add nft-mint-with-inference # generate NFT metadata with AI
+npx lightnode-sdk add worker-operator         # worker ops console: status, settle, clearstuck, withdraw, deregister, profitability
 ```
 
 **User-paid** (no backend, each visitor signs + pays from their own wallet).
@@ -150,10 +156,10 @@ wagmi setup, wraps your layout with `<Providers>`, and installs the deps. In an
 existing app it just adds what's missing. `--no-scaffold` / `--no-install` opt out.
 
 ```bash
-npx lightnode add inference-web3              # one-shot inference UI, wallet-signed
-npx lightnode add chat-web3                    # chat UI, wallet-signed
-npx lightnode add judge-web3                   # evaluator UI, wallet-signed
-npx lightnode add wagmi-setup                  # wallet wiring on its own (providers + connect button)
+npx lightnode-sdk add inference-web3          # one-shot inference UI, wallet-signed
+npx lightnode-sdk add chat-web3               # chat UI, wallet-signed
+npx lightnode-sdk add judge-web3              # evaluator UI, wallet-signed
+npx lightnode-sdk add wagmi-setup             # wallet wiring on its own (providers + connect button)
 ```
 
 After it runs, follow its printed steps (install, set up `.env`, then run with
@@ -164,7 +170,7 @@ After it runs, follow its printed steps (install, set up `.env`, then run with
 > `npx lightnode-sdk@latest add <name>` (or update the global with
 > `npm install -g lightnode-sdk@latest`).
 
-| | Tool A: `create-lightnode-app` | Tool B: `lightnode add` |
+| | Tool A: `create-lightnode-app` | Tool B: `lightnode-sdk add` |
 |---|---|---|
 | When | Starting fresh | Adding to an existing folder |
 | Creates a new folder? | Yes (`my-app/`) | No (writes into current folder) |

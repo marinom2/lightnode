@@ -39,13 +39,19 @@ Push this repo to GitHub and "Import Project" in Vercel. It builds on every push
 `main` deploys to Production, branches to Preview.
 
 ## 4. Post-deploy checklist
-- [ ] Home, `/onboard`, `/dashboard` all load.
+- [ ] Home, `/onboard`, `/dashboard`, `/build`, `/playground`, `/wallet` all load.
 - [ ] Wallet connect modal opens; connecting on a fresh MetaMask auto-prompts to
       **add LightChain** (mainnet/testnet) - no manual network entry.
 - [ ] Mainnet/Testnet toggle switches the live stats + dashboard data.
+- [ ] `/api/download?os=mac` (desktop) and `/api/download?product=wallet` each
+      302 to the newest release of their own tag family (desktop `v*`, wallet
+      `wallet-v*`) - a wallet release must not hijack the desktop download
+      button or vice versa.
 - [ ] `/robots.txt`, `/sitemap.xml`, `/manifest.webmanifest` resolve.
 
 ## Notes
 - All worker/network data is read live from the LightChain subgraph via the
   `/api/*` routes (server-side; no CORS issues, short CDN cache).
+- `middleware.ts` rate-limits every `/api/*` route in-memory, keyed by client IP
+  + path class (budgets in `lib/rate-limit.ts`) - no extra infra needed.
 - Security headers + `x-powered-by` removal are set in `next.config.ts`.
