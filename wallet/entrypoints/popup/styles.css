@@ -206,7 +206,7 @@ a:hover { text-decoration: underline; }
 .vb-against { background: var(--bad); }
 .vb-abstain { background: var(--faint); }
 .tag-ok { color: var(--ok); background: rgba(52,211,153,.12); }
-h2 svg { vertical-align: -1.5px; margin-right: 4px; }
+.card h2 svg { vertical-align: -1.5px; margin-right: 4px; }
 
 /* micro-interactions */
 .list-row { transition: border-color .15s; }
