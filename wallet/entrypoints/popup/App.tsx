@@ -8,9 +8,10 @@ import type { TokenBalance } from "../../src/rpc/tokens";
 import type { ActivityEntry } from "../../src/provider/protocol";
 import { assessRecipient } from "../../src/rpc/risk";
 import { portfolioUsd, fmtUsd, type Prices } from "../../src/rpc/prices";
+import { humanizeError } from "../../src/rpc/humanize";
 import { wallet, type WalletState, type PendingRequest, type WorkerStatusView } from "./wallet-api";
 
-type Asset = { kind: "native"; symbol: string } | { kind: "token"; symbol: string; address: string; decimals: number };
+type Asset = { kind: "native"; symbol: string; balance: string } | { kind: "token"; symbol: string; address: string; decimals: number; balance: string };
 
 const SEVERITY_CLASS: Record<Severity, string> = { info: "muted", warn: "warn", danger: "danger-box" };
 const SUPPORTED_IDS = CHAIN_LIST.map((c) => c.id);
@@ -280,8 +281,8 @@ function WalletHome({ state, onChange }: { state: WalletState; onChange: () => v
     }
   };
   const assets: Asset[] = [
-    { kind: "native", symbol: sym },
-    ...tokens.map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals })),
+    { kind: "native", symbol: sym, balance: bal ?? "0" },
+    ...tokens.map((t) => ({ kind: "token" as const, symbol: t.symbol, address: t.address, decimals: t.decimals, balance: t.balance })),
   ];
 
   return (
@@ -413,7 +414,7 @@ function BridgeSheet({ from, onClose, onSent }: { from: string; onClose: () => v
       setHash(r.hash);
       onSent();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(humanizeError((e as Error).message, "LCAI"));
     } finally {
       setBusy(false);
     }
@@ -569,12 +570,24 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
   const [busy, setBusy] = useState(false);
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [fee, setFee] = useState<string | null>(null);
+  const [fee, setFee] = useState<{ value: number; label: string } | null>(null);
   const [known, setKnown] = useState<string[]>([]);
   const [txState, setTxState] = useState<"pending" | "confirmed" | "failed">("pending");
   const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
-  const ok = validAddr && Number(amount) > 0;
+  // Validate against the balance BEFORE the node does: catch "1 LCAI on an
+  // empty account" inline instead of surfacing a raw RPC error after signing.
+  const balNum = Number(asset.balance);
+  const amtNum = Number(amount) || 0;
+  const needed = asset.kind === "native" ? amtNum + (fee?.value ?? 0) : amtNum;
+  const insufficient = amtNum > 0 && needed > balNum;
+  const quotable = validAddr && amtNum > 0;
+  const ok = quotable && !insufficient;
   const risk = validAddr ? assessRecipient(to.trim(), known, own) : null;
+  const setMax = () => {
+    if (asset.kind === "token") return setAmount(asset.balance);
+    const spendable = Math.max(0, balNum - (fee ? fee.value * 1.1 : 0));
+    setAmount(spendable.toFixed(6).replace(/\.?0+$/, "") || "0");
+  };
   useEffect(() => {
     wallet<string[]>({ type: "knownRecipients" }).then(setKnown).catch(() => {});
   }, []);
@@ -593,7 +606,7 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
     };
   }, [hash]);
   useEffect(() => {
-    if (!ok) {
+    if (!quotable) {
       setFee(null);
       return;
     }
@@ -602,11 +615,11 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
         ? { type: "quoteSend" as const, from, to: to.trim(), valueWei: amount }
         : { type: "quoteSend" as const, from, to: to.trim(), token: asset.address, amount, decimals: asset.decimals };
       wallet<{ feeFormatted: string | null; feeSymbol: string }>(req)
-        .then((q) => setFee(q.feeFormatted ? `${Number(q.feeFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${q.feeSymbol}` : null))
+        .then((q) => setFee(q.feeFormatted ? { value: Number(q.feeFormatted), label: `${Number(q.feeFormatted).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${q.feeSymbol}` } : null))
         .catch(() => setFee(null));
     }, 500);
     return () => clearTimeout(t);
-  }, [ok, to, amount, asset, from]);
+  }, [quotable, to, amount, asset, from]);
   const send = async () => {
     setBusy(true);
     setErr(null);
@@ -618,7 +631,7 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
       void wallet({ type: "addActivity", entry: { hash: r.hash, to: to.trim(), amount, symbol: asset.symbol, chainId, ts: Date.now() } });
       onSent();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(humanizeError((e as Error).message, asset.symbol));
     } finally {
       setBusy(false);
     }
@@ -632,7 +645,7 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
       setHash(r.hash); // the poll re-tracks the replacement
       setTxState("pending");
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(humanizeError((e as Error).message, asset.symbol));
     } finally {
       setBusy(false);
     }
@@ -659,9 +672,15 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
           <>
             {assets.length > 1 && (
               <div className="tabs" style={{ flexWrap: "wrap" }}>
-                {assets.map((a) => (
-                  <button key={a.symbol} className={`tab${a.symbol === asset.symbol ? " active" : ""}`} onClick={() => setAsset(a)}>{a.symbol}</button>
-                ))}
+                {assets.map((a) => {
+                  const logo = a.kind === "native" ? logoFor(chainId) : tokenLogo(a.symbol);
+                  return (
+                    <button key={a.symbol} className={`tab${a.symbol === asset.symbol ? " active" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={() => setAsset(a)}>
+                      {logo && <img src={logo} alt="" style={{ width: 14, height: 14, borderRadius: "50%", background: "#fff" }} />}
+                      {a.symbol}
+                    </button>
+                  );
+                })}
               </div>
             )}
             <div><div className="muted" style={{ marginBottom: 6 }}>Recipient</div><input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} /></div>
@@ -671,8 +690,16 @@ function SendSheet({ from, assets, explorer, chainId, own, onClose, onSent }: { 
             {risk?.kind === "new" && <p className="muted">First time sending to this address.</p>}
             {risk?.kind === "known" && <p className="ok">You&apos;ve sent to this address before.</p>}
             {risk?.kind === "self" && <p className="muted">This is one of your own accounts.</p>}
-            <div><div className="muted" style={{ marginBottom: 6 }}>Amount ({asset.symbol})</div><input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} /></div>
-            {fee && <p className="muted">Network fee ≈ {fee}</p>}
+            <div>
+              <div className="muted" style={{ marginBottom: 6 }}>Amount ({asset.symbol})</div>
+              <input inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} />
+              <div className="row between" style={{ marginTop: 6 }}>
+                <span className="faint">{fmtBal(asset.balance)} {asset.symbol} available</span>
+                <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={setMax}>Max</button>
+              </div>
+            </div>
+            {insufficient && <p className="err">Not enough {asset.symbol}. You have {fmtBal(asset.balance)}{asset.kind === "native" && fee ? `, and the network fee is ${fee.label}` : ""}.</p>}
+            {!insufficient && fee && <p className="muted">Network fee ≈ {fee.label}</p>}
             {err && <p className="err">{err}</p>}
             <button disabled={!ok || busy} onClick={send}>{busy ? "Sending…" : `Send ${asset.symbol}`}</button>
           </>
