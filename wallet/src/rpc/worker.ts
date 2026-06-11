@@ -58,6 +58,7 @@ export interface NetworkStatsView {
   jobsCompleted: number;
   totalEarnedLcai: number;
   minStakeLcai: number;
+  capped: boolean; // the 500-row query window filled up; totals are a floor
 }
 
 export interface WorkerLifetimeView {
@@ -90,7 +91,7 @@ async function gql<T>(query: string): Promise<T> {
 }
 
 /** Aggregated, parsed defensively: the indexer response is external input. */
-export function aggregateWorkers(workers: unknown): Omit<NetworkStatsView, "minStakeLcai"> {
+export function aggregateWorkers(workers: unknown): Omit<NetworkStatsView, "minStakeLcai" | "capped"> {
   const list = Array.isArray(workers) ? (workers as GqlWorker[]) : [];
   let active = 0;
   let jobs = 0;
@@ -112,7 +113,8 @@ export async function readNetworkStats(client: PublicClient): Promise<NetworkSta
     gql<{ workers: GqlWorker[] }>("{ workers(first:500) { status jobs_completed total_earned } }"),
     client.readContract({ address: AI_CONFIG, abi: AI_CONFIG_ABI, functionName: "getMinWorkerStake" }),
   ]);
-  return { ...aggregateWorkers(data.workers), minStakeLcai: toLcai(minStakeWei) };
+  const agg = aggregateWorkers(data.workers);
+  return { ...agg, minStakeLcai: toLcai(minStakeWei), capped: agg.totalWorkers >= 500 };
 }
 
 export async function readWorkerLifetime(address: string): Promise<WorkerLifetimeView | null> {

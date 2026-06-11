@@ -15,7 +15,7 @@ import { parseTypedData } from "../src/provider/typed-data";
 import { DEFAULT_TOKENS, readTokenBalances, fetchTokenMeta, erc20TransferData, type TokenMeta } from "../src/rpc/tokens";
 import { CG_NATIVE, CG_PLATFORM, type Prices } from "../src/rpc/prices";
 import { parseTransfers, netChanges, NATIVE_SENTINEL, type SimLog } from "../src/rpc/simulate";
-import { bridgeTransfer, bridgeFee } from "../src/rpc/bridge";
+import { bridgeTransfer, bridgeFee, bridgeSourceBalance } from "../src/rpc/bridge";
 import { daoStatus } from "../src/rpc/dao";
 import { importNft, stillOwned, nftTransferData, type NftItem } from "../src/rpc/nfts";
 import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history";
@@ -362,9 +362,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!governor) throw RpcError.invalidParams;
       await bumpAutoLock();
       // Vote on the governor's OWN chain regardless of the selected network.
-      const { createWalletClient } = await import("viem");
-      const w = createWalletClient({ account: acct.account, chain: chainById(op.chainId), transport: http() });
-      return { hash: await w.sendTransaction({ to: governor, data: castVoteData(op.proposalId, op.support) }) };
+      return { hash: await signAndSendOn(op.chainId, acct.account, governor, castVoteData(op.proposalId, op.support)) };
     }
     case "networkStats":
       return readNetworkStats(clientFor(9200));
@@ -376,10 +374,8 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!acct) throw RpcError.locked;
       await bumpAutoLock();
       // JobRegistry lives on LightChain mainnet; send there explicitly.
-      const { createWalletClient } = await import("viem");
-      const w = createWalletClient({ account: acct.account, chain: chainById(9200), transport: http() });
       const t = withdrawTarget();
-      return { hash: await w.sendTransaction({ to: t.to, data: t.data }) };
+      return { hash: await signAndSendOn(9200, acct.account, t.to, t.data) };
     }
     case "setAccountName": {
       const max = await accountCount();
@@ -393,6 +389,8 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     }
     case "bridgeFee":
       return { fee: await bridgeFee(op.direction) };
+    case "bridgeBalance":
+      return { balance: await bridgeSourceBalance(op.direction, op.account as `0x${string}`) };
     case "bridge": {
       const kr = await restore();
       const acct = kr?.accountFor(op.from);
@@ -511,6 +509,13 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await resolvePending(op.id, op.approved);
       return { ok: true };
   }
+}
+
+/** Send a tx on an EXPLICIT chain (governance, rewards: not the selected one). */
+async function signAndSendOn(chainId: number, account: Keyring["accounts"][number]["account"], to: `0x${string}`, data: `0x${string}`): Promise<string> {
+  const { createWalletClient } = await import("viem");
+  const wallet = createWalletClient({ account, chain: chainById(chainId), transport: http() });
+  return wallet.sendTransaction({ to, data });
 }
 
 async function signAndSend(account: Keyring["accounts"][number]["account"], to: `0x${string}`, value: bigint, data?: `0x${string}`): Promise<string> {

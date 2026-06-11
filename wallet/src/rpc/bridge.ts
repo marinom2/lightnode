@@ -26,6 +26,22 @@ const ERC20 = parseAbi(["function allowance(address,address) view returns (uint2
 
 export type BridgeDir = "eth-to-lc" | "lc-to-eth";
 
+/** The LCAI ERC-20 on Ethereum (single source of truth for the UI too). */
+export const LCAI_ERC20 = ROUTES.ethereum.underlying;
+
+const BALANCE_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+
+/** LCAI balance on the SOURCE side of a move (ERC-20 on Ethereum, native on LightChain). */
+export async function bridgeSourceBalance(dir: BridgeDir, account: `0x${string}`): Promise<string> {
+  if (dir === "eth-to-lc") {
+    const pub = createPublicClient({ chain: chainById(1), transport: http() });
+    const wei = (await pub.readContract({ address: LCAI_ERC20, abi: BALANCE_ABI, functionName: "balanceOf", args: [account] })) as bigint;
+    return (Number(wei) / 1e18).toString();
+  }
+  const pub = createPublicClient({ chain: chainById(9200), transport: http() });
+  return (Number(await pub.getBalance({ address: account })) / 1e18).toString();
+}
+
 const toBytes32 = (a: string): `0x${string}` => pad(a as `0x${string}`, { size: 32 });
 
 export async function bridgeFee(dir: BridgeDir): Promise<string> {

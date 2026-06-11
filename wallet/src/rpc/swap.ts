@@ -6,7 +6,7 @@
  * and appends unwrapWETH9 in a multicall. Single-hop only, slippage-bounded.
  * A verified LCAI/WETH 0.3% pool exists on Ethereum, so ETH <-> LCAI is live.
  */
-import { type Account, createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } from "viem";
+import { type Account, type PublicClient, createPublicClient, createWalletClient, encodeFunctionData, formatUnits, http, parseAbi, parseUnits } from "viem";
 import { chainById } from "./chains";
 
 interface DexConfig {
@@ -39,7 +39,7 @@ const ERC20_ABI = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
 ]);
 
-const FEE_TIERS = [3000, 500, 10000] as const;
+const FEE_TIERS = [3000, 500, 100, 10000] as const; // 0.01% matters for stable-stable pairs
 // SwapRouter02 sentinel: recipient = the router itself (for unwrap chaining).
 const ADDRESS_THIS = "0x0000000000000000000000000000000000000002" as const;
 export const SLIPPAGE_BPS = 50n; // 0.5%
@@ -55,6 +55,21 @@ export interface SwapQuote {
   amountOut: string; // formatted by decimalsOut
   amountOutWei: string;
   fee: number; // pool fee tier that priced best
+  impactBps: number | null; // price impact vs the marginal price; null when unmeasurable
+}
+
+async function quoteTier(pub: PublicClient, quoter: `0x${string}`, tokenIn: `0x${string}`, tokenOut: `0x${string}`, wei: bigint, fee: number): Promise<bigint | null> {
+  try {
+    const { result } = await pub.simulateContract({
+      address: quoter,
+      abi: QUOTER_ABI,
+      functionName: "quoteExactInputSingle",
+      args: [{ tokenIn, tokenOut, amountIn: wei, fee, sqrtPriceLimitX96: 0n }],
+    });
+    return result[0] > 0n ? result[0] : null;
+  } catch {
+    return null; // no pool / no liquidity at this tier
+  }
 }
 
 /** Best single-hop quote across fee tiers; null when no pool has liquidity. */
@@ -69,24 +84,25 @@ export async function quoteSwap(chainId: number, tIn: SwapSide, tOut: SwapSide, 
   const pub = createPublicClient({ chain: chainById(chainId), transport: http() });
   let best: { out: bigint; fee: number } | null = null;
   for (const fee of FEE_TIERS) {
-    try {
-      const { result } = await pub.simulateContract({
-        address: dex.quoter,
-        abi: QUOTER_ABI,
-        functionName: "quoteExactInputSingle",
-        args: [{ tokenIn, tokenOut, amountIn: wei, fee, sqrtPriceLimitX96: 0n }],
-      });
-      const out = result[0];
-      if (out > 0n && (!best || out > best.out)) best = { out, fee };
-    } catch {
-      // no pool at this tier; try the next
-    }
+    const out = await quoteTier(pub, dex.quoter, tokenIn, tokenOut, wei, fee);
+    if (out && (!best || out > best.out)) best = { out, fee };
   }
   if (!best) return null;
+  // Price impact: compare the trade's average price with the marginal price
+  // (a 1/1000-size probe on the same pool). High impact = thin liquidity.
+  const probeWei = wei / 1000n;
+  let impactBps: number | null = null;
+  if (probeWei > 0n) {
+    const probeOut = await quoteTier(pub, dex.quoter, tokenIn, tokenOut, probeWei, best.fee);
+    if (probeOut && probeOut > 0n) {
+      impactBps = Math.max(0, 10000 - Number((best.out * 10000n) / (probeOut * 1000n)));
+    }
+  }
   return {
-    amountOut: (Number(best.out) / 10 ** tOut.decimals).toString(),
+    amountOut: formatUnits(best.out, tOut.decimals),
     amountOutWei: best.out.toString(),
     fee: best.fee,
+    impactBps,
   };
 }
 
