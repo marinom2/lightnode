@@ -75,7 +75,13 @@ describe("assertSafeChallenge (no blind SIWE signing)", () => {
   it("accepts a challenge for this gateway and this account", () => {
     expect(() => assertSafeChallenge(good, ADDR)).not.toThrow();
   });
-  it("rejects a challenge naming a different site", () => {
+  it("accepts the REAL gateway domain (chat-api.<net>.lightchain.ai), not just the proxy host", () => {
+    // Regression: the live gateway signs as chat-api.mainnet.lightchain.ai even
+    // via the lightnode.app proxy. Rejecting it would break chat entirely.
+    const real = `chat-api.mainnet.lightchain.ai wants you to sign in with your Ethereum account:\n${ADDR}\n\nURI: http://chat-api.mainnet.lightchain.ai\nChain ID: 1\nNonce: a5`;
+    expect(() => assertSafeChallenge(real, ADDR)).not.toThrow();
+  });
+  it("rejects a challenge naming a different (non-lightchain) site", () => {
     expect(() => assertSafeChallenge(good.replace("lightnode.app", "evil.example"), ADDR)).toThrow(/different site/);
   });
   it("rejects a challenge for a different account", () => {
