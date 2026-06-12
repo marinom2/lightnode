@@ -36,7 +36,7 @@ export const fmtBal = (s: string): string => {
 };
 export const isApproveWindow = () => window.location.hash.includes("approve");
 export const isExpanded = () => window.location.hash.includes("expanded");
-export const openFullTab = () => void chrome.tabs.create({ url: chrome.runtime.getURL("popup.html#/expanded") });
+export const openFullTab = () => void browser.tabs.create({ url: browser.runtime.getURL("/popup.html#/expanded") });
 
 export function avatarGradient(addr: string): string {
   let h = 0;
