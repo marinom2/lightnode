@@ -145,9 +145,13 @@ async function gw<T>(path: string, init: RequestInit & { bearer?: string } = {})
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 /**
- * Refuse to sign a gateway auth challenge unless it is a SIWE message for THIS
- * gateway and THIS account. Stops a malicious proxy from harvesting a signature
- * scoped to another domain or address.
+ * Refuse to sign a gateway auth challenge unless it names THIS account and a
+ * trusted gateway. The address check is the hard one (stops a hostile proxy
+ * harvesting a signature scoped to a different address). The live gateway
+ * authenticates under chat-api.<net>.lightchain.ai even when reached through
+ * the lightnode.app proxy, so we accept the lightchain.ai family (or our proxy
+ * host) rather than the proxy host alone - matching only GATEWAY_HOST would
+ * reject every real challenge and break chat.
  */
 export function assertSafeChallenge(message: string, address: string): void {
   if (typeof message !== "string" || message.length === 0 || message.length > 4000) {
@@ -155,7 +159,7 @@ export function assertSafeChallenge(message: string, address: string): void {
   }
   const stated = message.match(/^\s*([^\s]+) wants you to sign in with your Ethereum account/m);
   const domain = stated?.[1]?.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").toLowerCase();
-  if (domain && domain !== GATEWAY_HOST) {
+  if (domain && domain !== GATEWAY_HOST && !/(^|\.)lightchain\.ai$/.test(domain)) {
     throw new Error("The AI gateway's sign-in challenge names a different site. Aborting.");
   }
   if (!message.toLowerCase().includes(address.toLowerCase())) {

@@ -1,6 +1,6 @@
 {
   "name": "lightnode-sdk",
-  "version": "0.19.1",
+  "version": "0.19.2",
   "description": "Community TypeScript SDK + CLI for LightChain AI: end-to-end encrypted on-chain inference (with optional web search), multi-turn chat, batch + agent runners, read-only network analytics, an Ethereum bridge and LCAI Governor wrapper, and a full worker-operator surface (register, stake, settle, stuck-job recovery, exit). Non-custodial. Built on viem. Independent, not an official LightChain package.",
   "type": "module",
   "main": "./dist/index.js",

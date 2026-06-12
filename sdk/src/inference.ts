@@ -144,7 +144,76 @@ export interface SessionPreparation {
  * After this returns, the caller submits the on-chain `createSession` tx with
  * `createSessionArgs` and remembers `sessionKey` for the rest of the session.
  */
-export async function prepareSession(gateway: GatewayClient, modelTag: string, opts?: { requiredCapabilities?: string[] }): Promise<SessionPreparation> {
+/**
+ * Refuse to blind-sign a gateway auth challenge. The hard requirement is that
+ * the challenge names THIS account (so a hostile proxy can't get us to sign a
+ * challenge scoped to a different address and replay it). The domain, when the
+ * message states one, must be the gateway we are talking to OR a LightChain
+ * gateway host - the live gateway authenticates under chat-api.<net>.lightchain.ai
+ * even when reached through a proxy, so we accept the lightchain.ai family
+ * rather than the proxy host. `now`-free and pure for testing.
+ */
+export function assertSafeChallenge(message: string, address: string, gatewayHost: string): void {
+  if (typeof message !== "string" || message.length === 0 || message.length > 4000) {
+    throw new Error("the gateway returned an unreadable sign-in challenge");
+  }
+  const stated = message.match(/^\s*([^\s]+) wants you to sign in with your Ethereum account/m);
+  const domain = stated?.[1]?.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").toLowerCase();
+  if (domain && domain !== gatewayHost.toLowerCase() && !/(^|\.)lightchain\.ai$/.test(domain)) {
+    throw new Error("the gateway's sign-in challenge names a different site; aborting");
+  }
+  if (!message.toLowerCase().includes(address.toLowerCase())) {
+    throw new Error("the gateway's sign-in challenge is for a different account; aborting");
+  }
+}
+
+/** ABI fragment for reading a worker's registered encryption key on-chain. */
+const WORKER_KEY_ABI = [
+  { type: "function", name: "getWorkerEncryptionKey", stateMutability: "view", inputs: [{ name: "worker", type: "address" }], outputs: [{ type: "bytes" }] },
+] as const;
+
+/**
+ * The trust anchor for end-to-end secrecy. The gateway is UNTRUSTED: it picks
+ * the worker and hands us that worker's encryption key. If we wrapped the
+ * session key to whatever key the gateway sent, a malicious proxy could send
+ * its OWN key, read the prompt, and forge the answer. So we read the worker's
+ * key from the on-chain WorkerRegistry and require the gateway's key to match
+ * it before trusting it. Fail closed. Pass this from a caller that has a
+ * publicClient (openSession does); prepareSession itself stays gateway-only.
+ */
+export async function verifyWorkerKeyOnChain(
+  publicClient: MinimalPublicClient,
+  workerRegistry: `0x${string}`,
+  worker: `0x${string}`,
+  gatewayKey: string,
+): Promise<void> {
+  const offered = decodePublicKey(gatewayKey); // 65-byte 0x04 point or throws
+  const onchainHex = (await publicClient.readContract({
+    address: workerRegistry,
+    abi: WORKER_KEY_ABI,
+    functionName: "getWorkerEncryptionKey",
+    args: [worker],
+  })) as `0x${string}`;
+  if (!onchainHex || onchainHex === "0x") {
+    throw new Error(`worker ${worker} has no encryption key registered on-chain; refusing to open a session with an unverifiable key`);
+  }
+  const onchain = decodePublicKey(onchainHex);
+  if (onchain.length !== offered.length || !onchain.every((b, i) => b === offered[i])) {
+    throw new Error("the gateway offered a worker encryption key that does not match the on-chain registry; aborting to protect the prompt");
+  }
+}
+
+export interface PrepareSessionOpts {
+  requiredCapabilities?: string[];
+  /**
+   * Called with (worker, gatewayKey) AFTER selection and BEFORE the session key
+   * is wrapped. Throw to abort (e.g. when the gateway's worker key does not
+   * match the chain). openSession wires this to verifyWorkerKeyOnChain.
+   */
+  verifyWorkerKey?: (worker: `0x${string}`, gatewayKey: string) => Promise<void>;
+}
+
+export async function prepareSession(gateway: GatewayClient, modelTag: string, opts?: PrepareSessionOpts): Promise<SessionPreparation> {
   const id = modelId(modelTag);
   const requiredCapabilities = opts?.requiredCapabilities;
   // The gateway returns 409 selection_mismatch when a NEWER selectSession()
@@ -170,6 +239,9 @@ export async function prepareSession(gateway: GatewayClient, modelTag: string, o
       // it. prepareSession 409s when the same happens between select and
       // prepare. The whole select -> prepare flow is one atomic unit.
       const selected = await gateway.selectSession(id, requiredCapabilities ? { requiredCapabilities } : undefined);
+      // Verify the gateway's worker key against the chain BEFORE wrapping the
+      // session key to it (the end-to-end trust anchor). Throws to abort.
+      if (opts?.verifyWorkerKey) await opts.verifyWorkerKey(selected.worker, selected.workerEncryptionKey);
       const sessionKey = await generateSessionKey();
 
       // Workers' pubkeys arrive as base64; disputer's as hex - decodePublicKey
@@ -305,6 +377,12 @@ interface MinimalWalletClient {
   }): Promise<`0x${string}`>;
 }
 interface MinimalPublicClient {
+  readContract(args: {
+    address: `0x${string}`;
+    abi: readonly unknown[];
+    functionName: string;
+    args?: readonly unknown[];
+  }): Promise<unknown>;
   waitForTransactionReceipt(args: { hash: `0x${string}` }): Promise<{
     status: "success" | "reverted";
     blockHash: `0x${string}`;
@@ -395,6 +473,14 @@ export interface RunInferenceResult {
      */
     jobCompleted: `0x${string}` | null;
   };
+  /**
+   * The worker's on-chain commitment to the answer, from the JobCompleted event:
+   * `responseHash` over the plaintext, `ciphertextHash` over the encrypted blob.
+   * Both null until JobCompleted lands (same condition as `txs.jobCompleted`).
+   * An attestor (e.g. a challenge protocol) anchors these as its audit trail.
+   */
+  responseHash: `0x${string}` | null;
+  ciphertextHash: `0x${string}` | null;
   /** The dispatcher-assigned worker that produced this response. */
   worker: `0x${string}`;
   sessionId: bigint;
@@ -520,7 +606,11 @@ export interface OpenSessionArgs {
  */
 export async function openSession(args: OpenSessionArgs): Promise<OpenSession> {
   const { gateway, wallet, publicClient, network, model = "llama3-8b" } = args;
-  const prepared = await prepareSession(gateway, model, args.requiredCapabilities ? { requiredCapabilities: args.requiredCapabilities } : undefined);
+  const prepared = await prepareSession(gateway, model, {
+    ...(args.requiredCapabilities ? { requiredCapabilities: args.requiredCapabilities } : {}),
+    // Bind the session key to the worker's chain-registered key (untrusted gateway).
+    verifyWorkerKey: (worker, gatewayKey) => verifyWorkerKeyOnChain(publicClient, network.workerRegistry as `0x${string}`, worker, gatewayKey),
+  });
   const fee = await estimateJobFee(network, model);
   const createTx = await wallet.writeContract({
     address: network.jobRegistry as `0x${string}`,
@@ -794,7 +884,9 @@ export async function runJobOnSession(
   const waitStart = Date.now();
   let firstChunkAt: number | null = chunks.length > 0 ? waitStart : null;
   const jobIdTopic = (`0x${jobId.toString(16).padStart(64, "0")}`) as `0x${string}`;
-  let completed: { transactionHash: `0x${string}` } | null = null;
+  // Keep the full log so we can read the worker's on-chain commitments
+  // (responseHash + ciphertextHash live in the non-indexed `data`).
+  let completed: { transactionHash: `0x${string}`; data: `0x${string}` } | null = null;
   while (!completed) {
     // Cancel mid-stream: stop awaiting the proof, close the relay socket, and
     // surface an AbortError. The submitJob tx already broadcast still settles.
@@ -854,6 +946,12 @@ export async function runJobOnSession(
     /* ignore */
   }
 
+  // The worker's on-chain commitments (the audit trail an attestor anchors).
+  // JobCompleted data is responseHash(32) || ciphertextHash(32), non-indexed.
+  const commit = completed && completed.data && completed.data.length >= 130
+    ? { responseHash: `0x${completed.data.slice(2, 66)}` as `0x${string}`, ciphertextHash: `0x${completed.data.slice(66, 130)}` as `0x${string}` }
+    : null;
+
   return {
     answer: chunks.join(""),
     // completed may be null when the answer arrived via the WS but JobCompleted
@@ -861,6 +959,9 @@ export async function runJobOnSession(
     // (session-key bound); callers can poll for the event later if they want
     // the explorer-link form of the proof.
     txs: { createSession: createTx, submitJob: submitTx, jobCompleted: completed?.transactionHash ?? null },
+    // Worker's on-chain commitments from JobCompleted (null until the event lands).
+    responseHash: commit?.responseHash ?? null,
+    ciphertextHash: commit?.ciphertextHash ?? null,
     worker: prepared.createSessionArgs.worker,
     sessionId,
     jobId,
@@ -1161,6 +1262,9 @@ export async function connectWithKey(args: ConnectWithKeyArgs): Promise<KeyConne
   if (!chRes.ok) throw new GatewayAuthError(chRes.status, await chRes.text());
   const ch = (await chRes.json()) as { message?: string };
   if (!ch.message) throw new GatewayAuthError(chRes.status, "auth challenge returned no message");
+  // Never blind-sign whatever the gateway returns: a hostile proxy could feed a
+  // challenge scoped to another site or account and replay the signature there.
+  assertSafeChallenge(ch.message, account.address, new URL(gwBase).host);
   const signature = await wallet.signMessage({ account, message: ch.message });
   const verifyRes = await fetchOrFail(
     `${gwBase}/api/auth/verify`,
