@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { wallet, type PendingRequest, type WalletState } from "./wallet-api";
 import { decodeDangerousCall } from "../../src/provider/decode-call";
+import { recognizeLightChainCall } from "../../src/provider/lightchain-calls";
 import { summarizeTypedData, siweOriginMismatch, siweChainId, decodeSignText } from "../../src/provider/typed-data";
 import { chainById, logoFor } from "../../src/rpc/chains";
 import { SEVERITY_CLASS, SUPPORTED_IDS, avatarGradient, short } from "./shared";
@@ -127,8 +128,18 @@ function RequestDetail({ req, activeChainId }: { req: PendingRequest; activeChai
   if (req.method === "eth_sendTransaction") {
     const tx = (req.params?.[0] ?? {}) as { from?: string; to?: string; value?: string; data?: string };
     const decoded = decodeDangerousCall(tx.data as `0x${string}` | undefined);
+    // Positive ID of LightChain's own protocol calls. When recognized, the
+    // reassuring banner replaces the generic "unrecognized contract" warning -
+    // the native wallet should know its own ecosystem on sight.
+    const recognized = recognizeLightChainCall(tx.to, tx.data as `0x${string}` | undefined, activeChainId, valueWei(tx.value));
+    const hideUnknown = recognized != null && decoded.kind === "unknown";
     return (
       <div className="muted" style={{ fontSize: 12 }}>
+        {recognized && (
+          <p className="protocol-box" style={{ marginBottom: 6 }}>
+            <b>{recognized.contract}: {recognized.action}.</b> {recognized.detail}
+          </p>
+        )}
         <SimPreview tx={tx} mute={decoded.severity === "danger"} />
         <div className="row between" style={{ marginTop: 4 }}>
           <span className="faint">To</span>
@@ -138,7 +149,7 @@ function RequestDetail({ req, activeChainId }: { req: PendingRequest; activeChai
           <span className="faint">Amount</span>
           <b>{txValueEth(tx.value)}</b>
         </div>
-        {decoded.kind !== "empty" && (
+        {decoded.kind !== "empty" && !hideUnknown && (
           <p className={SEVERITY_CLASS[decoded.severity]} style={{ marginTop: 6 }}><b>{decoded.label}.</b> {decoded.detail}</p>
         )}
       </div>
@@ -197,5 +208,14 @@ function txValueEth(value?: string): string {
     return `${n.toLocaleString(undefined, { maximumFractionDigits: 6 })}`;
   } catch {
     return "unreadable";
+  }
+}
+
+/** The tx value in wei (0 when absent or unparseable), for fee-aware labels. */
+function valueWei(value?: string): bigint {
+  try {
+    return value ? BigInt(value) : 0n;
+  } catch {
+    return 0n;
   }
 }

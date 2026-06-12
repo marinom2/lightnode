@@ -170,6 +170,8 @@ a { color: var(--brand); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .warn { border: 1px solid rgba(251,191,36,.35); background: rgba(251,191,36,.07); border-radius: 11px; padding: 10px; font-size: 12px; color: #fcd97a; }
 .danger-box { border: 1px solid rgba(248,113,113,.4); background: rgba(248,113,113,.08); border-radius: 11px; padding: 10px; font-size: 12px; color: #fca5a5; }
+/* Recognized LightChain protocol call: reassuring, brand-tinted, not a warning. */
+.protocol-box { border: 1px solid rgba(124,107,242,.4); background: rgba(124,107,242,.1); border-radius: 11px; padding: 10px; font-size: 12px; color: #c9c2ff; }
 
 /* tokens / list rows */
 .row-hide { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 7px; opacity: 0; background: rgba(12,12,26,.85); }
