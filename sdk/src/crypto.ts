@@ -19,8 +19,8 @@
  * we fall back to node:crypto).
  */
 
-import { p256 } from "@noble/curves/p256";
-import { gcm } from "@noble/ciphers/aes";
+import { p256 } from "@noble/curves/nist.js";
+import { gcm } from "@noble/ciphers/aes.js";
 
 const AES_KEY_BYTES = 32;
 const GCM_NONCE_BYTES = 12;
@@ -123,7 +123,8 @@ export function importPublicKey(raw: Uint8Array): Uint8Array {
     throw new Error(`expected uncompressed P-256 public key (${P256_UNCOMPRESSED_KEY_BYTES} bytes, leading 0x04)`);
   }
   // Round-trip through noble to confirm the point is on the curve. Throws if not.
-  p256.ProjectivePoint.fromHex(raw);
+  // (noble v2 renamed ProjectivePoint -> Point and takes bytes via fromBytes.)
+  p256.Point.fromBytes(raw);
   return raw;
 }
 
