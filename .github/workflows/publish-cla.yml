@@ -43,9 +43,11 @@ jobs:
           node-version: 20
           registry-url: "https://registry.npmjs.org" # sets up NODE_AUTH_TOKEN-based auth
 
+      # The scaffolder's package-lock.json is gitignored (like the SDK's), so
+      # `npm install` rather than `npm ci` - there is no committed lockfile.
       - name: Install + typecheck + build
         working-directory: create-lightnode-app
-        run: npm ci && npm run typecheck && npm run build
+        run: npm install --no-audit --no-fund && npm run typecheck && npm run build
 
       # Refuse to publish a tag whose version does not match the package.
       - name: Verify tag matches package version
