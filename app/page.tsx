@@ -74,12 +74,13 @@ export default function Home() {
             Build with, and run for, <span className="text-gradient">LightChain AI</span>.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-pretty text-base text-content-soft md:text-lg">
-            One project, two tracks. Add encrypted decentralized AI to your app in five lines of code,
-            or stake a GPU and earn <span className="text-content-primary font-medium">LCAI</span> for serving
-            real inference. Pick one (most people only need one).
+            One open toolkit, three ways in. Ship encrypted on-chain AI from five lines of code,
+            carry it in a self-custodial wallet with AI chat built in, or turn a spare GPU into a
+            worker earning <span className="text-content-primary font-medium">LCAI</span>. Independent
+            and fully open source.
           </p>
 
-          <div className="mx-auto mt-8 grid max-w-4xl gap-3 md:grid-cols-2">
+          <div className="mx-auto mt-8 grid max-w-5xl gap-3 md:grid-cols-3">
             <Card className="p-5 text-left">
               <div className="mb-2 flex items-center gap-2">
                 <IconChip icon={Code2} size="sm" />
@@ -99,6 +100,29 @@ export default function Home() {
                 <Button asChild size="sm" variant="outline">
                   <Link href="/playground">
                     Open the playground
+                  </Link>
+                </Button>
+              </div>
+            </Card>
+            <Card className="p-5 text-left">
+              <div className="mb-2 flex items-center gap-2">
+                <IconChip icon={Wallet2} size="sm" />
+                <span className="text-sm font-semibold text-content-primary">Hold</span>
+                <Badge tone="success" className="ml-auto">live</Badge>
+              </div>
+              <p className="mb-3 text-xs leading-relaxed text-content-soft">
+                The LightNode Wallet: self-custodial keys, encrypted AI chat, DAO voting, swap and
+                bridge. Your keys never leave your device.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild size="sm">
+                  <Link href="/wallet">
+                    Get the wallet <ArrowRight />
+                  </Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/wallet#install">
+                    How to install
                   </Link>
                 </Button>
               </div>

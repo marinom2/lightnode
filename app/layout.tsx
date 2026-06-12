@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Image from "next/image";
 import { Github } from "lucide-react";
 import "./globals.css";
 import { Providers } from "@/components/providers";
@@ -62,12 +63,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Nav />
           <main>{children}</main>
           <footer className="mt-24 border-t border-bdr-soft">
-            <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 py-8 text-sm text-content-soft md:flex-row">
-              <p>
-                LightNode - an independent ecosystem tool for LightChain AI. Not an official LightChain product.
-              </p>
+            <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 py-8 text-sm text-content-soft md:flex-row">
+              <div className="flex items-center gap-2.5">
+                <Image src="/lightnode-mark.png" alt="LightNode" width={22} height={22} className="rounded-md" />
+                <p>LightNode - an independent ecosystem tool for LightChain AI.</p>
+              </div>
               <div className="flex items-center gap-4">
-                <span>Open source, built in the open for the LightChain community</span>
+                <span className="font-medium text-content-primary">Open Source Everything</span>
                 <a
                   href="https://github.com/marinom2/lightnode"
                   target="_blank"
@@ -76,6 +78,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   aria-label="LightNode on GitHub"
                 >
                   <Github className="size-4" /> GitHub
+                </a>
+                <a
+                  href="https://lightchain.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center transition-opacity hover:opacity-80"
+                  aria-label="LightChain AI"
+                  title="LightChain AI"
+                >
+                  <Image src="/logos/lcai.png" alt="LightChain AI" width={20} height={20} className="rounded-full" />
                 </a>
               </div>
             </div>
