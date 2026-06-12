@@ -4,10 +4,13 @@ import { consume, ruleFor, resetRateLimiter, API_RULES } from "@/lib/rate-limit"
 const RULE = { limit: 3, windowMs: 60_000 };
 
 describe("ruleFor", () => {
-  it("gives the gateway proxy, DAO scans, and operator preview the tight budget", () => {
-    for (const p of ["/api/gw/mainnet/api/models", "/api/dao-proposals", "/api/operator-preview"]) {
+  it("gives DAO scans and operator preview the tight budget", () => {
+    for (const p of ["/api/dao-proposals", "/api/operator-preview"]) {
       expect(ruleFor(p)?.limit).toBe(30);
     }
+  });
+  it("gives the gateway proxy real headroom (one inference is ~35 calls incl. the token poll)", () => {
+    expect(ruleFor("/api/gw/mainnet/api/models")?.limit).toBe(600);
   });
   it("covers every other api route with the default budget and skips pages", () => {
     expect(ruleFor("/api/network")?.limit).toBe(120);

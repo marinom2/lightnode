@@ -15,7 +15,13 @@ export interface RateLimitRule {
 /** Expensive routes fan out to chains/subgraphs or relay upstream; everything
  *  else is a cheap cached read. Matched by path prefix, first hit wins. */
 export const API_RULES: { prefix: string; rule: RateLimitRule }[] = [
-  { prefix: "/api/gw/", rule: { limit: 30, windowMs: 60_000 } },
+  // The gateway proxy is the encrypted-inference HOT PATH: ONE inference makes
+  // ~5 setup calls plus a relay-token poll of up to 30 requests (1/sec until the
+  // worker is ready), and the playground retries up to 3 workers. A low cap here
+  // 429s the token poll on a slow worker and the answer never streams back (the
+  // "nothing returned" bug). Give it real headroom; the upstream gateway has its
+  // own limits, this only stops gross abuse of the open proxy.
+  { prefix: "/api/gw/", rule: { limit: 600, windowMs: 60_000 } },
   { prefix: "/api/dao-", rule: { limit: 30, windowMs: 60_000 } },
   { prefix: "/api/operator-preview", rule: { limit: 30, windowMs: 60_000 } },
   { prefix: "/api/sdk-demo", rule: { limit: 20, windowMs: 60_000 } },
