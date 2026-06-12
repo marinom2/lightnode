@@ -21,7 +21,7 @@ const PHASE_LABEL: Record<Exclude<Phase, null>, string> = {
 };
 
 export function ChatSheet({ from, onClose }: { from: string; onClose: () => void }) {
-  const portRef = useRef<chrome.runtime.Port | null>(null);
+  const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const [models, setModels] = useState<ChatModel[] | null | undefined>(undefined);
   const [model, setModel] = useState<ChatModel | null>(null);
   const [consented, setConsented] = useState(false);
@@ -35,7 +35,7 @@ export function ChatSheet({ from, onClose }: { from: string; onClose: () => void
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const port = chrome.runtime.connect({ name: "lc-chat" });
+    const port = browser.runtime.connect({ name: "lc-chat" });
     portRef.current = port;
     port.onMessage.addListener((m: { type: string; models?: ChatModel[]; phase?: Phase; text?: string; feeLcai?: number; message?: string }) => {
       if (m.type === "models") {

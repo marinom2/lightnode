@@ -44,11 +44,11 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
   const [hideZero, setHideZero] = useState(false);
   const [showSpam, setShowSpam] = useState(false);
   useEffect(() => {
-    void chrome.storage.local.get("ui-hide-zero").then((r) => setHideZero(Boolean(r["ui-hide-zero"])));
+    void browser.storage.local.get("ui-hide-zero").then((r) => setHideZero(Boolean(r["ui-hide-zero"])));
   }, []);
   const toggleHideZero = () => {
     setHideZero((v) => {
-      void chrome.storage.local.set({ "ui-hide-zero": !v });
+      void browser.storage.local.set({ "ui-hide-zero": !v });
       return !v;
     });
   };
@@ -104,8 +104,8 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
     const listener = (changes: Record<string, unknown>, area: string) => {
       if (area === "local" && "selected-chain" in changes) onChange();
     };
-    chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
   }, [onChange]);
   // The user should never have to reopen the popup to see a received payment.
   // refreshTick also re-fires the DAO/Worker cards (their balances move too).
@@ -490,7 +490,7 @@ function NetworkSwitcher({ chainId, onSwitch }: { chainId: number; onSwitch: (id
   const [open, setOpen] = useState(false);
   const [hideTestnets, setHideTestnets] = useState(false);
   useEffect(() => {
-    if (open) void chrome.storage.local.get("ui-hide-testnets").then((r) => setHideTestnets(Boolean(r["ui-hide-testnets"])));
+    if (open) void browser.storage.local.get("ui-hide-testnets").then((r) => setHideTestnets(Boolean(r["ui-hide-testnets"])));
   }, [open]);
   const visibleChains = CHAIN_LIST.filter((c) => !hideTestnets || !c.testnet || c.id === chainId);
   return (

@@ -850,7 +850,7 @@ function startApprovalWindow(): void {
   approvalOpening = browser.windows
     .create({ url: browser.runtime.getURL("/popup.html#/approve"), type: "popup", width: 380, height: 600 })
     .then((w) => {
-      approvalWindowId = w.id ?? null;
+      approvalWindowId = w?.id ?? null;
       // Survive a service-worker restart: a stale approval window left behind
       // after the SW died is swept on the next boot (see sweepOrphanWindows).
       void browser.storage.session.set({ "approval-window": approvalWindowId });

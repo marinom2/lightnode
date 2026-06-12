@@ -61,7 +61,7 @@ export function SettingsSheet({ state, onClose, onRemoved, onChanged }: { state:
   const [removeArmed, setRemoveArmed] = useState(false);
   useEffect(() => {
     wallet<string[]>({ type: "getOrigins" }).then(setOrigins).catch(() => setOrigins([]));
-    void chrome.storage.local.get("ui-hide-testnets").then((r) => setHideTestnets(Boolean(r["ui-hide-testnets"])));
+    void browser.storage.local.get("ui-hide-testnets").then((r) => setHideTestnets(Boolean(r["ui-hide-testnets"])));
   }, []);
   const [revokeErr, setRevokeErr] = useState<string | null>(null);
   const revoke = (origin: string) => {
@@ -73,7 +73,7 @@ export function SettingsSheet({ state, onClose, onRemoved, onChanged }: { state:
   const setAutoLock = (minutes: number) => void wallet({ type: "setAutoLock", minutes }).then(onChanged).catch(() => {});
   const toggleTestnets = () => {
     setHideTestnets((v) => {
-      void chrome.storage.local.set({ "ui-hide-testnets": !v });
+      void browser.storage.local.set({ "ui-hide-testnets": !v });
       return !v;
     });
   };
@@ -81,7 +81,7 @@ export function SettingsSheet({ state, onClose, onRemoved, onChanged }: { state:
     await wallet({ type: "removeWallet" });
     onRemoved();
   };
-  const version = chrome.runtime.getManifest().version;
+  const version = browser.runtime.getManifest().version;
   return (
     <Sheet title="Settings" onClose={onClose}>
       <div className="card">
