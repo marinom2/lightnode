@@ -1,6 +1,6 @@
 {
   "name": "lightnode-sdk",
-  "version": "0.19.0",
+  "version": "0.19.1",
   "description": "Community TypeScript SDK + CLI for LightChain AI: end-to-end encrypted on-chain inference (with optional web search), multi-turn chat, batch + agent runners, read-only network analytics, an Ethereum bridge and LCAI Governor wrapper, and a full worker-operator surface (register, stake, settle, stuck-job recovery, exit). Non-custodial. Built on viem. Independent, not an official LightChain package.",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,12 +51,13 @@
     "url": "https://github.com/marinom2/lightnode/issues"
   },
   "dependencies": {
-    "@noble/ciphers": "^1.0.0",
-    "@noble/curves": "^1.0.0",
+    "@noble/ciphers": "^2.0.0",
+    "@noble/curves": "^2.0.0",
     "viem": "^2"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "typescript": "^6",
+    "@types/node": "^20"
   },
   "engines": {
     "node": ">=18"
