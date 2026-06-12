@@ -32,7 +32,7 @@ jobs:
     name: Verify · Publish · Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # For workflow_dispatch, check out the supplied tag; for a tag push,
           # the default ref is already the tag.
