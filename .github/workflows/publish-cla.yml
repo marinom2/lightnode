@@ -32,13 +32,13 @@ jobs:
     name: Verify · Publish · Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # For workflow_dispatch, check out the supplied tag; for a tag push,
           # the default ref is already the tag.
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: "https://registry.npmjs.org" # sets up NODE_AUTH_TOKEN-based auth
