@@ -1,0 +1,87 @@
+name: Publish create-lightnode-app
+
+# Publishes `create-lightnode-app` to npm from a `create-lightnode-app-v*` tag,
+# mirroring publish-sdk.yml. The job verifies the tag matches the package
+# version and that the template pins a published-compatible SDK line, then
+# publishes with provenance and opens a GitHub Release.
+#
+# Uses the same `NPM_TOKEN` repo secret as the SDK publish (an npm automation
+# token with write access to create-lightnode-app).
+#
+# Cut a release:
+#   1. bump create-lightnode-app/package.json "version" (and SDK_VERSION in
+#      src/templates.ts when the pinned SDK line moves)
+#   2. git tag create-lightnode-app-v0.2.3 && git push origin create-lightnode-app-v0.2.3
+# or run this workflow manually (Actions -> Publish create-lightnode-app).
+
+on:
+  push:
+    tags: ["create-lightnode-app-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. create-lightnode-app-v0.2.3). Must exist and match the package version."
+        required: true
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # npm provenance (public repo)
+
+jobs:
+  publish:
+    name: Verify · Publish · Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For workflow_dispatch, check out the supplied tag; for a tag push,
+          # the default ref is already the tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org" # sets up NODE_AUTH_TOKEN-based auth
+
+      - name: Install + typecheck + build
+        working-directory: create-lightnode-app
+        run: npm ci && npm run typecheck && npm run build
+
+      # Refuse to publish a tag whose version does not match the package.
+      - name: Verify tag matches package version
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          TAG_VERSION="${TAG#create-lightnode-app-v}"
+          PKG_VERSION="$(node -p "require('./create-lightnode-app/package.json').version")"
+          echo "tag=$TAG_VERSION package=$PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG ($TAG_VERSION) does not match create-lightnode-app/package.json ($PKG_VERSION)."
+            exit 1
+          fi
+
+      # The scaffolder is only useful if the SDK line it pins resolves on npm.
+      - name: Verify the pinned SDK line is installable
+        run: |
+          PIN="$(node -p "require('fs').readFileSync('create-lightnode-app/src/templates.ts','utf8').match(/SDK_VERSION = \"([^\"]+)\"/)[1]")"
+          echo "template pins lightnode-sdk $PIN"
+          if ! npm view "lightnode-sdk@$PIN" version > /dev/null 2>&1; then
+            echo "::error::No published lightnode-sdk satisfies '$PIN'. Publish the SDK first (publish-sdk.yml)."
+            exit 1
+          fi
+
+      - name: Publish to npm
+        working-directory: create-lightnode-app
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          PKG_VERSION="$(node -p "require('./create-lightnode-app/package.json').version")"
+          gh release create "$TAG" \
+            --title "create-lightnode-app $PKG_VERSION" \
+            --notes "Published to npm as create-lightnode-app@$PKG_VERSION. Scaffold a project with: npm create lightnode-app my-app" \
+            --verify-tag

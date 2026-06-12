@@ -50,6 +50,22 @@ published version. **Manual fallback** (if CI is unavailable): verify locally,
 then `cd sdk && npm publish` after a
 `npx tsc --noEmit && npx vitest run && (cd sdk && npm run build)`.
 
+## Releasing create-lightnode-app
+
+Same pattern, its own tag family and workflow (`publish-cla.yml`, same
+`NPM_TOKEN`):
+
+```bash
+# 1. Bump create-lightnode-app/package.json "version" (and SDK_VERSION in
+#    src/templates.ts when the pinned SDK line moves).
+# 2. Tag and push - CI verifies, publishes with provenance, cuts a release:
+git tag create-lightnode-app-v0.2.3 && git push origin create-lightnode-app-v0.2.3
+```
+
+The workflow refuses to publish when the tag does not match the package
+version, and also when the template's pinned `lightnode-sdk` range resolves to
+nothing on npm - publish the SDK first, then the scaffolder.
+
 ## Releasing the desktop app
 
 The desktop installers are built in CI (`.github/workflows/release.yml`) for
