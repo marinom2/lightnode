@@ -51,10 +51,18 @@ const jobRegistry: ContractDef = {
   name: "LightChain JobRegistry",
   abi: JOB_REGISTRY_ABI,
   label: (fn, args, valueWei, chainId) => {
-    if (fn === "createSession")
-      return { action: "Start an encrypted AI session", detail: "Opens a private inference session with a worker. No tokens move now - you pay per prompt." };
+    if (fn === "createSession") {
+      // createSession is payable: an attacker can attach msg.value, so never
+      // claim "no tokens move" unless the value really is zero.
+      const detail =
+        valueWei > 0n
+          ? `Opens an inference session and sends ${formatEther(valueWei)} ${sym(chainId)} with it.`
+          : "Opens a private inference session with a worker. No tokens move now - you pay per prompt.";
+      return { action: "Start an encrypted AI session", detail };
+    }
     if (fn === "submitJob")
-      return { action: "Submit an AI prompt", detail: `Runs one encrypted inference. Fee: ${formatEther(valueWei)} ${sym(chainId)}.` };
+      // The value is dapp-supplied; we cannot assert it equals the protocol fee.
+      return { action: "Submit an AI prompt", detail: `Runs one encrypted inference. Native value sent: ${formatEther(valueWei)} ${sym(chainId)}.` };
     if (fn === "withdraw")
       return { action: "Withdraw worker earnings", detail: "Pulls your claimable worker balance to this wallet." };
     return null;
@@ -66,7 +74,8 @@ const workerRegistry: ContractDef = {
   abi: WORKER_REGISTRY_ABI,
   label: (fn, _args, valueWei, chainId) => {
     if (fn === "registerWorker")
-      return { action: "Register as a worker", detail: `Registers this address as a LightChain AI worker. Stake: ${formatEther(valueWei)} ${sym(chainId)}.` };
+      // The value is dapp-supplied; we cannot assert it equals the required stake.
+      return { action: "Register as a worker", detail: `Registers this address as a LightChain AI worker. Native value sent as stake: ${formatEther(valueWei)} ${sym(chainId)}.` };
     if (fn === "deregisterWorker")
       return { action: "Deregister your worker", detail: "Removes this address from the worker set so you can withdraw your stake." };
     return null;

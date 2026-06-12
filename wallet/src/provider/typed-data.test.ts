@@ -25,6 +25,22 @@ describe("decodeTypedPermit", () => {
     expect(p.token).toBe(TOKEN);
     expect(p.unlimited).toBe(true);
   });
+  it("flags a Permit2 amount just below the uint160 max as unlimited (no one-below-max bypass)", () => {
+    const oneBelowMax = ((1n << 160n) - 2n).toString();
+    const p = decodeTypedPermit("PermitSingle", { spender: SPENDER, details: { token: TOKEN, amount: oneBelowMax, expiration: "0", nonce: 0 } });
+    expect(p.unlimited).toBe(true);
+    expect(p.summary).toContain("UNLIMITED");
+  });
+  it("flags a Permit2 batch where one item is just below the uint160 max", () => {
+    const oneBelowMax = ((1n << 160n) - 2n).toString();
+    const p = decodeTypedPermit("PermitBatch", { spender: SPENDER, details: [{ token: TOKEN, amount: "5" }, { token: TOKEN, amount: oneBelowMax }] });
+    expect(p.unlimited).toBe(true);
+    expect(p.summary).toContain("UNLIMITED");
+  });
+  it("leaves an ordinary Permit2 amount below the half-range floor bounded", () => {
+    const p = decodeTypedPermit("PermitSingle", { spender: SPENDER, details: { token: TOKEN, amount: "1000000", expiration: "0", nonce: 0 } });
+    expect(p.unlimited).toBe(false);
+  });
   it("decodes Permit2 PermitBatch and counts items", () => {
     const p = decodeTypedPermit("PermitBatch", { spender: SPENDER, details: [{ token: TOKEN, amount: "5" }, { token: TOKEN, amount: MAX_UINT160 }] });
     expect(p.kind).toBe("permit2-batch");
@@ -73,6 +89,15 @@ describe("siweOriginMismatch", () => {
     expect(siweOriginMismatch(msg, "https://app.uniswap.org")).toBeNull();
     expect(siweOriginMismatch("hello world", "https://x.com")).toBeNull();
   });
+  it("still flags the mismatch when a blank line / CRLF precedes the anchor", () => {
+    const msg = "\r\n   \napp.uniswap.org wants you to sign in with your Ethereum account:\n0xabc";
+    const r = siweOriginMismatch(msg, "https://app.unlswap.org");
+    expect(r).toEqual({ stated: "app.uniswap.org", actual: "app.unlswap.org" });
+  });
+  it("still passes a matching origin when the anchor line carries trailing CR", () => {
+    const msg = "app.uniswap.org wants you to sign in with your Ethereum account:\r\n0xabc";
+    expect(siweOriginMismatch(msg, "https://app.uniswap.org")).toBeNull();
+  });
 });
 
 describe("siweChainId", () => {
@@ -89,6 +114,13 @@ describe("siweChainId", () => {
   });
   it("never reads a chain out of non-SIWE text", () => {
     expect(siweChainId("hello\nChain ID: 9200")).toBeNull();
+  });
+  it("still reads the chain when a blank line / CRLF precedes the SIWE anchor", () => {
+    expect(siweChainId(`\r\n\n${siwe("Chain ID: 9200")}`)).toBe(9200);
+  });
+  it("still reads the chain when the field carries a trailing CR", () => {
+    const crlf = siwe("Chain ID: 9200").replace(/\n/g, "\r\n");
+    expect(siweChainId(crlf)).toBe(9200);
   });
 });
 
