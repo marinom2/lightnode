@@ -69,7 +69,7 @@ export type WalletOp =
   | { type: "replaceTx"; from: string; hash: string; mode: "speedup" | "cancel" }
   | { type: "bridgeFee"; direction: "eth-to-lc" | "lc-to-eth" }
   | { type: "bridgeBalance"; direction: "eth-to-lc" | "lc-to-eth"; account: string }
-  | { type: "bridge"; from: string; direction: "eth-to-lc" | "lc-to-eth"; amount: string }
+  | { type: "bridge"; from: string; direction: "eth-to-lc" | "lc-to-eth"; amount: string; expectedFeeWei?: string }
   | { type: "daoStatus"; chainId: number; address: string }
   | { type: "getNfts"; chainId: number; owner: string }
   | { type: "addNft"; chainId: number; owner: string; token: string; tokenId: string }

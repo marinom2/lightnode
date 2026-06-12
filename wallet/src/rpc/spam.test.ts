@@ -20,6 +20,24 @@ describe("assessTokenRisk", () => {
   it("flags glyph-soup symbols", () => {
     expect(assessTokenRisk("✅🎁💰", "0x4444444444444444444444444444444444444444", OFFICIAL).spam).toBe(true);
   });
+  it("flags Cyrillic homoglyph impersonation (USDС with Cyrillic С)", () => {
+    const v = assessTokenRisk("USDС", "0x2222222222222222222222222222222222222222", OFFICIAL);
+    expect(v.spam).toBe(true);
+  });
+  it("flags Greek homoglyph impersonation (ΕΤΗ resembling ETH)", () => {
+    const v = assessTokenRisk("ΕΤΗ", "0x5555555555555555555555555555555555555555", OFFICIAL);
+    expect(v.spam).toBe(true);
+  });
+  it("flags fullwidth homoglyph impersonation (ｕｓｄｔ resembling USDT)", () => {
+    const v = assessTokenRisk("ｕｓｄｔ", "0x6666666666666666666666666666666666666666", OFFICIAL);
+    expect(v.spam).toBe(true);
+  });
+  it("does NOT flag a genuine USDC on its official contract", () => {
+    expect(assessTokenRisk("USDC", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", OFFICIAL).spam).toBe(false);
+  });
+  it("does NOT flag an unrelated non-ASCII symbol as impersonation", () => {
+    expect(assessTokenRisk("café", "0x7777777777777777777777777777777777777777", OFFICIAL).spam).toBe(false);
+  });
 });
 
 describe("assessNftRisk", () => {

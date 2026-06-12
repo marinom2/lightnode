@@ -7,6 +7,16 @@
  *   - KDF params are recorded in the blob so they can be upgraded later.
  *   - GCM auth-tag failure IS the password check (decrypt throws on wrong key/tamper).
  * The vault is stored encrypted at rest; it is useless without the password.
+ *
+ * Scrypt cost (security review): N=2^16 is deliberate, not an oversight. Going to
+ * 2^17 (~128 MiB) doubles the brute-force cost but risks OOM on low-RAM devices
+ * and inside the memory-bounded MV3 service worker, where a failed derive would
+ * block vault creation/unlock entirely. Because `kdf` (incl. N) is stored PER
+ * blob and decrypt reads it back, a future bump is a one-line change to
+ * DEFAULT_SCRYPT plus a lazy re-encrypt on the next successful unlock - existing
+ * vaults keep decrypting with their own recorded params. Revisit when a minimum
+ * device floor is set; until then the strong password + at-rest-only storage is
+ * the load-bearing control, and the seed is never exposed to the network.
  */
 import { scryptAsync } from "@noble/hashes/scrypt";
 import { bytesToBase64, base64ToBytes } from "./base64";

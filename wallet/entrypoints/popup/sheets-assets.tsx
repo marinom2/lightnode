@@ -9,7 +9,49 @@ import type { NftItem } from "../../src/rpc/nfts";
 import { type Asset, assetKey, Ic, short, fmtBal, tokenLogo, Sheet, avatarGradient } from "./shared";
 import { looksLikeEnsName } from "../../src/rpc/ens";
 
+/**
+ * Spam-flagged NFTs must NOT auto-load their remote image: a scam NFT's image
+ * URL is an attacker-chosen server, so merely opening the wallet would beacon the
+ * holder's IP and online status ("this wallet is live now"). We render a neutral
+ * placeholder with an opt-in "Load image" affordance for those. Non-spam NFTs
+ * (the user imported them, or they are not flagged) auto-load as before.
+ *
+ * Residual tradeoff: this is a no-server wallet by design (no image proxy), so an
+ * image the user opts into still reveals their IP to that image's host. The gate
+ * stops the drive-by case, it cannot fully anonymize a remote fetch.
+ */
+function shouldAutoLoad(nft: NftItem): boolean {
+  return !nft.spam;
+}
+
+/** NFT image with a spam gate: auto-loads trusted images, opt-in for spam ones. */
+function NftImage({ nft, className, revealed, onReveal }: { nft: NftItem; className: string; revealed: boolean; onReveal: () => void }) {
+  const fallbackSize = className.includes("hero") ? 34 : 26;
+  if (!nft.image) {
+    return <div className={`${className} nft-fallback`}><Ic name="image" size={fallbackSize} /></div>;
+  }
+  if (shouldAutoLoad(nft) || revealed) {
+    return <img className={className} src={nft.image} alt="" loading="lazy" />;
+  }
+  return (
+    <div className={`${className} nft-fallback`} style={{ position: "relative" }}>
+      <Ic name="image" size={fallbackSize} />
+      <span
+        className="reveal-overlay"
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); onReveal(); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onReveal(); } }}
+      >
+        <Ic name="image" size={14} /> Load image
+      </span>
+    </div>
+  );
+}
+
 export function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null | undefined; onImport: () => void; onOpen: (n: NftItem) => void }) {
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const reveal = (key: string) => setRevealed((prev) => new Set(prev).add(key));
   if (nfts === null) {
     return (
       <div className="empty">
@@ -40,7 +82,7 @@ export function NftGrid({ nfts, onImport, onOpen }: { nfts: NftItem[] | null | u
         <div className="nft-grid">
           {nfts.map((n) => (
             <button className="nft-card" key={`${n.address}-${n.tokenId}`} style={n.spam ? { opacity: 0.7 } : undefined} title={n.spam} onClick={() => onOpen(n)}>
-              {n.image ? <img className="nft-img" src={n.image} alt="" loading="lazy" /> : <div className="nft-img nft-fallback"><Ic name="image" size={26} /></div>}
+              <NftImage nft={n} className="nft-img" revealed={revealed.has(`${n.address}-${n.tokenId}`)} onReveal={() => reveal(`${n.address}-${n.tokenId}`)} />
               <div className="nft-meta">
                 <b>{n.name}{n.spam && <span className="tag tag-bad">scam?</span>}</b>
                 <span className="faint">{n.collection || short(n.address)}</span>
@@ -114,6 +156,7 @@ export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged
   const [err, setErr] = useState<string | null>(null);
   const [known, setKnown] = useState<string[]>([]);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [imageRevealed, setImageRevealed] = useState(false);
   const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
   // NFT transfers are irreversible too: same poisoning checks as the Send sheet.
   const risk = validAddr ? assessRecipient(to.trim(), known, own) : null;
@@ -138,7 +181,7 @@ export function NftSheet({ nft, from, chainId, explorer, own, onClose, onChanged
   const doneAfterSend = () => void wallet({ type: "removeNft", chainId, owner: from, token: nft.address, tokenId: nft.tokenId }).then(onChanged);
   return (
     <Sheet title={nft.name} onClose={onClose} dirty={Boolean(to)} busy={busy}>
-        {nft.image ? <img className="nft-hero" src={nft.image} alt="" /> : <div className="nft-hero nft-fallback"><Ic name="image" size={34} /></div>}
+        <NftImage nft={nft} className="nft-hero" revealed={imageRevealed} onReveal={() => setImageRevealed(true)} />
         <div className="row between">
           <span className="muted">{nft.collection || "Collection"} · #{nft.tokenId} · {nft.standard === "erc721" ? "ERC-721" : "ERC-1155"}</span>
           <a href={nftUrlFor(chainId, nft.address, nft.tokenId)} target="_blank" rel="noreferrer" style={{ fontSize: 12, flexShrink: 0 }}>Explorer →</a>
@@ -401,6 +444,10 @@ export function ReceiveSheet({ address, chainName, onClose }: { address: string;
 export function AvatarSheet({ address, chainId, current, onClose }: { address: string; chainId: number; current: string | null; onClose: () => void }) {
   const [nfts, setNfts] = useState<NftItem[] | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  // Spam NFTs are gated here too: a scam image must not beacon the holder's IP on
+  // mere avatar-picker open. The user opts in per image before it loads or is set.
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const reveal = (key: string) => setRevealed((prev) => new Set(prev).add(key));
   useEffect(() => {
     wallet<NftItem[]>({ type: "getNfts", chainId, owner: address }).then(setNfts).catch(() => setNfts(null));
   }, [chainId, address]);
@@ -421,11 +468,21 @@ export function AvatarSheet({ address, chainId, current, onClose }: { address: s
         <button className={`avatar-pick${current === null ? " sel" : ""}`} title="Default gradient" onClick={() => pick(null)}>
           <span className="avatar" style={{ background: avatarGradient(address) }} />
         </button>
-        {withImages.map((n) => (
-          <button key={`${n.address}-${n.tokenId}`} className={`avatar-pick${current === n.image ? " sel" : ""}`} title={n.name} onClick={() => pick(n.image)}>
-            <img src={n.image!} alt={n.name} />
-          </button>
-        ))}
+        {withImages.map((n) => {
+          const key = `${n.address}-${n.tokenId}`;
+          if (n.spam && !revealed.has(key)) {
+            return (
+              <button key={key} className="avatar-pick" title={`${n.name} - likely scam, image not loaded`} onClick={() => reveal(key)}>
+                <span className="avatar nft-fallback" style={{ display: "grid" }}><Ic name="image" size={20} /></span>
+              </button>
+            );
+          }
+          return (
+            <button key={key} className={`avatar-pick${current === n.image ? " sel" : ""}`} title={n.name} onClick={() => pick(n.image)}>
+              <img src={n.image!} alt={n.name} />
+            </button>
+          );
+        })}
       </div>
       {nfts === undefined && <span className="skel" style={{ width: 140 }} />}
       {nfts !== undefined && withImages.length === 0 && (

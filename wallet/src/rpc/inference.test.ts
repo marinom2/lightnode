@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { p256 } from "@noble/curves/nist.js";
 import { gcm } from "@noble/ciphers/aes.js";
-import { modelIdFor, wrapSessionKey, encryptPayload, decryptPayload, decodePublicKey } from "./inference";
+import { modelIdFor, wrapSessionKey, encryptPayload, decryptPayload, decodePublicKey, verifiedWorkerKey, assertSafeChallenge } from "./inference";
+import type { PublicClient } from "viem";
+
+const WORKER = "0x00000000000000000000000000000000000000ab";
+const toHexKey = (b: Uint8Array): `0x${string}` => `0x${Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("")}`;
+// A PublicClient whose getWorkerEncryptionKey read returns `onchain`.
+const clientReturning = (onchain: `0x${string}`): PublicClient =>
+  ({ readContract: async () => onchain }) as unknown as PublicClient;
 
 describe("modelIdFor", () => {
   it("matches the LIVE gateway id for llama3-8b (protocol anchor)", () => {
@@ -42,5 +49,40 @@ describe("session crypto", () => {
     expect(() => decodePublicKey("AAAA")).toThrow();
     expect(() => decodePublicKey("zz".repeat(65))).toThrow();
     expect(() => decryptPayload(new Uint8Array(32), new Uint8Array(5))).toThrow();
+  });
+});
+
+describe("verifiedWorkerKey (E2E trust anchor)", () => {
+  const priv = p256.utils.randomSecretKey();
+  const realKey = p256.getPublicKey(priv, false); // the worker's true 65-byte key
+  const attackerKey = p256.getPublicKey(p256.utils.randomSecretKey(), false);
+
+  it("returns the key when the gateway's key matches the chain", async () => {
+    const got = await verifiedWorkerKey(clientReturning(toHexKey(realKey)), WORKER, toHexKey(realKey));
+    expect(Array.from(got)).toEqual(Array.from(realKey));
+  });
+  it("REJECTS a gateway key that does not match the on-chain key (the MITM)", async () => {
+    await expect(verifiedWorkerKey(clientReturning(toHexKey(realKey)), WORKER, toHexKey(attackerKey))).rejects.toThrow(/does not match the chain/);
+  });
+  it("fails closed when the worker has no key registered on-chain", async () => {
+    await expect(verifiedWorkerKey(clientReturning("0x"), WORKER, toHexKey(realKey))).rejects.toThrow(/no encryption key registered/);
+  });
+});
+
+describe("assertSafeChallenge (no blind SIWE signing)", () => {
+  const ADDR = "0x73C0B223874686FA13Ba1864562d9fEaAc3DEB5e";
+  const good = `lightnode.app wants you to sign in with your Ethereum account:\n${ADDR}\n\nNonce: abc`;
+  it("accepts a challenge for this gateway and this account", () => {
+    expect(() => assertSafeChallenge(good, ADDR)).not.toThrow();
+  });
+  it("rejects a challenge naming a different site", () => {
+    expect(() => assertSafeChallenge(good.replace("lightnode.app", "evil.example"), ADDR)).toThrow(/different site/);
+  });
+  it("rejects a challenge for a different account", () => {
+    expect(() => assertSafeChallenge(good, "0x000000000000000000000000000000000000dEaD")).toThrow(/different account/);
+  });
+  it("rejects an empty or oversized challenge", () => {
+    expect(() => assertSafeChallenge("", ADDR)).toThrow();
+    expect(() => assertSafeChallenge("x".repeat(5000), ADDR)).toThrow();
   });
 });

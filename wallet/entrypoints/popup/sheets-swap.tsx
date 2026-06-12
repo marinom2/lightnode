@@ -177,7 +177,10 @@ function NetworkMove({ from, onDone }: { from: string; onDone: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      const r = await wallet<{ hash: string }>({ type: "bridge", from, direction: dir, amount });
+      // Pass the fee the user was shown so the background can abort if a hostile
+      // RPC inflates it at execution (the quote is in whole LCAI; to wei).
+      const expectedFeeWei = fee && Number.isFinite(Number(fee)) ? BigInt(Math.round(Number(fee) * 1e18)).toString() : undefined;
+      const r = await wallet<{ hash: string }>({ type: "bridge", from, direction: dir, amount, expectedFeeWei });
       setHash(r.hash);
       onDone();
     } catch (e) {

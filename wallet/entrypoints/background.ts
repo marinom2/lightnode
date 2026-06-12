@@ -43,6 +43,23 @@ const ACTIVE_KEY = "active-account";
 const NAMES_KEY = "account-names";
 // Per-owner: account A's prune must never touch account B's imports (review).
 const NFTS_KEY = (chainId: number, owner: string) => `nfts-${chainId}-${owner.toLowerCase()}`;
+
+interface WalletSender { id?: string; origin?: string; url?: string; tab?: unknown }
+
+/**
+ * True only for our own privileged UI (popup / approval / extension pages):
+ * same extension id, the extension's own origin, and no originating tab. The
+ * privileged wallet channel must reject anything else (a content script always
+ * carries a `tab`; a web page cannot reach chrome.runtime at all without
+ * externally_connectable, which we do not declare).
+ */
+function isTrustedWalletSender(sender: WalletSender): boolean {
+  if (!sender || sender.tab) return false;
+  if (sender.id !== browser.runtime.id) return false;
+  const extOrigin = `chrome-extension://${browser.runtime.id}`;
+  const from = sender.origin ?? sender.url ?? "";
+  return from === extOrigin || from.startsWith(`${extOrigin}/`);
+}
 const AUTOLOCK_KEY = "autolock-min";
 const AUTO_LOCK_CHOICES = [5, 15, 60];
 async function autoLockMinutes(): Promise<number> {
@@ -61,6 +78,12 @@ async function activeIndex(max: number): Promise<number> {
 }
 
 let live: Keyring | null = null;
+/** Replace the in-memory keyring, zeroing the previous seed bytes first so a
+ *  re-unlock / re-import never leaves an orphaned live seed in module memory. */
+function setLive(kr: Keyring | null): void {
+  if (live && live !== kr) live.wipe();
+  live = kr;
+}
 const pending = new Map<string, { request: JsonRpcRequest; origin: string; resolve: (r: unknown) => void; reject: (e: { code: number; message: string }) => void }>();
 let pendingSeq = 0;
 
@@ -119,7 +142,7 @@ async function trackedTokens(chainId: number): Promise<TokenMeta[]> {
 async function restore(): Promise<Keyring | null> {
   if (live) return live;
   const { [SESSION_KEY]: mnemonic } = await browser.storage.session.get(SESSION_KEY);
-  if (typeof mnemonic === "string" && mnemonic) live = Keyring.fromMnemonic(mnemonic, await accountCount());
+  if (typeof mnemonic === "string" && mnemonic) setLive(Keyring.fromMnemonic(mnemonic, await accountCount()));
   return live;
 }
 
@@ -163,6 +186,8 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       return { chainId: op.chainId };
     }
     case "setActiveAccount": {
+      const max = await accountCount();
+      if (!Number.isInteger(op.index) || op.index < 0 || op.index >= max) throw RpcError.invalidParams;
       await browser.storage.local.set({ [ACTIVE_KEY]: op.index });
       const kr = await restore();
       const addr = kr?.accounts[op.index]?.address;
@@ -196,12 +221,15 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const hex = toHex(pk);
       pk.fill(0);
       seed.fill(0);
+      await bumpAutoLock(); // an active reveal is activity; do not lock under the user
       return { privateKey: hex };
     }
     case "revealMnemonic": {
       const { [VAULT_KEY]: vault } = (await browser.storage.local.get(VAULT_KEY)) as { vault?: EncryptedVault };
       if (!vault) throw RpcError.invalidParams;
-      return { mnemonic: await decryptVault(vault, op.password) }; // throws "Invalid password"
+      const mnemonic = await decryptVault(vault, op.password); // throws "Invalid password"
+      await bumpAutoLock(); // an active reveal is activity; do not lock under the user
+      return { mnemonic };
     }
     case "removeWallet": {
       await lock();
@@ -217,18 +245,20 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const vault = await encryptVault(op.mnemonic, op.password);
       await browser.storage.local.set({ [VAULT_KEY]: vault, [COUNT_KEY]: 1, [ACTIVE_KEY]: 0 });
       await browser.storage.session.set({ [SESSION_KEY]: op.mnemonic });
-      live = Keyring.fromMnemonic(op.mnemonic, 1);
+      const created = Keyring.fromMnemonic(op.mnemonic, 1);
+      setLive(created);
       await bumpAutoLock();
-      return { unlocked: true, accounts: live.accounts.map((a) => a.address) };
+      return { unlocked: true, accounts: created.accounts.map((a) => a.address) };
     }
     case "unlock": {
       const { [VAULT_KEY]: vault } = (await browser.storage.local.get(VAULT_KEY)) as { vault?: EncryptedVault };
       if (!vault) throw RpcError.invalidParams;
       const mnemonic = await decryptVault(vault, op.password); // throws "Invalid password"
-      live = Keyring.fromMnemonic(mnemonic, await accountCount());
+      const unlocked = Keyring.fromMnemonic(mnemonic, await accountCount());
+      setLive(unlocked);
       await browser.storage.session.set({ [SESSION_KEY]: mnemonic });
       await bumpAutoLock();
-      return { unlocked: true, accounts: live.accounts.map((a) => a.address) };
+      return { unlocked: true, accounts: unlocked.accounts.map((a) => a.address) };
     }
     case "lock":
       await lock();
@@ -529,7 +559,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const acct = kr?.accountFor(op.from);
       if (!acct) throw RpcError.locked;
       await bumpAutoLock();
-      return bridgeTransfer(acct.account, op.direction, op.amount);
+      return bridgeTransfer(acct.account, op.direction, op.amount, op.expectedFeeWei);
     }
     case "txStatus": {
       try {
@@ -582,7 +612,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
           const list = op.addresses.map((a) => a.toLowerCase()).join(",");
           const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${list}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
           for (const [addr, v] of Object.entries(j)) {
-            out.tokenUsd[addr.toLowerCase()] = v?.usd ?? 0;
+            if (typeof v?.usd === "number") out.tokenUsd[addr.toLowerCase()] = v.usd;
             if (typeof v?.usd_24h_change === "number") out.tokenChange24h[addr.toLowerCase()] = v.usd_24h_change;
           }
         }
@@ -705,8 +735,20 @@ async function signAndSend(account: Keyring["accounts"][number]["account"], to: 
 
 // ---- dapp RPC + approval queue ---------------------------------------------
 
+/** Only secure origins may drive the wallet: https everywhere, plus http on
+ *  localhost for dapp development. Rejecting other http:// at the boundary also
+ *  collapses the http/https grant-key ambiguity, since a grant can then only
+ *  ever be keyed to a secure origin. */
+function isSecureOrigin(origin: string): boolean {
+  if (origin.startsWith("https://")) return true;
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
 async function handleDappRpc(request: JsonRpcRequest, origin: string): Promise<unknown> {
   if (!isAllowedMethod(request.method)) throw RpcError.unsupported;
+  // Block insecure-origin dapps outright (a self-custodial wallet has no reason
+  // to sign for an http:// site, and it removes the scheme-confusion grant gap).
+  if (!isSecureOrigin(origin)) throw RpcError.unauthorized;
 
   if (LOCAL_READ.has(request.method)) {
     const cid = await selectedChainId();
@@ -1039,9 +1081,18 @@ export default defineBackground(() => {
     eventPorts.set(p, origin);
     port.onDisconnect.addListener(() => eventPorts.delete(p));
   });
-  browser.runtime.onMessage.addListener((message: unknown, sender: { origin?: string; url?: string }) => {
+  browser.runtime.onMessage.addListener((message: unknown, sender: WalletSender) => {
     const msg = message as BgMessage;
     if (msg.kind === "wallet") {
+      // The wallet channel exposes the crown jewels (send/swap/bridge/reveal)
+      // with no per-call approval window, so it MUST come from our own
+      // privileged UI: same extension id, the extension origin, and NO tab
+      // (popup/extension pages have none; content scripts do). This makes the
+      // "only the popup speaks kind:wallet" invariant explicit instead of
+      // implicit, so no future content-script path can reach handleWalletOp.
+      if (!isTrustedWalletSender(sender)) {
+        return Promise.resolve({ error: { code: 4100, message: "unauthorized sender" } });
+      }
       return handleWalletOp(msg.op).then(
         (result) => ({ result }),
         (error: { code?: number; message?: string }) => ({ error: { code: error.code ?? -32603, message: error.message ?? "error" } }),

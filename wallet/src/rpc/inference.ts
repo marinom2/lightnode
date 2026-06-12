@@ -3,12 +3,16 @@
  * gateway, ECDH-P256 + AES-256-GCM session encryption, two signed transactions
  * per message (createSession + submitJob with the model fee), and the response
  * streamed back over the relay WebSocket and decrypted locally. The prompt and
- * the answer are end-to-end encrypted between this wallet and the worker.
+ * the answer are end-to-end encrypted between this wallet and the worker: the
+ * session key is wrapped ONLY to the worker's chain-registered encryption key
+ * (verified on-chain, never trusting the gateway's copy), so the proxy and the
+ * relay see ciphertext only.
  */
-import { type Account, createPublicClient, decodeEventLog, encodeFunctionData, http, parseAbi, keccak256, toHex, toBytes, createWalletClient } from "viem";
+import { type Account, type PublicClient, createPublicClient, decodeEventLog, encodeFunctionData, http, parseAbi, keccak256, toHex, toBytes, createWalletClient } from "viem";
 import { p256 } from "@noble/curves/nist.js";
 import { gcm } from "@noble/ciphers/aes.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
+import { bytesToBase64, base64ToBytes } from "../keyring/base64";
 import { chainById } from "./chains";
 
 // LightChain mainnet inference deployment. The gateway is reached through the
@@ -16,7 +20,13 @@ import { chainById } from "./chains";
 const CHAIN_ID = 9200;
 const JOB_REGISTRY = "0xfB15F90298e4CcD7106E76fFB5e520315cC42B0b" as const;
 const AI_CONFIG = "0x24D11533C354092ed6E18b964257819cE78Ce77D" as const;
+// Genesis predeploy: stores each worker's registered encryption pubkey. The
+// gateway is UNTRUSTED, so the worker key it offers must be checked against
+// this on-chain record before we wrap a session key to it (see review HIGH:
+// otherwise a malicious proxy substitutes its own key and reads the prompt).
+const WORKER_REGISTRY = "0x0000000000000000000000000000000000001002" as const;
 const GATEWAY = "https://lightnode.app/api/gw/mainnet";
+const GATEWAY_HOST = "lightnode.app";
 const RELAY_WS = "wss://relay.mainnet.lightchain.ai/ws";
 
 const REGISTRY_ABI = parseAbi([
@@ -25,6 +35,7 @@ const REGISTRY_ABI = parseAbi([
   "event SessionCreated(uint256 indexed sessionId, address indexed user, bytes32 indexed paramsHash, address worker, bytes encWorkerKey, bytes ephemeralPubKey)",
 ]);
 const FEE_ABI = parseAbi(["function calculateJobFee(bytes32 modelId) view returns (uint256)"]);
+const WORKER_KEY_ABI = parseAbi(["function getWorkerEncryptionKey(address worker) view returns (bytes)"]);
 
 const HTTP_TIMEOUT_MS = 15000;
 const TOKEN_POLL_MS = 20000;
@@ -34,13 +45,11 @@ const COMPLETE_GRACE_MS = 800;
 
 // ---- crypto (mirrors the protocol: ECDH-P256 x-coordinate + AES-256-GCM) -----
 
-const b64encode = (b: Uint8Array): string => btoa(String.fromCharCode(...b));
-function b64decode(s: string): Uint8Array {
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
-  return out;
-}
+// Use the chunked, stack-safe base64 (a long encrypted prompt overflows the
+// `btoa(String.fromCharCode(...bytes))` spread; that footgun is exactly what
+// keyring/base64.ts was written to avoid).
+const b64encode = bytesToBase64;
+const b64decode = base64ToBytes;
 
 /**
  * Worker keys arrive base64 OR hex, and the hex form often comes WITHOUT a 0x
@@ -96,6 +105,32 @@ export function decryptPayload(sessionKey: Uint8Array, sealed: Uint8Array): stri
 
 export const modelIdFor = (tag: string): `0x${string}` => keccak256(new TextEncoder().encode(tag));
 
+/**
+ * The TRUST ANCHOR for end-to-end secrecy. The gateway is untrusted: it chooses
+ * which worker serves us and hands us that worker's encryption key. If we wrapped
+ * the session key to whatever key the gateway sent, a malicious proxy could send
+ * its OWN key, unwrap the session key, read the prompt, and forge the answer.
+ * So we read the worker's encryption key straight from the chain and require the
+ * gateway's key to match it byte-for-byte before trusting it. Fail closed.
+ */
+export async function verifiedWorkerKey(pub: PublicClient, worker: `0x${string}`, gatewayKey: string): Promise<Uint8Array> {
+  const offered = decodePublicKey(gatewayKey); // 65-byte 0x04 point or throws
+  const onchainBytes = (await pub.readContract({
+    address: WORKER_REGISTRY,
+    abi: WORKER_KEY_ABI,
+    functionName: "getWorkerEncryptionKey",
+    args: [worker],
+  })) as `0x${string}`;
+  if (!onchainBytes || onchainBytes === "0x") {
+    throw new Error("This worker has no encryption key registered on-chain, so the session cannot be secured. Try again.");
+  }
+  const onchain = decodePublicKey(onchainBytes);
+  if (onchain.length !== offered.length || !onchain.every((b, i) => b === offered[i])) {
+    throw new Error("The AI gateway offered a worker key that does not match the chain. Aborting to protect your prompt.");
+  }
+  return offered;
+}
+
 // ---- gateway ------------------------------------------------------------------
 
 async function gw<T>(path: string, init: RequestInit & { bearer?: string } = {}): Promise<T> {
@@ -109,11 +144,33 @@ async function gw<T>(path: string, init: RequestInit & { bearer?: string } = {})
 // One token per address per service-worker lifetime (it expires server-side).
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+/**
+ * Refuse to sign a gateway auth challenge unless it is a SIWE message for THIS
+ * gateway and THIS account. Stops a malicious proxy from harvesting a signature
+ * scoped to another domain or address.
+ */
+export function assertSafeChallenge(message: string, address: string): void {
+  if (typeof message !== "string" || message.length === 0 || message.length > 4000) {
+    throw new Error("The AI gateway returned an unreadable sign-in challenge.");
+  }
+  const stated = message.match(/^\s*([^\s]+) wants you to sign in with your Ethereum account/m);
+  const domain = stated?.[1]?.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").toLowerCase();
+  if (domain && domain !== GATEWAY_HOST) {
+    throw new Error("The AI gateway's sign-in challenge names a different site. Aborting.");
+  }
+  if (!message.toLowerCase().includes(address.toLowerCase())) {
+    throw new Error("The AI gateway's sign-in challenge is for a different account. Aborting.");
+  }
+}
+
 async function authToken(account: Account): Promise<string> {
   const cached = tokenCache.get(account.address.toLowerCase());
   if (cached && cached.expiresAt - 30000 > Date.now()) return cached.token;
   const { message } = await gw<{ message: string }>(`/api/auth/challenge?address=${account.address}`);
   if (!account.signMessage) throw new Error("This account cannot sign messages.");
+  // Never blind-sign whatever the gateway returns: a hostile proxy could feed a
+  // SIWE message for another site/account and use the signature elsewhere.
+  assertSafeChallenge(message, account.address);
   const signature = await account.signMessage({ message });
   const v = await gw<{ token: string; expiresAt: string }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ message, signature }) });
   tokenCache.set(account.address.toLowerCase(), { token: v.token, expiresAt: Date.parse(v.expiresAt) || Date.now() + 600000 });
@@ -231,8 +288,12 @@ export async function runInference(account: Account, model: ChatModel, prompt: s
 
   on.phase("prepare");
   const sel = await gw<SelectResp>("/api/sessions/select", { method: "POST", bearer, body: JSON.stringify({ modelId: model.id }) });
+  if (!/^0x[0-9a-fA-F]{40}$/.test(sel.worker)) throw new Error("The AI gateway returned an invalid worker address.");
   const sessionKey = randomBytes(32);
-  const encWorker = wrapSessionKey(sessionKey, decodePublicKey(sel.workerEncryptionKey));
+  // Bind the session key to the worker's CHAIN-REGISTERED key, not the one the
+  // (untrusted) gateway sent. This is what makes the channel end-to-end.
+  const workerKey = await verifiedWorkerKey(pub, sel.worker as `0x${string}`, sel.workerEncryptionKey);
+  const encWorker = wrapSessionKey(sessionKey, workerKey);
   const encDisputer = sel.disputerEncryptionKey ? wrapSessionKey(sessionKey, decodePublicKey(sel.disputerEncryptionKey)) : new Uint8Array(0);
   const prep = await gw<PrepareResp>("/api/sessions/prepare", {
     method: "POST",
@@ -244,6 +305,10 @@ export async function runInference(account: Account, model: ChatModel, prompt: s
       ...(sel.selectionId ? { selectionId: sel.selectionId } : {}),
     }),
   });
+  // The worker we wrapped the key to must be the worker committed on-chain.
+  if (prep.worker.toLowerCase() !== sel.worker.toLowerCase()) {
+    throw new Error("The AI gateway switched the worker after key exchange. Aborting to protect your prompt.");
+  }
 
   on.phase("create");
   const createHash = await wallet.sendTransaction({

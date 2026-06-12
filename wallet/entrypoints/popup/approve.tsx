@@ -4,16 +4,20 @@ import { wallet, type PendingRequest, type WalletState } from "./wallet-api";
 import { decodeDangerousCall } from "../../src/provider/decode-call";
 import { recognizeLightChainCall } from "../../src/provider/lightchain-calls";
 import { summarizeTypedData, siweOriginMismatch, siweChainId, decodeSignText } from "../../src/provider/typed-data";
-import { chainById, logoFor } from "../../src/rpc/chains";
+import { chainById, isSupportedChain, logoFor } from "../../src/rpc/chains";
+import { assessRecipient } from "../../src/rpc/risk";
 import { SEVERITY_CLASS, SUPPORTED_IDS, avatarGradient, short } from "./shared";
 
 export function ApproveView() {
   const [reqs, setReqs] = useState<PendingRequest[] | null>(null);
   const [state, setState] = useState<WalletState | null>(null);
+  const [known, setKnown] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
     void wallet<PendingRequest[]>({ type: "listPending" }).then(setReqs).catch(() => setReqs([]));
     void wallet<WalletState>({ type: "getState" }).then(setState).catch(() => {});
+    // Known counterparties feed the same address-poisoning check the send flow uses.
+    void wallet<string[]>({ type: "knownRecipients" }).then(setKnown).catch(() => {});
   }, []);
   useEffect(() => {
     void load();
@@ -51,7 +55,7 @@ export function ApproveView() {
           <span className="ctx-item"><span className="avatar" style={{ width: 14, height: 14, background: avatarGradient(signer) }} /> {signerName}</span>
         </div>
       )}
-      <RequestDetail req={r} activeChainId={state?.chainId} />
+      <RequestDetail req={r} activeChainId={state?.chainId} own={state?.accounts ?? []} known={known} />
       {txParam && <FeeEstimate tx={txParam} />}
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
         <button className={dangerous ? "" : "ghost"} style={{ flex: 1 }} disabled={busy} onClick={() => resolve(r.id, false)}>Reject</button>
@@ -124,7 +128,7 @@ function labelFor(method: string): string {
   return method;
 }
 
-function RequestDetail({ req, activeChainId }: { req: PendingRequest; activeChainId?: number }) {
+function RequestDetail({ req, activeChainId, own = [], known = [] }: { req: PendingRequest; activeChainId?: number; own?: string[]; known?: string[] }) {
   if (req.method === "eth_sendTransaction") {
     const tx = (req.params?.[0] ?? {}) as { from?: string; to?: string; value?: string; data?: string };
     const decoded = decodeDangerousCall(tx.data as `0x${string}` | undefined);
@@ -133,12 +137,20 @@ function RequestDetail({ req, activeChainId }: { req: PendingRequest; activeChai
     // the native wallet should know its own ecosystem on sight.
     const recognized = recognizeLightChainCall(tx.to, tx.data as `0x${string}` | undefined, activeChainId, valueWei(tx.value));
     const hideUnknown = recognized != null && decoded.kind === "unknown";
+    // Address-poisoning check on the EFFECTIVE recipient: the decoded
+    // transfer/transferFrom target when present, else the bare tx.to. Dapp sends
+    // bypassed this entirely before; run the same assessment the send flow does.
+    const recipient = decoded.recipient ?? tx.to;
+    const risk = recipient && recipient.length === 42 ? assessRecipient(recipient, known, own) : null;
     return (
       <div className="muted" style={{ fontSize: 12 }}>
         {recognized && (
           <p className="protocol-box" style={{ marginBottom: 6 }}>
             <b>{recognized.contract}: {recognized.action}.</b> {recognized.detail}
           </p>
+        )}
+        {risk?.kind === "lookalike" && (
+          <p className="danger-box" style={{ marginBottom: 6 }}>This recipient looks like {short(risk.similarTo!)} but is different - a common address-poisoning scam. Verify every character before approving.</p>
         )}
         <SimPreview tx={tx} mute={decoded.severity === "danger"} />
         <div className="row between" style={{ marginTop: 4 }}>
@@ -157,13 +169,20 @@ function RequestDetail({ req, activeChainId }: { req: PendingRequest; activeChai
   }
   if (req.method === "eth_signTypedData_v4") {
     const s = summarizeTypedData(req.params?.[1], SUPPORTED_IDS);
+    // Always surface the domain chain as a network name: a Permit aimed at a
+    // different chain than the wallet's network is otherwise invisible.
+    const domainNet = s.chainId != null ? domainNetworkName(s.chainId) : null;
+    const crossChain = s.chainId != null && activeChainId != null && s.chainId !== activeChainId;
     return (
       <div className="muted" style={{ fontSize: 12 }}>
         {s.error ? (
           <p className="warn">{s.error} Reject unless you trust this site.</p>
         ) : (
           <>
-            <p>type: <b>{s.primaryType}</b>{s.domainName ? ` · ${s.domainName}` : ""}</p>
+            <p>type: <b>{s.primaryType}</b>{s.domainName ? ` · ${s.domainName}` : ""}{domainNet ? ` · ${domainNet}` : ""}</p>
+            {crossChain && (
+              <p className="warn"><b>This is for {domainNet}, but your wallet is on {chainById(activeChainId!).name}.</b></p>
+            )}
             {s.verifyingContract && <p className="addr">contract: {s.verifyingContract}</p>}
             {s.permit.kind !== "none" && (
               <div className={s.permit.unlimited ? "danger-box" : "warn"} style={{ marginTop: 6 }}>
@@ -209,6 +228,11 @@ function txValueEth(value?: string): string {
   } catch {
     return "unreadable";
   }
+}
+
+/** A typed-data domain chainId as a network name, or the raw id when unsupported. */
+function domainNetworkName(chainId: number): string {
+  return isSupportedChain(chainId) ? chainById(chainId).name : `chain ${chainId}`;
 }
 
 /** The tx value in wei (0 when absent or unparseable), for fee-aware labels. */

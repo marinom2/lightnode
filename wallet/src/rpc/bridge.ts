@@ -52,14 +52,22 @@ export async function bridgeFee(dir: BridgeDir): Promise<string> {
   return (Number(fee) / 1e18).toString();
 }
 
-export async function bridgeTransfer(account: Account, dir: BridgeDir, amount: string): Promise<{ hash: string }> {
+export async function bridgeTransfer(account: Account, dir: BridgeDir, amount: string, expectedFeeWei?: string): Promise<{ hash: string }> {
   const src = dir === "eth-to-lc" ? ROUTES.ethereum : ROUTES.lightchain;
   const dst = dir === "eth-to-lc" ? ROUTES.lightchain : ROUTES.ethereum;
   const chain = chainById(src.chainId);
   const pub = createPublicClient({ chain, transport: http() });
   const wallet = createWalletClient({ account, chain, transport: http() });
   const amt = parseEther(amount);
+  // Re-read the fee at execution, but never let a hostile RPC inflate the native
+  // value we spend: the live fee must stay within 50% of the fee the user was
+  // shown (the HypNative leg adds the fee straight onto value).
   const fee = (await pub.readContract({ address: src.router, abi: ROUTER_ABI, functionName: "quoteGasPayment", args: [dst.domain] })) as bigint;
+  if (expectedFeeWei !== undefined) {
+    const expected = BigInt(expectedFeeWei);
+    const ceiling = (expected * 3n) / 2n + 1n;
+    if (fee > ceiling) throw new Error("The bridge fee jumped well above the quote. Aborting to protect your funds; try again.");
+  }
   const recipient = toBytes32(account.address);
 
   if (src.underlying) {

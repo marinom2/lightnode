@@ -19,15 +19,18 @@ const ERC20_ABI = parseAbi(["function approve(address spender, uint256 value) re
 const B32 = `0x${"11".repeat(32)}` as const;
 
 describe("recognizeLightChainCall", () => {
-  it("labels submitJob with the inference fee from the tx value", () => {
+  it("reports the native value sent on submitJob without claiming it is the fee", () => {
     const data = encodeFunctionData({ abi: REGISTRY_ABI, functionName: "submitJob", args: [1n, B32] });
     const r = recognizeLightChainCall(JOB_REGISTRY, data, 9200, parseEther("0.02"));
     expect(r?.contract).toBe("LightChain JobRegistry");
     expect(r?.action).toBe("Submit an AI prompt");
     expect(r?.detail).toContain("0.02 LCAI");
+    // The value is attacker-controlled; the wallet must not assert it IS the fee.
+    expect(r?.detail).not.toMatch(/fee/i);
+    expect(r?.detail).toContain("Native value sent");
   });
 
-  it("labels createSession as a session open with no token movement", () => {
+  it("labels a zero-value createSession with reassuring no-movement wording", () => {
     const data = encodeFunctionData({
       abi: REGISTRY_ABI,
       functionName: "createSession",
@@ -35,6 +38,19 @@ describe("recognizeLightChainCall", () => {
     });
     const r = recognizeLightChainCall(JOB_REGISTRY, data, 9200);
     expect(r?.action).toBe("Start an encrypted AI session");
+    expect(r?.detail).toContain("No tokens move now");
+  });
+
+  it("warns that createSession sends value and drops the no-movement wording when payable", () => {
+    const data = encodeFunctionData({
+      abi: REGISTRY_ABI,
+      functionName: "createSession",
+      args: [B32, "0x0000000000000000000000000000000000000abc", "0x", "0x", "0x", 0n],
+    });
+    const r = recognizeLightChainCall(JOB_REGISTRY, data, 9200, parseEther("0.5"));
+    expect(r?.action).toBe("Start an encrypted AI session");
+    expect(r?.detail).toContain("0.5 LCAI");
+    expect(r?.detail).not.toContain("No tokens move now");
   });
 
   it("labels a DAO vote with the choice and proposal id", () => {

@@ -37,8 +37,10 @@ interface RawTypedData {
 const RISKY_PRIMARY = /permit|order|approv/i;
 // ERC-2612 convention: values at/above 2^255 read as "everything, forever".
 const UNLIMITED_FLOOR = 1n << 255n;
-// Permit2 uses uint160 max as its unlimited sentinel.
-const PERMIT2_UNLIMITED = (1n << 160n) - 1n;
+// Permit2 amounts are uint160; the canonical "unlimited" sentinel is uint160 max,
+// but anything in the top half of the range is effectively infinite spend, so we
+// flag at/above 2^159 (half of uint160 max) to deny the one-below-max bypass.
+const PERMIT2_UNLIMITED_FLOOR = 1n << 159n;
 const NONE: DecodedPermit = { kind: "none", summary: "" };
 
 const str = (v: unknown): string => (typeof v === "string" || typeof v === "number" || typeof v === "bigint" ? String(v) : "");
@@ -78,7 +80,7 @@ function decodePermit2(m: Record<string, unknown>): DecodedPermit {
   const token = addr(details.token);
   const amount = big(details.amount);
   if (!spender || !token || amount === null) return NONE;
-  const unlimited = amount >= PERMIT2_UNLIMITED;
+  const unlimited = amount >= PERMIT2_UNLIMITED_FLOOR;
   return {
     kind: "permit2",
     spender,
@@ -99,7 +101,7 @@ function decodePermit2Batch(m: Record<string, unknown>): DecodedPermit {
   if (!spender || !details || details.length === 0) return NONE;
   const anyUnlimited = details.some((d) => {
     const a = big((d as Record<string, unknown>)?.amount);
-    return a !== null && a >= PERMIT2_UNLIMITED;
+    return a !== null && a >= PERMIT2_UNLIMITED_FLOOR;
   });
   return {
     kind: "permit2-batch",
@@ -165,16 +167,31 @@ export function parseTypedData(payload: unknown): RawTypedData | null {
 // ---- SIWE origin check (personal_sign) ----------------------------------------
 
 /**
+ * The SIWE anchor states the requesting domain. EIP-4361 puts it on the first
+ * line, but we scan (skipping leading blanks, trimming CRLF/whitespace) so a
+ * leading blank line or reordered body cannot hide the anchor from the checks.
+ * Returns the stated domain (scheme prefix preserved as written) or null.
+ */
+function siweStatedDomain(messageText: string): string | null {
+  for (const raw of messageText.split("\n")) {
+    const line = raw.trim();
+    if (line === "") continue; // tolerate a leading blank line / CRLF
+    const m = line.match(/^([^\s]+) wants you to sign in with your Ethereum account/);
+    return m ? m[1]! : null; // anchor is the first non-blank line, or it is absent
+  }
+  return null;
+}
+
+/**
  * EIP-4361 Sign-In-With-Ethereum: the message states the domain requesting the
  * signature. A lookalike site replaying a legit SIWE message is the classic
  * auth phish; flag any mismatch between the stated domain and the real origin.
  */
 export function siweOriginMismatch(messageText: string, requestOrigin: string): { stated: string; actual: string } | null {
-  const firstLine = messageText.split("\n")[0] ?? "";
-  const m = firstLine.match(/^([^\s]+) wants you to sign in with your Ethereum account/);
-  if (!m) return null; // not a SIWE message
+  const domain = siweStatedDomain(messageText);
+  if (domain === null) return null; // not a SIWE message
   // EIP-4361 allows an optional scheme prefix on the stated domain.
-  const stated = m[1]!.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").toLowerCase();
+  const stated = domain.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").toLowerCase();
   let actual = "";
   try {
     actual = new URL(requestOrigin).host.toLowerCase();
@@ -187,14 +204,18 @@ export function siweOriginMismatch(messageText: string, requestOrigin: string): 
 
 /**
  * The chain a SIWE message signs in FOR ("Chain ID: 9200" on its own line per
- * EIP-4361). Null when the message is not SIWE or carries no parseable id.
+ * EIP-4361). Null when the message is not SIWE or carries no parseable id. We
+ * scan every line so a reordered body cannot move the field out of view.
  */
 export function siweChainId(messageText: string): number | null {
-  if (!/wants you to sign in with your Ethereum account/.test(messageText.split("\n")[0] ?? "")) return null;
-  const m = messageText.match(/^Chain ID: (\d+)\s*$/m);
-  if (!m) return null;
-  const id = Number(m[1]);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
+  if (siweStatedDomain(messageText) === null) return null;
+  for (const raw of messageText.split("\n")) {
+    const m = raw.trim().match(/^Chain ID: (\d+)$/);
+    if (!m) continue;
+    const id = Number(m[1]);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+  return null;
 }
 
 /**
