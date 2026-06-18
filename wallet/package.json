@@ -24,7 +24,7 @@
     "viem": "^2.21.0"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.287",
+    "@types/chrome": "^0.1.43",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.1.3",
