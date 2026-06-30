@@ -397,9 +397,33 @@ export interface WorkerStatus {
 
 export interface DeregisterReadiness {
   ok: boolean;
-  /** Job IDs blocking deregistration (in-flight / acked-incomplete). */
+  /** Every job ID blocking deregistration (the union of the buckets below). */
   blockedBy: bigint[];
   reason: string;
+  /**
+   * Completed jobs whose dispute window has elapsed: releasable RIGHT NOW with
+   * zero slash (and they pay the worker its share). Settle these first.
+   */
+  releasableNow: bigint[];
+  /**
+   * Completed jobs still inside their dispute window: releasable later with zero
+   * slash, once the window elapses. No action possible yet - retry after.
+   */
+  releasePending: bigint[];
+  /**
+   * In-flight jobs (Acknowledged or never-acked Submitted) past their deadline
+   * that can ONLY be resolved via claimTimeout - which realizes a protocol slash.
+   * `slashBps` is the per-job penalty (completion-timeout for Acknowledged,
+   * ack-timeout for Submitted). There is no no-slash path for these on-chain.
+   */
+  slashableToClear: Array<{ jobId: bigint; state: JobState; slashBps: number }>;
+  /**
+   * Best-effort estimate of the stake (in LCAI) that clearing every
+   * `slashableToClear` job would burn, capped at the protocol max-slash. The
+   * exact figure depends on the chain's cap mechanics; treat as an upper-ish
+   * guide, not a guarantee.
+   */
+  estimatedSlashLcai: number;
 }
 
 export interface StuckJob {
@@ -414,9 +438,16 @@ export interface StuckJob {
   jobId: bigint;
   state: JobState;
   ackAt: number;
-  /** Seconds past the completion deadline (>0 means claimTimeout is eligible). */
+  /** Seconds past the deadline (>0 means claimTimeout is eligible). */
   pastDeadlineSec: number;
   escrowedFeeWei: bigint;
+  /**
+   * The slash (basis points of stake) clearing this job via claimTimeout
+   * realizes on the current network: the completion-timeout bps for an
+   * Acknowledged job, the ack-timeout bps for a never-acked Submitted job
+   * (0 on networks with slashing disabled, e.g. testnet).
+   */
+  slashBps: number;
 }
 
 /**
@@ -684,10 +715,17 @@ export class WorkerOperator {
   // ---- 1) Stuck-job recovery ---------------------------------------------
 
   /**
-   * Jobs this worker acknowledged but never completed that are now past the
-   * completion deadline - the ones that block deregister and are clearable via
-   * claimTimeout. Needs the worker's job IDs (from the subgraph / LightNode
-   * client); on-chain there is no enumerator. Pass the candidate IDs in.
+   * In-flight jobs this worker can only clear via claimTimeout - i.e. the ones
+   * that block deregister and have no normal-completion exit. That's two states,
+   * not one:
+   *   - Acknowledged but never completed, past the completion deadline.
+   *   - Submitted but never acknowledged, past the ack deadline (a never-acked
+   *     job is still recorded against the worker and still blocks deregister;
+   *     late acknowledgeJob/completeJob revert "deadline exceeded", so
+   *     claimTimeout is the only resolution).
+   * Each carries its per-state `slashBps` so callers can price the exit. Needs
+   * the worker's job IDs (from the subgraph / LightNode client); on-chain there
+   * is no enumerator. Pass the candidate IDs in.
    */
   async stuckJobs(candidateJobIds: Array<bigint | number>): Promise<StuckJob[]> {
     const cfg = await this.config();
@@ -696,9 +734,20 @@ export class WorkerOperator {
     for (const id of candidateJobIds) {
       const j = await this.getJob(id);
       if (j.worker.toLowerCase() !== this.addr) continue;
-      if (j.state !== "Acknowledged") continue;
-      // Deadline: prefer the on-chain deadlineAt, else ackAt + completionTimeout.
-      const deadline = j.deadlineAt || (j.ackAt ? j.ackAt + cfg.completionTimeoutSec : 0);
+      // Only never-finished in-flight states are claimTimeout-clearable. Completed
+      // settles via releaseJob (no slash); all other states are terminal.
+      if (j.state !== "Acknowledged" && j.state !== "Submitted") continue;
+      // Deadline: prefer the on-chain deadlineAt (already the right one per state),
+      // else recompute - ack deadline for Submitted, completion deadline for Acked.
+      const fallback =
+        j.state === "Submitted"
+          ? j.submittedAt
+            ? j.submittedAt + cfg.ackTimeoutSec
+            : 0
+          : j.ackAt
+            ? j.ackAt + cfg.completionTimeoutSec
+            : 0;
+      const deadline = j.deadlineAt || fallback;
       const past = deadline ? now - deadline : 0;
       out.push({
         // The id the caller passed IS the claimTimeout/getJob key - not j.jobId.
@@ -708,6 +757,7 @@ export class WorkerOperator {
         ackAt: j.ackAt,
         pastDeadlineSec: past,
         escrowedFeeWei: j.escrowedFeeWei,
+        slashBps: j.state === "Acknowledged" ? cfg.slashBps.completionTimeout : cfg.slashBps.ackTimeout,
       });
     }
     return out;
@@ -747,7 +797,7 @@ export class WorkerOperator {
         const inSec = Math.abs(s.pastDeadlineSec);
         skipped.push({
           jobId: s.lookupId,
-          reason: `acknowledged but not yet past the completion deadline (~${Math.ceil(inSec / 60)} min to go); claimTimeout would revert`,
+          reason: `${s.state.toLowerCase()} but not yet past its timeout deadline (~${Math.ceil(inSec / 60)} min to go); claimTimeout would revert`,
         });
         continue;
       }
@@ -761,23 +811,84 @@ export class WorkerOperator {
   // ---- 3) Pre-flight gating ----------------------------------------------
 
   /**
-   * Will deregister succeed right now? Reads the active-job count by checking the
-   * candidate IDs (on-chain there's no enumerator, so pass the worker's job IDs).
-   * Returns the blocking job IDs and a human reason - BEFORE you spend gas.
+   * Will deregister succeed right now, and at what cost? On-chain deregister is
+   * blocked by ANY non-released job, so this classifies the candidates (on-chain
+   * there's no enumerator - pass the worker's job IDs) into three buckets BEFORE
+   * you spend gas: completed jobs releasable now (free), completed jobs still in
+   * their dispute window (free later), and stuck in-flight jobs that only clear
+   * via claimTimeout (slash). `estimatedSlashLcai` prices the last bucket.
    */
   async canDeregister(candidateJobIds: Array<bigint | number> = []): Promise<DeregisterReadiness> {
     const st = await this.status();
-    if (!st.registered) return { ok: false, blockedBy: [], reason: "Worker is not registered." };
-    const stuck = await this.stuckJobs(candidateJobIds);
-    const inflight = stuck.map((s) => s.lookupId);
-    if (inflight.length === 0) {
-      return { ok: true, blockedBy: [], reason: "No in-flight jobs detected; deregister should succeed." };
+    const empty = { releasableNow: [], releasePending: [], slashableToClear: [], estimatedSlashLcai: 0 };
+    if (!st.registered) return { ok: false, blockedBy: [], reason: "Worker is not registered.", ...empty };
+
+    const cfg = await this.config();
+    const now = Math.floor(Date.now() / 1000);
+    const releasableNow: bigint[] = [];
+    const releasePending: bigint[] = [];
+    const slashableToClear: DeregisterReadiness["slashableToClear"] = [];
+    const notYetClearable: bigint[] = [];
+
+    for (const id of candidateJobIds) {
+      const j = await this.getJob(id);
+      if (j.worker.toLowerCase() !== this.addr) continue;
+      const lookupId = BigInt(id);
+      if (j.state === "Completed") {
+        // Dispute window runs from completion; release is free once it elapses.
+        const releaseAt = (j.completedAt || j.deadlineAt) + cfg.disputeWindowSec;
+        (now >= releaseAt ? releasableNow : releasePending).push(lookupId);
+        continue;
+      }
+      if (j.state === "Acknowledged" || j.state === "Submitted") {
+        const fallback =
+          j.state === "Submitted"
+            ? j.submittedAt
+              ? j.submittedAt + cfg.ackTimeoutSec
+              : 0
+            : j.ackAt
+              ? j.ackAt + cfg.completionTimeoutSec
+              : 0;
+        const deadline = j.deadlineAt || fallback;
+        if (deadline && now >= deadline) {
+          const slashBps = j.state === "Acknowledged" ? cfg.slashBps.completionTimeout : cfg.slashBps.ackTimeout;
+          slashableToClear.push({ jobId: lookupId, state: j.state, slashBps });
+        } else {
+          notYetClearable.push(lookupId);
+        }
+      }
+      // Terminal states (TimedOut/Disputed/Resolved/Released) never block.
     }
-    return {
-      ok: false,
-      blockedBy: inflight,
-      reason: `${inflight.length} acknowledged-but-unfinished job(s) block deregister. clearStuck() them first (realizes a per-job timeout slash), then deregister.`,
-    };
+
+    // Conservative estimate: sum per-job bps, capped at the protocol max-slash.
+    const totalBps = Math.min(
+      slashableToClear.reduce((s, j) => s + j.slashBps, 0),
+      cfg.slashBps.max,
+    );
+    const estimatedSlashLcai = (Number(st.stakeWei) / 1e18) * (totalBps / 10_000);
+    const blockedBy = [
+      ...releasableNow,
+      ...releasePending,
+      ...slashableToClear.map((j) => j.jobId),
+      ...notYetClearable,
+    ];
+    const ok = blockedBy.length === 0;
+    const windowHrs = Math.round(cfg.disputeWindowSec / 3600);
+    const reason = ok
+      ? "No in-flight jobs detected; deregister should succeed."
+      : [
+          `${blockedBy.length} job(s) block deregister.`,
+          releasableNow.length ? `${releasableNow.length} completed job(s) releasable NOW (no slash) - settle() them.` : "",
+          releasePending.length ? `${releasePending.length} completed job(s) still in their ${windowHrs}h dispute window (no slash; release later).` : "",
+          slashableToClear.length
+            ? `${slashableToClear.length} stuck job(s) can ONLY clear via claimTimeout, realizing ~${estimatedSlashLcai.toFixed(0)} LCAI of slashing (no no-slash path on-chain - ask the protocol guardian to clear them if you must avoid it).`
+            : "",
+          notYetClearable.length ? `${notYetClearable.length} in-flight job(s) not yet past their deadline.` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+    return { ok, blockedBy, reason, releasableNow, releasePending, slashableToClear, estimatedSlashLcai };
   }
 
   // ---- 4) Settlement + exit (Docker-free) --------------------------------
@@ -867,23 +978,62 @@ export class WorkerOperator {
   }
 
   /**
-   * The flagship rescue: clear stuck jobs then release any settled completed jobs +
-   * withdraw earnings then deregister. The one flow no official tool provides.
-   * Pass the worker's known job IDs (from the subgraph). Returns every tx done.
+   * The flagship rescue, ordered so it can NEVER silently burn stake or fire a
+   * doomed deregister:
+   *   1. FREE: release every completed job past its dispute window + withdraw
+   *      earnings. Always safe, no slash.
+   *   2. GATE: if stuck in-flight jobs remain, they can only clear via
+   *      claimTimeout (a slash). This step runs ONLY when `opts.acceptSlash` is
+   *      true; otherwise it stops and returns the priced `blocked` readiness so
+   *      the caller can decide (or route to the protocol guardian for a no-slash
+   *      clear). Defaulting to false means the common call recovers earnings
+   *      without ever slashing.
+   *   3. DEREGISTER: only when nothing blocks. If completed jobs are still in
+   *      their dispute window, it returns `blocked` (retry after they elapse)
+   *      instead of reverting ActiveJobsExist.
+   * Pass the worker's known job IDs (from the subgraph). `deregisterTx` is set
+   * only when the worker actually deregistered.
    */
-  async unstickAndDeregister(candidateJobIds: Array<bigint | number>): Promise<{
-    cleared: Array<{ jobId: bigint; tx: `0x${string}` }>;
+  async unstickAndDeregister(
+    candidateJobIds: Array<bigint | number>,
+    opts: { acceptSlash?: boolean } = {},
+  ): Promise<{
     released: Array<{ jobId: bigint; tx: `0x${string}` }>;
+    releaseSkipped: Array<{ jobId: bigint; reason: string }>;
+    cleared: Array<{ jobId: bigint; tx: `0x${string}` }>;
     withdrawTx?: `0x${string}`;
-    deregisterTx: `0x${string}`;
+    deregisterTx?: `0x${string}`;
+    /** Present (and deregisterTx absent) when deregister could not complete. */
+    blocked?: DeregisterReadiness;
   }> {
-    const cleared = (await this.clearStuck(candidateJobIds)).done;
-    const released = (await this.releaseAll(candidateJobIds)).done;
+    // 1) FREE path - release ready completed jobs + claim earnings.
+    const release = await this.releaseAll(candidateJobIds);
     let withdrawTx: `0x${string}` | undefined;
-    const st = await this.status();
-    if (st.claimableWei > 0n) withdrawTx = await this.withdraw();
+    if ((await this.status()).claimableWei > 0n) withdrawTx = await this.withdraw();
+
+    const base = {
+      released: release.done,
+      releaseSkipped: release.skipped,
+      withdrawTx,
+    };
+
+    // 2) Stop before any slashing unless explicitly authorized.
+    const before = await this.canDeregister(candidateJobIds);
+    if (before.slashableToClear.length > 0 && !opts.acceptSlash) {
+      return { ...base, cleared: [], blocked: before };
+    }
+
+    // 3) Slashing teardown (opt-in only).
+    let cleared: Array<{ jobId: bigint; tx: `0x${string}` }> = [];
+    if (opts.acceptSlash && before.slashableToClear.length > 0) {
+      cleared = (await this.clearStuck(candidateJobIds)).done;
+    }
+
+    // 4) Deregister only when nothing blocks - else surface a clear retry hint.
+    const after = await this.canDeregister(candidateJobIds);
+    if (!after.ok) return { ...base, cleared, blocked: after };
     const deregisterTx = await this.deregister();
-    return { cleared, released, withdrawTx, deregisterTx };
+    return { ...base, cleared, deregisterTx };
   }
 
   // ---- stake ops ----------------------------------------------------------
