@@ -12,7 +12,8 @@ import { decodeDangerousCall } from "../provider/decode-call";
 
 export const GOVERNORS: Record<number, `0x${string}`> = {
   1: "0x6dfa413B5900a1a7947BC75E68AbBA093cB2492d",
-  9200: "0x262E9f9232933E8565253918db703baD58DE93aB",
+  // Live LightChainGovernor (verified on-chain; supersedes 0x262E9f).
+  9200: "0xD216A0c0050EdC3a9E0449EcFDf178A1652b4b68",
 };
 
 const PROPOSAL_CREATED = parseAbiItem(
@@ -223,10 +224,21 @@ const QUORUM_ABI = parseAbi([
   "function quorumDenominator() view returns (uint256)",
 ]);
 const BALANCE_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+// LightChain: the Governor's quorum() is overridden to use getTotalVotingPower
+// (staked LCAI excluded), so the real quorum is 3% of the votable base, not 3%
+// of raw supply. Read the resolved threshold directly.
+const NATIVE_QUORUM_ABI = parseAbi([
+  "function quorum(uint256 timepoint) view returns (uint256)",
+  "function clock() view returns (uint48)",
+]);
 
 export interface DaoStatsView {
   treasuryLcai: number | null; // null = unreadable right now
   quorumPct: number | null;
+  // LightChain: the real quorum threshold in LCAI (3% of the staked-excluded
+  // votable supply) + a flag that staked LCAI is excluded from the base.
+  quorumLcai?: number | null;
+  stakeExcluded?: boolean;
 }
 
 /** Treasury holds the ERC-20 on Ethereum and native LCAI on LightChain. */
@@ -242,8 +254,18 @@ export async function readDaoStats(chainId: number): Promise<DaoStatsView> {
     pub.readContract({ address: governor, abi: QUORUM_ABI, functionName: "quorumNumerator" }).catch(() => null) as Promise<bigint | null>,
     pub.readContract({ address: governor, abi: QUORUM_ABI, functionName: "quorumDenominator" }).catch(() => 100n) as Promise<bigint | null>,
   ]);
-  return {
+  const base: DaoStatsView = {
     treasuryLcai: bal === null ? null : Number(formatEther(bal)),
     quorumPct: num === null || den === null || den === 0n ? null : Number((num * 10000n) / den) / 100,
   };
+  // LightChain reports the REAL quorum: 3% of the staked-excluded votable supply.
+  if (chainId !== 9200) return base;
+  try {
+    const clock = BigInt(await pub.readContract({ address: governor, abi: NATIVE_QUORUM_ABI, functionName: "clock" }));
+    const ref = clock > 0n ? clock - 1n : 0n;
+    const quorumWei = (await pub.readContract({ address: governor, abi: NATIVE_QUORUM_ABI, functionName: "quorum", args: [ref] }).catch(() => null)) as bigint | null;
+    return { ...base, quorumLcai: quorumWei === null ? null : Number(formatEther(quorumWei)), stakeExcluded: true };
+  } catch {
+    return base;
+  }
 }

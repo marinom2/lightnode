@@ -10,7 +10,7 @@ type ProposalRow = {
   forVotes: number; againstVotes: number; abstainVotes: number;
   blocksLeft: number | null; youVoted: boolean; yourWeight: number; actions: ProposalAction[];
 };
-type DaoStats = { treasuryLcai: number | null; quorumPct: number | null };
+type DaoStats = { treasuryLcai: number | null; quorumPct: number | null; quorumLcai?: number | null; stakeExcluded?: boolean };
 const SUPPORT_LABEL: Record<0 | 1 | 2, string> = { 1: "For", 0: "Against", 2: "Abstain" };
 const STATE_TONE: Record<string, string> = { active: "tag-warn", succeeded: "tag-ok", executed: "tag-ok", queued: "tag-ok", defeated: "tag-bad", canceled: "tag-bad", expired: "tag-bad", pending: "" };
 
@@ -105,7 +105,7 @@ export function DaoSheet({ from, onClose }: { from: string; onClose: () => void 
         </div>
         <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div className="stat"><div className="faint">Treasury</div><b>{stats == null ? "…" : stats.treasuryLcai == null ? "--" : `${fmtBal(String(stats.treasuryLcai))} LCAI`}</b></div>
-          <div className="stat"><div className="faint">Quorum</div><b>{stats == null ? "…" : stats.quorumPct == null ? "--" : `${stats.quorumPct}% of supply`}</b></div>
+          <div className="stat"><div className="faint">Quorum</div><b title={stats?.stakeExcluded ? `${stats.quorumPct ?? 3}% of the votable supply (staked LCAI excluded)` : undefined}>{stats == null ? "…" : stats.quorumLcai != null ? `${fmtBal(String(Math.round(stats.quorumLcai)))} LCAI` : stats.quorumPct == null ? "--" : `${stats.quorumPct}% of supply`}</b></div>
           <div className="stat"><div className="faint">Your power</div><b>{power == null ? "…" : power.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b></div>
         </div>
         <div className="chips">
