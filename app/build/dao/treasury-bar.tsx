@@ -26,11 +26,34 @@ interface Overview {
   quorumWei?: string | null;
   votableSupplyWei?: string | null;
   stakeExcludedFromQuorum?: boolean;
+  // Voting-power distribution: the votable sum, how much staked LCAI is excluded
+  // from it, and the ecosystem account count (from the explorer index).
+  rawSupplyWei?: string | null;
+  stakeExcludedWei?: string | null;
+  holderCount?: number | null;
   schedule?: Schedule;
   error?: string;
 }
 
 const VOTE_SYMBOL: Record<DaoChain, string> = { ethereum: "LCAIB", lightchain: "LCAI" };
+
+/** LightChain voting-power summary: votable sum, accounts, staked-excluded. */
+function VotingPowerLine({ chain, data }: { chain: DaoChain; data: Overview }) {
+  if (!data.votableSupplyWei) return null;
+  const sym = VOTE_SYMBOL[chain];
+  const votable = formatLcaiWei(BigInt(data.votableSupplyWei), 0);
+  const accounts = data.holderCount != null ? `~${data.holderCount.toLocaleString()} accounts` : null;
+  const excluded = data.stakeExcludedWei && BigInt(data.stakeExcludedWei) > 0n
+    ? `${formatLcaiWei(BigInt(data.stakeExcludedWei), 0)} ${sym} staked (excluded from quorum)`
+    : null;
+  return (
+    <p className="px-1 text-[11px] leading-relaxed text-content-soft">
+      <span className="font-medium text-content-default">Voting power:</span> {votable} {sym} votable
+      {accounts ? <> across <span className="text-content-default">{accounts}</span></> : null}
+      {excluded ? <> · {excluded}</> : null}
+    </p>
+  );
+}
 
 function ScheduleLine({ chain, schedule }: { chain: DaoChain; schedule: Schedule }) {
   const vote = humanizeDuration(schedule.votingPeriodSeconds);
@@ -123,6 +146,7 @@ export function TreasuryBar({ chain }: { chain: DaoChain }) {
         </div>
         <Stat icon={<Landmark className="size-4" />} label="Governor" value={shortAddr(data.governor)} href={`${data.explorer}/address/${data.governor}`} />
       </div>
+      <VotingPowerLine chain={chain} data={data} />
       {data.schedule && <ScheduleLine chain={chain} schedule={data.schedule} />}
     </div>
   );
