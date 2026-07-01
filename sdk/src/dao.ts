@@ -77,9 +77,13 @@ export const DAO_ADDRESSES: Record<DaoChain, DaoAddresses> = {
   },
   lightchain: {
     chainId: 9200,
+    // Live LightChainGovernor + TimelockController (verified on-chain
+    // 2026-07-01: governor.timelock() == this timelock, treasury.owner() ==
+    // this timelock). The earlier 0x262E9f / 0x79e571 pair was a superseded
+    // deployment and is no longer wired to NativeVotes or the Treasury.
     label: "LightChain mainnet",
-    governor: "0x262E9f9232933E8565253918db703baD58DE93aB",
-    timelock: "0x79e571420c5473Ca9b0FCd599B1b0062D7793c97",
+    governor: "0xD216A0c0050EdC3a9E0449EcFDf178A1652b4b68",
+    timelock: "0xc783376c8237E8f1ed17d825CE7CBB4c22e3cAE5",
     // Native voting via the genesis predeploy precompile; no separate wrapping token.
     ballots: "0x0000000000000000000000000000000000001001",
     token: null,

@@ -80,6 +80,7 @@ import {
   VOTES_ABI,
   decodeGovernanceAction,
 } from "./dao.js";
+import { NativeGovernance } from "./native-governance.js";
 import {
   OnchainModelRegistry,
   AIVM_MODEL_REGISTRY_ABI,
@@ -750,6 +751,10 @@ export {
   GOVERNOR_ABI,
   VOTES_ABI,
   decodeGovernanceAction,
+  // v0.20.0 LightChain native L1 DAO reader (chain 9200): worker-stake totals,
+  // votable-vs-non-castable supply, live threshold/quorum, and a treasury +
+  // protocol decentralization report. Distinct from the Ethereum DAO above.
+  NativeGovernance,
   // v0.5.0 On-chain model registry reader (AIVMModelRegistry + BenchmarkRegistry).
   OnchainModelRegistry,
   AIVM_MODEL_REGISTRY_ABI,
@@ -795,6 +800,14 @@ export type { AgentTool, AgentStep, AgentOptions, AgentRunResult } from "./agent
 export type { WorkerPreflightArgs, WorkerPreflightResult, WorkerWatchOptions, WorkerEventKind, WorkerEvent, WorkerWatchHandle } from "./worker.js";
 export type { BridgeChain, BridgeEndpoints, BridgeTransferArgs } from "./bridge.js";
 export type { DaoChain, DaoAddresses, ProposalSummary, ProposalRow, DaoConfig, DecodedGovernanceAction } from "./dao.js";
+export type {
+  NativeGovClient,
+  NativeGovConfig,
+  SupplyBreakdown,
+  NonVotableHolder,
+  WorkerStakeInfo,
+  DecentralizationReport,
+} from "./native-governance.js";
 export type { BaseModel, ModelVariant, AccessTier, AccessPolicy, Benchmark, OnchainModelRegistryOptions } from "./onchain-models.js";
 export type {
   MinimalWalletClient,

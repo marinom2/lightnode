@@ -23,8 +23,11 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     // Sourced from LightChain's official "Mainnet Contract Addresses" page.
     feePool: "0x0000000000000000000000000000000000001004",
     nativeVotes: "0x0000000000000000000000000000000000001001",
-    governor: "0x262E9f9232933E8565253918db703baD58DE93aB",
-    timelock: "0x79e571420c5473Ca9b0FCd599B1b0062D7793c97",
+    // Live LightChainGovernor + TimelockController (verified on-chain 2026-07-01;
+    // governor.timelock() and treasury.owner() both resolve to this timelock).
+    // Supersedes the earlier 0x262E9f / 0x79e571 pair.
+    governor: "0xD216A0c0050EdC3a9E0449EcFDf178A1652b4b68",
+    timelock: "0xc783376c8237E8f1ed17d825CE7CBB4c22e3cAE5",
     treasury: "0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389",
   },
   testnet: {
