@@ -85,7 +85,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Build + release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS signing/notarization vars are injected by the gated step above
