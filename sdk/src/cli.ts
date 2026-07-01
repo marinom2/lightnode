@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, SDK_VERSION, type NetworkId, type AgentTool } from "./index.js";
+import { LightNode, modelStatsCsv, workerStatsCsv, workerJobsCsv, runInferenceWithKey, runInferenceBatch, Agent, isStalledWorker, workerPreflight, workerWatch, WorkerOperator, isWorkerOpError, BRIDGE_ROUTE, DAO, DAO_ADDRESSES, NativeGovernance, SDK_VERSION, type NetworkId, type AgentTool } from "./index.js";
+import { NETWORKS } from "./networks.js";
 import { addInference, addInferenceWeb3, addJudgeWeb3, addAnalyticsDashboard, addNftMint, addChat, addChatWeb3, addAgent, addBatch, addBridge, addJudge, addWagmiSetup, addWorkerOperator, patchLayoutWithProviders, wireFreshScaffold, type LayoutPatch, type ScaffoldWiring } from "./add.js";
 import { createPublicClient, createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
@@ -678,7 +679,58 @@ async function main() {
         );
         break;
       }
-      die("usage: lightnode dao <addresses|config> [--rpc <ethereum-rpc>]");
+      if (sub === "native") {
+        // LightChain L1 DAO (chain 9200): worker stake, votable-vs-locked
+        // supply, live threshold/quorum, treasury + protocol decentralization.
+        const { createPublicClient, http } = await import("viem");
+        const netId: NetworkId = net === "mainnet" ? "mainnet" : "testnet";
+        const cfg = NETWORKS[netId];
+        if (!cfg.governor) die(`dao native: ${cfg.label} has no on-chain governor configured (mainnet only).`);
+        const pub = createPublicClient({ transport: http(flag("--rpc") ?? cfg.rpc) });
+        const gov = new NativeGovernance(netId, pub);
+        let r;
+        try {
+          r = await gov.report();
+        } catch (e) {
+          die(`dao native: read failed against ${cfg.rpc}. ${(String((e as Error).message ?? e)).split("\n")[0]}`);
+        }
+        console.log(
+          JSON.stringify(
+            {
+              proposalThresholdLcai: r.config.proposalThresholdLcai,
+              quorumFractionPct: r.config.quorumFractionPct,
+              quorumNowLcai: Math.round(r.config.quorumNowLcai),
+              votingDelayBlocks: r.config.votingDelayBlocks.toString(),
+              votingPeriodBlocks: r.config.votingPeriodBlocks.toString(),
+              timelockMinDelaySec: r.config.timelockMinDelaySec.toString(),
+              supply: {
+                pastTotalSupplyLcai: Math.round(r.supply.pastTotalSupplyLcai),
+                votableSupplyLcai: Math.round(r.supply.votableSupplyLcai),
+                nonCastableLcai: Math.round(r.supply.nonVotableTotalLcai),
+                nonCastable: r.supply.nonVotable.map((h) => ({ label: h.label, lcai: Math.round(h.lcai) })),
+                quorumPctOfVotable: Number(r.supply.quorumPctOfVotable.toFixed(2)),
+              },
+              workerStake: {
+                totalStakedLcai: r.workerStake.totalStakedLcai,
+                slashedFundsLcai: r.workerStake.slashedFundsWei ? Number(r.workerStake.slashedFundsWei) / 1e18 : 0,
+                nonCastableVotingPower: r.workerStake.nonCastable,
+              },
+              decentralization: {
+                treasuryDaoControlled: r.decentralization.treasuryDaoControlled,
+                protocolDaoControlled: r.decentralization.protocolDaoControlled,
+                protocolAdminEoa: r.decentralization.protocolAdminEoa,
+                governorIsProposer: r.decentralization.governorIsProposer,
+                timelockSelfAdministered: r.decentralization.selfAdministered,
+                verdict: r.decentralization.verdict,
+              },
+            },
+            null,
+            2,
+          ),
+        );
+        break;
+      }
+      die("usage: lightnode dao <addresses|config|native> [--rpc <rpc>] [--net mainnet]");
       break;
     }
     case "add": {
