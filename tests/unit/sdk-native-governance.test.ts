@@ -12,7 +12,9 @@ const TREASURY_VOTES = 4_500_000_008n * 10n ** 18n;
 const WR_BALANCE = e18(760_000);
 const FEEPOOL_VOTES = e18(24);
 const SLASHED = e18(25_000);
-const QUORUM_NOW = (PAST_TOTAL * 3n) / 100n;
+// Live behaviour: quorum = 3% of (pastTotalSupply - net worker stake).
+const NET_STAKE = WR_BALANCE - SLASHED; // 735,000
+const QUORUM_NOW = ((PAST_TOTAL - NET_STAKE) * 3n) / 100n;
 
 const lc = (a: string) => a.toLowerCase();
 
@@ -72,16 +74,21 @@ describe("NativeGovernance", () => {
     expect(c.timelockMinDelaySec).toBe(172_800n);
   });
 
-  it("supply: separates non-castable contract holdings from votable supply", async () => {
+  it("supply: worker stake is excluded from the quorum base (backed out from quorum())", async () => {
     const g = new NativeGovernance("mainnet", makeClient());
     const s = await g.supply();
-    const nonVotable = TREASURY_VOTES + WR_BALANCE + FEEPOOL_VOTES;
-    expect(s.nonVotableTotalWei).toBe(nonVotable);
-    expect(s.votableSupplyWei).toBe(PAST_TOTAL - nonVotable);
-    // The treasury alone is ~45% of supply and non-castable.
-    expect(s.nonVotable.find((h) => h.label === "Treasury")?.votesWei).toBe(TREASURY_VOTES);
-    // Quorum as a fraction of the truly-votable supply exceeds the nominal 3%.
-    expect(s.quorumPctOfVotable).toBeGreaterThan(3);
+    // QUORUM_NOW = 3% of (PAST_TOTAL - worker stake), so the backed-out base
+    // must equal PAST_TOTAL minus the excluded stake, and the excluded amount
+    // must equal the net worker stake.
+    const netStake = WR_BALANCE - SLASHED; // 735,000
+    expect(s.quorumExcludesWorkerStake).toBe(true);
+    expect(s.workerStakeExcludedWei).toBe(netStake);
+    expect(s.quorumBaseWei).toBe(PAST_TOTAL - netStake);
+    // Treasury/FeePool are still IN the base but non-castable; worker stake is not here.
+    expect(s.nonCastable.map((h) => h.label)).toEqual(["Treasury", "FeePool"]);
+    expect(s.nonCastableTotalWei).toBe(TREASURY_VOTES + FEEPOOL_VOTES);
+    expect(s.castableSupplyWei).toBe(s.quorumBaseWei - (TREASURY_VOTES + FEEPOOL_VOTES));
+    expect(s.quorumPctOfCastable).toBeGreaterThan(3);
   });
 
   it("workerStake: total staked = registry balance minus unwithdrawn slashed funds", async () => {

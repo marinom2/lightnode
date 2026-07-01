@@ -705,15 +705,18 @@ async function main() {
               timelockMinDelaySec: r.config.timelockMinDelaySec.toString(),
               supply: {
                 pastTotalSupplyLcai: Math.round(r.supply.pastTotalSupplyLcai),
-                votableSupplyLcai: Math.round(r.supply.votableSupplyLcai),
-                nonCastableLcai: Math.round(r.supply.nonVotableTotalLcai),
-                nonCastable: r.supply.nonVotable.map((h) => ({ label: h.label, lcai: Math.round(h.lcai) })),
-                quorumPctOfVotable: Number(r.supply.quorumPctOfVotable.toFixed(2)),
+                workerStakeExcludedFromQuorumLcai: Math.round(r.supply.workerStakeExcludedLcai),
+                quorumExcludesWorkerStake: r.supply.quorumExcludesWorkerStake,
+                quorumBaseLcai: Math.round(r.supply.quorumBaseLcai),
+                castableSupplyLcai: Math.round(r.supply.castableSupplyLcai),
+                nonCastableInBase: r.supply.nonCastable.map((h) => ({ label: h.label, lcai: Math.round(h.lcai) })),
+                quorumPctOfCastable: Number(r.supply.quorumPctOfCastable.toFixed(2)),
               },
               workerStake: {
                 totalStakedLcai: r.workerStake.totalStakedLcai,
                 slashedFundsLcai: r.workerStake.slashedFundsWei ? Number(r.workerStake.slashedFundsWei) / 1e18 : 0,
-                nonCastableVotingPower: r.workerStake.nonCastable,
+                excludedFromQuorum: true,
+                votesForStakedTokens: 0,
               },
               decentralization: {
                 treasuryDaoControlled: r.decentralization.treasuryDaoControlled,

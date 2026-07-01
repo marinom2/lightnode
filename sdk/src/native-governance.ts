@@ -99,20 +99,38 @@ export interface NonVotableHolder {
 }
 
 export interface SupplyBreakdown {
-  /** getPastTotalSupply at the reference block = the quorum denominator. */
+  /** Raw getPastTotalSupply at the reference block (every account's native balance). */
   pastTotalSupplyWei: bigint;
   pastTotalSupplyLcai: number;
-  /** Protocol contracts holding native LCAI: counted in supply, never castable. */
-  nonVotable: NonVotableHolder[];
-  nonVotableTotalWei: bigint;
-  nonVotableTotalLcai: number;
-  /** pastTotalSupply minus the non-castable contract holdings. */
-  votableSupplyWei: bigint;
-  votableSupplyLcai: number;
+  /**
+   * Worker stake is EXCLUDED from the quorum base: the Governor computes quorum
+   * against (pastTotalSupply - worker stake), verified exactly on-chain
+   * (quorum == quorumBase * numerator / denominator). This is that excluded
+   * amount, derived from the authoritative quorum() so it needs no assumption
+   * about the registry's internal accounting.
+   */
+  workerStakeExcludedWei: bigint;
+  workerStakeExcludedLcai: number;
+  /** The real quorum denominator = pastTotalSupply - workerStakeExcluded. */
+  quorumBaseWei: bigint;
+  quorumBaseLcai: number;
+  /** True when the on-chain quorum matches quorumBase*num/den (stake is excluded). */
+  quorumExcludesWorkerStake: boolean;
+  /**
+   * Contracts holding native LCAI that IS still in the quorum base but cannot be
+   * cast (Treasury, FeePool). Worker stake is not here - it's already excluded
+   * from the base above.
+   */
+  nonCastable: NonVotableHolder[];
+  nonCastableTotalWei: bigint;
+  nonCastableTotalLcai: number;
+  /** quorumBase minus the non-castable in-base holdings = actually-castable supply. */
+  castableSupplyWei: bigint;
+  castableSupplyLcai: number;
   quorumNowWei: bigint;
   quorumNowLcai: number;
-  /** Quorum as a % of the ACTUALLY-castable supply (not the inflated denominator). */
-  quorumPctOfVotable: number;
+  /** Quorum as a % of the actually-castable supply. */
+  quorumPctOfCastable: number;
 }
 
 export interface WorkerStakeInfo {
@@ -123,9 +141,13 @@ export interface WorkerStakeInfo {
   /** Real total worker stake = registry balance - slashed funds. */
   totalStakedWei: bigint;
   totalStakedLcai: number;
-  /** Voting power the WorkerRegistry carries (== its balance); non-castable. */
+  /** Raw votes the WorkerRegistry address carries (== its balance) - informational. */
   votingPowerWei: bigint;
-  /** Always true here: stake sits in a contract that cannot cast votes. */
+  /**
+   * Always true: staked LCAI is EXCLUDED from the Governor's quorum base, and a
+   * worker's own EOA gets zero votes for tokens it has staked (they leave the
+   * wallet). Confirmed on-chain via the quorum-base identity in supply().
+   */
   nonCastable: boolean;
 }
 
@@ -215,45 +237,61 @@ export class NativeGovernance {
   }
 
   /**
-   * Voting-supply breakdown: how much of the quorum denominator is castable vs
-   * locked in protocol contracts. `nonVotable` = the contracts that hold native
-   * LCAI but cannot vote (Treasury, WorkerRegistry stake pool, FeePool).
+   * Voting-supply breakdown. Two separate things, easy to conflate:
+   *   1. Worker stake is EXCLUDED from the quorum base: the Governor subtracts
+   *      the staked LCAI before applying the quorum %, verified exactly on-chain
+   *      (quorum == quorumBase * num/den, and pastTotalSupply - quorumBase ==
+   *      the worker stake). A worker gets no votes for staked tokens.
+   *   2. Of what REMAINS in the base, some is still non-castable because it sits
+   *      in contracts that can't vote (Treasury, FeePool).
+   * `quorumBase` is derived from the authoritative quorum(), so it needs no
+   * assumption about the registry's internal accounting.
    */
   async supply(): Promise<SupplyBreakdown> {
     const clock = BigInt(await this.read<bigint | number>(this.gov, GOVERNOR_ABI, "clock"));
     const ref = clock > 0n ? clock - 1n : 0n;
-    const holders = this.nonVotableHolders();
-    const [pastTotal, quorumNow, ...votes] = await Promise.all([
+    const holders = this.nonCastableHolders();
+    const [pastTotal, quorumNow, num, den, ...votes] = await Promise.all([
       this.read<bigint>(this.votesToken, VOTES_ABI, "getPastTotalSupply", [ref]),
       this.read<bigint>(this.gov, GOVERNOR_ABI, "quorum", [ref]),
+      this.read<bigint>(this.gov, GOVERNOR_ABI, "quorumNumerator"),
+      this.read<bigint>(this.gov, GOVERNOR_ABI, "quorumDenominator"),
       ...holders.map((h) => this.read<bigint>(this.votesToken, VOTES_ABI, "getVotes", [h.address])),
     ]);
-    const nonVotable: NonVotableHolder[] = holders.map((h, i) => ({
+    // Back out the quorum base the Governor actually used: quorum = base*num/den.
+    const quorumBase = num > 0n ? (quorumNow * den) / num : pastTotal;
+    const excluded = pastTotal > quorumBase ? pastTotal - quorumBase : 0n;
+    const nonCastable: NonVotableHolder[] = holders.map((h, i) => ({
       label: h.label,
       address: h.address,
       votesWei: votes[i],
       lcai: toLcai(votes[i]),
     }));
-    const nonVotableTotalWei = nonVotable.reduce((s, h) => s + h.votesWei, 0n);
-    const votableWei = pastTotal > nonVotableTotalWei ? pastTotal - nonVotableTotalWei : 0n;
+    const nonCastableTotalWei = nonCastable.reduce((s, h) => s + h.votesWei, 0n);
+    const castableWei = quorumBase > nonCastableTotalWei ? quorumBase - nonCastableTotalWei : 0n;
     return {
       pastTotalSupplyWei: pastTotal,
       pastTotalSupplyLcai: toLcai(pastTotal),
-      nonVotable,
-      nonVotableTotalWei,
-      nonVotableTotalLcai: toLcai(nonVotableTotalWei),
-      votableSupplyWei: votableWei,
-      votableSupplyLcai: toLcai(votableWei),
+      workerStakeExcludedWei: excluded,
+      workerStakeExcludedLcai: toLcai(excluded),
+      quorumBaseWei: quorumBase,
+      quorumBaseLcai: toLcai(quorumBase),
+      quorumExcludesWorkerStake: excluded > 0n,
+      nonCastable,
+      nonCastableTotalWei,
+      nonCastableTotalLcai: toLcai(nonCastableTotalWei),
+      castableSupplyWei: castableWei,
+      castableSupplyLcai: toLcai(castableWei),
       quorumNowWei: quorumNow,
       quorumNowLcai: toLcai(quorumNow),
-      quorumPctOfVotable: votableWei > 0n ? (Number(quorumNow) / Number(votableWei)) * 100 : 0,
+      quorumPctOfCastable: castableWei > 0n ? (Number(quorumNow) / Number(castableWei)) * 100 : 0,
     };
   }
 
-  private nonVotableHolders(): Array<{ label: string; address: `0x${string}` }> {
+  /** Contracts whose LCAI is IN the quorum base but non-castable (worker stake is already excluded). */
+  private nonCastableHolders(): Array<{ label: string; address: `0x${string}` }> {
     const out: Array<{ label: string; address: `0x${string}` }> = [];
     if (this.network.treasury) out.push({ label: "Treasury", address: this.network.treasury as `0x${string}` });
-    out.push({ label: "WorkerRegistry (stake pool)", address: this.network.workerRegistry as `0x${string}` });
     if (this.network.feePool) out.push({ label: "FeePool", address: this.network.feePool as `0x${string}` });
     return out;
   }
