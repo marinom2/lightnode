@@ -46,7 +46,22 @@ const NATIVE_QUORUM_ABI = parseAbi([
 ]);
 const NATIVE_VOTES_ABI = parseAbi([
   "function getTotalVotingPower(uint256 timepoint) view returns (uint256)",
+  "function getPastTotalSupply(uint256 timepoint) view returns (uint256)",
 ]);
+
+// Distinct-account count. There is no on-chain enumerator for holders (the
+// precompile gives votes==balance per account but no list), so the ecosystem
+// account count comes from the explorer's index. Best-effort; null on failure.
+async function fetchHolderCount(): Promise<number | null> {
+  try {
+    const res = await fetch("https://mainnet.lightscan.app/api/v2/stats", { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { total_addresses?: string };
+    return j.total_addresses ? Number(j.total_addresses) : null;
+  } catch {
+    return null;
+  }
+}
 const SCHEDULE_ABI = parseAbi([
   "function votingDelay() view returns (uint256)",
   "function votingPeriod() view returns (uint256)",
@@ -126,12 +141,21 @@ async function readLightchainOverview(pub: Pub) {
   // Evaluate the real quorum + votable base at the latest finalized timepoint.
   const clock = BigInt(clockRaw as bigint | number);
   const ref = clock > 0n ? clock - 1n : 0n;
-  const [quorumWei, votableWei] = await Promise.all([
+  const [quorumWei, votableWei, rawSupplyWei, holderCount] = await Promise.all([
     pub.readContract({ address: a.governor, abi: NATIVE_QUORUM_ABI, functionName: "quorum", args: [ref] }).catch(() => null),
     a.ballots
       ? pub.readContract({ address: a.ballots, abi: NATIVE_VOTES_ABI, functionName: "getTotalVotingPower", args: [ref] }).catch(() => null)
       : Promise.resolve(null),
+    a.ballots
+      ? pub.readContract({ address: a.ballots, abi: NATIVE_VOTES_ABI, functionName: "getPastTotalSupply", args: [ref] }).catch(() => null)
+      : Promise.resolve(null),
+    fetchHolderCount(),
   ]);
+  // Staked LCAI excluded from the quorum base = raw votes supply - votable supply.
+  const stakeExcludedWei =
+    rawSupplyWei != null && votableWei != null && (rawSupplyWei as bigint) > (votableWei as bigint)
+      ? (rawSupplyWei as bigint) - (votableWei as bigint)
+      : null;
   return {
     treasuryWei: treasuryWei.toString(),
     feePoolWei: feePoolWei.toString(),
@@ -140,7 +164,10 @@ async function readLightchainOverview(pub: Pub) {
     // The actual quorum threshold + the staked-excluded base it applies to.
     quorumWei: quorumWei != null ? (quorumWei as bigint).toString() : null,
     votableSupplyWei: votableWei != null ? (votableWei as bigint).toString() : null,
+    rawSupplyWei: rawSupplyWei != null ? (rawSupplyWei as bigint).toString() : null,
+    stakeExcludedWei: stakeExcludedWei != null ? stakeExcludedWei.toString() : null,
     stakeExcludedFromQuorum: true as boolean,
+    holderCount: holderCount,
   };
 }
 
