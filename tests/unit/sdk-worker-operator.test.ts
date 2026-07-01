@@ -124,3 +124,70 @@ describe("WorkerOperator unified batch-op result shape", () => {
     await expect(op.releaseAll([7])).rejects.toBeInstanceOf(WorkerOpError);
   });
 });
+
+describe("WorkerOperator stuck-job coverage (the never-acked Submitted gap)", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const PAST = now - 1000;
+  const FUTURE = now + 100_000;
+  const RELEASED = 6; // JobState index 6
+
+  it("clearStuck also clears past-deadline Submitted (never-acked) jobs, not just Acknowledged", async () => {
+    const { pub, wallet } = makeClients([
+      { id: 20, state: STATE.Submitted, deadlineAt: PAST },
+      { id: 21, state: STATE.Acknowledged, deadlineAt: PAST },
+    ]);
+    const op = new WorkerOperator("mainnet", { publicClient: pub, walletClient: wallet, workerAddress: ADDR });
+    const r = await op.clearStuck([20, 21]);
+    expect(r.done.map((d) => d.jobId)).toEqual([20n, 21n]);
+  });
+
+  it("canDeregister splits blockers: releasable-now vs release-pending vs slashable", async () => {
+    const { pub, wallet } = makeClients([
+      { id: 1, state: STATE.Completed, deadlineAt: PAST }, // window elapsed -> releasable now
+      { id: 2, state: STATE.Completed, deadlineAt: FUTURE }, // still in window -> pending
+      { id: 3, state: STATE.Acknowledged, deadlineAt: PAST }, // slashable (completion-timeout)
+      { id: 4, state: STATE.Submitted, deadlineAt: PAST }, // slashable (ack-timeout)
+      { id: 5, state: RELEASED, deadlineAt: PAST }, // terminal -> never a blocker
+    ]);
+    const op = new WorkerOperator("mainnet", { publicClient: pub, walletClient: wallet, workerAddress: ADDR });
+    const r = await op.canDeregister([1, 2, 3, 4, 5]);
+    expect(r.ok).toBe(false);
+    expect(r.releasableNow).toEqual([1n]);
+    expect(r.releasePending).toEqual([2n]);
+    expect(r.slashableToClear.map((j) => j.jobId)).toEqual([3n, 4n]);
+    expect(r.slashableToClear.find((j) => j.jobId === 4n)?.state).toBe("Submitted");
+    expect(r.blockedBy).not.toContain(5n);
+  });
+
+  it("unstickAndDeregister releases free jobs but REFUSES to slash without acceptSlash", async () => {
+    const { pub, wallet } = makeClients([
+      { id: 1, state: STATE.Completed, deadlineAt: PAST }, // released for free
+      { id: 3, state: STATE.Acknowledged, deadlineAt: PAST }, // slashable -> must block
+    ]);
+    const op = new WorkerOperator("mainnet", { publicClient: pub, walletClient: wallet, workerAddress: ADDR });
+    const r = await op.unstickAndDeregister([1, 3]);
+    expect(r.released.map((x) => x.jobId)).toEqual([1n]);
+    expect(r.cleared).toEqual([]);
+    expect(r.deregisterTx).toBeUndefined();
+    expect(r.blocked?.slashableToClear.map((j) => j.jobId)).toEqual([3n]);
+  });
+
+  it("unstickAndDeregister with acceptSlash clears the stuck jobs (opt-in slash)", async () => {
+    const { pub, wallet } = makeClients([{ id: 3, state: STATE.Acknowledged, deadlineAt: PAST }]);
+    const op = new WorkerOperator("mainnet", { publicClient: pub, walletClient: wallet, workerAddress: ADDR });
+    const r = await op.unstickAndDeregister([3], { acceptSlash: true });
+    expect(r.cleared.map((x) => x.jobId)).toEqual([3n]);
+    // The static fixture still reports #3 as stuck post-clear, so deregister stays
+    // gated off (no doomed ActiveJobsExist revert) and returns the blocked readiness.
+    expect(r.deregisterTx).toBeUndefined();
+    expect(r.blocked).toBeDefined();
+  });
+
+  it("unstickAndDeregister deregisters cleanly when nothing blocks", async () => {
+    const { pub, wallet } = makeClients([{ id: 5, state: RELEASED, deadlineAt: PAST }]);
+    const op = new WorkerOperator("mainnet", { publicClient: pub, walletClient: wallet, workerAddress: ADDR });
+    const r = await op.unstickAndDeregister([5], { acceptSlash: true });
+    expect(r.blocked).toBeUndefined();
+    expect(r.deregisterTx).toBe(TX);
+  });
+});

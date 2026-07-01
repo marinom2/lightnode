@@ -2135,11 +2135,12 @@ async function jobIds(): Promise<bigint[]> {
 
 const cmd = process.argv[2] ?? "status";
 const yes = process.argv.includes("--yes");
+const acceptSlash = process.argv.includes("--accept-slash");
 
 async function requireYesOnMainnet(what: string): Promise<void> {
   if (NETWORK !== "mainnet" || yes) return;
   const c = await op.config();
-  console.error(\`\${what} on mainnet realizes a \${c.slashBps.completionTimeout / 100}% slash per stuck job. Re-run with --yes to confirm.\`);
+  console.error(\`\${what} on mainnet realizes a \${c.slashBps.completionTimeout / 100}% slash per stuck (acked) job and \${c.slashBps.ackTimeout / 100}% per never-acked job; completed jobs release for free. Re-run with --yes to confirm.\`);
   process.exit(1);
 }
 
@@ -2191,8 +2192,23 @@ async function main(): Promise<void> {
   }
   if (cmd === "deregister") {
     await requireYesOnMainnet("deregister");
-    const r = await op.unstickAndDeregister(await jobIds());
+    const r = await op.unstickAndDeregister(await jobIds(), { acceptSlash });
+    if (r.blocked) {
+      console.log(JSON.stringify({
+        deregistered: false,
+        released: r.released.map((c) => c.jobId.toString()),
+        cleared: r.cleared.map((c) => c.jobId.toString()),
+        withdrawTx: r.withdrawTx ?? null,
+        blockedReason: r.blocked.reason,
+        slashableToClear: r.blocked.slashableToClear.map((j) => j.jobId.toString()),
+        hint: r.blocked.slashableToClear.length && !acceptSlash
+          ? "Re-run with --accept-slash to clear the stuck jobs (realizes a slash), or ask LightChain to clear them without slash."
+          : "Completed jobs are still in their dispute window; re-run after it elapses.",
+      }, null, 2));
+      return;
+    }
     console.log(JSON.stringify({
+      deregistered: true,
       cleared: r.cleared.map((c) => c.jobId.toString()),
       released: r.released.map((c) => c.jobId.toString()),
       withdrawTx: r.withdrawTx ?? null,

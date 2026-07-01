@@ -407,7 +407,21 @@ async function main() {
         const op = writeOperator(ln);
         const ids = await workerJobIds(ln, privateKeyToAccount(pickKey()).address);
         const r = await op.canDeregister(ids);
-        console.log(JSON.stringify({ ok: r.ok, blockedBy: r.blockedBy.map(String), reason: r.reason }, null, 2));
+        console.log(
+          JSON.stringify(
+            {
+              ok: r.ok,
+              reason: r.reason,
+              releasableNow: r.releasableNow.map(String),
+              releasePending: r.releasePending.map(String),
+              slashableToClear: r.slashableToClear.map((j) => ({ jobId: j.jobId.toString(), state: j.state, slashBps: j.slashBps })),
+              estimatedSlashLcai: Math.round(r.estimatedSlashLcai),
+              blockedBy: r.blockedBy.map(String),
+            },
+            null,
+            2,
+          ),
+        );
         break;
       }
       if (sub === "settle") {
@@ -426,8 +440,10 @@ async function main() {
         const addr = privateKeyToAccount(pickKey()).address;
         const ids = await workerJobIds(ln, addr);
         if (net === "mainnet" && !process.argv.includes("--yes")) {
-          const cfg = await op.config();
-          die(`clearstuck finalizes stuck jobs as TimedOut, realizing a ${cfg.slashBps.completionTimeout / 100}% slash per job on mainnet. Re-run with --yes to confirm.`);
+          const r = await op.canDeregister(ids);
+          die(
+            `clearstuck finalizes ${r.slashableToClear.length} stuck job(s) as TimedOut, realizing ~${Math.round(r.estimatedSlashLcai)} LCAI of slashing on mainnet (completion-timeout 5%/acked job, ack-timeout 2%/never-acked job). There is no no-slash path for these on-chain. Re-run with --yes to confirm.`,
+          );
         }
         console.error(`> clearing stuck (acknowledged, past-deadline) jobs on ${net}...`);
         const r = await op.clearStuck(ids);
@@ -449,12 +465,47 @@ async function main() {
         const op = writeOperator(ln);
         const addr = privateKeyToAccount(pickKey()).address;
         const ids = await workerJobIds(ln, addr);
+        const acceptSlash = process.argv.includes("--accept-slash");
         if (net === "mainnet" && !process.argv.includes("--yes")) {
-          die("deregister on mainnet may require clearing stuck jobs first (which realizes a slash). Run 'worker can-deregister' to check, then re-run with --yes.");
+          die("deregister on mainnet releases completed jobs for free, but stuck in-flight jobs can ONLY be cleared with a slash. Run 'worker can-deregister' to see the exact cost, then re-run with --yes (add --accept-slash to also authorize clearing stuck jobs).");
         }
         try {
-          const r = await op.unstickAndDeregister(ids);
-          console.log(JSON.stringify({ cleared: r.cleared.map((c) => c.jobId.toString()), released: r.released.map((c) => c.jobId.toString()), withdrawTx: r.withdrawTx ?? null, deregisterTx: r.deregisterTx }, null, 2));
+          const r = await op.unstickAndDeregister(ids, { acceptSlash });
+          if (r.blocked) {
+            console.log(
+              JSON.stringify(
+                {
+                  deregistered: false,
+                  released: r.released.map((c) => c.jobId.toString()),
+                  cleared: r.cleared.map((c) => c.jobId.toString()),
+                  withdrawTx: r.withdrawTx ?? null,
+                  blockedReason: r.blocked.reason,
+                  slashableToClear: r.blocked.slashableToClear.map((j) => j.jobId.toString()),
+                  estimatedSlashLcai: Math.round(r.blocked.estimatedSlashLcai),
+                  hint:
+                    r.blocked.slashableToClear.length && !acceptSlash
+                      ? "Re-run with --accept-slash to clear the stuck jobs (realizes the slash above), or ask LightChain to clear them without slash."
+                      : "Completed jobs are still in their dispute window; re-run after it elapses to finish deregistering.",
+                },
+                null,
+                2,
+              ),
+            );
+            break;
+          }
+          console.log(
+            JSON.stringify(
+              {
+                deregistered: true,
+                released: r.released.map((c) => c.jobId.toString()),
+                cleared: r.cleared.map((c) => c.jobId.toString()),
+                withdrawTx: r.withdrawTx ?? null,
+                deregisterTx: r.deregisterTx,
+              },
+              null,
+              2,
+            ),
+          );
         } catch (e) {
           if (isWorkerOpError(e)) die(`deregister failed: ${e.message}`);
           throw e;
