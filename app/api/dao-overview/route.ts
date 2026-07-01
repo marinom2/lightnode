@@ -156,6 +156,12 @@ async function readLightchainOverview(pub: Pub) {
     rawSupplyWei != null && votableWei != null && (rawSupplyWei as bigint) > (votableWei as bigint)
       ? (rawSupplyWei as bigint) - (votableWei as bigint)
       : null;
+  // Castable = votable minus LCAI held by protocol contracts that can't vote
+  // (Treasury + FeePool). votes == balance on the precompile, so their balances
+  // are their (non-castable) voting power.
+  const nonCastableWei = treasuryWei + feePoolWei;
+  const castableWei =
+    votableWei != null && (votableWei as bigint) > nonCastableWei ? (votableWei as bigint) - nonCastableWei : null;
   return {
     treasuryWei: treasuryWei.toString(),
     feePoolWei: feePoolWei.toString(),
@@ -164,6 +170,9 @@ async function readLightchainOverview(pub: Pub) {
     // The actual quorum threshold + the staked-excluded base it applies to.
     quorumWei: quorumWei != null ? (quorumWei as bigint).toString() : null,
     votableSupplyWei: votableWei != null ? (votableWei as bigint).toString() : null,
+    // Castable = votable minus the non-votable contract holdings (Treasury/FeePool).
+    castableSupplyWei: castableWei != null ? castableWei.toString() : null,
+    nonCastableWei: nonCastableWei.toString(),
     rawSupplyWei: rawSupplyWei != null ? (rawSupplyWei as bigint).toString() : null,
     stakeExcludedWei: stakeExcludedWei != null ? stakeExcludedWei.toString() : null,
     stakeExcludedFromQuorum: true as boolean,

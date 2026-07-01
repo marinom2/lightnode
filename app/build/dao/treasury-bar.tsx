@@ -31,26 +31,37 @@ interface Overview {
   rawSupplyWei?: string | null;
   stakeExcludedWei?: string | null;
   holderCount?: number | null;
+  // Votable minus non-votable contract holdings (Treasury/FeePool) = castable.
+  castableSupplyWei?: string | null;
+  nonCastableWei?: string | null;
   schedule?: Schedule;
   error?: string;
 }
 
 const VOTE_SYMBOL: Record<DaoChain, string> = { ethereum: "LCAIB", lightchain: "LCAI" };
 
-/** LightChain voting-power summary: votable sum, accounts, staked-excluded. */
+/** LightChain voting-power summary: castable vs votable, staked-excluded, accounts. */
 function VotingPowerLine({ chain, data }: { chain: DaoChain; data: Overview }) {
   if (!data.votableSupplyWei) return null;
   const sym = VOTE_SYMBOL[chain];
   const votable = formatLcaiWei(BigInt(data.votableSupplyWei), 0);
+  // Castable = votable minus the Treasury/FeePool (contracts that can't vote).
+  const castable = data.castableSupplyWei ? formatLcaiWei(BigInt(data.castableSupplyWei), 0) : null;
+  const nonCastable = data.nonCastableWei && BigInt(data.nonCastableWei) > 0n ? formatLcaiWei(BigInt(data.nonCastableWei), 0) : null;
   const accounts = data.holderCount != null ? `~${data.holderCount.toLocaleString()} accounts` : null;
   const excluded = data.stakeExcludedWei && BigInt(data.stakeExcludedWei) > 0n
-    ? `${formatLcaiWei(BigInt(data.stakeExcludedWei), 0)} ${sym} staked (excluded from quorum)`
+    ? `${formatLcaiWei(BigInt(data.stakeExcludedWei), 0)} ${sym} staked (excluded)`
     : null;
   return (
     <p className="px-1 text-[11px] leading-relaxed text-content-soft">
-      <span className="font-medium text-content-default">Voting power:</span> {votable} {sym} votable
-      {accounts ? <> across <span className="text-content-default">{accounts}</span></> : null}
+      <span className="font-medium text-content-default">Voting power:</span>{" "}
+      {castable ? (
+        <><span className="text-content-default">{castable} {sym} castable</span> of {votable} votable{nonCastable ? <> ({nonCastable} in the treasury, non-votable)</> : null}</>
+      ) : (
+        <>{votable} {sym} votable</>
+      )}
       {excluded ? <> · {excluded}</> : null}
+      {accounts ? <> · {accounts}</> : null}
     </p>
   );
 }
