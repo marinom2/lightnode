@@ -21,6 +21,11 @@ interface Overview {
   feePoolWei: string | null;
   voteToken: { address: string; symbol: string; totalSupplyWei: string | null };
   quorum: { numerator: string; denominator: string };
+  // LightChain only: the actual on-chain quorum threshold + the staked-excluded
+  // base it applies to (worker + validator stake are not in the votable supply).
+  quorumWei?: string | null;
+  votableSupplyWei?: string | null;
+  stakeExcludedFromQuorum?: boolean;
   schedule?: Schedule;
   error?: string;
 }
@@ -89,10 +94,21 @@ export function TreasuryBar({ chain }: { chain: DaoChain }) {
   const qPct = quorumPercent(data.quorum.numerator, data.quorum.denominator);
   const supply = data.voteToken.totalSupplyWei ? `${formatLcaiWei(BigInt(data.voteToken.totalSupplyWei), 0)} ${sym}` : "native stake";
 
-  const quorumValue = qPct ? `${qPct % 1 === 0 ? qPct : qPct.toFixed(1)}% of supply` : "n/a";
-  const quorumHint = data.voteToken.totalSupplyWei
-    ? `${quorumValue} - needs ${formatLcaiWei((BigInt(data.voteToken.totalSupplyWei) * BigInt(data.quorum.numerator)) / BigInt(data.quorum.denominator || "1"), 0)} ${VOTE_SYMBOL[chain]} of For+Abstain to be valid`
-    : `${quorumValue} of the native vote supply`;
+  const pctLabel = qPct ? `${qPct % 1 === 0 ? qPct : qPct.toFixed(1)}%` : "3%";
+  // LightChain reports the REAL quorum (quorumWei): 3% of the staked-excluded
+  // votable supply, not "% of supply". Worker + validator stake are not in the
+  // votable base. Fall back to the "% of supply" label only where no real quorum
+  // amount is available (e.g. Ethereum's ERC20Votes reads).
+  const quorumValue = data.quorumWei
+    ? `${formatLcaiWei(BigInt(data.quorumWei), 0)} ${VOTE_SYMBOL[chain]}`
+    : qPct
+      ? `${pctLabel} of supply`
+      : "n/a";
+  const quorumHint = data.quorumWei
+    ? `${pctLabel} of the votable supply${data.stakeExcludedFromQuorum ? " (staked LCAI excluded)" : ""}${data.votableSupplyWei ? ` = ${formatLcaiWei(BigInt(data.votableSupplyWei), 0)} ${VOTE_SYMBOL[chain]} base` : ""} - needs this much For+Abstain to pass`
+    : data.voteToken.totalSupplyWei
+      ? `${quorumValue} - needs ${formatLcaiWei((BigInt(data.voteToken.totalSupplyWei) * BigInt(data.quorum.numerator)) / BigInt(data.quorum.denominator || "1"), 0)} ${VOTE_SYMBOL[chain]} of For+Abstain to be valid`
+      : `${quorumValue} of the native vote supply`;
   return (
     <div className="space-y-3 rounded-2xl border border-bdr-soft bg-card/60 px-4 py-3.5 backdrop-blur-sm">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

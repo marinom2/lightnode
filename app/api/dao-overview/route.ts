@@ -37,6 +37,16 @@ const QUORUM_ABI = parseAbi([
   "function quorumNumerator() view returns (uint256)",
   "function quorumDenominator() view returns (uint256)",
 ]);
+// LightChain's Governor overrides quorum() to use INativeVotes.getTotalVotingPower
+// (the STAKED-EXCLUDED supply), not IVotes.getPastTotalSupply. So the real quorum
+// is 3% of the votable base, not 3% of raw supply. Read both to show the truth.
+const NATIVE_QUORUM_ABI = parseAbi([
+  "function quorum(uint256 timepoint) view returns (uint256)",
+  "function clock() view returns (uint48)",
+]);
+const NATIVE_VOTES_ABI = parseAbi([
+  "function getTotalVotingPower(uint256 timepoint) view returns (uint256)",
+]);
 const SCHEDULE_ABI = parseAbi([
   "function votingDelay() view returns (uint256)",
   "function votingPeriod() view returns (uint256)",
@@ -107,16 +117,30 @@ async function readEthereumOverview(pub: Pub) {
 async function readLightchainOverview(pub: Pub) {
   const a = DAO_ADDRESSES.lightchain;
   // Native balances: treasury + FeePool hold native LCAI (no ERC-20 wrapper).
-  const [treasuryWei, feePoolWei, quorum] = await Promise.all([
+  const [treasuryWei, feePoolWei, quorum, clockRaw] = await Promise.all([
     pub.getBalance({ address: a.treasury }).catch(() => 0n),
     pub.getBalance({ address: FEE_POOL }).catch(() => 0n),
     readQuorumConfig(pub, a.governor),
+    pub.readContract({ address: a.governor, abi: NATIVE_QUORUM_ABI, functionName: "clock" }).catch(() => 0n),
+  ]);
+  // Evaluate the real quorum + votable base at the latest finalized timepoint.
+  const clock = BigInt(clockRaw as bigint | number);
+  const ref = clock > 0n ? clock - 1n : 0n;
+  const [quorumWei, votableWei] = await Promise.all([
+    pub.readContract({ address: a.governor, abi: NATIVE_QUORUM_ABI, functionName: "quorum", args: [ref] }).catch(() => null),
+    a.ballots
+      ? pub.readContract({ address: a.ballots, abi: NATIVE_VOTES_ABI, functionName: "getTotalVotingPower", args: [ref] }).catch(() => null)
+      : Promise.resolve(null),
   ]);
   return {
     treasuryWei: treasuryWei.toString(),
     feePoolWei: feePoolWei.toString(),
     voteToken: { address: a.ballots, symbol: "LCAI", totalSupplyWei: null as string | null },
     quorum,
+    // The actual quorum threshold + the staked-excluded base it applies to.
+    quorumWei: quorumWei != null ? (quorumWei as bigint).toString() : null,
+    votableSupplyWei: votableWei != null ? (votableWei as bigint).toString() : null,
+    stakeExcludedFromQuorum: true as boolean,
   };
 }
 
