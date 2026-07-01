@@ -56,6 +56,9 @@ const GOVERNOR_ABI = parseAbi([
 const VOTES_ABI = parseAbi([
   "function getVotes(address account) view returns (uint256)",
   "function getPastTotalSupply(uint256 timepoint) view returns (uint256)",
+  // INativeVotes extension: the staked-excluded voting supply the Governor's
+  // overridden quorum() actually uses (verified in LightChainGovernor source).
+  "function getTotalVotingPower(uint256 timepoint) view returns (uint256)",
 ]);
 
 const TIMELOCK_ABI = parseAbi([
@@ -237,29 +240,29 @@ export class NativeGovernance {
   }
 
   /**
-   * Voting-supply breakdown. Two separate things, easy to conflate:
-   *   1. Worker stake is EXCLUDED from the quorum base: the Governor subtracts
-   *      the staked LCAI before applying the quorum %, verified exactly on-chain
-   *      (quorum == quorumBase * num/den, and pastTotalSupply - quorumBase ==
-   *      the worker stake). A worker gets no votes for staked tokens.
+   * Voting-supply breakdown. Mechanism verified in the LightChainGovernor source:
+   * quorum() is OVERRIDDEN to use `INativeVotes.getTotalVotingPower(t)` (the
+   * staked-excluded supply) instead of `IVotes.getPastTotalSupply`. So:
+   *   1. `quorumBase` = getTotalVotingPower - the authoritative denominator the
+   *      Governor applies the quorum % to. It excludes worker stake:
+   *      getPastTotalSupply - getTotalVotingPower == net worker stake (exact),
+   *      and a worker's own EOA gets no votes for tokens it has staked.
    *   2. Of what REMAINS in the base, some is still non-castable because it sits
    *      in contracts that can't vote (Treasury, FeePool).
-   * `quorumBase` is derived from the authoritative quorum(), so it needs no
-   * assumption about the registry's internal accounting.
+   * (Validator bonded stake is a separate question: it is not reflected in the
+   * getPastTotalSupply/getTotalVotingPower delta, which is worker stake only.)
    */
   async supply(): Promise<SupplyBreakdown> {
     const clock = BigInt(await this.read<bigint | number>(this.gov, GOVERNOR_ABI, "clock"));
     const ref = clock > 0n ? clock - 1n : 0n;
     const holders = this.nonCastableHolders();
-    const [pastTotal, quorumNow, num, den, ...votes] = await Promise.all([
+    const [pastTotal, quorumBase, quorumNow, ...votes] = await Promise.all([
       this.read<bigint>(this.votesToken, VOTES_ABI, "getPastTotalSupply", [ref]),
+      // The Governor's quorum() calls this directly (staked-excluded supply).
+      this.read<bigint>(this.votesToken, VOTES_ABI, "getTotalVotingPower", [ref]),
       this.read<bigint>(this.gov, GOVERNOR_ABI, "quorum", [ref]),
-      this.read<bigint>(this.gov, GOVERNOR_ABI, "quorumNumerator"),
-      this.read<bigint>(this.gov, GOVERNOR_ABI, "quorumDenominator"),
       ...holders.map((h) => this.read<bigint>(this.votesToken, VOTES_ABI, "getVotes", [h.address])),
     ]);
-    // Back out the quorum base the Governor actually used: quorum = base*num/den.
-    const quorumBase = num > 0n ? (quorumNow * den) / num : pastTotal;
     const excluded = pastTotal > quorumBase ? pastTotal - quorumBase : 0n;
     const nonCastable: NonVotableHolder[] = holders.map((h, i) => ({
       label: h.label,

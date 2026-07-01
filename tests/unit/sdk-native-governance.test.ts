@@ -44,6 +44,7 @@ function makeClient(): NativeGovClient {
         case "timelock": return M.timelock;
         case "getMinDelay": return 172_800n;
         case "getPastTotalSupply": return PAST_TOTAL;
+        case "getTotalVotingPower": return PAST_TOTAL - NET_STAKE; // Governor's staked-excluded base
         case "getVotes": return votesByAddr[lc(String(a0))] ?? 0n;
         case "getSlashedFunds": return SLASHED;
         case "PROPOSER_ROLE": return "0x01".padEnd(66, "0");
