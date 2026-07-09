@@ -56,7 +56,7 @@
     "viem": "^2"
   },
   "devDependencies": {
-    "typescript": "^6",
+    "typescript": "^7",
     "@types/node": "^25"
   },
   "engines": {
