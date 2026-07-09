@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "typescript": "^7",
-    "@types/node": "^25"
+    "@types/node": "^26"
   },
   "engines": {
     "node": ">=18"
