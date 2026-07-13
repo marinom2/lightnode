@@ -1,6 +1,6 @@
-# LightNode Wallet
+# Lightchain AI Wallet
 
-A **self-custodial** browser wallet for LightChain (EVM L1, chain 9200; testnet 8200), with pinned support for Ethereum, Base, Arbitrum, Optimism, and Polygon. It is a pure client-side **EOA wallet** - there is **no smart contract**, no relayer, and no server. Your keys are generated and encrypted **on your device and never leave it**. We are not an exchange and never custody funds.
+A **self-custodial** browser wallet for Lightchain AI (EVM L1, chain 9200; testnet 8200), with pinned support for Ethereum, Base, Arbitrum, Optimism, and Polygon. It is a pure client-side **EOA wallet** - there is **no smart contract**, no relayer, and no server. Your keys are generated and encrypted **on your device and never leave it**. We are not an exchange and never custody funds.
 
 > Status: the self-custody core (create/import, unlock, send, dapp connect + sign) and the LightChain extras (encrypted AI chat, DAO voting, worker hub, swap, bridge) are functional. Run an external security audit before holding meaningful mainnet funds - that gate applies to every wallet, ours included. The architecture and keyring were built to a written spec and passed a 15-point adversarial security review (see "Security" below).
 

@@ -1,18 +1,21 @@
 /**
- * In-wallet governance: list LCAI Governor proposals on Ethereum AND LightChain
- * and vote from the wallet. Proposal discovery uses each chain's Blockscout
- * logs API (no RPC getLogs range limits, open CORS), decoded with viem; state
- * and tallies are read from the governor directly. Inlined, no SDK dependency.
+ * In-wallet governance: list the Lightchain AI Governor's proposals and vote
+ * from the wallet. Lightchain AI is the only governance network (native LCAI
+ * voting); Ethereum governance was retired. Proposal discovery uses LightScan's
+ * Blockscout logs API (no RPC getLogs range limits, open CORS), decoded with
+ * viem; state and tallies are read from the governor directly. No SDK dependency.
  */
 import { createPublicClient, decodeEventLog, encodeFunctionData, formatEther, http, parseAbi, parseAbiItem, toEventSelector } from "viem";
 import { chainById } from "./chains";
 import { BLOCKSCOUT } from "./history";
-import { LCAI_ERC20 } from "./bridge";
 import { decodeDangerousCall } from "../provider/decode-call";
 
+// LightChainGovernor (proxy), the canonical mainnet governor per the official
+// contracts doc. Verified live: it holds the real ProposalCreated history. An
+// earlier deployment (0x262E9f...) is retired and empty.
+export const LIGHTCHAIN_GOVERNOR = "0xD216A0c0050EdC3a9E0449EcFDf178A1652b4b68" as const;
 export const GOVERNORS: Record<number, `0x${string}`> = {
-  1: "0x6dfa413B5900a1a7947BC75E68AbBA093cB2492d",
-  9200: "0x262E9f9232933E8565253918db703baD58DE93aB",
+  9200: LIGHTCHAIN_GOVERNOR,
 };
 
 const PROPOSAL_CREATED = parseAbiItem(
@@ -137,7 +140,7 @@ const MAX_PROPOSALS = 8;
  * Topic-filtered, full-range log query (Blockscout v1 getLogs). The v2 address
  * feed pages 50 newest logs of ALL kinds: on a live governor VoteCast events
  * bury ProposalCreated entirely (the bug that showed "no proposals" while the
- * Ethereum governor held 30). topic0 filtering pushes the search server-side.
+ * governor held many). topic0 filtering pushes the search server-side.
  */
 async function fetchProposalLogs(base: string, governor: string): Promise<RawProposal[]> {
   const url = `${base}/api?module=logs&action=getLogs&fromBlock=0&toBlock=latest&address=${governor}&topic0=${PROPOSAL_CREATED_TOPIC}`;
@@ -214,31 +217,28 @@ export function castVoteData(proposalId: string, support: 0 | 1 | 2): `0x${strin
 
 // ---- DAO stats (treasury + quorum) ---------------------------------------------
 
+// Treasury (proxy) on Lightchain AI mainnet, per the official contracts doc.
 const TREASURIES: Record<number, `0x${string}`> = {
-  1: "0x07A716a551E5f4CA7D6C71Da9dF1cb1429Dba826",
   9200: "0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389",
 };
 const QUORUM_ABI = parseAbi([
   "function quorumNumerator() view returns (uint256)",
   "function quorumDenominator() view returns (uint256)",
 ]);
-const BALANCE_ABI = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 
 export interface DaoStatsView {
   treasuryLcai: number | null; // null = unreadable right now
   quorumPct: number | null;
 }
 
-/** Treasury holds the ERC-20 on Ethereum and native LCAI on LightChain. */
+/** The Lightchain AI treasury holds native LCAI. */
 export async function readDaoStats(chainId: number): Promise<DaoStatsView> {
   const governor = GOVERNORS[chainId];
   const treasury = TREASURIES[chainId];
   if (!governor || !treasury) return { treasuryLcai: null, quorumPct: null };
   const pub = createPublicClient({ chain: chainById(chainId), transport: http() });
   const [bal, num, den] = await Promise.all([
-    chainId === 1
-      ? (pub.readContract({ address: LCAI_ERC20, abi: BALANCE_ABI, functionName: "balanceOf", args: [treasury] }).catch(() => null) as Promise<bigint | null>)
-      : pub.getBalance({ address: treasury }).then((b): bigint | null => b).catch(() => null),
+    pub.getBalance({ address: treasury }).then((b): bigint | null => b).catch(() => null),
     pub.readContract({ address: governor, abi: QUORUM_ABI, functionName: "quorumNumerator" }).catch(() => null) as Promise<bigint | null>,
     pub.readContract({ address: governor, abi: QUORUM_ABI, functionName: "quorumDenominator" }).catch(() => 100n) as Promise<bigint | null>,
   ]);

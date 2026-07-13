@@ -57,12 +57,22 @@ export function SettingsSheet({ state, onClose, onRemoved, onChanged }: { state:
   const [err, setErr] = useState<string | null>(null);
   const [origins, setOrigins] = useState<string[] | null>(null);
   const [hideTestnets, setHideTestnets] = useState(false);
+  const [voteReminders, setVoteReminders] = useState(true);
   const [confirmRemove, setConfirmRemove] = useState("");
   const [removeArmed, setRemoveArmed] = useState(false);
   useEffect(() => {
     wallet<string[]>({ type: "getOrigins" }).then(setOrigins).catch(() => setOrigins([]));
     void browser.storage.local.get("ui-hide-testnets").then((r) => setHideTestnets(Boolean(r["ui-hide-testnets"])));
+    void browser.storage.local.get("dao-alerts-enabled").then((r) => setVoteReminders(r["dao-alerts-enabled"] !== false));
   }, []);
+  const toggleVoteReminders = () => {
+    setVoteReminders((v) => {
+      const next = !v;
+      // Persist, then ask the background to re-evaluate the badge/reminders now.
+      void browser.storage.local.set({ "dao-alerts-enabled": next }).then(() => wallet({ type: "refreshDaoAlerts" })).catch(() => {});
+      return next;
+    });
+  };
   const [revokeErr, setRevokeErr] = useState<string | null>(null);
   const revoke = (origin: string) => {
     setRevokeErr(null);
@@ -118,6 +128,14 @@ export function SettingsSheet({ state, onClose, onRemoved, onChanged }: { state:
         {revokeErr && <p className="err">{revokeErr}</p>}
       </div>
       <div className="card">
+        <h2>Notifications</h2>
+        <div className="row between">
+          <span className="muted">Governance vote reminders</span>
+          <button className={`chip${voteReminders ? " active" : ""}`} onClick={toggleVoteReminders}>{voteReminders ? "On" : "Off"}</button>
+        </div>
+        <p className="faint" style={{ marginTop: 6 }}>Get a reminder and a toolbar badge when a Lightchain AI proposal is open and you have not voted.</p>
+      </div>
+      <div className="card">
         <h2>Display</h2>
         <div className="row between">
           <span className="muted">Show testnets in the network list</span>
@@ -135,10 +153,10 @@ export function SettingsSheet({ state, onClose, onRemoved, onChanged }: { state:
         <div className="row between"><span className="muted">Version</span><span className="addr">{version}</span></div>
         <div className="row between" style={{ marginTop: 4 }}><span className="muted">Active account</span><span className="addr">{short(state.accounts[state.activeIndex] ?? "")}</span></div>
         <div className="row" style={{ gap: 12, marginTop: 8 }}>
-          <a href="https://lightnode.app" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>LightNode →</a>
-          <a href="https://github.com/marinom2/lightnode" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Source code →</a>
+          <a href="https://lightchain.ai" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Lightchain AI →</a>
+          <a href="https://docs.lightchain.ai" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Docs →</a>
         </div>
-        <p className="faint" style={{ marginTop: 8 }}>Self-custodial: keys never leave this device. Independent and community-built.</p>
+        <p className="faint" style={{ marginTop: 8 }}>Self-custodial: your keys never leave this device.</p>
       </div>
     </Sheet>
   );

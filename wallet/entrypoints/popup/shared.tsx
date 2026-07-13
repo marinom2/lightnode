@@ -36,6 +36,8 @@ export const fmtBal = (s: string): string => {
 };
 export const isApproveWindow = () => window.location.hash.includes("approve");
 export const isExpanded = () => window.location.hash.includes("expanded");
+// A governance reminder opens the wallet at #/expanded/dao: jump straight to the DAO.
+export const wantsDao = () => window.location.hash.includes("dao");
 export const openFullTab = () => void browser.tabs.create({ url: browser.runtime.getURL("/popup.html#/expanded") });
 
 export function avatarGradient(addr: string): string {

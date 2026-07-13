@@ -1,6 +1,6 @@
-# LightNode Wallet - Privacy Policy
+# Lightchain AI Wallet - Privacy Policy
 
-LightNode Wallet is a **self-custodial** browser extension. It is built so that we never see your money or your data.
+Lightchain AI Wallet is a **self-custodial** browser extension. It is built so that we never see your money or your data.
 
 ## What we collect
 

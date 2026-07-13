@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // (no `any`) instead of dropping to an untyped object.
 type WebAccessibleResource = { resources: string[]; matches: string[]; use_dynamic_url?: boolean };
 
-// LightNode Wallet - self-custodial EOA extension. Keys never leave the device.
+// Lightchain AI Wallet - self-custodial EOA extension. Keys never leave the device.
 // The inpage provider is web-accessible (required to inject into the MAIN world);
 // use_dynamic_url randomizes its URL per session to blunt wallet fingerprinting.
 const webAccessibleResources: WebAccessibleResource[] = [
@@ -17,11 +17,13 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   manifest: {
-    name: "LightNode Wallet",
-    description: "Self-custodial wallet for LightChain and EVM chains. Your keys never leave this device.",
+    name: "Lightchain AI Wallet",
+    description: "The self-custodial wallet for Lightchain AI. Hold LCAI, vote in governance, run a worker, and use AI - keys never leave your device.",
     minimum_chrome_version: "120",
-    permissions: ["storage", "alarms"],
-    host_permissions: ["https://api.coingecko.com/*"],
+    // `notifications` powers governance vote reminders; the alarm wakes the SW to
+    // check for open proposals the account can still vote on.
+    permissions: ["storage", "alarms", "notifications"],
+    host_permissions: ["https://api.coingecko.com/*", "https://api-cloud.bitmart.com/*"],
     icons: { 16: "icon/16.png", 32: "icon/32.png", 48: "icon/48.png", 128: "icon/128.png" },
     action: { default_icon: { 16: "icon/16.png", 32: "icon/32.png", 48: "icon/48.png", 128: "icon/128.png" } },
     web_accessible_resources: webAccessibleResources,

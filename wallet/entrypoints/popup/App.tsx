@@ -34,5 +34,5 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 function Brand() {
-  return <div className="brand"><img className="brand-mark" src="/lightnode.png" alt="" /> LightNode Wallet</div>;
+  return <div className="brand"><img className="brand-mark" src="/lightchain-symbol.svg" alt="" /> <span className="brand-name">Lightchain <span className="brand-ai">AI</span></span></div>;
 }

@@ -1,20 +1,31 @@
+/* Inter is the official Lightchain AI typeface (bundled, self-hosted). */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-var.woff2") format("woff2");
+}
 :root {
   color-scheme: dark;
-  --bg: #07070f;
-  --bg-2: #0c0c18;
-  --card: rgba(26, 27, 54, 0.52);
-  --card-2: rgba(32, 34, 64, 0.65);
+  /* Official Lightchain AI palette: primary #5B4BFF, secondary #DD00AC,
+     dark #14152C, gradient #5B4BFF -> #EE11FB. */
+  --bg: #080812;
+  --bg-2: #101028;
+  --card: rgba(28, 30, 66, 0.52);
+  --card-2: rgba(34, 37, 76, 0.65);
   --soft: #9a9ab8;
   --faint: #8d8dab;
   --text: #f1f1f8;
-  --brand: #7064e9;
+  --brand: #5b4bff;
   --brand-2: #dd00ac;
-  --grad: linear-gradient(94deg, #dd00ac 0%, #7130c3 38%, #7064e9 68%, #4f7cf6 100%);
+  --brand-3: #ee11fb;
+  --grad: linear-gradient(100deg, #5b4bff 0%, #8b2bf0 52%, #ee11fb 100%);
   --ok: #34d399;
   --bad: #f87171;
   --warnc: #fbbf24;
-  --bdr: #25254040;
-  --bdr-solid: #262642;
+  --bdr: #2a2a4a40;
+  --bdr-solid: #26284a;
   --shadow: 0 8px 30px -8px rgba(0, 0, 0, 0.6);
 }
 html { background: var(--bg); height: 100%; }
@@ -26,15 +37,17 @@ body {
   width: 360px;
   min-height: 600px;
   background:
-    radial-gradient(55% 50% at 12% 0%, rgba(112, 100, 233, 0.20) 0%, transparent 62%),
-    radial-gradient(45% 45% at 92% 6%, rgba(221, 0, 172, 0.13) 0%, transparent 60%),
-    radial-gradient(60% 60% at 75% 100%, rgba(79, 124, 246, 0.12) 0%, transparent 65%),
-    radial-gradient(40% 40% at 0% 85%, rgba(113, 48, 195, 0.14) 0%, transparent 60%),
+    radial-gradient(55% 50% at 12% 0%, rgba(91, 75, 255, 0.22) 0%, transparent 62%),
+    radial-gradient(45% 45% at 92% 6%, rgba(221, 0, 172, 0.14) 0%, transparent 60%),
+    radial-gradient(60% 60% at 75% 100%, rgba(238, 17, 251, 0.10) 0%, transparent 65%),
+    radial-gradient(40% 40% at 0% 85%, rgba(91, 75, 255, 0.14) 0%, transparent 60%),
     var(--bg);
   background-attachment: fixed;
   color: var(--text);
-  font: 14px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif;
+  font: 14px/1.5 "Inter", -apple-system, system-ui, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 .wrap { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 
@@ -142,7 +155,10 @@ body.expanded-body .sheet-card { max-width: 480px; border-radius: 20px; border: 
 .card { background: var(--card); border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; padding: 14px; backdrop-filter: blur(14px) saturate(1.35); -webkit-backdrop-filter: blur(14px) saturate(1.35); }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 750; font-size: 15px; }
 .dot { width: 18px; height: 18px; border-radius: 50%; background: var(--grad); }
-.brand-mark { width: 22px; height: 22px; border-radius: 7px; object-fit: contain; flex-shrink: 0; }
+.brand-mark { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 2px 8px rgba(91,75,255,.5)); }
+/* Solid accent, no gradient on type (brand rule). */
+.brand-name { letter-spacing: -.2px; }
+.brand-ai { color: #9d8dff; font-weight: 800; }
 .muted { color: var(--soft); font-size: 12px; }
 .faint { color: var(--faint); font-size: 11px; }
 .row { display: flex; align-items: center; gap: 8px; }
@@ -288,3 +304,30 @@ a.ghost-btnlike:hover { color: var(--text); border-color: var(--brand); text-dec
 @keyframes sheet-in { from { transform: translateY(14px); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
 .net-menu { animation: menu-in .12s ease-out; }
 @keyframes menu-in { from { transform: translateY(-4px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* onboarding brand orb: the official mark with a slow orbital glow */
+.welcome-orb { position: relative; width: 112px; height: 112px; display: grid; place-items: center; margin-top: 4px; }
+.welcome-orb img { position: relative; z-index: 1; width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 8px 26px rgba(91,75,255,.55)); animation: orb-float 5s ease-in-out infinite; }
+.welcome-orb.sm { width: 84px; height: 84px; margin-top: 0; }
+.welcome-orb.sm img { width: 60px; height: 60px; }
+.orb-ring { position: absolute; inset: -4px; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg, rgba(91,75,255,.55) 90deg, rgba(238,17,251,.55) 200deg, transparent 300deg); filter: blur(11px); opacity: .85; animation: orb-spin 7s linear infinite; }
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+@keyframes orb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+/* onboarding feature grid (Rabby-style highlights) */
+.welcome-features { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; margin-top: 2px; }
+.feature { display: flex; align-items: center; gap: 9px; text-align: left; padding: 10px; border-radius: 13px; background: var(--card); border: 1px solid var(--bdr-solid); }
+.feature b { font-size: 12px; display: block; line-height: 1.2; }
+.feature .faint { font-size: 10.5px; line-height: 1.35; }
+.feature-ic { flex-shrink: 0; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--grad); }
+
+/* live LCAI market card (BitMart) */
+.market-card .market-price { font-size: 17px; font-weight: 750; letter-spacing: -.3px; font-variant-numeric: tabular-nums; }
+.market-card .stat b { font-size: 12px; }
+
+/* governance vote reminder banner */
+.vote-alert { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 10px; padding: 10px 12px; border-radius: 13px; text-align: left; color: var(--text); font-weight: 600; font-size: 12px; background: linear-gradient(100deg, rgba(91,75,255,.24), rgba(221,0,172,.18)); border: 1px solid rgba(147,124,255,.5); box-shadow: 0 6px 20px -10px rgba(91,75,255,.7); }
+.vote-alert:hover:not(:disabled) { filter: brightness(1.07); transform: none; }
+.vote-alert-dot { flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--brand-3); animation: pulse-dot 1.8s ease-out infinite; }
+@keyframes pulse-dot { 0% { box-shadow: 0 0 0 0 rgba(238,17,251,.55); } 70% { box-shadow: 0 0 0 7px rgba(238,17,251,0); } 100% { box-shadow: 0 0 0 0 rgba(238,17,251,0); } }
+.vote-alert-cta { flex-shrink: 0; font-weight: 700; color: #fff; font-size: 11.5px; }

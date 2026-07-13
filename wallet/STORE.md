@@ -1,4 +1,4 @@
-# Publishing LightNode Wallet to the Chrome Web Store
+# Publishing Lightchain AI Wallet to the Chrome Web Store
 
 This is everything needed to get the wallet listed so users can install it with one click ("Add to Chrome"). Only you can do the actual submission (it needs your Chrome Web Store developer account); this file is the ready-to-paste package.
 
@@ -20,27 +20,29 @@ Upload that zip in the dashboard. (The same zip is attached to each GitHub Relea
 
 ## 3. Store listing (copy-paste)
 
-- **Name:** LightNode Wallet
-- **Summary (≤132 chars):** Self-custodial wallet for LightChain and EVM chains. Your keys stay on your device. Worker, AI, and DAO built in.
+- **Name:** Lightchain AI Wallet
+- **Summary (≤132 chars):** Self-custodial wallet for Lightchain AI. Hold LCAI, vote in governance with reminders, run a worker, use AI. Keys stay on device.
 - **Category:** Productivity (or Developer Tools)
 - **Language:** English
 
 **Description:**
 
 ```
-LightNode Wallet is a self-custodial browser wallet for the LightChain ecosystem and every EVM chain.
+Lightchain AI Wallet is the self-custodial browser wallet for Lightchain AI and every EVM chain.
 
 Your keys are generated and encrypted on your device with AES-256-GCM and a scrypt-derived key. They never leave it - no server, no custody, no smart contract. Only your password can unlock the vault.
 
 What's inside:
-- Multi-chain: LightChain, Ethereum, Base, Arbitrum, Optimism, and Polygon, with code-pinned RPCs.
+- Multi-chain: Lightchain AI, Ethereum, Base, Arbitrum, Optimism, and Polygon, with code-pinned RPCs.
+- Live LCAI market: real price, 24h change, and volume from the BitMart LCAI/USDT market.
+- Governance built in: read Lightchain AI proposals and vote For/Against/Abstain in the wallet, with a reminder and toolbar badge when a proposal is open and you have not voted.
 - Send and receive the native coin and ERC-20 tokens; add any token by address; QR receive.
 - Multiple accounts from one recovery phrase, with a one-tap account switcher.
 - Connect to dapps (EIP-1193 + EIP-6963) with human-readable approvals: dangerous-calldata warnings (unlimited approvals, setApprovalForAll) and EIP-712 typed-data display.
-- LightChain-native: see your worker's stake, headroom, and claimable rewards right in the wallet.
+- Worker hub: see your worker's stake, headroom, and claimable rewards, and withdraw in the wallet.
 - Auto-locks on inactivity and after a browser restart. Reveal your recovery phrase any time (password-gated).
 
-Independent and community-built. Not an official LightChain product.
+Self-custodial: your keys never leave your device.
 ```
 
 ## 4. Privacy (required for wallets)

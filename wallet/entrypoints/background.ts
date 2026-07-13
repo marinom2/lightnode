@@ -23,6 +23,8 @@ import { importNft, stillOwned, nftTransferData, safeImageUrl, type NftItem } fr
 import { fetchHistory, mergeHistory, type HistoryItem } from "../src/rpc/history";
 import { quoteSwap, executeSwap, type SwapSide } from "../src/rpc/swap";
 import { listProposals, castVoteData, readDaoStats, GOVERNORS } from "../src/rpc/governance";
+import { fetchMarketStats, type MarketStats } from "../src/rpc/markets";
+import { actionableProposals, newAlerts, voteNotification, type VoteAlert } from "../src/rpc/dao-alerts";
 import { readWorkerStatus, readNetworkStats, readWorkerLifetime, readWorkerModels, readProtocolParams, withdrawTarget } from "../src/rpc/worker";
 import { readGasTiers, type GasSpeed } from "../src/rpc/gas";
 import { resolveEnsName } from "../src/rpc/ens";
@@ -158,7 +160,110 @@ async function lock(): Promise<void> {
 
 browser.alarms.onAlarm.addListener((a) => {
   if (a.name === "autolock") void lock();
+  if (a.name === "dao-check") void runDaoCheck();
 });
+
+// ---- governance vote reminders ---------------------------------------------
+// Addresses are public, so we cache them (even while locked) to check for open
+// proposals in the background. A periodic alarm sets a toolbar badge and, for
+// each newly-open proposal the account can still vote on, fires one notification.
+const ADDRESSES_KEY = "known-addresses";
+const DAO_ALERTS_KEY = "dao-alerts-enabled"; // absent/true = on; false = user disabled
+const DAO_NOTIFIED_KEY = "dao-notified-ids";
+
+async function cacheAddresses(kr: Keyring): Promise<void> {
+  await browser.storage.local.set({ [ADDRESSES_KEY]: kr.accounts.map((a) => a.address) });
+}
+
+async function activeAddress(): Promise<string | null> {
+  const { [ADDRESSES_KEY]: addrs } = (await browser.storage.local.get(ADDRESSES_KEY)) as { [ADDRESSES_KEY]?: string[] };
+  if (!Array.isArray(addrs) || addrs.length === 0) return null;
+  const idx = await activeIndex(addrs.length);
+  return addrs[idx] ?? addrs[0] ?? null;
+}
+
+let daoAlertsCache: { address: string; at: number; alerts: VoteAlert[] } | null = null;
+/**
+ * Open Lightchain AI proposals the account can still vote on (60s cache).
+ * Returns null when the proposal fetch fails, so callers can leave existing
+ * state (badge, notified set) untouched instead of mistaking a transient
+ * failure for "no open votes" (which would drop the badge and, on the next
+ * success, re-notify about proposals the user already saw). Never returns a
+ * different account's cached alerts.
+ */
+async function computeDaoAlerts(address: string): Promise<VoteAlert[] | null> {
+  const now = Date.now();
+  if (daoAlertsCache && daoAlertsCache.address.toLowerCase() === address.toLowerCase() && now - daoAlertsCache.at < 60000) {
+    return daoAlertsCache.alerts;
+  }
+  const proposals = await listProposals(9200, address).catch(() => null);
+  if (!proposals) return null; // fetch failed: do not guess, do not reuse another account's cache
+  const alerts = actionableProposals(proposals);
+  daoAlertsCache = { address, at: now, alerts };
+  return alerts;
+}
+
+// Both the market card and native-LCAI pricing want the ticker; share one fetch
+// on a 15s cache so a home refresh does not hit BitMart twice.
+let marketCache: { at: number; stats: MarketStats | null } | null = null;
+async function cachedMarketStats(): Promise<MarketStats | null> {
+  const now = Date.now();
+  if (marketCache && now - marketCache.at < 15000) return marketCache.stats;
+  const stats = await fetchMarketStats();
+  // Advance the timestamp even on failure so a BitMart outage cannot defeat the
+  // 15s throttle (each miss would otherwise re-issue the 10s-timeout request);
+  // keep the last good value when we have one.
+  marketCache = { at: now, stats: stats ?? marketCache?.stats ?? null };
+  return marketCache.stats;
+}
+
+async function setVoteBadge(count: number): Promise<void> {
+  try {
+    await browser.action.setBadgeText({ text: count > 0 ? String(count) : "" });
+    if (count > 0) await browser.action.setBadgeBackgroundColor({ color: "#DD00AC" });
+  } catch {
+    // The action/badge API may be unavailable in some contexts; it is best-effort.
+  }
+}
+
+async function ensureDaoAlarm(): Promise<void> {
+  const existing = await browser.alarms.get("dao-check").catch(() => undefined);
+  if (!existing) await browser.alarms.create("dao-check", { periodInMinutes: 30, delayInMinutes: 1 });
+}
+
+/** Refresh the toolbar badge and notify about any newly-open proposals. */
+async function runDaoCheck(): Promise<void> {
+  const { [DAO_ALERTS_KEY]: enabled } = await browser.storage.local.get(DAO_ALERTS_KEY);
+  if (enabled === false) {
+    await setVoteBadge(0);
+    return;
+  }
+  const address = await activeAddress();
+  if (!address) {
+    await setVoteBadge(0);
+    return;
+  }
+  const alerts = await computeDaoAlerts(address);
+  if (!alerts) return; // fetch failed: keep the current badge + notified set intact
+  await setVoteBadge(alerts.length);
+  const { [DAO_NOTIFIED_KEY]: notified } = (await browser.storage.local.get(DAO_NOTIFIED_KEY)) as { [DAO_NOTIFIED_KEY]?: string[] };
+  const fresh = newAlerts(alerts, Array.isArray(notified) ? notified : []);
+  const note = voteNotification(fresh);
+  if (note) {
+    await browser.notifications
+      .create("dao-vote", {
+        type: "basic",
+        iconUrl: browser.runtime.getURL("/icon/128.png"),
+        title: note.title,
+        message: note.message,
+        priority: 2,
+      })
+      .catch(() => undefined);
+  }
+  // Persist the CURRENT open set: voted/closed ids drop out (so a reopened one
+  // can alert again) while still-open ones are not renotified every cycle.
+  await browser.storage.local.set({ [DAO_NOTIFIED_KEY]: alerts.map((a) => a.id) });
+}
 
 // ---- wallet ops (from our popup) -------------------------------------------
 
@@ -168,6 +273,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const { [VAULT_KEY]: vault } = await browser.storage.local.get(VAULT_KEY);
       const kr = await restore();
       const accounts = kr ? kr.accounts.map((a) => a.address) : [];
+      if (kr) void cacheAddresses(kr); // keep the reminder engine's address list fresh
       const { [NAMES_KEY]: names = [] } = (await browser.storage.local.get(NAMES_KEY)) as { [NAMES_KEY]?: string[] };
       return {
         hasVault: Boolean(vault),
@@ -237,7 +343,9 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       // stale names/NFT lists must not attach to a different seed imported later.
       const all = (await browser.storage.local.get(null)) as Record<string, unknown>;
       const stale = Object.keys(all).filter((k) => k.startsWith("nfts-") || k.startsWith("tokens-") || k.startsWith("history-") || k.startsWith("disc-meta-") || k.startsWith("hidden-tokens-"));
-      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", "addr-labels", "avatars", ...stale]);
+      await browser.storage.local.remove([VAULT_KEY, COUNT_KEY, ACTIVE_KEY, NAMES_KEY, PERMS_KEY, "activity", "addr-labels", "avatars", ADDRESSES_KEY, DAO_NOTIFIED_KEY, ...stale]);
+      daoAlertsCache = null;
+      await setVoteBadge(0);
       return { ok: true };
     }
     case "createVault":
@@ -247,6 +355,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       await browser.storage.session.set({ [SESSION_KEY]: op.mnemonic });
       const created = Keyring.fromMnemonic(op.mnemonic, 1);
       setLive(created);
+      await cacheAddresses(created);
       await bumpAutoLock();
       return { unlocked: true, accounts: created.accounts.map((a) => a.address) };
     }
@@ -257,7 +366,9 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       const unlocked = Keyring.fromMnemonic(mnemonic, await accountCount());
       setLive(unlocked);
       await browser.storage.session.set({ [SESSION_KEY]: mnemonic });
+      await cacheAddresses(unlocked);
       await bumpAutoLock();
+      void runDaoCheck(); // surface any open votes right after unlock
       return { unlocked: true, accounts: unlocked.accounts.map((a) => a.address) };
     }
     case "lock":
@@ -268,6 +379,7 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!kr) throw RpcError.locked;
       const acct = kr.addAccount();
       await browser.storage.local.set({ [COUNT_KEY]: kr.accounts.length });
+      await cacheAddresses(kr);
       await bumpAutoLock();
       return { address: acct.address };
     }
@@ -495,6 +607,13 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
     }
     case "daoStats":
       return readDaoStats(op.chainId);
+    case "daoAlerts":
+      return { alerts: (await computeDaoAlerts(op.address)) ?? [] };
+    case "refreshDaoAlerts":
+      await runDaoCheck();
+      return { ok: true };
+    case "marketStats":
+      return cachedMarketStats();
     case "getAvatars": {
       const { "avatars": avatars = {} } = (await browser.storage.local.get("avatars")) as { avatars?: Record<string, string> };
       return avatars;
@@ -521,7 +640,12 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
       if (!governor) throw RpcError.invalidParams;
       await bumpAutoLock();
       // Vote on the governor's OWN chain regardless of the selected network.
-      return { hash: await signAndSendOn(op.chainId, acct.account, governor, castVoteData(op.proposalId, op.support)) };
+      const hash = await signAndSendOn(op.chainId, acct.account, governor, castVoteData(op.proposalId, op.support));
+      // The vote changes what is actionable: drop the cache and re-check soon so
+      // the badge and reminder set update (hasVoted needs a block to reflect).
+      daoAlertsCache = null;
+      void runDaoCheck();
+      return { hash };
     }
     case "networkStats":
       return readNetworkStats(clientFor(9200));
@@ -602,11 +726,18 @@ async function handleWalletOp(op: WalletOp): Promise<unknown> {
           out.nativeUsd = j[native]?.usd ?? null;
           out.nativeChange24h = j[native]?.usd_24h_change ?? null;
         } else if (op.chainId === 9200 || op.chainId === 8200) {
-          // LightChain's native LCAI is priced via its Ethereum ERC-20.
-          const key = LCAI_PRICE_CONTRACT.toLowerCase();
-          const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${key}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
-          out.nativeUsd = j[key]?.usd ?? null;
-          out.nativeChange24h = j[key]?.usd_24h_change ?? null;
+          // Native LCAI: prefer BitMart's live LCAI/USDT price (the real market
+          // reference), falling back to CoinGecko's Ethereum ERC-20 quote.
+          const market = await cachedMarketStats();
+          if (market) {
+            out.nativeUsd = market.lastUsd;
+            out.nativeChange24h = market.changePct24h;
+          } else {
+            const key = LCAI_PRICE_CONTRACT.toLowerCase();
+            const j = (await (await fetch(`https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${key}&vs_currencies=usd&include_24hr_change=true`)).json()) as Record<string, { usd?: number; usd_24h_change?: number }>;
+            out.nativeUsd = j[key]?.usd ?? null;
+            out.nativeChange24h = j[key]?.usd_24h_change ?? null;
+          }
         }
         if (platform && op.addresses.length) {
           const list = op.addresses.map((a) => a.toLowerCase()).join(",");
@@ -969,6 +1100,13 @@ async function fulfilApproved(request: JsonRpcRequest, origin: string): Promise<
 
 export default defineBackground(() => {
   void sweepOrphanApprovalWindow();
+  void ensureDaoAlarm();
+  // Clicking a governance reminder opens the wallet straight to the DAO.
+  browser.notifications.onClicked.addListener((id) => {
+    if (id !== "dao-vote") return;
+    void browser.notifications.clear(id);
+    void browser.tabs.create({ url: browser.runtime.getURL("/popup.html#/expanded/dao") });
+  });
   // First install: open onboarding in a full browser tab (a 360px popup is a
   // cramped first impression for seed-phrase setup).
   browser.runtime.onInstalled.addListener((details) => {
@@ -993,9 +1131,8 @@ export default defineBackground(() => {
     if (assistantCache && Date.now() - assistantCache.at < 300000) {
       return `${assistantCache.text}\n${await assistantUserLine(address)}`;
     }
-    const [lcProps, ethProps, net] = await Promise.allSettled([
+    const [lcProps, net] = await Promise.allSettled([
       listProposals(9200),
-      listProposals(1),
       readNetworkStats(clientFor(9200)),
     ]);
     const lines: string[] = [];
@@ -1009,8 +1146,7 @@ export default defineBackground(() => {
       });
       lines.push(`${label} governor proposals, NEWEST FIRST (item 1 is the latest):\n${rows.join("\n")}`);
     };
-    fmtProps("LightChain", lcProps);
-    fmtProps("Ethereum", ethProps);
+    fmtProps("Lightchain AI", lcProps);
     if (net.status === "fulfilled") {
       lines.push(`Worker network: ${net.value.totalWorkers}${net.value.capped ? "+" : ""} workers (${net.value.activeWorkers} active), ${net.value.jobsCompleted} jobs completed, ${net.value.totalEarnedLcai.toFixed(0)} LCAI paid out, min stake ${net.value.minStakeLcai} LCAI.`);
     }
@@ -1027,10 +1163,10 @@ export default defineBackground(() => {
     }
   }
   const ASSISTANT_GUIDE = [
-    "You are the LightNode Wallet assistant. Answer briefly and helpfully.",
-    "About the wallet: a self-custodial browser extension for LightChain and EVM networks (Ethereum, Base, Arbitrum, Optimism, Polygon). Keys never leave the device.",
-    "Navigation: the home screen has Send, Receive, Swap, AI Chat, and Explorer actions; tabs for Tokens, NFTs, and Activity (with Received/Sent/NFT filters); Worker and Governance cards below open the worker hub and the DAO proposals where the user can vote For/Against/Abstain; the gear icon opens Settings (recovery phrase, private key export, auto-lock, connected sites); the expand icon opens the wallet in a full tab.",
-    "Swap trades on Uniswap v3 and moves LCAI between Ethereum and LightChain. The worker hub shows stake, claimable rewards (withdrawable in-wallet), and how to become a worker at lightnode.app/onboard.",
+    "You are the Lightchain AI Wallet assistant. Answer briefly and helpfully.",
+    "About the wallet: a self-custodial browser extension for Lightchain AI and EVM networks (Ethereum, Base, Arbitrum, Optimism, Polygon). Keys never leave the device.",
+    "Navigation: the home screen has Send, Receive, Swap, AI Chat, and Explorer actions; a live LCAI market card (BitMart LCAI/USDT); tabs for Tokens, NFTs, and Activity (with Received/Sent/NFT filters); Worker and Governance cards below open the worker hub and the Lightchain AI DAO proposals where the user can vote For/Against/Abstain directly in the wallet; the gear icon opens Settings (recovery phrase, private key export, auto-lock, vote reminders, connected sites); the expand icon opens the wallet in a full tab.",
+    "Governance is Lightchain AI native only: LCAI stake auto-delegates, and the wallet reminds you when a proposal is open that you have not voted on. Swap trades on Uniswap v3 and moves LCAI between Ethereum and Lightchain AI. The worker hub shows stake, claimable rewards (withdrawable in-wallet), and how to become a worker.",
   ].join(" ");
 
   browser.runtime.onConnect.addListener((port) => {

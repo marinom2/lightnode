@@ -109,11 +109,13 @@ const REGISTRY: Record<number, Record<string, ContractDef>> = {
   9200: {
     "0xfb15f90298e4ccd7106e76ffb5e520315cc42b0b": jobRegistry,
     "0x0000000000000000000000000000000000001002": workerRegistry,
-    "0x262e9f9232933e8565253918db703bad58de93ab": governor,
+    // Canonical LightChainGovernor (proxy) per the official contracts doc; the
+    // earlier 0x262e9f... deploy is retired.
+    "0xd216a0c0050edc3a9e0449ecfdf178a1652b4b68": governor,
     "0xec7096a3116ee769457c939617375ec1785aa6f1": bridge,
   },
   1: {
-    "0x6dfa413b5900a1a7947bc75e68abba093cb2492d": governor,
+    // Governance is Lightchain AI native only; only the Ethereum bridge remains.
     "0x01f80bb8e78e79881e8ec7832fb6c2c59f64e353": bridge,
   },
 };

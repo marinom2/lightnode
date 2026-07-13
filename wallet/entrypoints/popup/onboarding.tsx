@@ -10,14 +10,32 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   if (mode === "import") return <ImportFlow onDone={onDone} onBack={() => setMode("choose")} />;
   return (
     <div className="onboard welcome">
-      <div className="welcome-logo"><img src="/lightnode.png" alt="" /></div>
-      <h1 className="welcome-title">LightNode Wallet</h1>
-      <p className="welcome-sub">A self-custodial wallet for LightChain and EVM networks. Your keys are generated and encrypted on this device, and never leave it.</p>
+      <div className="welcome-orb">
+        <span className="orb-ring" />
+        <img src="/lightchain-symbol.svg" alt="Lightchain AI" />
+      </div>
+      <h1 className="welcome-title">Lightchain <span className="brand-ai">AI</span></h1>
+      <p className="welcome-sub">The self-custodial wallet for Lightchain AI. Hold LCAI, vote in governance, run a worker, and use AI, all in one place. Your keys are generated and encrypted on this device, and never leave it.</p>
+      <div className="welcome-features">
+        <Feature icon="lock" title="Self-custodial" desc="Keys stay on your device" />
+        <Feature icon="gov" title="Governance built in" desc="Vote and get reminders" />
+        <Feature icon="chat" title="AI, natively" desc="Chat and pay in LCAI" />
+        <Feature icon="swap" title="Multi-chain + LCAI" desc="Swap, bridge, track markets" />
+      </div>
       <div className="welcome-cta">
         <button onClick={() => setMode("create")}>Create a new wallet</button>
         <button className="ghost" onClick={() => setMode("import")}>I already have a wallet</button>
       </div>
       <p className="faint center">No account, no server, no custody.</p>
+    </div>
+  );
+}
+
+function Feature({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+  return (
+    <div className="feature">
+      <span className="feature-ic"><Ic name={icon} size={16} /></span>
+      <div style={{ minWidth: 0 }}><b>{title}</b><div className="faint">{desc}</div></div>
     </div>
   );
 }
@@ -176,7 +194,7 @@ function ReadyScreen({ address, onDone }: { address: string; onDone: () => void 
     <div className="onboard ready">
       <div className="ready-check"><Ic name="check" size={36} /></div>
       <h1 className="welcome-title">Your wallet is ready</h1>
-      <p className="welcome-sub">Self-custodial and encrypted on this device. You are ready to send, receive, and bridge across LightChain and EVM.</p>
+      <p className="welcome-sub">Self-custodial and encrypted on this device. You are ready to send, receive, swap, vote, and use AI across Lightchain AI and EVM.</p>
       {address && (
         <div className="ready-addr">
           <span className="avatar" style={{ background: avatarGradient(address) }} />
@@ -213,9 +231,9 @@ export function Unlock({ onDone }: { onDone: () => void }) {
   if (recover === "import") return <ImportFlow onDone={onDone} onBack={onDone} />;
   return (
     <div className="onboard welcome">
-      <div className="welcome-logo sm"><img src="/lightnode.png" alt="" /></div>
+      <div className="welcome-orb sm"><img src="/lightchain-symbol.svg" alt="" /></div>
       <h1 className="welcome-title">Welcome back</h1>
-      <p className="welcome-sub">Enter your password to unlock LightNode Wallet.</p>
+      <p className="welcome-sub">Enter your password to unlock your Lightchain AI wallet.</p>
       <input type="password" placeholder="Password" value={pw} autoFocus onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void unlock()} />
       {err && <p className="err">{err}</p>}
       <button disabled={!pw || busy} onClick={unlock}>{busy ? "Unlocking…" : "Unlock"}</button>

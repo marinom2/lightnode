@@ -1,9 +1,9 @@
 {
-  "name": "lightnode-wallet",
+  "name": "lightchain-ai-wallet",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Self-custodial EOA browser wallet for LightChain. Non-custodial: keys never leave the device. Not an official LightChain package.",
+  "description": "Lightchain AI Wallet - self-custodial EOA browser wallet for Lightchain AI and EVM chains. Non-custodial: keys never leave the device.",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",

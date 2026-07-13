@@ -7,7 +7,9 @@ import type { NftItem } from "../../src/rpc/nfts";
 import type { HistoryItem } from "../../src/rpc/history";
 import { portfolioUsd, fmtUsd, type Prices } from "../../src/rpc/prices";
 import { humanizeError } from "../../src/rpc/humanize";
-import { type Asset, type DaoView, Ic, short, fmtBal, tokenLogo, avatarGradient, timeAgo, isExpanded, openFullTab, Change, Avatar } from "./shared";
+import { type Asset, type DaoView, Ic, short, fmtBal, tokenLogo, avatarGradient, timeAgo, isExpanded, wantsDao, openFullTab, Change, Avatar, Stat } from "./shared";
+import { type MarketStats, BITMART_TRADE_URL } from "../../src/rpc/markets";
+import type { VoteAlert } from "../../src/rpc/dao-alerts";
 import { SendSheet, ReceiveSheet, ImportTokenSheet, ImportNftSheet, NftSheet, NftGrid, AvatarSheet } from "./sheets-assets";
 import { SwapSheet } from "./sheets-swap";
 import { DaoSheet } from "./sheets-dao";
@@ -19,7 +21,8 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
   const address = state.accounts[state.activeIndex] ?? state.accounts[0]!;
   // undefined = loading, null = unreachable (NEVER shown as zero), string = truth.
   const [bal, setBal] = useState<string | null | undefined>(undefined);
-  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "swap" | "dao" | "worker" | "chat" | "importToken" | "importNft" | null>(null);
+  // A governance reminder opens the wallet at #/expanded/dao: land on the DAO sheet.
+  const [sheet, setSheet] = useState<"send" | "receive" | "settings" | "swap" | "dao" | "worker" | "chat" | "importToken" | "importNft" | null>(wantsDao() ? "dao" : null);
   const [nftSel, setNftSel] = useState<NftItem | null>(null);
   const [nfts, setNfts] = useState<NftItem[] | null | undefined>(undefined);
   const [acctOpen, setAcctOpen] = useState(false);
@@ -195,6 +198,8 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
         <a className="act" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer"><span className="ic"><Ic name="external" size={15} /></span>Explorer</a>
       </div>
 
+      <MarketCard refreshKey={refreshTick} />
+
       <div className="tabs">
         <button className={`tab${tab === "tokens" ? " active" : ""}`} onClick={() => setTab("tokens")}>Tokens</button>
         <button className={`tab${tab === "nfts" ? " active" : ""}`} onClick={() => setTab("nfts")}>NFTs</button>
@@ -268,7 +273,7 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
 
       <WorkerCard address={address} refreshKey={refreshTick} onOpen={() => setSheet("worker")} />
 
-      <GovernanceCard chainId={chainId} address={address} refreshKey={refreshTick} onOpen={() => setSheet("dao")} />
+      <GovernanceCard address={address} refreshKey={refreshTick} onOpen={() => setSheet("dao")} />
 
       {sheet === "send" && <SendSheet from={address} assets={assets} explorer={explorer} chainId={chainId} own={state.accounts} onClose={() => setSheet(null)} onSent={loadBal} />}
       {sheet === "receive" && <ReceiveSheet address={address} chainName={chain.name} onClose={() => setSheet(null)} />}
@@ -286,25 +291,82 @@ export function WalletHome({ state, onChange }: { state: WalletState; onChange: 
 }
 
 
-function GovernanceCard({ chainId, address, refreshKey, onOpen }: { chainId: number; address: string; refreshKey: number; onOpen: () => void }) {
-  const [st, setSt] = useState<DaoView | null>(null);
-  // Chain/account changed: drop the old chain's data (no stale cross-chain power).
-  useEffect(() => setSt(null), [chainId, address]);
+// LCAI sub-dollar prices need significant-figure formatting, not fixed 2dp.
+function fmtPrice(n: number): string {
+  if (n >= 1) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  return n.toLocaleString(undefined, { maximumSignificantDigits: 4 });
+}
+const fmtCompact = (n: number): string => n.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 1 });
+
+/** Live LCAI market from BitMart (LCAI/USDT). Hidden entirely if unreachable. */
+function MarketCard({ refreshKey }: { refreshKey: number }) {
+  const [m, setM] = useState<MarketStats | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
-    // refreshKey re-fires this silently: voting power updates without a reopen.
-    wallet<DaoView>({ type: "daoStatus", chainId, address }).then((r) => { if (live) setSt(r); }).catch(() => {});
+    wallet<MarketStats | null>({ type: "marketStats" }).then((r) => { if (live) setM(r); }).catch(() => { if (live) setM(null); });
     return () => { live = false; };
-  }, [chainId, address, refreshKey]);
+  }, [refreshKey]);
+  if (m === null) return null; // market unreachable: no broken card
+  return (
+    <div className="card market-card">
+      <div className="row between">
+        <div className="row" style={{ gap: 9 }}>
+          <img className="token-logo" src="/chains/lightchain.png" alt="" style={{ width: 30, height: 30 }} />
+          <div>
+            <b style={{ fontSize: 14 }}>LCAI</b>
+            <div className="faint">LCAI / USDT · BitMart</div>
+          </div>
+        </div>
+        {m === undefined ? <span className="skel" style={{ width: 74, height: 20 }} /> : (
+          <div style={{ textAlign: "right" }}>
+            <b className="market-price">${fmtPrice(m.lastUsd)}</b>
+            <div><Change pct={m.changePct24h} /></div>
+          </div>
+        )}
+      </div>
+      {m && (
+        <>
+          <div className="stat-grid" style={{ marginTop: 11 }}>
+            <Stat label="24h High" value={`$${fmtPrice(m.high24h)}`} />
+            <Stat label="24h Low" value={`$${fmtPrice(m.low24h)}`} />
+            <Stat label="24h Vol" value={fmtCompact(m.quoteVol24h)} />
+          </div>
+          <a className="ghost-btnlike" href={BITMART_TRADE_URL} target="_blank" rel="noreferrer" style={{ marginTop: 11, width: "100%" }}>Trade LCAI on BitMart →</a>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GovernanceCard({ address, refreshKey, onOpen }: { address: string; refreshKey: number; onOpen: () => void }) {
+  const [st, setSt] = useState<DaoView | null>(null);
+  const [alerts, setAlerts] = useState<VoteAlert[]>([]);
+  // New account: drop the old one's power and alerts before the refetch lands.
+  useEffect(() => { setSt(null); setAlerts([]); }, [address]);
+  useEffect(() => {
+    let live = true;
+    // refreshKey re-fires this silently: power and open-vote alerts stay current.
+    wallet<DaoView>({ type: "daoStatus", chainId: 9200, address }).then((r) => { if (live) setSt(r); }).catch(() => {});
+    wallet<{ alerts: VoteAlert[] }>({ type: "daoAlerts", address }).then((r) => { if (live) setAlerts(r.alerts); }).catch(() => {});
+    return () => { live = false; };
+  }, [address, refreshKey]);
   const power = st && st.supported ? Number(st.votingPower) : null;
+  const open = alerts.length;
   return (
     <div className="card">
       <div className="row between">
         <h2 style={{ margin: 0 }}><Ic name="gov" size={12} /> Governance</h2>
         {power != null && <b style={{ fontSize: 14 }}>{power.toLocaleString(undefined, { maximumFractionDigits: 2 })} votes</b>}
       </div>
+      {open > 0 && (
+        <button className="vote-alert" onClick={onOpen}>
+          <span className="vote-alert-dot" />
+          <span className="grow clamp" style={{ textAlign: "left" }}>{open === 1 ? `Open vote: ${alerts[0]!.title}` : `${open} proposals are open for your vote`}</span>
+          <span className="vote-alert-cta">Vote now →</span>
+        </button>
+      )}
       {power != null && power > 0 && st && !st.delegated && <p className="faint" style={{ marginTop: 6 }}>Not delegated yet, so these votes do not count. Delegate on the DAO.</p>}
-      <button className="ghost" style={{ width: "100%", marginTop: 10 }} onClick={onOpen}>Proposals + vote from the wallet →</button>
+      <button className="ghost" style={{ width: "100%", marginTop: 10 }} onClick={onOpen}>{open > 0 ? "Review proposals →" : "Proposals + vote from the wallet →"}</button>
     </div>
   );
 }

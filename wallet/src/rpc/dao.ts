@@ -1,22 +1,22 @@
 /**
- * Light governance read for the wallet: surface the account's voting power and
- * whether its tokens are delegated (undelegated tokens do not count toward a
- * vote, which the ballot app does not flag upfront). We only read and link out
- * to the DAO to actually vote, never run governance writes from the wallet.
+ * Light governance read for the wallet: surface the account's voting power on
+ * Lightchain AI. Native LCAI stake is auto-delegated, so power counts as soon as
+ * you hold it. We only read and link out to the DAO to vote, never run
+ * governance writes from here beyond the explicit in-wallet castVote.
  */
 import { createPublicClient, formatEther, http, parseAbi } from "viem";
 import { chainById } from "./chains";
 
 interface DaoChainCfg {
-  /** IVotes contract (LCAIBallots on Ethereum, native voting precompile on LightChain). */
+  /** NativeVotes genesis predeploy: the on-chain IVotes source for LCAI. */
   ballots: `0x${string}`;
   voteUrl: string;
-  /** LightChain auto-delegates native stake; Ethereum needs an explicit delegate(). */
+  /** Lightchain AI auto-delegates native stake; no explicit delegate() needed. */
   autoDelegate: boolean;
 }
 
+// Lightchain AI mainnet only. NativeVotes predeploy per the official contracts doc.
 const DAO: Record<number, DaoChainCfg> = {
-  1: { ballots: "0x75F3D01c4D960FE986A598B7954A3b786B29cE49", voteUrl: "https://dao.lightchain.ai", autoDelegate: false },
   9200: { ballots: "0x0000000000000000000000000000000000001001", voteUrl: "https://dao.lightchain.ai", autoDelegate: true },
 };
 

@@ -11,6 +11,9 @@ type ProposalRow = {
   blocksLeft: number | null; youVoted: boolean; yourWeight: number; actions: ProposalAction[];
 };
 type DaoStats = { treasuryLcai: number | null; quorumPct: number | null };
+// Governance is Lightchain AI native only (chain 9200); Ethereum governance was retired.
+const GOV_CHAIN = 9200;
+const GOV_EXPLORER = "https://mainnet.lightscan.app";
 const SUPPORT_LABEL: Record<0 | 1 | 2, string> = { 1: "For", 0: "Against", 2: "Abstain" };
 const STATE_TONE: Record<string, string> = { active: "tag-warn", succeeded: "tag-ok", executed: "tag-ok", queued: "tag-ok", defeated: "tag-bad", canceled: "tag-bad", expired: "tag-bad", pending: "" };
 
@@ -60,7 +63,6 @@ function ProposalDetail({ p, explorer }: { p: ProposalRow; explorer: string }) {
 }
 
 export function DaoSheet({ from, onClose }: { from: string; onClose: () => void }) {
-  const [govChain, setGovChain] = useState<1 | 9200>(9200);
   const [onlyActive, setOnlyActive] = useState(false);
   const [rows, setRows] = useState<ProposalRow[] | null | undefined>(undefined);
   const [stats, setStats] = useState<DaoStats | null>(null);
@@ -75,34 +77,29 @@ export function DaoSheet({ from, onClose }: { from: string; onClose: () => void 
     setRows(undefined);
     setStats(null);
     const e = ++epoch.current;
-    // Guard: flipping the chain tab fires two requests; the slow one must not win.
-    wallet<{ proposals: ProposalRow[] | null }>({ type: "getProposals", chainId: govChain, voter: from }).then((r) => { if (epoch.current === e) setRows(r.proposals); }).catch(() => { if (epoch.current === e) setRows(null); });
-    wallet<DaoView>({ type: "daoStatus", chainId: govChain, address: from }).then((r) => { if (epoch.current === e) setPower(r.supported ? Number(r.votingPower) : null); }).catch(() => { if (epoch.current === e) setPower(null); });
-    wallet<DaoStats>({ type: "daoStats", chainId: govChain }).then((r) => { if (epoch.current === e) setStats(r); }).catch(() => {});
-  }, [govChain, from]);
+    // Guard: a stale in-flight response must never overwrite a newer reload.
+    wallet<{ proposals: ProposalRow[] | null }>({ type: "getProposals", chainId: GOV_CHAIN, voter: from }).then((r) => { if (epoch.current === e) setRows(r.proposals); }).catch(() => { if (epoch.current === e) setRows(null); });
+    wallet<DaoView>({ type: "daoStatus", chainId: GOV_CHAIN, address: from }).then((r) => { if (epoch.current === e) setPower(r.supported ? Number(r.votingPower) : null); }).catch(() => { if (epoch.current === e) setPower(null); });
+    wallet<DaoStats>({ type: "daoStats", chainId: GOV_CHAIN }).then((r) => { if (epoch.current === e) setStats(r); }).catch(() => {});
+  }, [from]);
   useEffect(load, [load]);
-  const govSymbol = govChain === 1 ? "ETH" : "LCAI";
   const vote = async (id: string, support: 0 | 1 | 2) => {
     setConfirm(null);
     setVoting(id);
     setErr(null);
     try {
-      const r = await wallet<{ hash: string }>({ type: "castVote", from, chainId: govChain, proposalId: id, support });
+      const r = await wallet<{ hash: string }>({ type: "castVote", from, chainId: GOV_CHAIN, proposalId: id, support });
       setVoted((v) => ({ ...v, [id]: r.hash }));
     } catch (e) {
-      setErr(humanizeError((e as Error).message, govSymbol));
+      setErr(humanizeError((e as Error).message, "LCAI"));
     } finally {
       setVoting(null);
     }
   };
   const shown = (rows ?? []).filter((p) => !onlyActive || p.state === "active");
-  const explorer = govChain === 1 ? "https://etherscan.io" : "https://mainnet.lightscan.app";
+  const explorer = GOV_EXPLORER;
   return (
     <Sheet title="Governance" onClose={onClose} busy={voting !== null}>
-        <div className="tabs">
-          <button className={`tab${govChain === 9200 ? " active" : ""}`} onClick={() => setGovChain(9200)}>LightChain</button>
-          <button className={`tab${govChain === 1 ? " active" : ""}`} onClick={() => setGovChain(1)}>Ethereum</button>
-        </div>
         <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div className="stat"><div className="faint">Treasury</div><b>{stats == null ? "…" : stats.treasuryLcai == null ? "--" : `${fmtBal(String(stats.treasuryLcai))} LCAI`}</b></div>
           <div className="stat"><div className="faint">Quorum</div><b>{stats == null ? "…" : stats.quorumPct == null ? "--" : `${stats.quorumPct}% of supply`}</b></div>
@@ -140,7 +137,7 @@ export function DaoSheet({ from, onClose }: { from: string; onClose: () => void 
             ) : p.state === "active" && p.yourWeight > 0 ? (
               confirm?.id === p.id ? (
                 <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
-                  <p className="faint">Vote <b>{SUPPORT_LABEL[confirm.support]}</b> with {p.yourWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} votes? This signs a transaction on {govChain === 1 ? "Ethereum" : "LightChain"}.</p>
+                  <p className="faint">Vote <b>{SUPPORT_LABEL[confirm.support]}</b> with {p.yourWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} votes? This signs a transaction on Lightchain AI.</p>
                   <div className="row" style={{ gap: 6, marginTop: 6 }}>
                     <button style={{ flex: 1, padding: "8px 0", fontSize: 12 }} disabled={voting === p.id} onClick={() => vote(p.id, confirm.support)}>{voting === p.id ? "Voting…" : "Confirm"}</button>
                     <button className="ghost" style={{ flex: 1, padding: "8px 0", fontSize: 12 }} onClick={() => setConfirm(null)}>Cancel</button>
@@ -159,7 +156,7 @@ export function DaoSheet({ from, onClose }: { from: string; onClose: () => void 
           </div>
         ))}
         {err && <p className="err">{err}</p>}
-        <a href="https://dao.lightchain.ai" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Also on the LightChain DAO site →</a>
+        <a href="https://dao.lightchain.ai" target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Open the Lightchain AI DAO site →</a>
     </Sheet>
   );
 }
