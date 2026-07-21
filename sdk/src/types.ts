@@ -33,6 +33,20 @@ export interface NetworkConfig {
   timelock?: string;
   /** DAO-controlled treasury (mainnet only). */
   treasury?: string;
+  /**
+   * SessionManager proxy. Live on testnet since the 2026-07-14 sortition
+   * upgrade: staked workers are selected ON-CHAIN by racing
+   * `claimSession(reqId)` (selector 0xf446092d) here, instead of being
+   * dispatched by the worker gateway. Absent on mainnet (still gateway-dispatch).
+   */
+  sessionManager?: string;
+  /**
+   * True when worker selection is on-chain sortition (claimSession) rather than
+   * gateway dispatch. Testnet only today. When true a worker must run in
+   * sortition mode (SORTITION_ENABLED + SESSION_MANAGER_ADDRESS + local Redis);
+   * a gateway-mode container never claims a session and serves no jobs.
+   */
+  sortition?: boolean;
 }
 
 export interface Worker {
