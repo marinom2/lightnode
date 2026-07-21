@@ -29,6 +29,9 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     governor: "0xD216A0c0050EdC3a9E0449EcFDf178A1652b4b68",
     timelock: "0xc783376c8237E8f1ed17d825CE7CBB4c22e3cAE5",
     treasury: "0x786eDe8C42Ca54E54c9dCECa9b30052CF4743389",
+    // Mainnet still selects workers via the gateway dispatch, not on-chain
+    // sortition; there is no SessionManager deployed here.
+    sortition: false,
   },
   testnet: {
     id: "testnet",
@@ -46,6 +49,13 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     // Same genesis predeploys as mainnet (chain bytecode is identical).
     feePool: "0x0000000000000000000000000000000000001004",
     nativeVotes: "0x0000000000000000000000000000000000001001",
+    // 2026-07-14 sortition upgrade: worker selection moved on-chain. Gateway
+    // delegate 0xFDBa3B97... opens a session request on this SessionManager
+    // proxy (impl 0xB81c4612...), staked workers race claimSession(reqId), and
+    // the winner serves the session's jobs via acknowledgeJob/completeJob on the
+    // JobRegistry. Verified on-chain 2026-07-21.
+    sessionManager: "0x86AdA80864e87dE2275200FeE905b5C32b32Bf68",
+    sortition: true,
   },
 };
 

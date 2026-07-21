@@ -16,6 +16,7 @@ import {
   uninstallCommand,
   preflightCommand,
 } from "@/lib/scriptgen";
+import { NETWORKS } from "@/lib/network";
 
 describe("Clear stuck jobs (claimTimeout)", () => {
   it("claimTimeouts each acked job on the right network's JobRegistry", () => {
@@ -797,5 +798,100 @@ describe("Watchdog worker alerts (downtime + economic, all OSes)", () => {
     expect(win).toContain("$r.outOfGas");
     // The intentional Stop is recorded so a resume doesn't post a spurious recovery.
     expect(win).toContain('Send-State "paused"');
+  });
+});
+
+// The 2026-07-14 testnet upgrade moved worker selection on-chain (SessionManager.
+// claimSession); the gateway no longer dispatches jobs. A gateway-mode container
+// (the toolkit's phase 08) never claims a session and serves nothing, so on
+// sortition networks the app must run the worker itself in SORTITION mode, with
+// the local Redis the new build's heartbeat requires, and NO gateway URL. Mainnet
+// is unchanged (still gateway-dispatch). Guarded so mainnet output is identical.
+describe("testnet sortition run (on-chain claimSession, not gateway dispatch)", () => {
+  const SM = NETWORKS.testnet.sessionManager as string;
+
+  it("network config marks testnet sortition (with a SessionManager) and mainnet gateway", () => {
+    expect(NETWORKS.testnet.sortition).toBe(true);
+    expect(SM).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(NETWORKS.mainnet.sortition).toBe(false);
+    expect(NETWORKS.mainnet.sessionManager).toBeUndefined();
+  });
+
+  describe("manual generateSetup (advanced/copy-paste)", () => {
+    const t = generateSetup("linux", "testnet");
+    it("runs the worker in sortition mode with the SessionManager sourced from config (not hardcoded)", () => {
+      expect(t.setup).toContain('-e "SORTITION_ENABLED=true"');
+      expect(t.setup).toContain(`SESSION_MANAGER_ADDRESS=${SM}`);
+    });
+    it("starts a local Redis and shares its network namespace (the sortition build's heartbeat needs 127.0.0.1:6379)", () => {
+      expect(t.setup).toContain("lightchain-redis");
+      expect(t.setup).toContain("--network container:lightchain-redis");
+    });
+    it("does NOT set a worker gateway URL (sortition ignores the gateway)", () => {
+      expect(t.setup).not.toContain("WORKER_GATEWAY_URL");
+    });
+    it("keeps the lightchain-worker container name so the watchdog / Stop / Deregister still apply", () => {
+      expect(t.setup).toContain("--name lightchain-worker");
+    });
+    it("drops the toolkit's gateway-mode 08-run-worker phase", () => {
+      expect(t.setup).not.toContain("08-run-worker.sh          # starts the container");
+    });
+    it("tells the operator to look for the sortition-mode log line, not gateway auth", () => {
+      expect(t.verify).toContain("worker sidecar running (sortition mode)");
+      expect(t.verify).not.toContain("worker-gateway auth");
+    });
+    it("wires the same sortition run into the paste-and-run one-liner", () => {
+      expect(t.oneLiner).toContain('-e "SORTITION_ENABLED=true"');
+      expect(t.oneLiner).toContain("lightchain-redis");
+      expect(t.oneLiner).not.toContain("08-run-worker");
+    });
+    it("windows manual setup + one-liner get the PowerShell sortition run", () => {
+      const w = generateSetup("windows", "testnet");
+      expect(w.setup).toContain(`SESSION_MANAGER_ADDRESS=${SM}`);
+      expect(w.setup).toContain("--network container:lightchain-redis");
+      expect(w.oneLiner).toContain('-e "SORTITION_ENABLED=true"');
+    });
+  });
+
+  describe("mainnet stays gateway-mode (no sortition anywhere)", () => {
+    const m = generateSetup("linux", "mainnet");
+    it("no sortition env or Redis in setup/one-liner", () => {
+      expect(m.setup).not.toContain("SORTITION_ENABLED");
+      expect(m.setup).not.toContain("lightchain-redis");
+      expect(m.oneLiner).not.toContain("SORTITION");
+    });
+    it("keeps the toolkit's 08-run-worker phase", () => {
+      expect(m.setup).toContain("08-run-worker.sh          # starts the container");
+      expect(m.oneLiner).toContain("08-run-worker");
+    });
+    it("still points at the worker gateway (gateway dispatch)", () => {
+      expect(m.verify).toContain("worker-gateway auth");
+    });
+  });
+
+  describe("desktop one-click install", () => {
+    for (const os of ["macos", "linux"] as const) {
+      it(`${os}: testnet install runs sortition mode + Redis, same container name`, () => {
+        const d = desktopInstallCommand(os, "testnet");
+        expect(d).toContain('-e "SORTITION_ENABLED=true"');
+        expect(d).toContain(`SESSION_MANAGER_ADDRESS=${SM}`);
+        expect(d).toContain("--network container:lightchain-redis");
+        expect(d).toContain("--name lightchain-worker");
+      });
+      it(`${os}: mainnet install stays gateway-mode (no sortition/Redis)`, () => {
+        const d = desktopInstallCommand(os, "mainnet");
+        expect(d).not.toContain("SORTITION_ENABLED");
+        expect(d).not.toContain("lightchain-redis");
+      });
+    }
+    it("windows testnet install runs the PowerShell sortition run", () => {
+      const w = desktopInstallCommand("windows", "testnet");
+      expect(w).toContain('-e "SORTITION_ENABLED=true"');
+      expect(w).toContain(`SESSION_MANAGER_ADDRESS=${SM}`);
+      expect(w).toContain("--network container:lightchain-redis");
+    });
+    it("windows mainnet install stays gateway-mode", () => {
+      expect(desktopInstallCommand("windows", "mainnet")).not.toContain("SORTITION_ENABLED");
+    });
   });
 });

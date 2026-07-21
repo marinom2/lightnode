@@ -48,6 +48,30 @@ keep it earning rather than getting slashed:
   by the watchdog. Use the **Speed test** to confirm your machine comfortably beats
   the deadline.
 
+#### How the worker gets picked for a job (run modes)
+
+There are two selection models, and the install picks the right one per network
+(driven by `sortition` in [`lib/network.ts`](../lib/network.ts)):
+
+- **Mainnet - gateway dispatch (unchanged).** The worker authenticates to the
+  worker-gateway over a websocket, and the gateway hands it jobs. This is the
+  toolkit's default run (its `08-run-worker`), and the install uses it as-is.
+- **Testnet - on-chain sortition (since the 2026-07-14 upgrade).** The gateway no
+  longer dispatches jobs. A gateway "delegate" opens a session request on the
+  `SessionManager` (`sessionManager` in the network config), and staked workers
+  race `claimSession(reqId)` on-chain; the winner serves that session's jobs via
+  `acknowledgeJob` / `completeJob`. A gateway-mode container never claims a session
+  and would sit idle, so on sortition networks the app **replaces phase 08** with
+  its own run that sets `SORTITION_ENABLED=true` + `SESSION_MANAGER_ADDRESS`, and
+  starts a **local Redis** the sortition build's heartbeat requires (it is fatal at
+  init without it). The container name is unchanged (`lightchain-worker`), so the
+  watchdog, Stop, and Deregister all work the same. Look for the log line
+  `worker sidecar running (sortition mode)` to confirm it started in the right mode.
+
+  > Consumers on a sortition network read answers from the on-chain response blob
+  > (beacon sidecars), not the relay stream - external workers write stream chunks
+  > to their own local Redis, which the public relay cannot read.
+
 ### 3. Settle earnings
 
 This is the step people misunderstand, so here is exactly what happens on-chain.

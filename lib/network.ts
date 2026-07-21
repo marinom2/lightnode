@@ -22,6 +22,18 @@ export interface NetworkConfig {
   minStakeLcai: number;
   fundLcai: number; // stake + gas headroom
   faucet?: string;
+  /**
+   * SessionManager proxy for on-chain sortition (testnet, since the 2026-07-14
+   * upgrade). Staked workers race claimSession(reqId) here to be selected;
+   * undefined on gateway-dispatch networks (mainnet).
+   */
+  sessionManager?: string;
+  /**
+   * True when worker selection is on-chain sortition rather than gateway
+   * dispatch. Drives the worker run: sortition mode needs SORTITION_ENABLED +
+   * SESSION_MANAGER_ADDRESS + a local Redis, and must NOT set a gateway URL.
+   */
+  sortition?: boolean;
 }
 
 export const NETWORKS: Record<NetworkId, NetworkConfig> = {
@@ -42,6 +54,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     jobRegistry: "0xfB15F90298e4CcD7106E76fFB5e520315cC42B0b",
     minStakeLcai: 50000,
     fundLcai: 50005,
+    sortition: false, // mainnet still uses gateway dispatch (no SessionManager)
   },
   testnet: {
     id: "testnet",
@@ -61,6 +74,11 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     minStakeLcai: 5000,
     fundLcai: 5005,
     faucet: "https://lightfaucet.ai",
+    // 2026-07-14 sortition upgrade (verified on-chain 2026-07-21): SessionManager
+    // proxy 0x86AdA808... (impl 0xB81c4612...) exposes claimSession; workers are
+    // selected on-chain, so the run must be sortition mode + local Redis.
+    sessionManager: "0x86AdA80864e87dE2275200FeE905b5C32b32Bf68",
+    sortition: true,
   },
 };
 

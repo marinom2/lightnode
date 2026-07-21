@@ -4,7 +4,7 @@
  * install anything itself - this produces the exact, personalized commands the
  * operator runs locally, with the production gotchas already handled.
  */
-import { NETWORKS, DEFAULT_MODEL, type NetworkId } from "./network";
+import { NETWORKS, DEFAULT_MODEL, type NetworkId, type NetworkConfig } from "./network";
 
 export type OS = "macos" | "linux" | "windows";
 
@@ -32,6 +32,98 @@ const PHASES =
 // user's wallet, so it skips 00 (generate-key) and 06 (funder→worker transfer).
 const DESKTOP_PHASES =
   "01-resolve-addresses 02-prepare-ollama 03-pull-image 04-import-key 05-generate-ecdh 07-register 08-run-worker";
+
+/**
+ * The toolkit's phase 08 starts a GATEWAY-mode container (it sets
+ * WORKER_GATEWAY_URL and nothing else). On networks that moved worker selection
+ * on-chain (testnet, since the 2026-07-14 sortition upgrade), the gateway no
+ * longer dispatches jobs, so a gateway-mode worker never wins a session and
+ * serves nothing. For those networks we drop phase 08 and run the worker
+ * ourselves in SORTITION mode via {@link sortitionRunUnix} / {@link sortitionRunWin}.
+ */
+const withoutRunPhase = (phases: string) => phases.replace(" 08-run-worker", "");
+
+/**
+ * Worker RUN for on-chain-sortition networks, replacing the toolkit's phase 08.
+ * Runs from the toolkit's scripts/bash dir (env.sh + resolved.env resolved
+ * there). Keeps the SAME container name (lightchain-worker) so the watchdog,
+ * Stop, and Deregister keep working unchanged.
+ *
+ * Redis: the sortition build's heartbeat targets 127.0.0.1:6379 and is FATAL at
+ * init if unreachable. We run Redis as a sidecar and put the worker in its
+ * network namespace (--network container:), so the binary's default resolves
+ * with no REDIS_* override on every OS - host networking would break
+ * host.docker.internal on Docker Desktop, so it can't be used here.
+ * host.docker.internal is mapped on the Redis container so the shared namespace
+ * still reaches Ollama on the host.
+ */
+function sortitionRunUnix(net: NetworkConfig): string {
+  if (!net.sortition || !net.sessionManager) return "";
+  return [
+    'echo "▶ starting the worker in SORTITION mode (on-chain claimSession - gateway dispatch was removed on this network)"',
+    // env.sh resolves RPC/CHAIN/IMAGE/BEACON/addresses; source it without leaking its `set -e`.
+    ". ./env.sh >/dev/null 2>&1 || true; set +eu 2>/dev/null || true",
+    'KD="${KEYS_DIR:-$HOME/lightchain-worker/keys}"',
+    "KSF=\"$(ls \"$KD/eth-keystore\" 2>/dev/null | grep -iE '^UTC--' | head -1)\"",
+    "docker rm -f lightchain-worker lightchain-redis >/dev/null 2>&1 || true",
+    // Heartbeat store; ephemeral (no persistence). Shares its netns with the worker.
+    'docker run -d --restart always --name lightchain-redis --add-host=host.docker.internal:host-gateway redis:7-alpine redis-server --save "" --appendonly no >/dev/null',
+    "for _ in $(seq 1 15); do docker exec lightchain-redis redis-cli ping >/dev/null 2>&1 && break; sleep 1; done",
+    "docker run -d --restart always --user root --name lightchain-worker \\",
+    "  --network container:lightchain-redis \\",
+    '  -v "$KD:/data" \\',
+    '  -e "WORKER_KEYSTORE_PATH=/data/eth-keystore/$KSF" \\',
+    '  -e "WORKER_KEYSTORE_PASSWORD=${WORKER_PASSWORD:-}" \\',
+    '  -e "ENCRYPTION_KEYSTORE_PATH=/data/worker-encryption.key" \\',
+    '  -e "RPC_URL=$RPC_URL" -e "CHAIN_ID=$CHAIN_ID" \\',
+    '  -e "WORKER_REGISTRY_ADDRESS=$WORKER_REGISTRY_ADDRESS" \\',
+    '  -e "AI_CONFIG_ADDRESS=$AI_CONFIG_ADDRESS" \\',
+    '  -e "JOB_REGISTRY_ADDRESS=$JOB_REGISTRY_ADDRESS" \\',
+    '  -e "SUPPORTED_MODELS=$SUPPORTED_MODELS" \\',
+    '  -e "OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}" \\',
+    '  -e "BEACON_API_URL=$BEACON_API_URL" -e "BLOB_MODE=beacon" \\',
+    '  -e "SESSION_KEY_FILE=/data/session-keys.enc" \\',
+    '  -e "SORTITION_ENABLED=true" \\',
+    '  -e "SESSION_MANAGER_ADDRESS=' + net.sessionManager + '" \\',
+    '  -e "SORTITION_STATE_DIR=/data/sortition" \\',
+    '  "$IMAGE"',
+    'echo "✓ worker started in SORTITION mode (expect log: worker sidecar running (sortition mode))"',
+    "docker logs --tail 25 lightchain-worker 2>&1 || true",
+  ].join("\n");
+}
+
+/** PowerShell equivalent of {@link sortitionRunUnix}. */
+function sortitionRunWin(net: NetworkConfig): string {
+  if (!net.sortition || !net.sessionManager) return "";
+  return [
+    'Write-Host "▶ starting the worker in SORTITION mode (on-chain claimSession - gateway dispatch was removed on this network)"',
+    ". .\\env.ps1 2>$null",
+    '$ksf = (Get-ChildItem "$($env:KEYS_DIR)\\eth-keystore" -Filter "UTC--*" -ErrorAction SilentlyContinue | Select-Object -First 1).Name',
+    "docker rm -f lightchain-worker lightchain-redis 2>$null | Out-Null",
+    'docker run -d --restart always --name lightchain-redis --add-host=host.docker.internal:host-gateway redis:7-alpine redis-server --save "" --appendonly no | Out-Null',
+    "for ($i=0; $i -lt 15; $i++){ docker exec lightchain-redis redis-cli ping 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 1 }",
+    "docker run -d --restart always --user root --name lightchain-worker `",
+    "  --network container:lightchain-redis `",
+    '  -v "$($env:KEYS_DIR):/data" `',
+    '  -e "WORKER_KEYSTORE_PATH=/data/eth-keystore/$ksf" `',
+    '  -e "WORKER_KEYSTORE_PASSWORD=$($env:WORKER_PASSWORD)" `',
+    '  -e "ENCRYPTION_KEYSTORE_PATH=/data/worker-encryption.key" `',
+    '  -e "RPC_URL=$($env:RPC_URL)" -e "CHAIN_ID=$($env:CHAIN_ID)" `',
+    '  -e "WORKER_REGISTRY_ADDRESS=$($env:WORKER_REGISTRY_ADDRESS)" `',
+    '  -e "AI_CONFIG_ADDRESS=$($env:AI_CONFIG_ADDRESS)" `',
+    '  -e "JOB_REGISTRY_ADDRESS=$($env:JOB_REGISTRY_ADDRESS)" `',
+    '  -e "SUPPORTED_MODELS=$($env:SUPPORTED_MODELS)" `',
+    '  -e "OLLAMA_URL=$($env:OLLAMA_URL)" `',
+    '  -e "BEACON_API_URL=$($env:BEACON_API_URL)" -e "BLOB_MODE=beacon" `',
+    '  -e "SESSION_KEY_FILE=/data/session-keys.enc" `',
+    '  -e "SORTITION_ENABLED=true" `',
+    '  -e "SESSION_MANAGER_ADDRESS=' + net.sessionManager + '" `',
+    '  -e "SORTITION_STATE_DIR=/data/sortition" `',
+    "  $($env:IMAGE)",
+    'Write-Host "✓ worker started in SORTITION mode"',
+    "docker logs --tail 25 lightchain-worker 2>&1 | ForEach-Object { Write-Host $_ }",
+  ].join("\n");
+}
 
 /**
  * Keep-online watchdog (macOS + Linux), installed automatically by the worker
@@ -192,19 +284,25 @@ const APPIMAGE_CURL_HINT_UNIX =
 
 /** One command: clone, set the password, run all 9 phases (06 prompts for the funder key). */
 function bootstrap(os: OS, network: NetworkId, model: string): string {
+  const net = NETWORKS[network];
+  // On sortition networks, drop the toolkit's gateway-mode phase 08 and run the
+  // worker ourselves in sortition mode instead (see withoutRunPhase).
+  const phases = net.sortition ? withoutRunPhase(PHASES) : PHASES;
   if (os === "windows") {
+    const runWin = net.sortition ? `\n${sortitionRunWin(net)}` : "";
     return `git clone ${TOOLKIT}.git; cd lightchain-worker-toolkit\\scripts\\powershell; Copy-Item -ErrorAction Ignore secrets.example.ps1 secrets.ps1; ` +
       `$p=Read-Host -AsSecureString "Set a worker keystore password"; ` +
       `$env:WORKER_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)); ` +
       `$env:NETWORK="${network}"; $env:SUPPORTED_MODELS="${model}"; ` +
-      `'${PHASES}'.Split(' ') | ForEach-Object { & ".\\$_.ps1"; if ($LASTEXITCODE -ne 0){ Write-Host "stopped at $_"; break } }`;
+      `'${phases}'.Split(' ') | ForEach-Object { & ".\\$_.ps1"; if ($LASTEXITCODE -ne 0){ Write-Host "stopped at $_"; break } }${runWin}`;
   }
+  const runUnix = net.sortition ? ` && \\\n${sortitionRunUnix(net)}` : "";
   return (
     `git clone ${TOOLKIT}.git && cd lightchain-worker-toolkit/scripts/bash && cp -n secrets.example.sh secrets.env && \\\n` +
     `read -rs -p "Set a worker keystore password: " WP; echo && \\\n` +
     `sed -i.bak "s|WORKER_PASSWORD=.*|WORKER_PASSWORD=\\"$WP\\"|" secrets.env && rm -f secrets.env.bak && \\\n` +
     `export NETWORK=${network} SUPPORTED_MODELS=${model} && \\\n` +
-    `for p in ${PHASES}; do bash "$p.sh" || { echo "⛔ stopped at $p"; break; }; done`
+    `for p in ${phases}; do bash "$p.sh" || { echo "⛔ stopped at $p"; break; }; done${runUnix}`
   );
 }
 
@@ -362,11 +460,14 @@ echo "✓ Foundry (cast) ready"`;
  *  WORKER key + password via env; we fund the worker directly from the user's
  *  wallet, so there's no separate funder and no phase 00/06. */
 function unixInstall(network: NetworkId, models: string[]): string {
+  const net = NETWORKS[network];
   const chainId = NETWORKS[network].chainId;
   const minStake = NETWORKS[network].minStakeLcai; // build-time fallback only; real value read live from AIConfig
   const rpc = NETWORKS[network].rpc;
   const explorer = NETWORKS[network].explorer;
   const workerRegistry = NETWORKS[network].workerRegistry;
+  // Sortition networks run their own worker; drop the toolkit's gateway phase 08.
+  const desktopPhases = net.sortition ? withoutRunPhase(DESKTOP_PHASES) : DESKTOP_PHASES;
   // Threshold for the funding gate: min stake + 0.5 LCAI gas cushion, in wei.
   // BigInt because the value overflows JS Number for mainnet (50_000.5 * 1e18).
   const thrWei = (BigInt(minStake) * 10n ** 18n + 5n * 10n ** 17n).toString();
@@ -579,7 +680,7 @@ function unixInstall(network: NetworkId, models: string[]): string {
       `  if cast send "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --private-key "$WORKER_PRIVKEY" --rpc-url "${rpc}" --gas-limit "$AM_GAS" >/dev/null 2>&1; then echo "✓ model added on-chain (worker now serving it)"; return 0; else echo "⛔ model add failed even with estimated gas"; return 1; fi`,
       "}",
     ].join("\n"),
-    `for p in ${DESKTOP_PHASES}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; add_selected_model_onchain || exit 1; continue; fi; gate_funding || exit 1; fi; if [ "$p" = "07-register" ]; then echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || true; NOW_REG="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$NOW_REG" != "true" ]; then echo "⛔ stopped at 07-register (worker not registered on-chain after the attempt)"; exit 1; fi; add_selected_model_onchain || exit 1; else echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; fi; done`,
+    `for p in ${desktopPhases}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; add_selected_model_onchain || exit 1; continue; fi; gate_funding || exit 1; fi; if [ "$p" = "07-register" ]; then echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || true; NOW_REG="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$NOW_REG" != "true" ]; then echo "⛔ stopped at 07-register (worker not registered on-chain after the attempt)"; exit 1; fi; add_selected_model_onchain || exit 1; else echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; fi; done${net.sortition ? "\n" + sortitionRunUnix(net) : ""}`,
     // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
     // real job doesn't pay a cold-load that could exceed the inference timeout.
     `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
@@ -591,12 +692,15 @@ function unixInstall(network: NetworkId, models: string[]): string {
 /** Smart, idempotent install for Windows (PowerShell). Auto-starts Docker
  *  Desktop, installs missing tools via winget, and runs the toolkit's ps1 phases. */
 function windowsInstall(network: NetworkId, models: string[]): string {
+  const net = NETWORKS[network];
   const chainId = NETWORKS[network].chainId;
   const minStake = NETWORKS[network].minStakeLcai; // build-time fallback only; real value read live from AIConfig
   const rpc = NETWORKS[network].rpc;
   const explorer = NETWORKS[network].explorer;
   const workerRegistry = NETWORKS[network].workerRegistry;
-  const phases = DESKTOP_PHASES.split(" ").map((p) => `.\\${p}.ps1`).join("','");
+  // Sortition networks run their own worker; drop the toolkit's gateway phase 08.
+  const phaseList = net.sortition ? withoutRunPhase(DESKTOP_PHASES) : DESKTOP_PHASES;
+  const phases = phaseList.split(" ").map((p) => `.\\${p}.ps1`).join("','");
   const list = models.length ? models : [DEFAULT_MODEL];
   const supported = list.join(",");
   const psList = "@(" + list.map((m) => `'${m}'`).join(",") + ")";
@@ -889,7 +993,7 @@ function Add-SelectedModelOnchain {
 }
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; if (-not (Add-SelectedModelOnchain)) { exit 1 }; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ }; $nowReg = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); if ($nowReg -notmatch 'true') { throw "worker not registered on-chain after the attempt" }; if (-not (Add-SelectedModelOnchain)) { throw "model add failed" } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
-Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
+${net.sortition ? sortitionRunWin(net) + "\n" : ""}Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
 foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
 Write-Host "✅ worker online"`;
 }
@@ -1866,6 +1970,17 @@ export function generateSetup(os: OS, network: NetworkId, model: string = DEFAUL
   const run = os === "windows" ? "" : "bash ";
   const isDefault = model === DEFAULT_MODEL;
 
+  // Phase 08 (unix). Sortition networks (testnet, since 2026-07-14) can't use the
+  // toolkit's gateway-mode run - the gateway no longer dispatches jobs, so that
+  // container never claims a session. Start the worker in sortition mode with the
+  // local Redis its heartbeat needs instead. (Windows uses winSetup.)
+  const runStep = net.sortition
+    ? `# 08 - run in SORTITION mode (on-chain claimSession). The toolkit's gateway-mode
+#      08-run-worker never wins a session on this network; this replaces it and
+#      also starts the local Redis the sortition build requires.
+${sortitionRunUnix(net)}`
+    : `${run}08-run-worker.${ext}          # starts the container with --restart always`;
+
   // Phase-02 note. llama3-8b is what the toolkit's 02 script aliases out of the
   // box; for any other whitelisted model the operator pulls it explicitly and
   // the local Ollama name MUST byte-match the on-chain registry name.
@@ -1896,14 +2011,20 @@ ${run}04-import-key.${ext}          # encrypts the worker key into a keystore
 ${run}05-generate-ecdh.${ext}       # registers the worker's encryption key
 ${run}06-fund-worker.${ext}         # sends ${fund} LCAI from your funder → worker
 ${run}07-register.${ext}            # stakes 50,000 LCAI + registers on-chain
-${run}08-run-worker.${ext}          # starts the container with --restart always`;
+${runStep}`;
 
+  // The "it's online" log signature differs by run mode: a gateway worker
+  // authenticates to the worker-gateway; a sortition worker announces sortition
+  // mode and claims sessions on-chain (no gateway connection at all).
+  const liveLine = net.sortition
+    ? "registration validated, worker sidecar running (sortition mode), session claimed on-chain"
+    : "registration validated, worker-gateway auth, websocket connected";
   const verify =
     os === "windows"
-      ? `# Confirm it's online (look for: registration validated, worker-gateway auth, websocket connected)
+      ? `# Confirm it's online (look for: ${liveLine})
 .\\status.ps1
 docker logs --tail 40 lightchain-worker`
-      : `# Confirm it's online (look for: registration validated, worker-gateway auth, websocket connected)
+      : `# Confirm it's online (look for: ${liveLine})
 ${run}status.${ext}
 docker logs --tail 40 lightchain-worker
 
@@ -1949,11 +2070,20 @@ SEEN=$(curl -s -X POST -H 'content-type: application/json' \\
 }
 
 function winSetup(network: NetworkId, fund: number, model: string): string {
+  const net = NETWORKS[network];
   const pull =
     model === DEFAULT_MODEL
       ? `.\\02-prepare-ollama.ps1       # installs + aliases the model to "${model}" exactly`
       : `.\\02-prepare-ollama.ps1       # base Ollama setup
 ollama pull ${model}           # this exact name must match the on-chain model "${model}"`;
+  // Sortition networks replace the toolkit's gateway-mode phase 08 with our own
+  // sortition-mode run (+ local Redis); see sortitionRunWin.
+  const runStep = net.sortition
+    ? `# 08 - run in SORTITION mode (on-chain claimSession). The toolkit's gateway-mode
+#      08-run-worker never wins a session on this network; this replaces it and
+#      also starts the local Redis the sortition build requires.
+${sortitionRunWin(net)}`
+    : `.\\08-run-worker.ps1           # starts the container with --restart always`;
   return `# 1. Get the toolkit (idempotent scripts for every phase)
 git clone ${TOOLKIT}.git
 cd lightchain-worker-toolkit\\scripts\\powershell
@@ -1973,5 +2103,5 @@ ${pull}
 .\\05-generate-ecdh.ps1        # registers the worker's encryption key
 .\\06-fund-worker.ps1          # sends ${fund} LCAI from your funder → worker
 .\\07-register.ps1             # stakes 50,000 LCAI + registers on-chain
-.\\08-run-worker.ps1           # starts the container with --restart always`;
+${runStep}`;
 }
