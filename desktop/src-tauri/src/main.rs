@@ -371,7 +371,31 @@ fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Work around WebKitGTK's DMA-BUF renderer on hybrid-GPU Linux boxes.
+///
+/// WebKitGTK hands rendered frames to the compositor as DMA-BUFs. On a machine
+/// with two DRM devices - an Intel iGPU driving `modesetting` alongside a
+/// discrete NVIDIA card, which is the ordinary desktop-with-a-GPU arrangement -
+/// that import fails and WebKit drops to a fallback path instead of reporting
+/// an error. The window still draws, so it reads as "the app is slow" rather
+/// than as a bug. Measured on an idle 3840x2160 window (RTX 5060 Ti + HD 530,
+/// X11, WebKitGTK 2.52.3): 2.7-14.3% CPU in the web process with the renderer
+/// enabled, 0.0% with it disabled.
+///
+/// Only set when the operator has not expressed a preference, so anyone whose
+/// setup handles DMA-BUF correctly can opt back in with
+/// `WEBKIT_DISABLE_DMABUF_RENDERER=0`. Must run before the webview initialises.
+#[cfg(target_os = "linux")]
+fn disable_dmabuf_renderer_by_default() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    disable_dmabuf_renderer_by_default();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![

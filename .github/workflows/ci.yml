@@ -41,6 +41,33 @@ jobs:
       # Keep the standalone SDK compiling (it's excluded from the app tsconfig).
       - run: npx tsc --noEmit -p sdk/tsconfig.json
 
+  desktop:
+    name: Desktop (cargo check)
+    runs-on: ubuntu-latest
+    # The Tauri backend is the one part of this repo that nothing compiles until
+    # a release is cut: release.yml builds it, but only on a `v*` tag. So a Rust
+    # change can sit on main for weeks and first break at the moment you try to
+    # ship installers. `cargo check` is the cheap half of that build - it type-
+    # checks and borrow-checks without linking or bundling - so it catches the
+    # error where it is still a one-line fix.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      # tauri's build script links against the system webview; without these the
+      # crate fails to configure and the check never reaches our code.
+      - name: System deps for the webview
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev \
+            libjavascriptcoregtk-4.1-dev build-essential pkg-config
+      - name: cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check --locked --all-targets
+
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
