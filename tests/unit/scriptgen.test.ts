@@ -247,7 +247,8 @@ describe("registration-aware install (switch back to an already-registered worke
     const unix = desktopInstallCommand("macos", "mainnet");
     // registered + not eligible => finish the add the daemon failed, do NOT re-stake
     expect(unix).toContain("finishing the model-add the daemon failed - no re-stake");
-    expect(unix).toContain('[ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]');
+    // The gate is now "every selected model verifies", not one boolean for model #1.
+    expect(unix).toContain('[ "$REG_OK" = "true" ] && [ "$ELIG_ALL" != "0" ]');
     expect(unix).toContain("add_selected_model_onchain");
     // the add uses an estimated gas limit (the daemon under-set it)
     expect(unix).toContain('"addSupportedModel(bytes32)"');
@@ -603,8 +604,8 @@ describe("desktopInstallCommand (smart install)", () => {
   it("short-circuits only when the running container is ALSO live on-chain; stops the other network's worker to switch", () => {
     // "running container" alone is not enough - it must be registered + serving on
     // chain, else a prior failed setup would be reported as a false "online".
-    expect(unix).toContain("running on testnet and live on-chain - nothing to reinstall");
-    expect(unix).toContain("it is not live on-chain");
+    expect(unix).toContain("running on testnet and live on-chain (serving every selected model) - nothing to reinstall");
+    expect(unix).toContain("it is not fully live on-chain");
     // a different-network container is stopped (not an error), so the user isn't stuck
     expect(unix).toContain("a worker for the other network");
     expect(unix).toContain("docker stop lightchain-worker");
@@ -893,5 +894,189 @@ describe("testnet sortition run (on-chain claimSession, not gateway dispatch)", 
     it("windows mainnet install stays gateway-mode", () => {
       expect(desktopInstallCommand("windows", "mainnet")).not.toContain("SORTITION_ENABLED");
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A generated script is passed to the shell as ONE argument (`bash -lc "<script>"`),
+// so the script text IS that shell's command line. `pkill -f` / `pgrep -f` match
+// against the full command line and skip only their OWN pid - not their parent - so
+// any -f pattern that also matches the script text hits the running installer:
+// pgrep false-positives, and pkill SIGTERMs the installer (rc 143, nothing after it
+// runs). Reproduced in review at the real 47 KB payload on procps-ng 4.0.4.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Simple `VAR="literal"` assignments the script makes, resolved in order, so a
+ *  pattern written as "$DBK" is checked the way the shell would expand it. */
+function shellLiteralVars(script: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const m of script.matchAll(/(?:^|[;\s])([A-Za-z_][A-Za-z0-9_]*)="([^"\n]*)"/g)) {
+    if (/\$\(|`/.test(m[2])) continue; // command substitution - not a literal
+    const v = m[2].replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, n: string) => env[n] ?? " ");
+    if (!v.includes(" ")) env[m[1]] = v;
+  }
+  return env;
+}
+
+/** Every `pkill -f` / `pgrep -f` pattern in `script` that matches the script's own
+ *  text. Patterns are read from executable lines only (a `#` comment can mention a
+ *  dangerous form safely), but matched against the WHOLE text - comments are part
+ *  of the command line too. */
+function selfMatchingProbes(script: string): string[] {
+  const env = shellLiteralVars(script);
+  const code = script.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  const hits: string[] = [];
+  for (const m of code.matchAll(/\bp(?:kill|grep)\s+(?:-[A-Za-z]+\s+)*-f\s+(?:"([^"\n]+)"|'([^'\n]+)'|(\S+))/g)) {
+    const raw = m[1] ?? m[2] ?? m[3];
+    if (/\$\(|`/.test(raw)) continue;
+    const pat = raw.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, n: string) => env[n] ?? " ");
+    // An unresolvable variable can't be cleared, so treat it as a hit to review.
+    if (pat.includes(" ")) { hits.push(raw); continue; }
+    let rx: RegExp;
+    try { rx = new RegExp(pat); } catch { continue; }
+    if (rx.test(script)) hits.push(raw);
+  }
+  return hits;
+}
+
+describe("process probes never match the script that runs them", () => {
+  const unixScripts: [string, string][] = [
+    ["install linux", desktopInstallCommand("linux", "testnet", ["llama3-8b", "gemma4:e2b"])],
+    ["install macos", desktopInstallCommand("macos", "mainnet")],
+    ["uninstall linux", uninstallCommand("linux", "testnet")],
+    ["uninstall macos", uninstallCommand("macos", "testnet")],
+    ["deregister", deregisterCommand("linux", "testnet", [7])],
+    ["stop", stopWorkerCommand("linux")],
+    ["repair", repairWorkerCommand("linux")],
+    ["preflight", preflightCommand("linux", "testnet")],
+  ];
+  for (const [label, script] of unixScripts) {
+    it(`${label}: no pkill -f / pgrep -f pattern matches its own text`, () => {
+      expect(selfMatchingProbes(script)).toEqual([]);
+    });
+  }
+  it("the check has teeth: the pattern that killed the installer is caught", () => {
+    // Exactly the old line 584 - the script mentions "ollama serve" elsewhere.
+    const broken = `nohup ollama serve &\npkill -f 'ollama serve' 2>/dev/null || true`;
+    expect(selfMatchingProbes(broken)).toEqual(["ollama serve"]);
+  });
+  it("restarts a user-local Ollama by exact process NAME, never by command line", () => {
+    const unix = desktopInstallCommand("linux", "testnet");
+    expect(unix).toContain("pkill -x ollama 2>/dev/null || true");
+    expect(unix).not.toContain("pkill -f 'ollama serve'");
+    // The whole point: the string it used to match on is still all over the script.
+    expect(unix).toContain("ollama serve");
+  });
+  it("finds the sleep-inhibitor by process name + /proc cmdline, not by -f", () => {
+    // The holder's own command line ("--who=lightnode-awake") is printed verbatim in
+    // these scripts, so NO -f pattern can be made safe here - only -x plus a
+    // per-pid cmdline read can tell the holder apart from the shell running this.
+    for (const s of [desktopInstallCommand("linux", "testnet"), uninstallCommand("linux", "testnet"), deregisterCommand("linux", "testnet", [])]) {
+      expect(s).toContain("pgrep -x systemd-inhibit");
+      expect(s).toContain('grep -qa lightnode-awake "/proc/$LP/cmdline"');
+      expect(s).not.toContain('pkill -f "systemd-inhibit');
+      expect(s).not.toContain('pgrep -f "systemd-inhibit');
+    }
+  });
+});
+
+describe("every selected model is proven on-chain before 'worker online'", () => {
+  const models = ["llama3-8b", "gemma4:e2b", "llama3-70b"];
+  const unix = desktopInstallCommand("linux", "testnet", models);
+  const win = desktopInstallCommand("windows", "testnet", models);
+  it("unix hashes EVERY model, not just the first entry of SUPPORTED_MODELS", () => {
+    // The bug: MODEL_ID="$(cast keccak "$(printf '%s' "$supported" | cut -d, -f1)")"
+    // gated every downstream check on model #1 while the worker advertised all three.
+    expect(unix).not.toContain("cut -d, -f1");
+    expect(unix).toContain('for ME_M in "llama3-8b" "gemma4:e2b" "llama3-70b"');
+    expect(unix).toContain('ME_ID="$(cast keccak "$ME_M"');
+    expect(unix).toContain('models_eligible || ELIG_ALL=1');
+  });
+  it("unix adds EVERY unserved model on-chain, gas-correct, and names the failures", () => {
+    expect(unix).toContain('for AM_M in "llama3-8b" "gemma4:e2b" "llama3-70b"');
+    expect(unix).toContain('AM_ID="$(cast keccak "$AM_M"');
+    expect(unix).toContain('"addSupportedModel(bytes32)" "$AM_ID"');
+    expect(unix).toContain("--gas-limit");
+    // one model failing must not stop the others, but must fail the function
+    expect(unix).toContain('AM_FAIL="$AM_FAIL $AM_M"; continue');
+    expect(unix).toContain('The worker is staked but is NOT serving:$AM_FAIL');
+  });
+  it("unix refuses to print 'worker online' until the registry lists the whole set", () => {
+    const online = unix.lastIndexOf('echo "✅ worker online"'); // the final claim, not the already-verified short-circuit
+    const gate = unix.indexOf("⛔ setup finished but the registry does not list this worker as serving:");
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(online); // the gate exits 1 before the claim is made
+    // and it is honest about the money: the stake is already placed at that point
+    expect(unix).toContain("Your LCAI IS staked and the worker IS registered");
+  });
+  it("windows mirrors it: per-model ids, per-model add, and a final registry gate", () => {
+    expect(win).not.toContain("-split ',')[0]");
+    expect(win).toContain("function Get-UnservedModels");
+    expect(win).toContain(`foreach ($m in @('llama3-8b','gemma4:e2b','llama3-70b'))`);
+    expect(win).toContain('cast keccak "$m"');
+    expect(win).toContain('"addSupportedModel(bytes32)" $id');
+    expect(win).toContain("$unservedFinal = @(Get-UnservedModels)");
+    expect(win.indexOf("⛔ setup finished but the registry does not list this worker as serving:"))
+      .toBeLessThan(win.lastIndexOf('Write-Host "✅ worker online"'));
+  });
+  it("windows no longer calls a running container 'online' without asking the chain", () => {
+    expect(win).toContain('"isWorkerRegistered(address)(bool)"');
+    expect(win).toContain("live on-chain (serving every selected model) - nothing to reinstall");
+    expect(win).toContain("it is not fully live on-chain");
+  });
+});
+
+describe("windows pull gate (parity with the unix presence gate)", () => {
+  const win = desktopInstallCommand("windows", "testnet", ["llama3-8b", "gemma4:e2b"]);
+  it("stops before staking when a model is missing after the pull", () => {
+    expect(win).toContain("function Test-ModelPresent");
+    expect(win).toContain("$missingModels = @()");
+    // Same sentinel the unix side emits, so the failure diagnoser reads both.
+    expect(win).toContain("⛔ these selected model(s) are NOT on this machine after the download:");
+    expect(win).toContain("Nothing was staked or registered - your funds are untouched.");
+    expect(win).toMatch(/\$missingModels\.Count -gt 0[\s\S]{0,900}?exit 1/);
+    // the old "warn and walk into staking" wording is gone
+    expect(win).not.toContain("(continuing)");
+  });
+  it("matches the NAME column as a whole token, not a substring of the line", () => {
+    // -SimpleMatch tested the WHOLE `ollama list` line, so "llama3-8b" was satisfied
+    // by a row for "llama3-8b-instruct" (or by the ID/SIZE columns).
+    expect(win).not.toContain("Select-String -SimpleMatch $m -Quiet");
+    expect(win).toContain(String.raw`$col = @(("$ln" -split '\s+') | Where-Object { $_ })[0]`);
+    expect(win).toContain(String.raw`$want = ($name -replace ':latest$', '')`);
+    expect(win).toContain(String.raw`(($col -replace ':latest$', '') -eq $want)`);
+  });
+  it("scopes ErrorActionPreference inside the pull helper (native stderr is normal)", () => {
+    // ollama writes progress to stderr; under the install's ...=Stop that becomes a
+    // terminating NativeCommandError and kills the run. Same fix as Resolve-WorkerPassword.
+    const fn = win.slice(win.indexOf("function Pull-Model"), win.indexOf("function Test-ModelPresent"));
+    expect(fn).toContain("$ErrorActionPreference = 'Continue'");
+  });
+});
+
+describe("Linux Ollama bind + model-disk gates", () => {
+  const unix = desktopInstallCommand("linux", "testnet", ["llama3-8b"]);
+  it("an UNKNOWN listen address still gets the 0.0.0.0 fix, not a shrug", () => {
+    // ollama_bind_state returns 2 with no ss/netstat (or no :11434 in their output).
+    // Skipping remediation there let a really-loopback-only Ollama reach staking.
+    expect(unix).toContain('if [ "$OB" != "0" ]; then');
+    expect(unix).not.toContain('if [ "$OB" = "1" ]; then');
+    expect(unix).toContain("applying the 0.0.0.0 bind anyway");
+  });
+  it("the pre-pull disk gate measures the filesystem Ollama writes models to", () => {
+    // A system-service Ollama stores models under the service user's home
+    // (/usr/share/ollama/.ollama/models on Ubuntu), which is often not $HOME's
+    // filesystem - so `df -k "$HOME"` gated on the wrong device in both directions.
+    expect(unix).toContain("ollama_models_dir() {");
+    expect(unix).toContain('[ -n "${OLLAMA_MODELS:-}" ]');
+    expect(unix).toContain("systemctl show ollama -p Environment");
+    expect(unix).toContain("systemctl show ollama -p User --value");
+    expect(unix).toContain(`printf '%s' "$OMH/.ollama/models"`);
+    expect(unix).toContain(`printf '%s' "$HOME/.ollama/models"`);
+    expect(unix).toContain(`FREE_NOW="$(df -Pk "$LN_DF_DIR"`);
+    expect(unix).not.toContain(`FREE_NOW="$(df -k "$HOME"`);
+    // $HOME survives only as the last-resort fallback when nothing resolves
+    expect(unix).toContain(`[ -d "$LN_DF_DIR" ] || LN_DF_DIR="$HOME"`);
+    expect(unix).toContain("is free on the filesystem Ollama stores models on");
   });
 });

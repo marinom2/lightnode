@@ -209,6 +209,11 @@ export async function fetchWorkerModels(cfg: NetworkConfig, address: string, tim
  *
  * Exported ONLY so tests/unit/sdk-consistency.test.ts can assert this list has
  * not drifted from lib/model-catalog.ts. Not part of the package's public API.
+ *
+ * That test also pins the BEHAVIOUR below against `resolveModel`, because a list
+ * that matches is not enough: two copies of the same decision can agree on their
+ * data and still disagree on their verdict, which is exactly what happened here
+ * (the app gained a keccak preimage proof; this file did not).
  */
 export const KNOWN_MODEL_TAGS: readonly string[] = [
   "qwen3-embedding:0.6b",
@@ -236,19 +241,51 @@ function isModelId(s: string): boolean {
 /**
  * The real tag for one registry row, or null when we cannot recover it.
  * Never returns a guess: null is a first-class answer.
+ *
+ * This is the SDK-side half of `resolveModel` in lib/model-catalog.ts and MUST
+ * decide identically (sdk-consistency.test.ts asserts it row for row). The rule
+ * both implement:
+ *
+ *   1. When we have a usable id, the id is the identity - and because
+ *      `id = keccak256(tag)` we can PROVE a claimed name rather than trust it.
+ *      A name that hashes to the id is the genuine tag, including for a model
+ *      neither copy has ever heard of, so a correctly-registered future model
+ *      still resolves.
+ *   2. A name that does NOT hash to the id proves nothing (it is the echoed id,
+ *      one of our own placeholders, or junk), so the id wins: invert it against
+ *      the known tags, else null.
+ *   3. Only with no usable id at all do we fall back to trusting a non-digest
+ *      name - there is nothing to check it against.
+ *
+ * Rule 1 is what makes this IDEMPOTENT, and idempotence is not optional: the
+ * boundary resolves a row, a caller stores the result, and something later
+ * resolves that stored value again. Without the proof, the placeholder produced
+ * by the first pass ("unnamed 0x1234abcd…") is not a digest, so the old
+ * shape-only test returned it as a real tag on the second pass - a placeholder
+ * marked servable, which callers then hash into a second, bogus model id. Here
+ * that was masked only by `LightNode.getServedModels`' `!info.unnamed` guard;
+ * one caller forgetting that guard was all it would have taken.
  */
-function recoverModelTag(name: string | undefined, id: string): string | null {
-  const rawId = (id ?? "").toLowerCase();
+export function recoverModelTag(name: string | undefined, id: string): string | null {
+  const rawId = (id ?? "").trim().toLowerCase();
   const n = (name ?? "").trim();
-  // Normal case: the indexer gave us a real tag. "Real" = anything that is not
-  // the id echoed back, and not a bare digest standing in for one. The SHAPE
-  // decides, not equality with `id`: a 32-byte digest is never a plausible tag,
-  // and also requiring `n === rawId` let a row whose two fields disagreed be
-  // returned as a "real tag" that was actually a raw hash - which callers would
-  // then hash again into a second, bogus model id.
-  const nameIsId = isModelId(n);
-  if (n && !nameIsId) return n;
-  return TAG_BY_ID.get(rawId || n.toLowerCase()) ?? null;
+  const lookupId = isModelId(rawId) ? rawId : isModelId(n) ? n.toLowerCase() : "";
+  if (lookupId) {
+    if (n && !isModelId(n) && keccak256(toBytes(n)).toLowerCase() === lookupId) return n;
+    return TAG_BY_ID.get(lookupId) ?? null;
+  }
+  if (n && !isModelId(n)) return n;
+  return null;
+}
+
+/**
+ * Display string for a row whose tag we could not recover. Mirrors the labels
+ * `resolveModel` produces, so the two boundaries render an unnamed model the
+ * same way. Exported for the consistency test only.
+ */
+export function unnamedLabel(id: string | undefined): string {
+  const rawId = (id ?? "").trim().toLowerCase();
+  return rawId ? `unnamed ${rawId.slice(0, 10)}…` : "unnamed model";
 }
 
 /**
@@ -271,8 +308,10 @@ export async function fetchModels(cfg: NetworkConfig, timeoutMs?: number): Promi
     const tag = recoverModelTag(m.name, m.id);
     // `id` is passed through verbatim - it is the subgraph's case-sensitive
     // entity key and callers join on it. The placeholder deliberately contains a
-    // space and an ellipsis so it can never be mistaken for an Ollama tag.
-    return { ...m, name: tag ?? `unnamed ${(m.id ?? "").toLowerCase().slice(0, 10)}…`, unnamed: tag === null };
+    // space and an ellipsis so it can never be mistaken for an Ollama tag, and
+    // is spelled exactly as `resolveModel`'s in lib/model-catalog.ts - including
+    // the id-less case, which used to render here as the bare string "unnamed …".
+    return { ...m, name: tag ?? unnamedLabel(m.id), unnamed: tag === null };
   });
 }
 

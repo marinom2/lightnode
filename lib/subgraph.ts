@@ -67,6 +67,18 @@ export interface ModelInfo {
   unnamed?: boolean;
 }
 
+/**
+ * A registry row as it LEAVES `fetchModels`, where `unnamed` is required.
+ *
+ * The flag is optional on `ModelInfo` so hand-built literals keep compiling, but
+ * that optionality is exactly what pushed consumers into re-deriving trust: a
+ * renderer that cannot rely on the field falls back to re-resolving `name`, and
+ * re-hashing a placeholder is how a second, bogus model id gets minted. Widening
+ * the boundary's return type makes "this row already told you" a fact the
+ * compiler enforces, so the UI can branch on `row.unnamed` and nothing else.
+ */
+export type ResolvedModelInfo = ModelInfo & { unnamed: boolean };
+
 const TIMEOUT_MS = 12_000;
 
 async function gql<T>(network: NetworkId, query: string): Promise<T> {
@@ -155,8 +167,11 @@ export async function fetchRecentJobs(network: NetworkId, first = 1000): Promise
  * match the digest) - keccak256 cannot be decoded. A tag we have never seen
  * therefore stays unrecovered: it gets a readable placeholder and `unnamed:
  * true` rather than a fabricated tag.
+ *
+ * The verdict travels ON the row (`unnamed`), so no consumer has to re-derive it
+ * from the display string - see `ResolvedModelInfo`.
  */
-export async function fetchModels(network: NetworkId): Promise<ModelInfo[]> {
+export async function fetchModels(network: NetworkId): Promise<ResolvedModelInfo[]> {
   // The wire row has no `unnamed` - that flag is ours, added below.
   const data = await gql<{ modelinfos: Omit<ModelInfo, "unnamed">[] }>(
     network,
@@ -166,7 +181,8 @@ export async function fetchModels(network: NetworkId): Promise<ModelInfo[]> {
     const r = resolveModel(m.name ?? "", m.id);
     // `id` is passed through verbatim: it is the subgraph's case-sensitive entity
     // key and every caller joins on it (lowercased) - normalizing here would
-    // silently break `worker(id:)`-style round trips.
+    // silently break `worker(id:)`-style round trips. `unnamed` is set on every
+    // row, both verdicts - an absent flag would read as "named" downstream.
     return { ...m, name: r.label, unnamed: !r.known };
   });
 }
@@ -190,10 +206,17 @@ export interface ServedModel {
   onchainEligible?: boolean | null;
 }
 
-export async function fetchWorkerModels(network: NetworkId, address: string): Promise<ServedModel[]> {
+/** A served-model row as it LEAVES `fetchWorkerModels`. Same deal as `ResolvedModelInfo`. */
+export type ResolvedServedModel = ServedModel & { unnamed: boolean };
+
+export async function fetchWorkerModels(network: NetworkId, address: string): Promise<ResolvedServedModel[]> {
   try {
     const [wm, models] = await Promise.all([
-      gql<{ workermodels: { model_id: string; is_active: boolean }[] }>(
+      // `model_id` is typed nullable because the wire is: the entity field is
+      // optional in the schema and a malformed row would otherwise blow up
+      // `.toLowerCase()` below, throwing out of the map and into the catch -
+      // blanking the worker's ENTIRE served-model list over one bad row.
+      gql<{ workermodels: { model_id: string | null; is_active: boolean }[] }>(
         network,
         `{ workermodels(where:{worker:"${checksum(address)}"}) { model_id is_active } }`,
       ),
@@ -201,18 +224,23 @@ export async function fetchWorkerModels(network: NetworkId, address: string): Pr
     ]);
     const byId = new Map(models.map((m) => [m.id.toLowerCase(), m]));
     return (wm.workermodels ?? []).map((w) => {
-      const info = byId.get(w.model_id.toLowerCase());
+      // No id is just another id we cannot resolve: it comes back `unnamed`,
+      // which is the truth, instead of taking the whole list down with it.
+      const modelId = w.model_id ?? "";
+      const info = byId.get(modelId.toLowerCase());
       // `info.name` is already repaired by fetchModels, but the join can miss
       // entirely: a worker can be registered for an id the registry query didn't
       // return (whitelist removed, or the row is newer than the models page). So
       // resolve from the id too rather than falling back to a bare hash prefix.
       // An `unnamed` registry row is fed in as "" on purpose - passing its
       // placeholder back would look like a real tag and re-flag it as known.
-      const r = resolveModel(info && !info.unnamed ? info.name : "", w.model_id);
+      const r = resolveModel(info && !info.unnamed ? info.name : "", modelId);
       return {
         name: r.label,
+        // Explicit on every path, never inferred from `name`: a served model is
+        // pullable/servable only when this is false.
         unnamed: !r.known,
-        modelId: w.model_id,
+        modelId,
         fee: info?.fee,
         maxOutput: info?.max_output_tokens,
         active: w.is_active,

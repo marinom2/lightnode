@@ -14,7 +14,7 @@ export type OS = "macos" | "linux" | "windows";
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-07-29.1";
+export const INSTALLER_REV = "2026-07-29.2";
 
 export interface ScriptBundle {
   os: OS;
@@ -129,6 +129,28 @@ function sortitionRunWin(net: NetworkConfig): string {
 }
 
 /**
+ * Find OUR sleep-inhibitor holder by PID, without ever using a `-f` (full command
+ * line) pattern.
+ *
+ * pgrep/pkill -f match the whole command line, and the command line of the shell
+ * running any of these generated scripts IS the script text (the app runs them as
+ * `bash -lc "<script>"`). Every script that touches the holder also contains the
+ * literal `systemd-inhibit … --who=lightnode-awake` invocation it starts, so a -f
+ * pattern unavoidably matches that shell: the "already running?" probe returns a
+ * false positive (the holder is then never started) and the teardown pkill SIGTERMs
+ * the very shell running it (rc 143 - nothing after the pkill runs). No cleverer
+ * pattern spelling dodges that, because the text being matched IS the real command.
+ *
+ * So: match the exact process NAME (-x can never match a bash), then confirm each
+ * candidate is ours by reading its own /proc/<pid>/cmdline. systemd-inhibit is
+ * Linux-only, so /proc is always there on the only path that runs this.
+ */
+const AWAKE_PIDS_UNIX =
+  'ln_awake_pids(){ for LP in $(pgrep -x systemd-inhibit 2>/dev/null); do grep -qa lightnode-awake "/proc/$LP/cmdline" 2>/dev/null && printf "%s " "$LP"; done; return 0; }';
+/** Stop the holder {@link AWAKE_PIDS_UNIX} finds (a no-op when it isn't running). */
+const AWAKE_KILL_UNIX = `${AWAKE_PIDS_UNIX}; LNAP="$(ln_awake_pids)"; [ -n "$LNAP" ] && kill $LNAP 2>/dev/null; true`;
+
+/**
  * Keep-online watchdog (macOS + Linux), installed automatically by the worker
  * setup. A worker only earns while its Docker container runs, and the container
  * (--restart always) only runs while the Docker engine is up - but Docker
@@ -189,7 +211,11 @@ fi
 if [ "$(uname -s)" = "Darwin" ]; then
   launchctl list ai.lightchain.worker-awake >/dev/null 2>&1 || launchctl load -w "$AWAKE" 2>/dev/null || true
 elif command -v systemd-inhibit >/dev/null 2>&1; then
-  pgrep -f "systemd-inhibit.*lightnode-awake" >/dev/null 2>&1 || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & )
+  # Never a -f probe here: the INSTALLER's command line is the whole install
+  # script, which contains this very invocation - so a -f match reports "already
+  # running" during an install and the holder is never started (see AWAKE_PIDS_UNIX).
+  ${AWAKE_PIDS_UNIX}
+  [ -n "$(ln_awake_pids)" ] || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & )
 fi
 if ! docker info >/dev/null 2>&1; then
   log "docker down - starting"
@@ -260,9 +286,9 @@ fi`;
 // start a systemd-inhibit holder (Linux). OFF = the reverse, so the machine can
 // sleep again once the worker is intentionally down.
 const AWAKE_ON_UNIX =
-  'if [ "$(uname -s)" = "Darwin" ]; then launchctl load -w "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; elif command -v systemd-inhibit >/dev/null 2>&1; then pgrep -f "systemd-inhibit.*lightnode-awake" >/dev/null 2>&1 || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & ); fi';
+  `if [ "$(uname -s)" = "Darwin" ]; then launchctl load -w "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; elif command -v systemd-inhibit >/dev/null 2>&1; then ${AWAKE_PIDS_UNIX}; [ -n "$(ln_awake_pids)" ] || ( nohup systemd-inhibit --what=idle:sleep --who=lightnode-awake --why="worker running" sleep infinity >/dev/null 2>&1 & ); fi`;
 const AWAKE_OFF_UNIX =
-  'if [ "$(uname -s)" = "Darwin" ]; then launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; fi; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true; echo "✓ sleep prevention off - the machine can sleep again"';
+  `if [ "$(uname -s)" = "Darwin" ]; then launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; fi; ${AWAKE_KILL_UNIX}; echo "✓ sleep prevention off - the machine can sleep again"`;
 
 // Robustly start Docker Desktop on Windows. The install knows the exact path, but
 // the watchdog/ops historically used `Start-Process "Docker Desktop"` by NAME,
@@ -482,20 +508,32 @@ if ! docker info >/dev/null 2>&1; then
     if [ -S "$s" ] && DOCKER_HOST="unix://$s" docker info >/dev/null 2>&1; then export DOCKER_HOST="unix://$s"; break; fi
   done
 fi
-DOCKER_BACKEND_LOG="$HOME/Library/Containers/com.docker.docker/Data/log/host/com.docker.backend.log"
+# pgrep/pkill -f test the FULL command line, and this entire script IS the command
+# line of the shell running it (the app runs it as: bash -lc "<script>"). Any
+# process name spelled out literally here therefore ALSO matches the installer
+# itself: the "is Docker wedged?" probe below would always say yes, and the pkill
+# that follows would SIGTERM the installer (rc 143 - nothing after it ever runs).
+# Assembling the name at runtime keeps the literal out of the script text, so the
+# probes below can only ever match Docker's real backend processes. (-x, exact
+# process NAME, is the other safe form - but this name is 18 chars and macOS
+# truncates the name it matches on to 16, so -x would silently never match.)
+DBK="com.docker"; DBK="$DBK.backend"
+DOCKER_BACKEND_LOG="$HOME/Library/Containers/com.docker.docker/Data/log/host/$DBK.log"
 if ! docker info >/dev/null 2>&1; then
   if [ "$OS" = "Darwin" ]; then
-    # A crashed session can leave com.docker.backend processes running while the
+    # A crashed session can leave Docker's backend processes running while the
     # daemon is dead - a graceful quit won't clear them, and a new launch collides
     # with the zombies. If any are alive while docker is down, clear them first
     # (TERM, then KILL - the parent backend often survives SIGTERM).
-    if pgrep -f com.docker.backend >/dev/null 2>&1; then
+    if pgrep -f "$DBK" >/dev/null 2>&1; then
       echo "▶ Docker looks wedged (leftover backend from a crashed session) - clearing it first"
       osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || true
-      pkill -f "Docker.app/Contents/MacOS/com.docker.backend" 2>/dev/null || true
-      pkill -f "Docker Desktop.app" 2>/dev/null || true
+      pkill -f "MacOS/$DBK" 2>/dev/null || true
+      # The GUI app is matched by exact process NAME: a -f "Docker Desktop.app"
+      # pattern appears in this script's own text and would kill the installer.
+      pkill -x "Docker Desktop" 2>/dev/null || true
       sleep 2
-      BPIDS="$(pgrep -f com.docker.backend 2>/dev/null)"; [ -n "$BPIDS" ] && kill -9 $BPIDS 2>/dev/null; true
+      BPIDS="$(pgrep -f "$DBK" 2>/dev/null)"; [ -n "$BPIDS" ] && kill -9 $BPIDS 2>/dev/null; true
       sleep 2
     fi
     echo "▶ starting the Docker engine"
@@ -518,7 +556,7 @@ for i in $(seq 1 120); do
   if [ "$OS" = "Darwin" ] && [ "$i" = "45" ] && ! docker info >/dev/null 2>&1; then
     echo "▶ Docker still not up - restarting it cleanly (clearing any stuck backend)..."
     osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || true; sleep 2
-    BPIDS="$(pgrep -f com.docker.backend 2>/dev/null)"; [ -n "$BPIDS" ] && kill -9 $BPIDS 2>/dev/null; true
+    BPIDS="$(pgrep -f "$DBK" 2>/dev/null)"; [ -n "$BPIDS" ] && kill -9 $BPIDS 2>/dev/null; true
     pkill -x "Docker Desktop" 2>/dev/null || true; sleep 3
     open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true
   fi
@@ -561,8 +599,14 @@ if [ "$OS" = "Linux" ]; then
     return 1
   }
   OB=0; ollama_bind_state || OB=$?
-  if [ "$OB" = "1" ]; then
-    echo "▶ allowing the worker container to reach Ollama (binding it to 0.0.0.0)"
+  # 1 = definitely loopback-only, 2 = we could not tell (no ss/netstat, or :11434
+  # missing from their output). BOTH get the fix. Skipping the unknown case is the
+  # worse trade by far: an unknown that really IS loopback-only sails through this
+  # gate and stakes a worker whose every job fails at inference. The drop-in is
+  # idempotent and a no-op when the bind was already right, so "attempt it anyway"
+  # costs an Ollama restart and buys back the only outcome that costs money.
+  if [ "$OB" != "0" ]; then
+    if [ "$OB" = "2" ]; then echo "▶ could not read Ollama's listen address here (no ss/netstat) - applying the 0.0.0.0 bind anyway; it is idempotent, and a silent loopback-only bind would fail every job"; else echo "▶ allowing the worker container to reach Ollama (binding it to 0.0.0.0)"; fi
     write_ollama_dropin
     if systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
       # Editing the system unit needs root - same no-hang ladder as everything
@@ -581,7 +625,13 @@ ROOTBINDEOF
     else
       # No systemd unit: Ollama is a plain process we can restart ourselves, so
       # this path needs no privileges at all.
-      pkill -f 'ollama serve' 2>/dev/null || true; sleep 1
+      #
+      # -x (exact process NAME) is the ONLY safe form here. Matching on the full
+      # command line instead would match the command line of the bash running this
+      # installer, which IS this whole script - and the script names the Ollama
+      # server several times. pkill skips its own PID but not its parent, so that
+      # form SIGTERMs the installer itself (rc 143) and nothing below ever runs.
+      pkill -x ollama 2>/dev/null || true; sleep 1
       OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE="$LN_KEEP_ALIVE" nohup ollama serve >/dev/null 2>&1 &
     fi
     for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
@@ -713,6 +763,35 @@ function unixInstall(network: NetworkId, models: string[]): string {
     '    *) echo "";;',
     "  esac",
     "}",
+    // WHERE Ollama actually writes models - which is very often NOT $HOME. The
+    // stock Linux install runs Ollama as a SYSTEM SERVICE under its own user, so
+    // the blobs land in /usr/share/ollama/.ollama/models; measuring $HOME there
+    // gates on a filesystem the download never touches (it passes with a full /usr
+    // and blocks on a full /home - both answers wrong). Resolution order mirrors
+    // Ollama's own: OLLAMA_MODELS in this env, then whatever the unit exports,
+    // then the service user's home, then ~/.ollama (correct for macOS and for a
+    // user-local Linux install).
+    "ollama_models_dir() {",
+    '  [ -n "${OLLAMA_MODELS:-}" ] && { printf \'%s\' "$OLLAMA_MODELS"; return 0; }',
+    "  OMD=\"$(systemctl show ollama -p Environment 2>/dev/null | tr ' ' '\\n' | sed -n 's/^OLLAMA_MODELS=//p' | tail -1)\"",
+    '  [ -n "$OMD" ] && { printf \'%s\' "$OMD"; return 0; }',
+    '  OMU="$(systemctl show ollama -p User --value 2>/dev/null)"',
+    // Deliberately NOT gated on the dir existing: the service user's home is
+    // typically mode 0700 (/usr/share/ollama on Ubuntu), so a [ -d ] test on
+    // anything INSIDE it fails for us with EACCES and would silently fall back to
+    // $HOME - the exact wrong answer this is here to prevent. The walk-up below
+    // reduces it to the nearest ancestor we CAN stat, which is on the same
+    // filesystem, so df still measures the right one.
+    '  if [ -n "$OMU" ]; then OMH="$(getent passwd "$OMU" 2>/dev/null | cut -d: -f6)"; case "${OMH:-}" in ""|/) : ;; *) printf \'%s\' "$OMH/.ollama/models"; return 0;; esac; fi',
+    `  printf '%s' "$HOME/.ollama/models"`,
+    "}",
+    // df needs a path that EXISTS, and the models dir may not be created until the
+    // first pull - walk up to the nearest existing ancestor (they are on the same
+    // filesystem unless a mount appears underneath, which df would then report for
+    // the ancestor anyway). $HOME is the last resort, never the default.
+    'LN_DF_DIR="$(ollama_models_dir)"',
+    'while [ -n "$LN_DF_DIR" ] && [ ! -d "$LN_DF_DIR" ]; do LN_DF_DIR="$(dirname "$LN_DF_DIR")"; if [ "$LN_DF_DIR" = "/" ] || [ "$LN_DF_DIR" = "." ]; then break; fi; done',
+    '[ -d "$LN_DF_DIR" ] || LN_DF_DIR="$HOME"',
     ...(vramNeedGb > 0
       ? [
           // Fit check - WARN, never a block: Ollama still runs an oversized model,
@@ -735,8 +814,10 @@ function unixInstall(network: NetworkId, models: string[]): string {
     `  TAG="$(printf '%s' "$M" | sed -E 's/-([0-9.]+[bB])$/:\\1/')"`,
     '  NEED_GB="$(model_download_gb "$M")"',
     '  if [ -n "$NEED_GB" ]; then',
-    `    FREE_NOW="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"`,
-    `    if [ -n "$FREE_NOW" ] && awk -v f="$FREE_NOW" -v n="$NEED_GB" 'BEGIN{exit !(f < n + 2)}'; then echo "⛔ $M is a ~$NEED_GB GB download and only $FREE_NOW GB is free here. Free up space or pick a smaller model, then run install again - nothing has been staked."; exit 1; fi`,
+    // -P forces POSIX single-line output: a long device name otherwise wraps and
+    // NR==2 reads the header's continuation instead of the numbers.
+    `    FREE_NOW="$(df -Pk "$LN_DF_DIR" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"`,
+    `    if [ -n "$FREE_NOW" ] && awk -v f="$FREE_NOW" -v n="$NEED_GB" 'BEGIN{exit !(f < n + 2)}'; then echo "⛔ $M is a ~$NEED_GB GB download and only $FREE_NOW GB is free on the filesystem Ollama stores models on ($LN_DF_DIR). Free up space there or pick a smaller model, then run install again - nothing has been staked."; exit 1; fi`,
     '    echo "▶ $M is a ~$NEED_GB GB download"',
     "  fi",
     '  pull_model "$M" "$TAG"',
@@ -796,17 +877,35 @@ function unixInstall(network: NetworkId, models: string[]): string {
     'sed -i.bak "s/50,001/$GUARD_LCAI/g; s/50001/$GUARD_LCAI/g" 07-register.sh && rm -f 07-register.sh.bak',
     'echo "✓ register pre-flight threshold set to the live minimum ($MIN_STAKE_LCAI LCAI + gas)"',
     `echo "▶ funding worker: send to $WORKER_ADDR"`,
+    // Eligibility on the registry is per (worker, modelId) - one id can NEVER
+    // speak for the set. The old code hashed only `cut -d, -f1` of SUPPORTED_MODELS
+    // and gated everything on that single id, so a 3-model worker printed
+    // "✅ worker online" while models 2 and 3 were unknown to the registry: they
+    // won no jobs, and re-installing could not heal them either, because every
+    // short-circuit above saw model #1 eligible and skipped straight past the add.
+    // So: check EVERY selected model, and leave the failures in ME_MISSING so the
+    // caller can name them. Returns non-zero unless the whole set verifies.
+    [
+      "models_eligible() {",
+      '  ME_MISSING=""',
+      `  for ME_M in ${shellList}; do`,
+      // keccak of the EXACT on-chain name - the same preimage the worker advertises.
+      `    ME_ID="$(cast keccak "$ME_M" 2>/dev/null | tr -d '\\r\\n')"`,
+      `    if [ -z "$ME_ID" ] || ! cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$ME_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then ME_MISSING="$ME_MISSING $ME_M"; fi`,
+      "  done",
+      '  [ -z "$ME_MISSING" ]',
+      "}",
+    ].join("\n"),
     // This machine runs ONE worker container at a time. If a container for THIS
     // network is already running AND the worker is genuinely live on-chain
-    // (registered + eligible for the selected model), there's nothing to do. If
+    // (registered + eligible for EVERY selected model), there's nothing to do. If
     // it's for a DIFFERENT network, stop it and carry on (phase 08 recreates it).
     // CRITICAL: a running container does NOT mean a working worker - a prior
     // install can leave the container Up while the on-chain register/add-model
     // failed (e.g. the daemon's add-model OutOfGas bug), so the worker is staked
     // but serving nothing. We must verify on-chain before declaring "online",
     // otherwise we'd falsely report success and skip the re-register that fixes it.
-    `MODEL_ID="$(cast keccak "$(printf '%s' "${supported}" | cut -d, -f1)" 2>/dev/null)"`,
-    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "▶ a worker for the other network (chain $RUNCHAIN) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."; docker stop lightchain-worker >/dev/null 2>&1 || true; else REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "✓ worker already running on ${network} and live on-chain - nothing to reinstall"; echo "✅ worker online"; exit 0; else echo "▶ a worker container is running but it is not live on-chain (registered=$REG_OK, serving-selected-model=$ELIG_OK) - a prior setup left it staked-but-not-serving. Recreating it."; docker stop lightchain-worker >/dev/null 2>&1 || true; fi; fi; fi`,
+    `if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qE '^lightchain-worker Up'; then RUNCHAIN="$(docker inspect lightchain-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^CHAIN_ID=' | head -1 | cut -d= -f2)"; if [ -n "$RUNCHAIN" ] && [ "$RUNCHAIN" != "${chainId}" ]; then echo "▶ a worker for the other network (chain $RUNCHAIN) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."; docker stop lightchain-worker >/dev/null 2>&1 || true; else REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_ALL=0; models_eligible || ELIG_ALL=1; if [ "$REG_OK" = "true" ] && [ "$ELIG_ALL" = "0" ]; then echo "✓ worker already running on ${network} and live on-chain (serving every selected model) - nothing to reinstall"; echo "✅ worker online"; exit 0; else echo "▶ a worker container is running but it is not fully live on-chain (registered=$REG_OK, models the registry does not list it as serving:\${ME_MISSING:- none}) - a prior setup left it staked-but-not-serving. Recreating it."; docker stop lightchain-worker >/dev/null 2>&1 || true; fi; fi; fi`,
     // A keystore may already exist (our key on a re-run, or a stale key from a
     // prior worker). Skip the import if it's already ours; otherwise back up the
     // old one (never delete) so our key can be imported.
@@ -894,10 +993,17 @@ function unixInstall(network: NetworkId, models: string[]): string {
     "    fi",
     "  fi",
     "fi",
-    // Gas-correct on-chain add of the selected model, to FINISH a worker that
+    // Gas-correct on-chain add of EVERY selected model, to FINISH a worker that
     // staked but whose model-add failed inside the daemon's one-shot register (the
     // daemon under-sets the gas limit -> OutOfGas). We send addSupportedModel
-    // ourselves with gas = estimate x1.5, which lands. No-op if already eligible.
+    // ourselves with gas = estimate x1.5, which lands. No-op for a model that is
+    // already eligible, so this is safe to re-run.
+    //
+    // It loops (same shape as addModelsCommand) because the registry tracks
+    // eligibility per model: adding only the first one leaves the rest unserved on
+    // a worker that advertises them. One model failing does not skip the others -
+    // they are independent txs - but ANY failure fails the function, so nothing
+    // downstream can call a partly-served worker "online".
     //
     // Two rules make the result trustworthy, and both were previously broken:
     //   1. NEVER send on a reverting estimate. `cast estimate` runs the call
@@ -910,37 +1016,58 @@ function unixInstall(network: NetworkId, models: string[]): string {
     //      the only witness: read isEligible back.
     [
       "add_selected_model_onchain() {",
-      '  [ -z "$MODEL_ID" ] && return 0',
-      `  if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then return 0; fi`,
+      '  AM_FAIL=""',
+      `  for AM_M in ${shellList}; do`,
+      `    AM_ID="$(cast keccak "$AM_M" 2>/dev/null | tr -d '\\r\\n')"`,
+      '    if [ -z "$AM_ID" ]; then echo "⛔ could not compute the on-chain id for $AM_M (is Foundry cast working?)"; AM_FAIL="$AM_FAIL $AM_M"; continue; fi',
+      `    if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$AM_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then echo "✓ $AM_M already served on-chain"; continue; fi`,
       // stderr is merged so a revert reason can be shown; the estimate itself is
       // the one all-digits line, so a foundry warning can't be mistaken for it.
-      `  AM_RAW="$(cast estimate --from "$WORKER_ADDR" "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --rpc-url "${rpc}" 2>&1)"`,
-      `  AM_EST="$(printf '%s' "$AM_RAW" | grep -oE '^[0-9]+$' | tail -1)"`,
-      '  if [ -z "$AM_EST" ]; then',
-      `    echo "⛔ the on-chain model add would revert, so it was NOT sent: $(printf %s "$AM_RAW" | tr "\\n" " " | cut -c1-160)"`,
-      '    echo "   The worker is staked but is NOT serving the selected model, so it would earn nothing. Check the model is whitelisted on this network, then run install again."',
-      "    return 1",
-      "  fi",
-      `  AM_GAS="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$AM_EST")"`,
-      '  echo "▶ adding the selected model on-chain with proper gas (gas-limit $AM_GAS) - the daemon under-gasses this step"',
-      `  AM_OUT="$(cast send "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --private-key "$WORKER_PRIVKEY" --rpc-url "${rpc}" --gas-limit "$AM_GAS" 2>&1)" || { echo "⛔ the model-add tx failed to send: $(printf %s "$AM_OUT" | tr "\\n" " " | cut -c1-160)"; return 1; }`,
+      `    AM_RAW="$(cast estimate --from "$WORKER_ADDR" "${workerRegistry}" "addSupportedModel(bytes32)" "$AM_ID" --rpc-url "${rpc}" 2>&1)"`,
+      `    AM_EST="$(printf '%s' "$AM_RAW" | grep -oE '^[0-9]+$' | tail -1)"`,
+      '    if [ -z "$AM_EST" ]; then',
+      `      echo "⛔ the on-chain model add would revert for $AM_M, so it was NOT sent: $(printf %s "$AM_RAW" | tr "\\n" " " | cut -c1-160)"`,
+      '      AM_FAIL="$AM_FAIL $AM_M"; continue',
+      "    fi",
+      `    AM_GAS="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$AM_EST")"`,
+      '    echo "▶ adding $AM_M on-chain with proper gas (gas-limit $AM_GAS) - the daemon under-gasses this step"',
+      `    AM_OUT="$(cast send "${workerRegistry}" "addSupportedModel(bytes32)" "$AM_ID" --private-key "$WORKER_PRIVKEY" --rpc-url "${rpc}" --gas-limit "$AM_GAS" 2>&1)" || { echo "⛔ the model-add tx failed to send for $AM_M: $(printf %s "$AM_OUT" | tr "\\n" " " | cut -c1-160)"; AM_FAIL="$AM_FAIL $AM_M"; continue; }`,
       // A couple of retries only for RPC read-after-write lag behind a load
       // balancer; cast send has already waited for the receipt.
-      "  for _ in 1 2 3 4 5; do",
-      `    if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then echo "✓ model added on-chain and verified (worker now serving it)"; return 0; fi`,
-      "    sleep 2",
+      '    AM_SEEN=""',
+      "    for _ in 1 2 3 4 5; do",
+      `      if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$AM_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then AM_SEEN=1; break; fi`,
+      "      sleep 2",
+      "    done",
+      '    if [ -n "$AM_SEEN" ]; then echo "✓ $AM_M added on-chain and verified (worker now serving it)"; else echo "⛔ the model-add tx landed but the registry still does not list this worker as serving $AM_M - it reverted on-chain (receipt status 0)."; AM_FAIL="$AM_FAIL $AM_M"; fi',
       "  done",
-      '  echo "⛔ the model-add tx landed but the registry still does not list this worker as serving the model - it reverted on-chain (receipt status 0)."',
-      '  echo "   Your stake is untouched, and the worker is NOT online until this succeeds. Run install again in a minute; if it keeps failing, the model may not be whitelisted on this network."',
-      "  return 1",
+      '  if [ -n "$AM_FAIL" ]; then',
+      '    echo "   The worker is staked but is NOT serving:$AM_FAIL - it earns nothing on those, so it is not online yet."',
+      '    echo "   Your stake is untouched. Run install again in a minute; if it keeps failing, those models may not be whitelisted on this network."',
+      "    return 1",
+      "  fi",
+      "  return 0",
       "}",
     ].join("\n"),
-    `for p in ${desktopPhases}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; add_selected_model_onchain || exit 1; continue; fi; gate_funding || exit 1; fi; if [ "$p" = "07-register" ]; then echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || true; NOW_REG="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$NOW_REG" != "true" ]; then echo "⛔ stopped at 07-register (worker not registered on-chain after the attempt)"; exit 1; fi; add_selected_model_onchain || exit 1; else echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; fi; done${net.sortition ? "\n" + sortitionRunUnix(net) : ""}`,
+    `for p in ${desktopPhases}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_ALL=0; models_eligible || ELIG_ALL=1; if [ "$REG_OK" = "true" ] && [ "$ELIG_ALL" = "0" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model(s) on-chain)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_ALL" != "0" ]; then echo "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake). Not yet served:\${ME_MISSING}"; add_selected_model_onchain || exit 1; continue; fi; gate_funding || exit 1; fi; if [ "$p" = "07-register" ]; then echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || true; NOW_REG="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$NOW_REG" != "true" ]; then echo "⛔ stopped at 07-register (worker not registered on-chain after the attempt)"; exit 1; fi; add_selected_model_onchain || exit 1; else echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; fi; done${net.sortition ? "\n" + sortitionRunUnix(net) : ""}`,
     // Pre-warm: load each served model and hold it under the resolved residency
     // policy (-1 = pinned, the default) so the first real job doesn't pay a
     // cold-load that could exceed the inference timeout.
     `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
     `for M in ${shellList}; do curl -s -m 120 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":$LN_KEEP_ALIVE_JSON,\\"stream\\":false}" >/dev/null 2>&1 || true; done`,
+    // FINAL witness, on the registry itself: "online" is a claim about what this
+    // worker can be paid for, and it is only true when the registry lists EVERY
+    // model the worker advertises in SUPPORTED_MODELS. Anything less means jobs it
+    // wins for the unlisted models cannot be served - so say which ones, and say
+    // plainly that the stake is already placed (it is: 07-register ran above), so
+    // nobody is told to "fund and retry" while holding a full stake.
+    "ELIG_ALL=0; models_eligible || ELIG_ALL=1",
+    'if [ "$ELIG_ALL" != "0" ]; then',
+    '  echo "⛔ setup finished but the registry does not list this worker as serving:${ME_MISSING}"',
+    '  echo "   Your LCAI IS staked and the worker IS registered - nothing was lost and it does NOT need topping up. Only attaching those model(s) is outstanding."',
+    '  echo "   Run install again to retry the on-chain add, or add them from the dashboard under Models this worker serves (no re-stake either way)."',
+    "  exit 1",
+    "fi",
     'echo "✅ worker online"',
   ].join("\n");
 }
@@ -1080,6 +1207,12 @@ $env:NETWORK = "${network}"; $env:SUPPORTED_MODELS = "${supported}"
 # that flood the app's log channel; redirect the pull to a file and sample the
 # percent so the app gets a handful of clean lines instead.
 function Pull-Model($name, $tag) {
+  # ollama writes its progress to stderr, and under the install's
+  # ErrorActionPreference=Stop PowerShell promotes native stderr to a terminating
+  # NativeCommandError - i.e. a perfectly normal download could kill the install.
+  # Function-scoped Continue, exactly like Resolve-WorkerPassword below; the real
+  # verdict is Test-ModelPresent, never this function's exit code.
+  $ErrorActionPreference = 'Continue'
   Write-Host "▶ downloading $name - a multi-GB model can take several minutes"
   $plog = Join-Path $env:USERPROFILE ".lightnode\\.pull.out"
   $perr = Join-Path $env:USERPROFILE ".lightnode\\.pull.err"
@@ -1092,12 +1225,46 @@ function Pull-Model($name, $tag) {
     Start-Sleep -Seconds 2
   }
   Remove-Item $plog, $perr -ErrorAction SilentlyContinue
-  if ($proc.ExitCode -eq 0) { Write-Host "✓ downloaded $name" } else { Write-Host "⚠ $name download exited $($proc.ExitCode) (continuing)" }
+  # The exit code is reported but is NOT the gate: ollama can exit 0 on a
+  # partially-written model. Only Test-ModelPresent decides (same rule as bash).
+  if ($proc.ExitCode -eq 0) { Write-Host "✓ downloaded $name" } else { Write-Host "⚠ $name download exited $($proc.ExitCode)" }
 }
+# Is the model REALLY in Ollama under its exact on-chain name? \`ollama list\` prints
+# NAME as tag[:latest], so an implicit :latest counts. This compares the NAME COLUMN
+# as a whole token: -SimpleMatch tested the WHOLE line for a substring anywhere, so
+# a line for "llama3-8b-instruct" (or the SIZE/ID columns) satisfied "llama3-8b" -
+# the exact trap the bash side documents. A regex match would be just as wrong: the
+# "." in "glm-4.7-flash" would be a wildcard.
+function Test-ModelPresent($name) {
+  $ErrorActionPreference = 'Continue'
+  $want = ($name -replace ':latest$', '')
+  $lines = @(ollama list 2>$null)
+  if ($lines.Count -lt 2) { return $false }
+  foreach ($ln in $lines[1..($lines.Count - 1)]) {
+    $col = @(("$ln" -split '\\s+') | Where-Object { $_ })[0]
+    if ($col -and (($col -replace ':latest$', '') -eq $want)) { return $true }
+  }
+  return $false
+}
+# Pull each missing model, then GATE ON PRESENCE - the bash-side fix, ported. The
+# old loop only warned and carried on after a failed pull, walking straight into
+# staking + register, producing a staked worker advertising a model it cannot run:
+# every job it wins then fails, which is slashable on mainnet.
+$missingModels = @()
 foreach ($m in ${psList}) {
   $tag = ($m -replace '-([0-9.]+[bB])$', ':$1')
-  if (ollama list 2>$null | Select-String -SimpleMatch $m -Quiet) { Write-Host "✓ model $m present" }
-  else { Pull-Model $m $tag; if ($tag -ne $m) { ollama cp $tag $m *> $null } }
+  if (Test-ModelPresent $m) { Write-Host "✓ model $m present"; continue }
+  Pull-Model $m $tag
+  if ($tag -ne $m) { ollama cp $tag $m *> $null; if (Test-ModelPresent $m) { Write-Host "✓ aliased $tag -> $m" } }
+  if (Test-ModelPresent $m) { Write-Host "✓ model $m ready" } else { $missingModels += $m }
+}
+if ($missingModels.Count -gt 0) {
+  Write-Host "⛔ these selected model(s) are NOT on this machine after the download: $($missingModels -join ' ')"
+  Write-Host "   A worker advertises what it serves, so registering now would stake your LCAI on a model that fails every job it wins (slashable on mainnet). Install stops here."
+  Write-Host "   Nothing was staked or registered - your funds are untouched."
+  Write-Host "   The download error is above; the usual causes are out of disk, out of memory, or a tag that does not exist in the Ollama registry."
+  Write-Host "   Check by hand with:  ollama pull <tag>   then   ollama list"
+  exit 1
 }
 # Per-network keystore dir so installing one network never touches another's keys
 # (a mainnet operator can set up testnet without risking their mainnet key). The
@@ -1140,6 +1307,26 @@ if (Test-Path 07-register.ps1) {
   Write-Host "register pre-flight threshold set to the live minimum ($MinStakeLcai LCAI + gas)"
 }
 Write-Host "▶ funding worker: send to $env:WORKER_ADDR"
+# On-chain id of EVERY selected model. Eligibility on the registry is per
+# (worker, modelId), so one id can never speak for the set: this used to hash only
+# the first entry of SUPPORTED_MODELS, so a multi-model worker announced
+# "worker online" while models 2..N were unknown to the registry - they won no
+# jobs, and a re-install could not heal them because every short-circuit saw model
+# #1 eligible and skipped the add. keccak of the EXACT on-chain name.
+function Get-UnservedModels {
+  # cast writes to stderr routinely; Continue is function-scoped so an expected
+  # miss can't become a terminating NativeCommandError (see Resolve-WorkerPassword).
+  $ErrorActionPreference = 'Continue'
+  $missing = @()
+  foreach ($m in ${psList}) {
+    $id = (cast keccak "$m" 2>$null)
+    if ($id) { $id = ("" + $id).Trim() }
+    if (-not $id) { $missing += $m; continue }
+    $e = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $id --rpc-url "${rpc}" 2>$null)
+    if ($e -notmatch 'true') { $missing += $m }
+  }
+  return ,$missing
+}
 
 if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up") {
   $runChain = ((docker inspect lightchain-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | Select-String '^CHAIN_ID=(.+)$' | Select-Object -First 1).Matches.Groups[1].Value)
@@ -1147,7 +1334,17 @@ if ((docker ps --format "{{.Names}} {{.Status}}") -match "^lightchain-worker Up"
     Write-Host "> a worker for the other network (chain $runChain) is running; this machine runs one at a time. Stopping it to install ${network} (chain ${chainId}). Its stake + keys stay intact - reinstall that network to bring it back."
     docker stop lightchain-worker *> $null
   } else {
-    Write-Host "✓ worker already running on ${network} - nothing to reinstall"; Write-Host "✅ worker online"; exit 0
+    # A running container does NOT mean a working worker: a prior install can leave
+    # it Up while the on-chain register/add-model failed, so it is staked and
+    # serving nothing. Verify against the registry before claiming "online",
+    # otherwise this exits 0 over a broken worker and skips the run that fixes it.
+    $regOk0 = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null)
+    $unserved0 = @(Get-UnservedModels)
+    if (($regOk0 -match 'true') -and ($unserved0.Count -eq 0)) {
+      Write-Host "✓ worker already running on ${network} and live on-chain (serving every selected model) - nothing to reinstall"; Write-Host "✅ worker online"; exit 0
+    }
+    Write-Host "▶ a worker container is running but it is not fully live on-chain (registered=$regOk0, models the registry does not list it as serving: $($unserved0 -join ' ')) - a prior setup left it staked-but-not-serving. Recreating it."
+    docker stop lightchain-worker *> $null
   }
 }
 # Handle a pre-existing keystore: skip if it's already ours, else back up (never delete).
@@ -1232,11 +1429,14 @@ if ($skipImport) {
     }
   }
 }
-# Selected model's on-chain id, for the registered-AND-serving check below.
-$ModelId = (cast keccak "$(("${supported}" -split ',')[0])" 2>$null)
-# Gas-correct on-chain add of the selected model, to FINISH a worker that staked
+# Gas-correct on-chain add of EVERY selected model, to FINISH a worker that staked
 # but whose model-add failed inside the daemon's one-shot register (the daemon
-# under-sets the gas limit -> OutOfGas). gas = estimate x1.5. No-op if eligible.
+# under-sets the gas limit -> OutOfGas). gas = estimate x1.5. No-op for a model
+# that is already eligible, so it is safe to re-run. It loops because the registry
+# tracks eligibility per model: adding only the first leaves the rest unserved on a
+# worker that advertises them. One failure does not skip the others (independent
+# txs), but ANY failure fails the function so nothing downstream calls a
+# partly-served worker "online".
 # Same two rules as the bash side: never send on a reverting estimate (the old
 # fixed 300000 fallback sent regardless), and never trust the exit code - cast
 # send returns 0 for a mined-but-REVERTED tx, so the registry is re-read as the
@@ -1246,28 +1446,50 @@ function Add-SelectedModelOnchain {
   # that would promote an EXPECTED revert into a terminating NativeCommandError and
   # kill the install. Function-scoped Continue, judged by exit code (see Resolve-WorkerPassword).
   $ErrorActionPreference = 'Continue'
-  if (-not $ModelId) { return $true }
-  $elig = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null)
-  if ($elig -match 'true') { return $true }
-  $estRaw = ((cast estimate --from $env:WORKER_ADDR "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --rpc-url "${rpc}" 2>&1) | Out-String)
-  $est = ([regex]::Match($estRaw, '(?m)^[0-9]+$')).Value
-  if (-not $est) { Write-Host "⛔ the on-chain model add would revert, so it was NOT sent: $(($estRaw -replace '\\s+',' ').Trim())"; Write-Host "   The worker is staked but is NOT serving the selected model. Check the model is whitelisted on this network, then run install again."; return $false }
-  $gas = [int]([long]$est * 3 / 2)
-  Write-Host "▶ adding the selected model on-chain with proper gas (gas-limit $gas) - the daemon under-gasses this step"
-  $sendOut = ((cast send "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --private-key $env:WORKER_PRIVKEY --rpc-url "${rpc}" --gas-limit $gas 2>&1) | Out-String)
-  if ($LASTEXITCODE -ne 0) { Write-Host "⛔ the model-add tx failed to send: $(($sendOut -replace '\\s+',' ').Trim())"; return $false }
-  for ($i = 0; $i -lt 5; $i++) {
-    $elig2 = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null)
-    if ($elig2 -match 'true') { Write-Host "✓ model added on-chain and verified (worker now serving it)"; return $true }
-    Start-Sleep -Seconds 2
+  $failed = @()
+  foreach ($m in ${psList}) {
+    $id = (cast keccak "$m" 2>$null)
+    if ($id) { $id = ("" + $id).Trim() }
+    if (-not $id) { Write-Host "⛔ could not compute the on-chain id for $m (is Foundry cast working?)"; $failed += $m; continue }
+    $elig = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $id --rpc-url "${rpc}" 2>$null)
+    if ($elig -match 'true') { Write-Host "✓ $m already served on-chain"; continue }
+    $estRaw = ((cast estimate --from $env:WORKER_ADDR "${workerRegistry}" "addSupportedModel(bytes32)" $id --rpc-url "${rpc}" 2>&1) | Out-String)
+    $est = ([regex]::Match($estRaw, '(?m)^[0-9]+$')).Value
+    if (-not $est) { Write-Host "⛔ the on-chain model add would revert for $m, so it was NOT sent: $(($estRaw -replace '\\s+',' ').Trim())"; $failed += $m; continue }
+    $gas = [int]([long]$est * 3 / 2)
+    Write-Host "▶ adding $m on-chain with proper gas (gas-limit $gas) - the daemon under-gasses this step"
+    $sendOut = ((cast send "${workerRegistry}" "addSupportedModel(bytes32)" $id --private-key $env:WORKER_PRIVKEY --rpc-url "${rpc}" --gas-limit $gas 2>&1) | Out-String)
+    if ($LASTEXITCODE -ne 0) { Write-Host "⛔ the model-add tx failed to send for $m: $(($sendOut -replace '\\s+',' ').Trim())"; $failed += $m; continue }
+    $seen = $false
+    for ($i = 0; $i -lt 5; $i++) {
+      $elig2 = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $id --rpc-url "${rpc}" 2>$null)
+      if ($elig2 -match 'true') { $seen = $true; break }
+      Start-Sleep -Seconds 2
+    }
+    if ($seen) { Write-Host "✓ $m added on-chain and verified (worker now serving it)" }
+    else { Write-Host "⛔ the model-add tx landed but the registry still does not list this worker as serving $m - it reverted on-chain (receipt status 0)."; $failed += $m }
   }
-  Write-Host "⛔ the model-add tx landed but the registry still does not list this worker as serving the model - it reverted on-chain (receipt status 0). Your stake is untouched; the worker is NOT online until this succeeds."
-  return $false
+  if ($failed.Count -gt 0) {
+    Write-Host "   The worker is staked but is NOT serving: $($failed -join ' ') - it earns nothing on those, so it is not online yet."
+    Write-Host "   Your stake is untouched. Run install again in a minute; if it keeps failing, those models may not be whitelisted on this network."
+    return $false
+  }
+  return $true
 }
-foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; if (-not (Add-SelectedModelOnchain)) { exit 1 }; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ }; $nowReg = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); if ($nowReg -notmatch 'true') { throw "worker not registered on-chain after the attempt" }; if (-not (Add-SelectedModelOnchain)) { throw "model add failed" } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
+foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $unserved = @(Get-UnservedModels); if (($regOk -match 'true') -and ($unserved.Count -eq 0)) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model(s) on-chain)"; continue }; if (($regOk -match 'true') -and ($unserved.Count -gt 0)) { Write-Host "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake). Not yet served: $($unserved -join ' ')"; if (-not (Add-SelectedModelOnchain)) { exit 1 }; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ }; $nowReg = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); if ($nowReg -notmatch 'true') { throw "worker not registered on-chain after the attempt" }; if (-not (Add-SelectedModelOnchain)) { throw "model add failed" } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
 ${net.sortition ? sortitionRunWin(net) + "\n" : ""}Write-Host "▶ pre-warming ${supported} (kept resident to avoid cold-load timeouts)"
 foreach ($m in ${psList}) { try { Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate -Method Post -TimeoutSec 120 -Body "{\`"model\`":\`"$m\`",\`"prompt\`":\`"ok\`",\`"keep_alive\`":-1,\`"stream\`":false}" *> $null } catch {} }
+# FINAL witness, on the registry itself: "online" is a claim about what this worker
+# can be paid for, and it is only true once the registry lists EVERY model it
+# advertises in SUPPORTED_MODELS.
+$unservedFinal = @(Get-UnservedModels)
+if ($unservedFinal.Count -gt 0) {
+  Write-Host "⛔ setup finished but the registry does not list this worker as serving: $($unservedFinal -join ' ')"
+  Write-Host "   Your LCAI IS staked and the worker IS registered - nothing was lost and it does NOT need topping up. Only attaching those model(s) is outstanding."
+  Write-Host "   Run install again to retry the on-chain add, or add them from the dashboard under Models this worker serves (no re-stake either way)."
+  exit 1
+}
 Write-Host "✅ worker online"`;
 }
 
@@ -1826,7 +2048,7 @@ export function deregisterCommand(os: OS, network: NetworkId, jobIds: number[] =
     'touch "$HOME/.lightnode/keep-online.paused" 2>/dev/null || true',
     'launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-watchdog.plist" 2>/dev/null || true',
     `( crontab -l 2>/dev/null | grep -v 'lightnode/keep-online.sh' ) | crontab - 2>/dev/null || true`,
-    'launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true',
+    `launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.worker-awake.plist" 2>/dev/null || true; ${AWAKE_KILL_UNIX}`,
     'docker stop lightchain-worker >/dev/null 2>&1 || true',
     'echo "✅ deregistered on-chain - your staked LCAI is back in the worker wallet ($WORKER_ADDR). Use Withdraw Funds to send it out; you can now install on another network directly."',
   ].join("\n");
@@ -2032,7 +2254,7 @@ export function uninstallCommand(os: OS, network: NetworkId): string {
     // Keep-online watchdog + sleep-prevention.
     isMac
       ? 'for A in worker-watchdog worker-awake; do launchctl unload "$HOME/Library/LaunchAgents/ai.lightchain.$A.plist" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/ai.lightchain.$A.plist" 2>/dev/null || true; done; echo "✓ removed the keep-online watchdog"'
-      : '( crontab -l 2>/dev/null | grep -v "lightnode/keep-online.sh" ) | crontab - 2>/dev/null || true; pkill -f "systemd-inhibit.*lightnode-awake" 2>/dev/null || true; echo "✓ removed the keep-online watchdog"',
+      : `( crontab -l 2>/dev/null | grep -v "lightnode/keep-online.sh" ) | crontab - 2>/dev/null || true; ${AWAKE_KILL_UNIX}; echo "✓ removed the keep-online watchdog"`,
     // Working dir (watchdog script, model list, toolkit clone, logs, config).
     'rm -rf "$HOME/.lightnode" 2>/dev/null && echo "✓ removed ~/.lightnode (watchdog, toolkit, config)" || true',
     'rm -rf "$HOME/lightchain-worker-toolkit" 2>/dev/null || true',

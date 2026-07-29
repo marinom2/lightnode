@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Boxes, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Boxes, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { privateKeyToAccount } from "viem/accounts";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -149,6 +149,16 @@ export function UpdateModels() {
   // back to a tag would register a second, meaningless model on chain and stake
   // against it - refuse rather than sign that.
   const canApply = additions.length > 0 && removals.length === 0 && !additions.some(isModelId);
+  // A disabled button with no reason is indistinguishable from a broken one -
+  // and this panel spent a release genuinely broken (the picker used to drop
+  // the locked set on mount, which made `removals` non-empty and left Apply
+  // dead with nothing on screen to explain it). Say which guard is holding.
+  const blockedReason =
+    removals.length > 0
+      ? `Your selection drops ${removals.join(", ")}. Models can only be added here - deregister and reinstall to serve a smaller set.`
+      : additions.some(isModelId)
+        ? "One of the models you picked has no published name, only an on-chain id. It can't be pulled or registered from here."
+        : null;
 
   const apply = useCallback(async () => {
     if (!canApply) return;
@@ -224,6 +234,11 @@ export function UpdateModels() {
             worker (Operations above), then reinstall and pick the model set you want. Removing one while registered isn&apos;t
             safe, so it can&apos;t be unselected here.
           </p>
+          {blockedReason && (
+            <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-warning">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {blockedReason}
+            </p>
+          )}
           <Button variant="gradient" className="mt-3 w-full" disabled={!canApply} onClick={apply}>
             <Boxes /> {additions.length > 0 ? `Add ${additions.join(", ")}` : "Select a model to add"}
           </Button>

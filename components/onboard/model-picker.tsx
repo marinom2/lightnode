@@ -1,57 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Check, CircleAlert, AlertTriangle } from "lucide-react";
-// OS_VRAM_OVERHEAD_GB / usableVramGb are imported rather than redefined here:
-// the desktop's claim on VRAM is one number, and a picker that reserved a
-// different amount than the fit helpers would show a plan it then contradicts.
-import { modelRequirement, usableVramGb, OS_VRAM_OVERHEAD_GB } from "@/lib/hardware";
-import { lookupModel, residentVramGb, resolveModel, type CatalogEntry } from "@/lib/model-catalog";
+// OS_VRAM_OVERHEAD_GB is imported rather than redefined here: the desktop's
+// claim on VRAM is one number, and a picker that reserved a different amount
+// than the fit helpers would show a plan it then contradicts.
+import { OS_VRAM_OVERHEAD_GB, UNKNOWN_MODEL_VRAM_GB } from "@/lib/hardware";
+// The decisions this picker makes live next door, in plain TypeScript: which
+// selection survives a whitelist fetch and whether a set fits are the parts
+// that can be silently wrong, and the unit suite cannot import JSX to test them.
+import {
+  isServable,
+  memoryStateOf,
+  names,
+  reconcileSelection,
+  selectionFootprint,
+  sizeKey,
+  toRow,
+  type LiveModel,
+  type Row,
+} from "@/components/onboard/model-picker-logic";
 import { fromWei, cn } from "@/lib/utils";
 import type { NetworkId } from "@/lib/network";
-
-/**
- * A whitelist row exactly as the indexer returns it.
- *
- * `id` is the on-chain identity - keccak256 of the tag - and the only thing the
- * registry actually stores. `name` is a label the indexer bolts on, and when a
- * model was whitelisted without its tag string there is nothing to bolt on, so
- * it echoes the id back into `name`. Carrying `id` is what lets us tell a real
- * tag apart from a digest wearing one's clothes.
- */
-interface LiveModel {
-  id: string;
-  name: string;
-  fee: string; // wei
-  max_output_tokens: number;
-}
-
-/** A live model resolved to an identity we can act on. */
-interface Row {
-  /** Lowercase on-chain id. Unique per registry row, so it keys the list. */
-  id: string;
-  /** The real Ollama tag. null = the id never resolved, so it is NOT servable. */
-  tag: string | null;
-  label: string;
-  fee: string; // wei
-  maxOut: number;
-  embedding: boolean;
-  /** Resident GB to keep it warm, or null when we cannot size it honestly. */
-  gb: number | null;
-  /** Short descriptor for the second line, when we have one. */
-  note: string | null;
-}
-
-type ServableRow = Row & { tag: string };
-
-function isServable(r: Row): r is ServableRow {
-  return r.tag !== null;
-}
-
-/** Sort key that keeps models we cannot size at the bottom of any ordering. */
-function sizeKey(r: Row): number {
-  return r.gb ?? Number.MAX_SAFE_INTEGER;
-}
 
 /** One decimal, without dragging a ".0" onto whole numbers. */
 function fmtGb(n: number): string {
@@ -61,59 +31,6 @@ function fmtGb(n: number): string {
 /** 16384 -> "16,384". Rendered only after a client fetch, so the locale is fixed. */
 function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
-}
-
-/**
- * Size + descriptor for a model.
- *
- * The catalog is measured (summed manifest layers, or an observed inference
- * peak), so it wins outright. A tag that is real but absent from the catalog -
- * a model whitelisted after this build shipped - falls back to hardware.ts's
- * name regex, which can only size a name that carries its parameter count.
- * Everything else has NO size: the registry stores none, and a keccak digest
- * says nothing about the weights behind it. null means "we do not know", and
- * the UI prints that instead of inventing a comfortable 8GB.
- */
-function describe(tag: string | null, entry?: CatalogEntry): { gb: number | null; note: string | null } {
-  if (entry) return { gb: residentVramGb(entry), note: entry.note ?? null };
-  if (!tag) return { gb: null, note: null };
-  const req = modelRequirement(tag);
-  // Gate on `source`, NOT on `known`: `known` is false for a name-estimated
-  // model too, so testing it here would throw away the very fallback this
-  // branch exists for. Only "unknown" means the tag carried no size signal at
-  // all, and that is the case we refuse to invent a number for.
-  if (req.source === "unknown") return { gb: null, note: null };
-  return { gb: req.vramGb, note: req.tierLabel };
-}
-
-function toRow(m: LiveModel): Row {
-  const r = resolveModel(m.name, m.id);
-  const { gb, note } = describe(r.tag, r.entry);
-  return {
-    id: r.id ?? m.id.toLowerCase(),
-    tag: r.tag,
-    label: r.label,
-    fee: m.fee,
-    maxOut: m.max_output_tokens,
-    // The registry's own tell for an embedding model: it answers with vectors,
-    // so its output cap is a single token. The catalog flags the ones we know.
-    embedding: r.entry?.embedding === true || m.max_output_tokens === 1,
-    gb,
-    note,
-  };
-}
-
-/**
- * Does a stored selection name this row? Setup stores TAGS (they become the
- * container's SUPPORTED_MODELS), but a record written before ids and tags were
- * told apart can hold the id it was shown. Match on either identity so such a
- * record still lights up the right row - we always hand the TAG back out.
- */
-function names(stored: string[], r: Row): boolean {
-  return stored.some((v) => {
-    const s = v.trim().toLowerCase();
-    return s === r.id || (r.tag !== null && s === r.tag.toLowerCase());
-  });
 }
 
 /**
@@ -150,6 +67,36 @@ export function ModelPicker({
   const [models, setModels] = useState<LiveModel[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const mem = useMemo(() => memoryStateOf(vramGb, vramKnown), [vramGb, vramKnown]);
+  const onGpu = mem.kind === "gpu";
+  const { avail, usable } = mem;
+
+  // Mirrors of the mutable props, for the reconcile below.
+  //
+  // That reconcile runs inside an async `.then`, and the effect around it
+  // deliberately re-runs only when the NETWORK changes - refetching the whole
+  // whitelist on every click would be absurd. A plain closure therefore pins
+  // the MOUNT render's props forever, and in the update panel those are
+  // `value: []` with `locked: []`: the fetch then found nothing to keep,
+  // auto-picked the lightest model, and emitted it as the whole selection.
+  // That reads downstream as one addition plus N removals of the models the
+  // worker is actually serving, and removals disable Apply permanently. Refs
+  // are the window onto the CURRENT render; adding the props to the dep array
+  // is not a fix, because it would re-fetch on every selection change.
+  //
+  // Assigned during render rather than in an effect on purpose: a promise
+  // resolving between render and the passive-effect flush would otherwise read
+  // one render behind. They are pure mirrors of props, so re-assigning them is
+  // idempotent and safe to repeat.
+  const valueRef = useRef(value);
+  const lockedRef = useRef(locked);
+  const onChangeRef = useRef(onChange);
+  const roomRef = useRef(usable);
+  valueRef.current = value;
+  lockedRef.current = locked;
+  onChangeRef.current = onChange;
+  roomRef.current = usable;
+
   useEffect(() => {
     let on = true;
     setLoading(true);
@@ -165,40 +112,29 @@ export function ModelPicker({
             name: m.name,
             fee: m.fee,
             max_output_tokens: m.max_output_tokens,
+            // The boundary already decided whether `name` is a tag or a
+            // placeholder - carry that verdict instead of re-deriving it.
+            unnamed: m.unnamed,
           }));
         setModels(live);
 
-        // Reconcile the current selection against what's live. Only rows whose
-        // tag we recovered can survive: a selection we cannot name is one we
-        // cannot `ollama pull`, and staking for it registers an id the worker
-        // will never serve. Re-emitting the TAG also heals a stored id.
+        // Reconcile the selection against what's live: heal a stored id into a
+        // pullable tag, drop anything we could never `ollama pull`, keep every
+        // locked model whatever happens. Reading the refs, not the closure.
         const rows = live.map(toRow);
-        const servable = rows.filter(isServable);
-        if (servable.length === 0) return; // nothing here is safe to pick - say so in the UI
-        const kept: string[] = [];
-        for (const v of value) {
-          const row = servable.find((r) => names([v], r));
-          if (row && !kept.includes(row.tag)) kept.push(row.tag);
-        }
-        if (kept.length === 0) {
-          // Auto-pick the lightest model that actually fits, from the servable
-          // set only. Unsized models sort last: we won't volunteer a model we
-          // cannot measure over one we can.
-          const room = vramKnown ? usableVramGb(vramGb) : 0;
-          const fits: ServableRow[] = room > 0 ? servable.filter((r) => r.gb !== null && r.gb <= room) : [];
-          const pool: ServableRow[] = fits.length ? fits : servable;
-          const best = pool.slice().sort((a, b) => sizeKey(a) - sizeKey(b))[0];
-          onChange([best.tag]);
-        } else if (kept.join(",") !== value.join(",")) {
-          onChange(kept);
-        }
+        const next = reconcileSelection(rows, valueRef.current, lockedRef.current, roomRef.current);
+        // An empty result means nothing here was safe to offer - leave the
+        // caller's selection alone rather than clearing it.
+        if (next.length > 0 && next.join(",") !== valueRef.current.join(",")) onChangeRef.current(next);
       })
       .catch(() => {})
       .finally(() => on && setLoading(false));
     return () => {
       on = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No exhaustive-deps suppression any more: everything mutable this effect
+    // touches goes through a ref, so `network` really is the whole dependency
+    // set. The suppression is what used to hide the stale closure above.
   }, [network]);
 
   // Servable models first, then smallest first - so the rows a user can act on
@@ -209,27 +145,13 @@ export function ModelPicker({
     [models],
   );
 
-  const memKnown = vramKnown && vramGb > 0;
-  const avail = memKnown ? vramGb : 0;
-  // What a model can actually have. See OS_VRAM_OVERHEAD_GB in lib/hardware.ts.
-  const usable = memKnown ? usableVramGb(avail) : 0;
+  const selection = useMemo(() => selectionFootprint(rows, value), [value, rows]);
 
-  const selection = useMemo(() => {
-    let total = 0;
-    let unsized = 0;
-    for (const v of value) {
-      // Prefer the live row; a selection that is no longer whitelisted (but is
-      // still served by the running worker) still costs memory, so size it from
-      // the catalog by name rather than dropping it from the sum.
-      const row = rows.find((r) => names([v], r));
-      const gb = row ? row.gb : describe(v, lookupModel(v)).gb;
-      if (gb === null) unsized += 1;
-      else total += gb;
-    }
-    return { total: Math.round(total * 10) / 10, unsized };
-  }, [value, rows]);
-
-  const over = memKnown && selection.total > usable;
+  // Checked against the WORST case, not the known sum: a model we cannot size
+  // adds 0 to `total`, so gating on that total is how an unsized selection made
+  // itself invisible to this warning. `worst` charges each one the largest
+  // footprint we know of, which is what UNKNOWN_MODEL_VRAM_GB is for.
+  const over = onGpu && selection.worst > usable;
   const noneServable = rows.length > 0 && !rows.some(isServable);
 
   const toggle = (r: Row) => {
@@ -269,7 +191,7 @@ export function ModelPicker({
               const isLocked = names(locked, r);
               // Measured against USABLE memory, not the sticker total - a model
               // that only fits the total is the one that gets evicted mid-job.
-              const tooBig = memKnown && r.gb !== null && r.gb > usable;
+              const tooBig = onGpu && r.gb !== null && r.gb > usable;
               // Never let one click stake for a model this machine cannot hold,
               // or for an id we cannot turn into a pullable tag. An oversized
               // model that is ALREADY selected stays clickable so it can be dropped.
@@ -323,7 +245,11 @@ export function ModelPicker({
                       <span className="mt-1 flex items-center gap-1.5 text-[11px]">
                         {r.gb === null ? (
                           <span className="text-content-soft">size unknown</span>
-                        ) : !memKnown ? (
+                        ) : mem.kind === "cpu" ? (
+                          // No GPU to fit it into: the number is real, it just
+                          // lands in system RAM. State it, don't judge it.
+                          <span className="tabular-nums text-content-soft">~{fmtGb(r.gb)}GB in system RAM</span>
+                        ) : !onGpu ? (
                           // We know the model's footprint but not the machine's,
                           // so state the number without a verdict on the fit.
                           <span className="tabular-nums text-content-soft">~{fmtGb(r.gb)}GB resident</span>
@@ -385,36 +311,62 @@ export function ModelPicker({
                 Memory to keep {value.length === 1 ? "it" : "them all"} warm
               </span>
               <span className="font-semibold tabular-nums text-content-primary">
-                ~{fmtGb(selection.total)}GB{memKnown && ` of ~${fmtGb(avail)}GB`}
+                {/* "at least" because an unsized model contributes nothing to
+                    this sum - the figure is a floor, and saying "~" would sell
+                    it as an estimate. */}
+                {selection.unsized > 0 && <span className="font-normal text-content-soft">at least </span>}
+                ~{fmtGb(selection.total)}GB{onGpu && ` of ~${fmtGb(avail)}GB`}
               </span>
             </div>
             {over && (
               <p className="mt-2 flex items-start gap-1.5 text-warning">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                These models need about {fmtGb(selection.total)}GB resident at once, but only about {fmtGb(usable)}GB is
-                usable here. They would cold-load between jobs and risk a slash. Deselect one, or run them on a bigger
-                machine.
+                {selection.unsized > 0 ? (
+                  <span>
+                    {selection.unsized === 1 ? "One selected model publishes" : `${selection.unsized} selected models publish`} no
+                    size, so this set cannot be shown to fit: a model we cannot measure could need anything up to ~
+                    {fmtGb(UNKNOWN_MODEL_VRAM_GB)}GB, and only about {fmtGb(usable)}GB is usable here. Pick models with a
+                    known footprint, or verify by hand before you install - a set that cold-loads mid-job risks a slash.
+                  </span>
+                ) : (
+                  <span>
+                    These models need about {fmtGb(selection.total)}GB resident at once, but only about {fmtGb(usable)}GB
+                    is usable here. They would cold-load between jobs and risk a slash. Deselect one, or run them on a
+                    bigger machine.
+                  </span>
+                )}
               </p>
             )}
             {/* The card's total is never all yours - be explicit about what is
                 left. The `over` warning already quotes the usable figure, so
                 only state it here when that warning isn't showing. */}
-            {memKnown && !over && (
+            {onGpu && !over && (
               <p className="mt-1.5 text-content-soft">
                 Your desktop session (compositor, browser, this app) holds roughly {fmtGb(OS_VRAM_OVERHEAD_GB)}GB of
                 that, so plan against about {fmtGb(usable)}GB.
               </p>
             )}
-            {!memKnown && (
+            {/* Three states, not two: "you told us there is no GPU" is a fact
+                we should repeat back, not report as a failed reading. */}
+            {mem.kind === "cpu" && (
+              <p className="mt-1.5 text-content-soft">
+                No dedicated GPU, so these run on the CPU out of system RAM - the sizes above are what they need there,
+                and there is no VRAM figure to check them against. Expect slow inference, which can miss a job deadline.
+              </p>
+            )}
+            {mem.kind === "unknown" && (
               <p className="mt-1.5 text-content-soft">
                 This machine&apos;s memory could not be read, so nothing above is checked against it. Confirm the set
                 fits before you install.
               </p>
             )}
-            {selection.unsized > 0 && (
+            {/* When `over` is showing it has already made this point, in stronger terms. */}
+            {selection.unsized > 0 && !over && (
               <p className="mt-1.5 text-content-soft">
                 {selection.unsized === 1 ? "One selected model publishes" : `${selection.unsized} selected models publish`} no
-                size, so {selection.unsized === 1 ? "it is" : "they are"} not counted in that total.
+                size, so {selection.unsized === 1 ? "it is" : "they are"} not in that total - treat it as a floor.{" "}
+                {selection.unsized === 1 ? "It" : "They"} could need up to ~{fmtGb(UNKNOWN_MODEL_VRAM_GB)}GB
+                {selection.unsized === 1 ? "" : " each"}, which is the largest model we know of.
               </p>
             )}
             {!over && value.length > 1 && (
