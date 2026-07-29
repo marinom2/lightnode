@@ -46,15 +46,27 @@ export interface CatalogEntry {
  * Known tags. Sizes are measured, not inferred.
  *
  * `downloadGb` = registry.ollama.ai manifest layer sum.
- * `peakVramGb` = observed peak during a benchmarked run; absent when we have
- * not measured it, in which case `residentVramGb()` estimates conservatively.
+ * `peakVramGb` = resident VRAM reported by Ollama's /api/ps with the model
+ * loaded and answering (size_vram), i.e. what actually occupies the card.
+ *
+ * DOWNLOAD SIZE IS NOT RESIDENT SIZE. Treating it as one is badly wrong for
+ * mixture-of-experts models, where only the active experts stay on the GPU:
+ * gemma4:e2b is a 7.2 GB download that sits at 1.7 GB resident - a 4x
+ * over-estimate if you scale the download. That is why `residentVramGb()`
+ * only falls back to a download-derived estimate when we have no measurement,
+ * and why adding a measurement is always preferable to trusting the fallback.
+ *
+ * Measured on an RTX 5060 Ti 16GB (Blackwell, driver 610.43.02, CUDA 13,
+ * Ollama 0.32.5). Figures are the model's own resident bytes; each loaded
+ * model additionally costs a few hundred MB of CUDA context, so a set's real
+ * GPU usage runs above the sum of these numbers - budget headroom accordingly.
  */
 export const MODEL_CATALOG: CatalogEntry[] = [
-  { tag: "qwen3-embedding:0.6b", downloadGb: 0.6, peakVramGb: 2.6, embedding: true, note: "Embedding model - returns vectors, not chat text" },
+  { tag: "qwen3-embedding:0.6b", downloadGb: 0.6, peakVramGb: 2.3, embedding: true, note: "Embedding model - returns vectors, not chat text" },
   { tag: "llama3-8b", downloadGb: 4.7 },
-  { tag: "qwen3-vl:8b", downloadGb: 6.1, peakVramGb: 5.4, note: "Vision" },
-  { tag: "gemma4:e2b", downloadGb: 7.2, note: "MoE - 'e2b' is effective params, the download is larger than the name implies" },
-  { tag: "gpt-oss:20b", downloadGb: 13.8, peakVramGb: 11.9, note: "Reasoning - MXFP4" },
+  { tag: "qwen3-vl:8b", downloadGb: 6.1, peakVramGb: 5.7, note: "Vision" },
+  { tag: "gemma4:e2b", downloadGb: 7.2, peakVramGb: 1.7, note: "MoE - only the active experts stay resident, so it costs far less VRAM than its download suggests" },
+  { tag: "gpt-oss:20b", downloadGb: 13.8, peakVramGb: 12.7, note: "Reasoning - MXFP4" },
   { tag: "glm-4.7-flash", downloadGb: 19.0, peakVramGb: 17.8, note: "Coding" },
   { tag: "qwen3-vl:30b", downloadGb: 19.6, peakVramGb: 17.9, note: "Vision" },
   { tag: "llama3-70b", downloadGb: 40.0 },
@@ -103,29 +115,38 @@ export interface ResolvedModel {
 }
 
 export function resolveModel(name: string, id?: string): ResolvedModel {
-  const rawId = (id ?? "").toLowerCase();
-  // The SHAPE of the string decides, not whether it equals `id`. A 32-byte
-  // digest is never a plausible registered tag, so any digest in `name` is an
-  // echoed id. Also requiring `name === id` meant a row whose two fields
-  // disagreed took the real-tag path below and came back as
-  // `{ tag: <66-char hash>, known: true }` - a raw hash marked servable, which
-  // would reach `ollama pull` and be hashed a second time into a bogus id.
-  // That is precisely the failure this module exists to prevent.
-  const nameIsId = isModelId(name);
+  const rawId = (id ?? "").trim().toLowerCase();
+  const trimmed = (name ?? "").trim();
+  // The id is the identity, and because id = keccak256(tag) we can PROVE
+  // whether a claimed name is the real preimage rather than trusting it. That
+  // proof is what makes this function idempotent, which it has to be: the
+  // subgraph resolves once and stores the result, then the picker resolves the
+  // stored value again. Without the check, the placeholder produced by the
+  // first pass ("unnamed 0x1234abcd…") is not a digest, so a shape-only test
+  // would wave it through as a real tag on the second pass and hand back
+  // `{ tag: "unnamed 0x1234abcd…", known: true }` - a placeholder marked
+  // servable, which is exactly the failure this module exists to prevent.
+  const lookupId = isModelId(rawId) ? rawId : isModelId(trimmed) ? trimmed.toLowerCase() : "";
 
-  // Normal case: the indexer gave us a real tag.
-  if (name && !nameIsId) {
-    const entry = ENTRY_BY_TAG.get(name.toLowerCase());
-    return { label: name, tag: name, known: true, id: rawId || undefined, entry };
+  if (lookupId) {
+    // A name that hashes to this id is the genuine tag - including for models
+    // we have never seen, so a correctly-registered future model still works.
+    if (trimmed && !isModelId(trimmed) && modelIdForTag(trimmed) === lookupId) {
+      return { label: trimmed, tag: trimmed, known: true, id: lookupId, entry: ENTRY_BY_TAG.get(trimmed.toLowerCase()) };
+    }
+    // Otherwise `name` proves nothing (it is the echoed id, one of our own
+    // placeholders, or junk). Fall back to inverting the id against the catalog.
+    const entry = ENTRY_BY_ID.get(lookupId);
+    if (entry) return { label: entry.tag, tag: entry.tag, known: true, id: lookupId, entry };
+    return { label: `unnamed ${lookupId.slice(0, 10)}…`, tag: null, known: false, id: lookupId };
   }
 
-  // Degenerate case: name === id (or name is itself a bare digest). Try to
-  // invert it against the known tags.
-  const lookupId = rawId || name.toLowerCase();
-  const entry = ENTRY_BY_ID.get(lookupId);
-  if (entry) return { label: entry.tag, tag: entry.tag, known: true, id: lookupId, entry };
-
-  return { label: `unnamed ${lookupId.slice(0, 10)}…`, tag: null, known: false, id: lookupId };
+  // No usable id to check against - trust the indexer's name, but never a bare
+  // digest, which is an echoed id with the id column missing.
+  if (trimmed && !isModelId(trimmed)) {
+    return { label: trimmed, tag: trimmed, known: true, id: undefined, entry: ENTRY_BY_TAG.get(trimmed.toLowerCase()) };
+  }
+  return { label: "unnamed model", tag: null, known: false, id: rawId || undefined };
 }
 
 /**

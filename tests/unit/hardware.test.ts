@@ -52,12 +52,17 @@ describe("multi-model memory gate", () => {
 
 describe("modelRequirement", () => {
   it("takes measured catalog sizes over anything the name implies", () => {
-    // gemma4:e2b reads as 2B (4GB "Light" under the old regex-only path) but is
-    // an MoE with a 7.2GB download - it needs ~9GB resident, a whole GPU class up.
+    // gemma4:e2b is the case that defeats every shortcut. The name reads as 2B
+    // (4GB "Light" under the old regex path); the 7.2GB download scaled for
+    // overhead says ~9GB; the measured resident figure is 1.7GB, because only
+    // an MoE's active experts stay on the card. Neither guess is within 2x, so
+    // the measurement has to win.
     const gemma = modelRequirement("gemma4:e2b");
     expect(gemma.paramsB).toBe(2); // version '4' ignored, '2b' params - no left-hand boundary
-    expect(gemma.vramGb).toBe(9);
-    expect(gemma.tier).toBe("standard");
+    expect(gemma.vramGb).toBe(1.7);
+    // The tier follows the measurement, so the download-based guess would also
+    // have mislabelled it: at 1.7GB resident this genuinely is a "light" model.
+    expect(gemma.tier).toBe("light");
     expect(gemma.known).toBe(true);
     expect(gemma.source).toBe("catalog");
     // 120B: the param table would have said 48GB; the measured peak is 59.9GB.
@@ -157,10 +162,10 @@ describe("usableVramGb", () => {
     expect(usableVramGb(-4)).toBe(0);
   });
   it("is opt-in - the fit helpers take availGb at face value", () => {
-    // 6.1 + 9 = 15.1: fits the sticker number, does NOT fit once the desktop is
-    // paid for. Callers choose which question they're asking.
-    expect(modelsFit(["llama3-8b", "gemma4:e2b"], 16)).toBe(true);
-    expect(modelsFit(["llama3-8b", "gemma4:e2b"], usableVramGb(16))).toBe(false);
+    // 2.3 + 12.7 = 15.0: fits the sticker number, does NOT fit once the desktop
+    // is paid for. Callers choose which question they're asking.
+    expect(modelsFit(["qwen3-embedding:0.6b", "gpt-oss:20b"], 16)).toBe(true);
+    expect(modelsFit(["qwen3-embedding:0.6b", "gpt-oss:20b"], usableVramGb(16))).toBe(false);
   });
 });
 

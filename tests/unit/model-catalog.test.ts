@@ -229,7 +229,7 @@ describe("residentVramGb", () => {
     // the qwen3-vl vision towers do not stay resident - so estimating anyway
     // would over-reserve and wrongly disqualify machines that fit fine.
     const gptOss20b = requireEntry("gpt-oss:20b");
-    expect(residentVramGb(gptOss20b)).toBe(11.9);
+    expect(residentVramGb(gptOss20b)).toBe(12.7);
     expect(residentVramGb(gptOss20b)).toBeLessThan(gptOss20b.downloadGb);
 
     for (const entry of MODEL_CATALOG) {
@@ -251,7 +251,6 @@ describe("residentVramGb", () => {
     // The exact estimates today, pinned so a change to the overhead formula is a
     // deliberate edit rather than a silent shift in who passes the fit check.
     expect(residentVramGb(requireEntry("llama3-8b"))).toBe(6.1);
-    expect(residentVramGb(requireEntry("gemma4:e2b"))).toBe(9);
     expect(residentVramGb(requireEntry("llama3-70b"))).toBe(46.7);
     expect(residentVramGb(requireEntry("qwen3-coder-next"))).toBe(60.2);
   });
@@ -305,5 +304,59 @@ describe("catalog facts", () => {
       expect(entry.downloadGb).toBeGreaterThan(0);
       if (entry.peakVramGb != null) expect(entry.peakVramGb).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("resolveModel is idempotent", () => {
+  // Resolution happens TWICE on the same row: lib/subgraph resolves what the
+  // indexer sent and stores the result, then the picker resolves that stored
+  // value again. So resolve(resolve(x)) must equal resolve(x). A shape-only
+  // check fails here - the placeholder "unnamed 0x1234abcd…" is not a digest,
+  // so the second pass would accept it as a genuine tag and hand back
+  // known:true, letting a model nobody can serve be selected and staked for.
+  const unknownId = modelIdForTag("a-model-that-was-never-published");
+
+  it("keeps an unrecoverable model unrecoverable on re-resolution", () => {
+    const first = resolveModel(unknownId, unknownId);
+    expect(first.known).toBe(false);
+    expect(first.tag).toBeNull();
+
+    const second = resolveModel(first.label, unknownId);
+    expect(second.known).toBe(false);
+    expect(second.tag).toBeNull();
+    expect(second.label).toBe(first.label);
+  });
+
+  it("never reports a placeholder as a servable tag", () => {
+    const placeholder = resolveModel(unknownId, unknownId).label;
+    // The placeholder must not survive as something that could reach
+    // `ollama pull` or be hashed a second time into an id nothing answers.
+    expect(resolveModel(placeholder, unknownId).tag).toBeNull();
+  });
+
+  it("re-resolving a recovered tag is stable", () => {
+    const id = modelIdForTag("gpt-oss:20b");
+    const first = resolveModel(id, id);
+    expect(first.tag).toBe("gpt-oss:20b");
+    const second = resolveModel(first.label, id);
+    expect(second).toEqual(first);
+  });
+
+  it("accepts a correctly-registered tag we have never seen", () => {
+    // Future models must still work: the name is proven by hashing it, not by
+    // being present in our catalog.
+    const tag = "some-future-model:4b";
+    const id = modelIdForTag(tag);
+    const r = resolveModel(tag, id);
+    expect(r.known).toBe(true);
+    expect(r.tag).toBe(tag);
+    expect(r.entry).toBeUndefined(); // known-good, but no measured sizes
+  });
+
+  it("rejects a name that does not hash to the id it came with", () => {
+    // Mismatched columns are corrupt data, not a tag - trusting the name here
+    // would register the worker for an id the registry never issued.
+    const r = resolveModel("llama3-8b", modelIdForTag("gpt-oss:20b"));
+    expect(r.tag).toBe("gpt-oss:20b"); // the id wins, and it is in the catalog
   });
 });
