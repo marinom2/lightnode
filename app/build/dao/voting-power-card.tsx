@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ShieldCheck, AlertTriangle, ExternalLink, Wallet } from "lucide-react";
 import { useAccount } from "wagmi";
-import { useAppKit } from "@reown/appkit/react";
+import { openWallet } from "@/lib/appkit";
 import { short } from "@/components/build/console/panel-kit";
 import { DAO_VOTE_UI, DELEGATION_UI, loadVotingPower, type DaoChain, type VotingPowerReads } from "./dao-chain";
 import { delegationStatus, formatLcaiWei } from "./dao-math";
@@ -17,7 +17,6 @@ const SYMBOL: Record<DaoChain, string> = { ethereum: "LCAIB", lightchain: "LCAI"
  */
 export function VotingPowerCard({ chain }: { chain: DaoChain }) {
   const { address, isConnected } = useAccount();
-  const { open } = useAppKit();
   const [reads, setReads] = useState<VotingPowerReads | null>(null);
   const [loading, setLoading] = useState(false);
   // Stale-read guard: a slow read for the previous chain/account must not
@@ -49,7 +48,7 @@ export function VotingPowerCard({ chain }: { chain: DaoChain }) {
     return (
       <button
         type="button"
-        onClick={() => open()}
+        onClick={() => openWallet()}
         className="flex w-full items-center justify-between gap-3 rounded-2xl border border-bdr-soft bg-card/60 px-4 py-3.5 text-left backdrop-blur-sm transition-colors hover:border-primary/40"
       >
         <span className="flex items-center gap-2.5 text-sm text-content-soft">

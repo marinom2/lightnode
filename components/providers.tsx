@@ -1,39 +1,21 @@
 "use client";
 
-import { createAppKit } from "@reown/appkit/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { useState } from "react";
-import { wagmiAdapter, projectId, networks } from "@/lib/wagmi";
+import { wagmiAdapter } from "@/lib/wagmi";
 import { NetworkProvider } from "@/lib/network-context";
 import { AutoUpdate } from "@/components/auto-update";
 
-// AppKit is created once at module scope (matches LightChain's own chat setup).
-createAppKit({
-  adapters: [wagmiAdapter],
-  projectId,
-  networks,
-  defaultNetwork: networks[0],
-  metadata: {
-    name: "LightNode",
-    description: "The open toolkit for LightChain AI: SDK, wallet, worker onboarding, and live dashboards.",
-    url: "https://lightnode.app",
-    icons: ["https://lightnode.app/lightnode-mark.png"],
-  },
-  themeMode: "dark",
-  // Coinbase/Base connectors bundle their own IndexedDB telemetry, which throws
-  // in the desktop WebView and isn't usable there anyway. Keep injected
-  // (MetaMask) + WalletConnect, which cover the real flows.
-  enableCoinbase: false,
-  themeVariables: {
-    "--w3m-accent": "#7064e9",
-    "--w3m-color-mix": "#7064e9",
-    "--w3m-color-mix-strength": 12,
-    "--w3m-font-family": "var(--font-inter), ui-sans-serif, system-ui, sans-serif",
-    "--w3m-border-radius-master": "2.5px",
-  },
-  features: { analytics: false, email: true, socials: ["google", "x", "github", "discord"] },
-});
+// AppKit is NOT created here. This provider wraps every route, so building the
+// modal at module scope made each page download and execute the whole wallet
+// stack before it could render - 1,395 KB of chunk, 53% of /onboard, on pages
+// where nobody had touched a wallet. It is created on the first openWallet()
+// call instead; see lib/appkit.ts.
+//
+// WagmiProvider stays eager: connection state has to survive a reload and be
+// readable by any page (useAccount / useChainId), and its config is what the
+// lazily-created modal later attaches to.
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
