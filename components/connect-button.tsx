@@ -1,7 +1,7 @@
 "use client";
 
-import { useAppKit, useAppKitAccount, useAppKitNetwork } from "@reown/appkit/react";
-import { useSwitchChain } from "wagmi";
+import { useAccount, useChainId, useSwitchChain } from "wagmi";
+import { openWallet, prefetchWallet } from "@/lib/appkit";
 import { Wallet, AlertTriangle, ChevronDown, Loader2 } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { NETWORKS } from "@/lib/network";
@@ -22,15 +22,20 @@ function avatarGradient(addr: string): string {
 
 /** Reown AppKit connect flow rendered with LightNode's own styling. */
 export function ConnectButton({ size = "default" }: { size?: ButtonProps["size"] }) {
-  const { open } = useAppKit();
-  const { isConnected, address } = useAppKitAccount();
-  const { chainId } = useAppKitNetwork();
+  // Read state from wagmi, not AppKit. These hooks come from the eager bundle
+  // (WagmiProvider already wraps the tree), so this button renders - and shows
+  // a reconnected address after a reload - without pulling in the wallet modal.
+  // Using AppKit's equivalents here would force every page to load it again.
+  const { isConnected, address } = useAccount();
+  const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
   const { network } = useNetwork();
 
   if (!isConnected) {
     return (
-      <Button variant="gradient" size={size} onClick={() => open()}>
+      // Hover starts the chunk download, so the modal is usually ready by the
+      // time the click lands.
+      <Button variant="gradient" size={size} onMouseEnter={prefetchWallet} onClick={() => openWallet()}>
         <Wallet /> Connect wallet
       </Button>
     );
@@ -53,7 +58,7 @@ export function ConnectButton({ size = "default" }: { size?: ButtonProps["size"]
 
   return (
     <button
-      onClick={() => open({ view: "Account" })}
+      onClick={() => openWallet({ view: "Account" })}
       className="group inline-flex items-center gap-2 rounded-full border border-bdr-soft bg-surface-base-subtle py-1 pl-1 pr-2.5 transition-colors hover:border-primary/40 hover:bg-surface-base-faint"
     >
       <span

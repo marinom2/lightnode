@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { ChevronDown, ArrowLeftRight, CreditCard, Loader2, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useAccount, useWalletClient, useSwitchChain, useChainId } from "wagmi";
-import { useAppKit } from "@reown/appkit/react";
+import { openWallet } from "@/lib/appkit";
 import { createPublicClient, http, parseEther, type PublicClient } from "viem";
 import { BRIDGE_ROUTE, HYPERLANE_ROUTER_ABI, ERC20_ABI, addressToBytes32 } from "lightnode-sdk";
 import { CodeTabs } from "@/components/build/console/code-tabs";
@@ -134,7 +134,6 @@ async function resolveFeeParams(pub: PublicClient): Promise<GasFeeParams | undef
 
 export default function BridgePanel() {
   const { address, isConnected } = useAccount();
-  const { open } = useAppKit();
   const [dir, setDir] = useState<Dir>("eth-to-lc");
   const [amount, setAmount] = useState("");
   const [bal, setBal] = useState<Balances | null>(null);
@@ -245,7 +244,7 @@ export default function BridgePanel() {
 
   const executeBridge = async () => {
     if (!isConnected || !walletClient || !address) {
-      open();
+      openWallet();
       return;
     }
     const amt = validateAmount();
@@ -339,7 +338,7 @@ export default function BridgePanel() {
                     <span className="font-mono text-content-primary">{shortAddr(address)}</span>
                   </span>
                 ) : (
-                  <button type="button" onClick={() => open()} className="inline-flex items-center gap-1.5 text-sm text-content-soft transition-colors hover:text-content-primary">
+                  <button type="button" onClick={() => openWallet()} className="inline-flex items-center gap-1.5 text-sm text-content-soft transition-colors hover:text-content-primary">
                     Connect Wallet <ChevronDown className="size-3.5" />
                   </button>
                 )}
