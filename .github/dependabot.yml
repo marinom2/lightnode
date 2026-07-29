@@ -6,6 +6,20 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # `next` and `eslint-config-next` ship as a matched pair, and eslint's
+      # major is load-bearing for that config - but next is a PRODUCTION
+      # dependency while the other two are DEVELOPMENT ones, so the split below
+      # proposes them in separate pull requests. Neither can pass alone:
+      # eslint-config-next 16 pulls eslint 10 and expects next 16, while eslint
+      # 10 removed the eslintrc API that `next lint` from next 15 still calls.
+      # PR #161 landed exactly that half-upgrade and left lint unrunnable until
+      # it was pinned back. Dependabot assigns a dependency to the first group
+      # it matches, so listing these first keeps them moving together.
+      nextjs-toolchain:
+        patterns:
+          - "next"
+          - "eslint"
+          - "eslint-config-next"
       production:
         dependency-type: production
       development:
