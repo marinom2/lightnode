@@ -7,7 +7,11 @@ test("landing renders the dual-track hero and CTAs", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Build with, and run for/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /Builder hub/i }).first()).toBeVisible(); // build track CTA
-  await expect(page.getByRole("button", { name: /Get the app/i })).toBeVisible(); // worker track CTA
+  // Both CTAs are <Button asChild><Link>…</Link></Button>. asChild swaps the
+  // <button> for a Radix Slot that renders the child, so the DOM node is an <a>
+  // and the accessible role is "link", not "button" - assert what ships, not
+  // the component name that wraps it.
+  await expect(page.getByRole("link", { name: /Get the app/i })).toBeVisible(); // worker track CTA
 });
 
 test("nav: connect button + network toggle present", async ({ page }) => {
