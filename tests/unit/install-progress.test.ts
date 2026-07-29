@@ -215,6 +215,173 @@ describe("deriveInstallView", () => {
     expect(hint).toBe("Registration needs a little more LCAI for the stake plus gas. Top up the worker address shown above, then run install again.");
   });
 
+  // ── Recognisers for the terminal failures the bash installer actually prints ──
+  // Every log line below is the literal text lib/scriptgen.ts emits (add_selected_
+  // model_onchain, the SMART_PREREQS escalation ladder, the 0.0.0.0 bind gate and the
+  // MISSING_MODELS gate). Paraphrasing here would let the recognisers rot silently the
+  // next time the script changes, which is exactly how the "model add failed" matcher
+  // went stale and started telling staked operators to send more money.
+
+  it("tells an ALREADY-STAKED operator the stake is safe when the on-chain model add would revert", () => {
+    // The reviewer's repro: the re-run branch skips gate_funding, so `fundingConfirmed`
+    // is false and the generic register fallback used to fire with "Top up …".
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev 2026-07-20 (mainnet)",
+      "✓ model gemma4:e2b present",
+      "▶ funding worker: send to 0xEFd1bAE7ed03dcf6b8b79ef601cdda19f1e15cec",
+      "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)",
+      "⛔ the on-chain model add would revert, so it was NOT sent: Error: server returned an error response: error code 3: execution reverted",
+      "   The worker is staked but is NOT serving the selected model, so it would earn nothing. Check the model is whitelisted on this network, then run install again.",
+    ])!;
+    expect(hint).toMatch(/already staked and registered/i);
+    expect(hint).toMatch(/stake is locked, not lost/i);
+    expect(hint).toMatch(/never sent/i);
+    expect(hint).toMatch(/Models this worker serves/);
+    // The whole point of the fix: never send a fully-staked worker back to the faucet.
+    expect(hint).not.toMatch(/top up/i);
+    expect(hint).not.toMatch(/send more|add funds|minimum stake/i);
+  });
+
+  it("recognises the model-add send failure without blaming funding", () => {
+    const hint = diagnoseFailure([
+      "▶ phase 07-register",
+      "▶ adding the selected model on-chain with proper gas (gas-limit 138402) - the daemon under-gasses this step",
+      "⛔ the model-add tx failed to send: Error: (code: -32000, message: intrinsic gas too low)",
+    ])!;
+    expect(hint).toMatch(/already staked and registered/i);
+    expect(hint).toMatch(/never made it onto the network/i);
+    expect(hint).not.toMatch(/top up/i);
+  });
+
+  it("recognises a model-add that mined but reverted on-chain", () => {
+    const hint = diagnoseFailure([
+      "▶ phase 07-register",
+      "⛔ the model-add tx landed but the registry still does not list this worker as serving the model - it reverted on-chain (receipt status 0).",
+      "   Your stake is untouched, and the worker is NOT online until this succeeds. Run install again in a minute; if it keeps failing, the model may not be whitelisted on this network.",
+    ])!;
+    expect(hint).toMatch(/mined but reverted/i);
+    expect(hint).toMatch(/stake is locked, not lost/i);
+    expect(hint).not.toMatch(/top up/i);
+  });
+
+  it("still recognises the PowerShell runner's 'model add failed' throw", () => {
+    const hint = diagnoseFailure([
+      "▶ phase .\\07-register.ps1",
+      "⛔ stopped at .\\07-register.ps1 - model add failed",
+    ])!;
+    expect(hint).toMatch(/already staked and registered/i);
+    expect(hint).not.toMatch(/top up/i);
+  });
+
+  it("diagnoses a declined polkit prompt during the Ollama install", () => {
+    const hint = diagnoseFailure([
+      "▶ installing Ollama",
+      "… approve the administrator prompt to install Ollama (the same prompt also binds it to 0.0.0.0, which the worker container needs)",
+      "⛔ the Ollama install (or the 0.0.0.0 bind that follows it) did not complete - the administrator prompt was declined, or no polkit agent is running in this session.",
+      "   Run this ONCE in a terminal, then click Install again:",
+      "     curl -fsSL https://ollama.com/install.sh | sh",
+    ])!;
+    expect(hint).toMatch(/Ollama/);
+    expect(hint).toContain("https://ollama.com/install.sh | sh");
+    expect(hint).toMatch(/Nothing was staked/);
+  });
+
+  it("diagnoses the can_root pre-check refusing the Docker install", () => {
+    // `as_root` can only offer sudo -n (silent) or pkexec, so on a box where sudo
+    // wants a password and no polkit agent is running this is the ONLY line printed.
+    const hint = diagnoseFailure([
+      "▶ installing Docker",
+      "⛔ Docker is not installed, and installing it needs administrator rights this app cannot obtain here (you are not root, passwordless sudo is not configured, and pkexec - the graphical admin prompt - is unavailable).",
+      "   Run this ONCE in a terminal, then click Install again:",
+      "     curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker marinom && newgrp docker",
+    ])!;
+    expect(hint).toMatch(/Docker/);
+    expect(hint).toContain("https://get.docker.com | sudo sh");
+    expect(hint).toMatch(/Nothing was staked/);
+  });
+
+  it("recognises a bare pkexec refusal it cannot attribute to Docker or Ollama", () => {
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev 2026-07-20 (mainnet)",
+      "Error executing command as another user: Not authorized",
+    ])!;
+    expect(hint).toMatch(/administrator rights/i);
+    expect(hint).toMatch(/nothing was staked/i);
+  });
+
+  it("a stray rebind-declined warning never outranks the real failure", () => {
+    // The bind retry warns and CARRIES ON, so its privilege wording can sit in the log
+    // of a run that died of something else. The specific recogniser must still win.
+    const hint = diagnoseFailure([
+      "▶ LightNode installer rev 2026-05-30.03 (mainnet)",
+      "⚠ could not rebind Ollama automatically (the admin prompt was declined or unavailable)",
+      "▶ phase 01-resolve-addresses",
+      "Failed to read aiConfig() from WorkerRegistry. Got:",
+      "⛔ stopped at 01-resolve-addresses",
+    ])!;
+    expect(hint).toMatch(/connection issue/i);
+  });
+
+  it("diagnoses the loopback-only Ollama abort with the exact drop-in fix", () => {
+    const hint = diagnoseFailure([
+      "▶ allowing the worker container to reach Ollama (binding it to 0.0.0.0)",
+      "… approve the administrator prompt so the worker container can reach Ollama",
+      "⚠ could not rebind Ollama automatically (the admin prompt was declined or unavailable)",
+      "⛔ Ollama still only listens on 127.0.0.1, so the Dockerized worker cannot reach it and EVERY job would fail at inference - a staked worker that earns nothing and can be slashed. Install stops here; nothing has been staked.",
+      "   Fix it once in a terminal, then click Install again:",
+      "     sudo mkdir -p /etc/systemd/system/ollama.service.d",
+    ])!;
+    expect(hint).toMatch(/only listening on 127\.0\.0\.1/i);
+    expect(hint).toContain("OLLAMA_HOST=0.0.0.0:11434");
+    expect(hint).toContain("systemctl restart ollama");
+    // The rebind prompt was refused - say so instead of leaving them to guess.
+    expect(hint).toMatch(/administrator prompt was declined/i);
+    expect(hint).toMatch(/Nothing was staked/);
+  });
+
+  it("diagnoses the preflight's loopback-only block too", () => {
+    const hint = diagnoseFailure([
+      "⛔ Ollama only listens on 127.0.0.1, so the Dockerized worker cannot reach it and every job would fail at inference - and this app has no way to obtain the admin rights to rebind it. Run once in a terminal, then re-run install:",
+    ])!;
+    expect(hint).toContain("OLLAMA_HOST=0.0.0.0:11434");
+    // Nothing tried to rebind, so don't invent a declined prompt.
+    expect(hint).not.toMatch(/administrator prompt was declined/i);
+  });
+
+  it("does NOT treat the preflight's 'install will rebind it' notice as a failure", () => {
+    expect(
+      diagnoseFailure([
+        "⚠ Ollama only listens on 127.0.0.1 - install will rebind it to 0.0.0.0 (admin prompt) so the worker container can reach it",
+      ]),
+    ).toBeNull();
+  });
+
+  it("diagnoses the MISSING_MODELS abort, naming the model and its size", () => {
+    const hint = diagnoseFailure([
+      "▶ downloading gemma4:e2b - a multi-GB model can take several minutes",
+      "⚠ gemma4:e2b download exited 1: Error: max retries exceeded",
+      "⛔ these selected model(s) are NOT on this machine after the download: gemma4:e2b",
+      "   A worker advertises what it serves, so registering now would stake your LCAI on a model that fails every job it wins (slashable on mainnet). Install stops here.",
+      "   Nothing was staked or registered - your funds are untouched.",
+      "   Check by hand with:  ollama pull <tag>   then   ollama list",
+    ])!;
+    expect(hint).toContain("gemma4:e2b");
+    expect(hint).toContain("7.2 GB download");
+    expect(hint).toMatch(/ollama pull/);
+    expect(hint).toMatch(/funds are\s+untouched|untouched/i);
+    // It must beat the "download exited" recogniser, which only guesses at disk.
+    expect(hint).not.toMatch(/Ollama resumes from/);
+  });
+
+  it("diagnoses the docker-group relog abort", () => {
+    const hint = diagnoseFailure([
+      "▶ installing Docker",
+      "⛔ Docker is installed and running, but your user was only just added to the 'docker' group and Linux applies group changes at LOGIN. Log out and back in (or reboot), then click Install again. Nothing has been staked.",
+    ])!;
+    expect(hint).toMatch(/Log out and back in/i);
+    expect(hint).toMatch(/Nothing was staked/);
+  });
+
   it("advances later milestones when their markers appear even if an earlier marker was skipped", () => {
     // A model that's already present prints no pull markers; register starting
     // still implies prepare + model are done.
