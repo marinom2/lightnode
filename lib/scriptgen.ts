@@ -72,8 +72,22 @@ function sortitionRunUnix(net: NetworkConfig): string {
     // Heartbeat store; ephemeral (no persistence). Shares its netns with the worker.
     'docker run -d --restart always --name lightchain-redis --add-host=host.docker.internal:host-gateway redis:7-alpine redis-server --save "" --appendonly no >/dev/null',
     "for _ in $(seq 1 15); do docker exec lightchain-redis redis-cli ping >/dev/null 2>&1 && break; sleep 1; done",
+    // Operator-managed extras (web-search keys, tuning), kept in their own file.
+    //
+    // Deliberately NOT collected in the UI: a credential typed into the app would
+    // travel through this generated script, which is streamed to the install log
+    // and shown on screen. A file the operator writes once never passes through
+    // either. It also survives reinstalls, which -e flags baked in here would not:
+    // before this, re-running install silently dropped any added settings.
+    //
+    // Placed BEFORE the -e flags so the values this script manages always win. A
+    // stale local file must never be able to repoint RPC_URL or the registry.
+    'LOCAL_ENV="$(dirname "$KD")/worker.local.env"',
+    'EXTRA_ENV=""',
+    '[ -f "$LOCAL_ENV" ] && { EXTRA_ENV="--env-file $LOCAL_ENV"; echo "▶ applying operator settings from $LOCAL_ENV"; }',
     "docker run -d --restart always --user root --name lightchain-worker \\",
     "  --network container:lightchain-redis \\",
+    "  $EXTRA_ENV \\",
     '  -v "$KD:/data" \\',
     '  -e "WORKER_KEYSTORE_PATH=/data/eth-keystore/$KSF" \\',
     '  -e "WORKER_KEYSTORE_PASSWORD=${WORKER_PASSWORD:-}" \\',
@@ -105,8 +119,15 @@ function sortitionRunWin(net: NetworkConfig): string {
     "docker rm -f lightchain-worker lightchain-redis 2>$null | Out-Null",
     'docker run -d --restart always --name lightchain-redis --add-host=host.docker.internal:host-gateway redis:7-alpine redis-server --save "" --appendonly no | Out-Null',
     "for ($i=0; $i -lt 15; $i++){ docker exec lightchain-redis redis-cli ping 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 1 }",
+    // Same operator-managed extras file as the unix path - see the comment there.
+    // Built as an array rather than a string: splatting an empty string into a
+    // docker argument list leaves a stray empty arg, which docker rejects.
+    '$localEnv = Join-Path (Split-Path $env:KEYS_DIR -Parent) "worker.local.env"',
+    "$extraEnv = @()",
+    'if (Test-Path $localEnv) { $extraEnv = @("--env-file", $localEnv); Write-Host "> applying operator settings from $localEnv" }',
     "docker run -d --restart always --user root --name lightchain-worker `",
     "  --network container:lightchain-redis `",
+    "  @extraEnv `",
     '  -v "$($env:KEYS_DIR):/data" `',
     '  -e "WORKER_KEYSTORE_PATH=/data/eth-keystore/$ksf" `',
     '  -e "WORKER_KEYSTORE_PASSWORD=$($env:WORKER_PASSWORD)" `',
