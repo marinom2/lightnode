@@ -399,7 +399,13 @@ async function main() {
       if (sub === "profitability") {
         const addr = positionals[2] ?? (flag("--key") || process.env.PRIVATE_KEY ? privateKeyToAccount(pickKey()).address : die("usage: lightnode worker profitability <address> [--model llama3-8b]"));
         const served = await ln.getServedModels(addr);
-        const modelTag = flag("--model") ?? served.find((s) => s.onchainEligible)?.name ?? served[0]?.name ?? "llama3-8b";
+        // Only ever auto-pick a model whose NAME we actually have: this string is
+        // hashed into a model id by profitability(), so a row the registry never
+        // named (name === null) must be skipped rather than dragged in - picking
+        // by position alone would otherwise quote a different model than the
+        // eligible one it stood in for.
+        const modelTag =
+          flag("--model") ?? served.find((s) => s.onchainEligible && s.name)?.name ?? served.find((s) => s.name)?.name ?? "llama3-8b";
         const op = readOperator(ln, addr);
         printJson({ model: modelTag, ...(await op.profitability({ modelTag })) });
         break;

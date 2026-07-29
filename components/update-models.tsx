@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { ModelPicker } from "@/components/onboard/model-picker";
 import { InstallProgress } from "@/components/onboard/install-progress";
 import { useNetwork } from "@/lib/network-context";
+import { autodetect, detectWebGpu } from "@/lib/hardware";
+import { isModelId, lookupModel } from "@/lib/model-catalog";
 import { DEFAULT_MODEL, NETWORKS } from "@/lib/network";
 import { addModelsCommand, desktopInstallCommand, type OS } from "@/lib/scriptgen";
 import { appendCleanLog } from "@/lib/install-log";
@@ -16,6 +18,18 @@ import { runSetupStreamed, detectNativeHardware, fetchWorkerHealth } from "@/lib
 import { getSecret, getWorkerAddr, resolveManagedWorkerAddr, getServedModels, setServedModels, SECRET_WORKER_KEY, SECRET_WORKER_PW } from "@/lib/secrets";
 
 type Phase = "idle" | "running" | "done" | "failed";
+
+/**
+ * Fold a stored model reference back to its servable tag.
+ *
+ * Everything downstream - SUPPORTED_MODELS, `ollama pull`, add-models' keccak -
+ * consumes the TAG, but a record written before model ids and tags were told
+ * apart can hold the on-chain id instead. The catalog inverts the ones we know;
+ * anything it cannot invert is returned untouched, so callers can still spot it.
+ */
+function tagOf(model: string): string {
+  return lookupModel(model)?.tag ?? model;
+}
 
 function keyMatchesAddr(key: string, addr: string): boolean {
   if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return false;
@@ -35,7 +49,10 @@ function keyMatchesAddr(key: string, addr: string): boolean {
 export function UpdateModels() {
   const { network } = useNetwork();
   const [os, setOs] = useState<OS>("macos");
-  const [vramGb, setVramGb] = useState(0);
+  // Memory available to keep models warm. `known` is separate from the number:
+  // an unread VRAM is 0, and a gate that measures every model against 0GB is a
+  // gate that lies. See the detection effect below.
+  const [vram, setVram] = useState<{ gb: number; known: boolean }>({ gb: 0, known: false });
   const [sel, setSel] = useState<string[]>([]);
   // The set the worker ACTUALLY serves right now (the locked/can't-remove base the
   // picker adds onto). Authoritative source is the running container's
@@ -51,11 +68,34 @@ export function UpdateModels() {
     const d = detectClientOS();
     setOs(d === "windows" ? "windows" : d === "linux" ? "linux" : "macos");
   }, []);
+  // Same precedence the onboarding machine check uses: the desktop shell reads
+  // VRAM from the OS, and where that comes back empty (no discrete GPU reported,
+  // an older binary, a failed nvidia-smi) we fall back to the browser's GPU-name
+  // inference. If BOTH come back empty we record known:false so the picker drops
+  // its memory gate instead of showing a false one against 0GB.
   useEffect(() => {
-    detectNativeHardware().then((hw) => {
-      if (!hw) return;
-      setVramGb(hw.unified ? Math.max(hw.ram_gb || 0, hw.vram_gb || 0) : hw.vram_gb || 0);
+    let on = true;
+    detectNativeHardware().then(async (hw) => {
+      if (!on) return;
+      // Apple Silicon shares one pool, so the GPU can draw on system RAM.
+      const native = hw ? (hw.unified ? Math.max(hw.ram_gb || 0, hw.vram_gb || 0) : (hw.vram_gb ?? 0)) : 0;
+      if (native > 0) {
+        setVram({ gb: native, known: true });
+        return;
+      }
+      const d = autodetect(); // WebGL renderer -> known-GPU table; unified already floors at 16
+      let gb = d.input.vramGb ?? 0;
+      if (!gb) {
+        // Some webviews mask the WebGL renderer string but still expose a WebGPU adapter.
+        const w = await detectWebGpu();
+        gb = w.unified ? Math.max(d.input.ramGb ?? 16, 16) : (w.vramGb ?? 0);
+      }
+      if (!on) return;
+      setVram(gb > 0 ? { gb, known: true } : { gb: 0, known: false });
     });
+    return () => {
+      on = false;
+    };
   }, []);
   // Seed from this network's recorded set for an instant render, then reconcile
   // with the worker actually running here (its container SUPPORTED_MODELS is the
@@ -97,11 +137,18 @@ export function UpdateModels() {
 
   const append = (line: string) => setLog((l) => appendCleanLog(l, line));
 
-  const additions = sel.filter((m) => !current.includes(m));
-  const removals = current.filter((m) => !sel.includes(m));
+  // Compare on identity, not on the raw string: an id sitting next to its own
+  // tag would otherwise read as one addition plus one removal, blocking the
+  // whole panel over a naming artefact. Both sides compare - and `additions` is
+  // sent on chain - as real tags.
+  const additions = sel.filter((m) => !current.some((c) => tagOf(c) === tagOf(m))).map(tagOf);
+  const removals = current.filter((m) => !sel.some((s) => tagOf(s) === tagOf(m)));
   // You can ADD models live; removing one isn't safe live (the gateway could still
   // route its jobs to you), so a set that drops a current model is blocked here.
-  const canApply = additions.length > 0 && removals.length === 0;
+  // add-models hashes whatever string it is handed, so an id we could not fold
+  // back to a tag would register a second, meaningless model on chain and stake
+  // against it - refuse rather than sign that.
+  const canApply = additions.length > 0 && removals.length === 0 && !additions.some(isModelId);
 
   const apply = useCallback(async () => {
     if (!canApply) return;
@@ -128,9 +175,13 @@ export function UpdateModels() {
           setPhase("failed");
           return;
         }
-        setServedModels(network, sel);
+        // The container pulls SUPPORTED_MODELS verbatim, so fold any id the
+        // seeded set still carries back to its tag before it goes in (and
+        // before we record it as this network's served set).
+        const served = sel.map(tagOf);
+        setServedModels(network, served);
         stopRef.current = await runSetupStreamed(
-          desktopInstallCommand(os, network, sel),
+          desktopInstallCommand(os, network, served),
           env,
           append,
           (code2) => {
@@ -157,7 +208,7 @@ export function UpdateModels() {
 
       {phase === "idle" || phase === "done" || phase === "failed" ? (
         <>
-          <ModelPicker network={network} vramGb={vramGb} value={sel} onChange={setSel} locked={current} />
+          <ModelPicker network={network} vramGb={vram.gb} vramKnown={vram.known} value={sel} onChange={setSel} locked={current} />
           {phase === "done" && (
             <p className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-success">
               <CheckCircle2 className="size-4" /> Updated. Give the worker about a minute to re-attest and go live.

@@ -7,6 +7,7 @@
  * stake (5,000 LCAI testnet / 50,000 mainnet), which we surface in the UI.
  */
 import { HARDWARE } from "./network";
+import { MODEL_CATALOG, isModelId, lookupModel, residentVramGb, type CatalogEntry } from "./model-catalog";
 
 export interface MachineInput {
   cores: number;
@@ -151,38 +152,179 @@ export function inferGpu(renderer: string): { vramGb?: number; unified?: boolean
 
 export type ModelTier = "light" | "standard" | "large" | "server";
 
+/**
+ * Provenance of a size. Only `catalog` is a measurement; the other two are
+ * inferences the UI must label as such rather than rendering a confident number.
+ */
+export type ModelSizeSource = "catalog" | "name" | "unknown";
+
 export interface ModelRequirement {
-  paramsB: number; // estimated parameter count in billions (0 = unknown)
-  vramGb: number; // rough resident memory needed to serve it
+  paramsB: number; // param count in billions parsed from the tag (0 = unknown, incl. MoE)
+  vramGb: number; // resident memory needed to serve it - always a number, see `known`
   tier: ModelTier;
   tierLabel: string;
+  /** True only when the number is catalog-backed (measured). False = a guess. */
+  known: boolean;
+  source: ModelSizeSource;
+  /** The catalog row behind a known requirement (note, embedding flag, download size). */
+  entry?: CatalogEntry;
 }
 
 /**
- * Rough hardware requirement for a model, inferred from its name (the param
- * count, e.g. the "8" in "llama3-8b" or the "2" in "gemma4:e2b"). Used only to
- * label models and flag a fit vs the operator's machine - the network never
- * gates on this. Unknown names fall back to a standard 8GB assumption.
+ * VRAM the machine has already spent before a model loads: the desktop
+ * compositor, the browser's GPU process, anything else holding a context. On
+ * this project's reference box - X11 at 4K on a 16GB card - that is ~1.3-1.5GB,
+ * so a "16GB GPU" really offers ~14.5GB to Ollama. Headless servers pay close to
+ * zero, which is why this is an explicit subtraction the caller opts into
+ * (`usableVramGb`) and NOT something baked into the fit checks below.
  */
-export function modelRequirement(name: string): ModelRequirement {
-  const m = /(\d+(?:\.\d+)?)\s*b\b/i.exec(name);
-  const paramsB = m ? parseFloat(m[1]) : 0;
-  if (paramsB > 0 && paramsB <= 4) return { paramsB, vramGb: 4, tier: "light", tierLabel: "Light - runs on most machines" };
-  if (paramsB <= 9) return { paramsB, vramGb: 8, tier: "standard", tierLabel: "Standard - needs an 8GB GPU / 16GB unified" };
-  if (paramsB <= 15) return { paramsB, vramGb: 12, tier: "standard", tierLabel: "Standard+ - needs a 12GB GPU" };
-  if (paramsB <= 34) return { paramsB, vramGb: 24, tier: "large", tierLabel: "Large - needs a 24GB GPU" };
-  return { paramsB, vramGb: 48, tier: "server", tierLabel: "Server-class - needs a 48GB+ GPU" };
+export const OS_VRAM_OVERHEAD_GB = 1.5;
+
+/**
+ * The sticker VRAM number minus the desktop's own claim on it - what a model can
+ * actually take. Returns 0 for a 0/unknown machine so it keeps the meaning the
+ * fit helpers give 0 ("we don't know this machine"), and never goes negative on
+ * a small GPU where the desktop eats most of the card.
+ */
+export function usableVramGb(totalVramGb: number, overheadGb = OS_VRAM_OVERHEAD_GB): number {
+  if (!(totalVramGb > 0)) return 0;
+  return Math.max(0, Math.round((totalVramGb - overheadGb) * 10) / 10);
 }
 
-/** Total resident memory (GB) needed to keep a set of models warm at once. */
+/**
+ * Stand-in footprint for a model we cannot size. keccak256 is one-way, so a
+ * registry id that isn't in the catalog could be ANY model - a 0.6B embedder or
+ * a 120B MoE. Assuming the largest one we know of is the only assumption that
+ * cannot quietly overcommit a machine; the old code assumed 8GB and understated
+ * gpt-oss:120b by 7x. Derived from the catalog, not a literal, so it tracks it.
+ */
+export const UNKNOWN_MODEL_VRAM_GB = MODEL_CATALOG.reduce((mx, e) => Math.max(mx, residentVramGb(e)), 0);
+
+/** Tier + human label for a resident footprint, in GPU classes people can buy. */
+function sizeBand(vramGb: number): { tier: ModelTier; tierLabel: string } {
+  if (vramGb <= 4) return { tier: "light", tierLabel: "Light - runs on most machines" };
+  if (vramGb <= 8) return { tier: "standard", tierLabel: "Standard - needs an 8GB GPU / 16GB unified" };
+  if (vramGb <= 12) return { tier: "standard", tierLabel: "Standard+ - needs a 12GB GPU" };
+  if (vramGb <= 24) return { tier: "large", tierLabel: "Large - needs a 24GB GPU" };
+  return { tier: "server", tierLabel: "Server-class - needs a 48GB+ GPU" };
+}
+
+/**
+ * Param count out of a tag: the "8" in "llama3-8b", the "2" in "gemma4:e2b".
+ *
+ * The right-hand guard is `(?![0-9a-z])` rather than `\b` so a quantization
+ * suffix like "8B_K_M" still reads as 8B (`_` is a word char, so `\b` missed it).
+ * There is deliberately NO left-hand guard: "gemma4:e2b" has its digit preceded
+ * by a letter, and requiring a boundary there would drop it to 0 params.
+ */
+function paramsFromTag(tag: string): number {
+  const m = /(\d+(?:\.\d+)?)\s*b(?![0-9a-z])/i.exec(tag);
+  return m ? parseFloat(m[1]) : 0;
+}
+
+/** Footprint implied by a param count alone - the fallback when we have no measurement. */
+function vramFromParams(paramsB: number): number {
+  if (paramsB <= 4) return 4;
+  if (paramsB <= 9) return 8;
+  if (paramsB <= 15) return 12;
+  if (paramsB <= 34) return 24;
+  return 48;
+}
+
+/**
+ * Hardware requirement for a model, by tag OR by on-chain id.
+ *
+ * Order matters: the measured catalog wins, always. A tag string is a terrible
+ * size oracle - "qwen3-coder-next" and "glm-4.7-flash" carry no number at all,
+ * and MoE names actively lie ("gemma4:e2b" reads as 2B but downloads 7.2GB) - so
+ * the regex is only ever a last resort for a model we've never measured.
+ *
+ * Three outcomes, and the caller must distinguish them:
+ *   catalog -> known: true, a measured/derived number the UI can state plainly.
+ *   name    -> known: false, a guess from the param count in the tag.
+ *   unknown -> known: false, UNKNOWN_MODEL_VRAM_GB and a label that says so.
+ * Ids are never regexed: a digest ending in "...0d9b" would otherwise parse as a
+ * 9B model and get asserted at 8GB, which is precisely the bug this replaces.
+ * The network never gates on any of this - it only labels models in the UI.
+ */
+export function modelRequirement(nameOrId: string): ModelRequirement {
+  const raw = (nameOrId ?? "").trim();
+
+  const entry = lookupModel(raw);
+  if (entry) {
+    const vramGb = residentVramGb(entry);
+    return { paramsB: paramsFromTag(entry.tag), vramGb, ...sizeBand(vramGb), known: true, source: "catalog", entry };
+  }
+
+  const paramsB = isModelId(raw) ? 0 : paramsFromTag(raw);
+  if (paramsB > 0) {
+    const vramGb = vramFromParams(paramsB);
+    const band = sizeBand(vramGb);
+    // Honest about provenance: this is arithmetic on a string, not a measurement.
+    return { paramsB, vramGb, tier: band.tier, tierLabel: `${band.tierLabel} (estimated from the name)`, known: false, source: "name" };
+  }
+
+  return {
+    paramsB: 0,
+    vramGb: UNKNOWN_MODEL_VRAM_GB,
+    ...sizeBand(UNKNOWN_MODEL_VRAM_GB),
+    tierLabel: "Size unknown - not verified",
+    known: false,
+    source: "unknown",
+  };
+}
+
+/*
+ * TWO WAYS TO ASK "does this machine fit these models"
+ * ----------------------------------------------------
+ * `modelsMemoryGb`/`modelsFit` are the ALL-RESIDENT rule and stay the app's
+ * default. A worker advertises every model it selected, so a job for any of them
+ * can land at any moment; if that model isn't already in VRAM, Ollama cold-loads
+ * it (tens of seconds for a 20GB set, longer off a spinning disk) while the job
+ * clock runs, and a missed deadline is what gets a worker slashed. Requiring the
+ * whole set resident buys that risk away outright.
+ *
+ * `modelFitsAlone`/`largestModelGb` express the weaker SWAP rule: hold only the
+ * biggest model and page the others in between jobs. That is safe ONLY when
+ * cold-load time comfortably fits inside the job deadline, which we cannot
+ * verify from the browser (it depends on disk speed and the deadline the
+ * requester set). They exist so a caller can label a "could serve, with
+ * swapping" state - nothing here switches the default over to them.
+ *
+ * `availGb` is taken at face value in both. Pass `usableVramGb(total)` if you
+ * want the desktop's overhead subtracted; these helpers deliberately don't, so a
+ * headless server isn't charged for a compositor it doesn't run.
+ */
+
+/** Total resident memory (GB) to keep a set of models warm at once (all-resident rule). */
 export function modelsMemoryGb(names: string[]): number {
-  return names.reduce((sum, n) => sum + modelRequirement(n).vramGb, 0);
+  const sum = names.reduce((total, n) => total + modelRequirement(n).vramGb, 0);
+  // Measured sizes are decimals now, so sum float noise (6.1 + 46.7 = 52.800000000000004)
+  // instead of the old whole numbers. Round to the one decimal the catalog claims.
+  return Math.round(sum * 10) / 10;
 }
 
 /** Whether a machine with `availGb` (discrete VRAM, or the unified pool on Apple
  *  Silicon) can keep the whole set resident at once. */
 export function modelsFit(names: string[], availGb: number): boolean {
   return availGb > 0 && names.length > 0 && modelsMemoryGb(names) <= availGb;
+}
+
+/**
+ * Whether ONE model fits on its own - the swap-mode question (see above).
+ *
+ * For an unsized model this compares against UNKNOWN_MODEL_VRAM_GB, so a true
+ * here means "clears the largest model we know of", which is the only fit claim
+ * that's defensible without knowing what the id actually is. Callers still must
+ * not paint an unsized model as a confident green "fits": check `known` first.
+ */
+export function modelFitsAlone(nameOrId: string, availGb: number): boolean {
+  return availGb > 0 && modelRequirement(nameOrId).vramGb <= availGb;
+}
+
+/** The single heaviest model in a set - the floor for swap mode. 0 for an empty set. */
+export function largestModelGb(names: string[]): number {
+  return names.reduce((mx, n) => Math.max(mx, modelRequirement(n).vramGb), 0);
 }
 
 export interface Detected {

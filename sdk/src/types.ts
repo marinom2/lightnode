@@ -90,11 +90,25 @@ export interface JobTransactions {
 
 export interface ModelInfo {
   id: string; // keccak256(model tag)
+  /**
+   * Repaired by fetchModels(): the raw indexer value cannot be trusted, because
+   * a model whitelisted without its tag string has `name === id`.
+   * INVARIANT: when `unnamed` is falsy, this IS the exact on-chain tag - safe to
+   * pass to modelId()/inference. Otherwise it is a readable placeholder.
+   */
   name: string;
   fee: string; // wei
   max_output_tokens: number;
   is_whitelisted: boolean;
   is_enabled: boolean;
+  /**
+   * True when `name` is a placeholder rather than a tag: the registration
+   * carried none and the id is not one we know. Never hash a name flagged here -
+   * it would mint a second, bogus model id. Optional so that the many literals
+   * building a ModelInfo (tests, fixtures) keep compiling; fetchModels always
+   * sets it explicitly.
+   */
+  unnamed?: boolean;
 }
 
 /**

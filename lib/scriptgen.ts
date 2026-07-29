@@ -5,13 +5,16 @@
  * operator runs locally, with the production gotchas already handled.
  */
 import { NETWORKS, DEFAULT_MODEL, type NetworkId, type NetworkConfig } from "./network";
+// Sizes are MEASURED in the shared catalog (never inferred from a tag), so the
+// generated script can gate a pull on real disk/VRAM numbers instead of guessing.
+import { MODEL_CATALOG, lookupModel, residentVramGb } from "./model-catalog";
 
 export type OS = "macos" | "linux" | "windows";
 
 const TOOLKIT = "https://github.com/lightchain-protocol/lightchain-worker-toolkit";
 
 // Bump on every install-script change so the log shows which version actually ran.
-export const INSTALLER_REV = "2026-06-07.1";
+export const INSTALLER_REV = "2026-07-29.1";
 
 export interface ScriptBundle {
   os: OS;
@@ -207,9 +210,13 @@ else
 fi
 # On-chain economic alerts (best-effort), regardless of the local run-state.
 econ_alerts
-# Keep every served model pinned in Ollama (keep_alive:-1) so none cold-loads
-# mid-job. Reads the set from a file (one per line) so a model change is picked up.
-while IFS= read -r M; do [ -n "$M" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 & done < "$HOME/.lightnode/model" 2>/dev/null || true
+# Keep every served model warm in Ollama so none cold-loads mid-job. Reads the
+# set from a file (one per line) so a model change is picked up, and the
+# residency policy from ~/.lightnode/keep-alive so a "swap on demand" operator
+# isn't silently re-pinned. Missing/empty file = -1 (pin for ever), which is what
+# every install before the knob existed did.
+KA="$(cat "$HOME/.lightnode/keep-alive" 2>/dev/null)"; [ -n "$KA" ] || KA=-1
+while IFS= read -r M; do [ -n "$M" ] && curl -s -m 5 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":$KA,\\"stream\\":false}" >/dev/null 2>&1 & done < "$HOME/.lightnode/model" 2>/dev/null || true
 KEEPEOF
 chmod +x "$HOME/.lightnode/keep-online.sh"
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -315,6 +322,62 @@ export PATH="$HOME/.foundry/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.docker/b
 OS="$(uname -s)"
 if [ "$OS" = "Darwin" ] && ! have brew; then echo "⛔ Install Homebrew first: https://brew.sh"; exit 1; fi
 
+# ── Root escalation that CANNOT hang ─────────────────────────────────────────
+# The desktop app runs this installer through \`bash -lc\` with stdin INHERITED
+# and no tty. A plain \`sudo\` there either dies ("no tty present") - which under
+# the set -e above tears the WHOLE install down - or, when a terminal happens to
+# be attached, blocks forever on a password prompt the user never sees. Both are
+# why a Linux install could not finish. So the ladder is strictly:
+#   already root  ->  sudo -n (never prompts; exits non-zero instead)  ->  pkexec
+# pkexec raises a GRAPHICAL polkit dialog, the only prompt that can reach a user
+# who launched us from a desktop icon; with no authentication agent registered it
+# fails immediately rather than falling back to a tty prompt. Bare \`sudo\` is
+# deliberately NOT in the ladder. Arguments pass through untouched so callers
+# never nest quotes, and stdin is closed so a vendor script cannot swallow the
+# app's pipe (or block waiting on it).
+as_root() {
+  if [ "$(id -u)" = "0" ]; then "$@" </dev/null; return $?; fi
+  if sudo -n true 2>/dev/null; then sudo -n "$@" </dev/null; return $?; fi
+  if have pkexec; then pkexec "$@" </dev/null; return $?; fi
+  return 127
+}
+# Whether as_root has ANY chance of working. Checked BEFORE downloading a vendor
+# installer so we fail with an actionable message instead of half-way through.
+can_root(){ [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null || have pkexec; }
+
+# ── Model residency knobs (defaults deliberately UNCHANGED) ──────────────────
+# OLLAMA_KEEP_ALIVE=-1 pins every served model in memory for ever. That default
+# is a financial decision, not a performance one: a job that misses its deadline
+# is SLASHED, and cold-loading a 20-60 GB model costs tens of seconds against a
+# ~120s budget. The price is that the memory is never handed back, and since
+# every selected model is pinned, serving N models needs the SUM of their
+# resident footprints.
+# A future "swap on demand" mode wants the opposite trade (fit more models than
+# VRAM, pay one cold load per switch), so both knobs are read from the
+# environment instead of being hardcoded here. Nothing in the app sets them, so
+# the generated script behaves exactly as before unless an operator opts in with
+# e.g. LIGHTNODE_KEEP_ALIVE=5m LIGHTNODE_MAX_LOADED_MODELS=1 - and that operator
+# is trading slash risk for memory, knowingly.
+LN_KEEP_ALIVE="\${LIGHTNODE_KEEP_ALIVE:--1}"
+LN_MAX_LOADED="\${LIGHTNODE_MAX_LOADED_MODELS:-}"
+# JSON form for /api/generate: a bare number must stay bare, a duration string
+# ("5m") must be quoted or the request body is invalid JSON.
+case "$LN_KEEP_ALIVE" in ""|*[!0-9-]*) LN_KEEP_ALIVE_JSON="\\"$LN_KEEP_ALIVE\\"";; *) LN_KEEP_ALIVE_JSON="$LN_KEEP_ALIVE";; esac
+
+# The systemd drop-in that makes Ollama reachable from the worker CONTAINER (see
+# the Linux note in section 3) plus the residency knobs. Staged into a file WE
+# own, so the only privileged step is copying it into place - no quoting games
+# inside a root shell - and the same file serves both the fresh-install path and
+# the "Ollama was already here" path.
+write_ollama_dropin() {
+  mkdir -p "$HOME/.lightnode"
+  { echo "[Service]"
+    echo 'Environment="OLLAMA_HOST=0.0.0.0:11434"'
+    echo 'Environment="OLLAMA_KEEP_ALIVE='"$LN_KEEP_ALIVE"'"'
+    [ -n "$LN_MAX_LOADED" ] && echo 'Environment="OLLAMA_MAX_LOADED_MODELS='"$LN_MAX_LOADED"'"' || true
+  } > "$HOME/.lightnode/ollama-lightnode.conf"
+}
+
 # 0) Disk guard. A near-full startup disk makes Docker Desktop's backend crash while
 # writing its lock files, into an unrecoverable state ("no space left on device").
 # Fail fast with a clear message BEFORE we ever start Docker. (df -k is portable;
@@ -327,13 +390,66 @@ fi
 [ -n "$FREE_G" ] && [ "$FREE_G" -lt 15 ] && echo "⚠ Only ~$FREE_G GB free - the model download alone needs several GB; you may run low."
 
 # 1) Install only what's missing (idempotent; each is a no-op when present).
+# Linux: BOTH vendor installers need root, and BOTH shell out to sudo themselves
+# (get.docker.com sets sh_c='sudo -E sh -c'; ollama's install.sh sets SUDO=sudo).
+# Piped straight into \`sh\`, that sudo fires from inside a pipe with no tty to
+# prompt on - so the install either died or hung on a prompt nobody could see.
+# Instead we download the script as the user and hand the whole job to as_root
+# ONCE: one visible prompt, no hidden one, and a clean actionable failure.
 if have docker; then echo "✓ Docker already installed"; else
   echo "▶ installing Docker"
-  if [ "$OS" = "Darwin" ]; then brew install --cask docker; else curl -fsSL https://get.docker.com | sh; fi
+  if [ "$OS" = "Darwin" ]; then brew install --cask docker; else
+    can_root || { echo "⛔ Docker is not installed, and installing it needs administrator rights this app cannot obtain here (you are not root, passwordless sudo is not configured, and pkexec - the graphical admin prompt - is unavailable)."; echo "   Run this ONCE in a terminal, then click Install again:"; echo "     curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $(id -un) && newgrp docker"; exit 1; }
+    mkdir -p "$HOME/.lightnode"
+    curl -fsSL https://get.docker.com -o "$HOME/.lightnode/get-docker.sh" || { echo "⛔ could not download the Docker installer from get.docker.com - check your connection, then run install again."; exit 1; }
+    # One escalated invocation covering every root step: install, add you to the
+    # docker group, enable the service. Split up, this would ask three times.
+    cat > "$HOME/.lightnode/.root-docker.sh" <<ROOTDOCKEREOF
+#!/bin/sh
+sh "$HOME/.lightnode/get-docker.sh" || exit 1
+usermod -aG docker "$(id -un)" 2>/dev/null || true
+systemctl enable --now docker 2>/dev/null || true
+exit 0
+ROOTDOCKEREOF
+    echo "… approve the administrator prompt to install Docker"
+    as_root sh "$HOME/.lightnode/.root-docker.sh" || { echo "⛔ the Docker install did not complete - the administrator prompt was declined, or no polkit agent is running in this session."; echo "   Run this ONCE in a terminal, then click Install again:"; echo "     curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $(id -un) && newgrp docker"; exit 1; }
+    hash -r 2>/dev/null || true
+    # A new group only applies to a NEW login session, so THIS shell still can't
+    # reach the socket. Say that now, plainly, instead of failing four minutes
+    # later in the engine wait with a generic "Docker didn't come up".
+    for _ in $(seq 1 15); do docker info >/dev/null 2>&1 && break; sleep 1; done
+    if ! docker info >/dev/null 2>&1 && docker info 2>&1 | grep -qi "permission denied"; then
+      echo "⛔ Docker is installed and running, but your user was only just added to the 'docker' group and Linux applies group changes at LOGIN. Log out and back in (or reboot), then click Install again. Nothing has been staked."
+      exit 1
+    fi
+  fi
 fi
 if have ollama; then echo "✓ Ollama already installed"; else
   echo "▶ installing Ollama"
-  if [ "$OS" = "Darwin" ]; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi
+  if [ "$OS" = "Darwin" ]; then brew install ollama; else
+    can_root || { echo "⛔ Ollama is not installed, and installing it needs administrator rights this app cannot obtain here (you are not root, passwordless sudo is not configured, and pkexec - the graphical admin prompt - is unavailable)."; echo "   Run this ONCE in a terminal, then click Install again:"; echo "     curl -fsSL https://ollama.com/install.sh | sh"; exit 1; }
+    mkdir -p "$HOME/.lightnode"
+    curl -fsSL https://ollama.com/install.sh -o "$HOME/.lightnode/get-ollama.sh" || { echo "⛔ could not download the Ollama installer from ollama.com - check your connection, then run install again."; exit 1; }
+    # Stage the drop-in first so ONE escalation does both root jobs: the vendor
+    # install AND the 0.0.0.0 bind the worker container needs (section 3). Asking
+    # twice is the difference between one polkit dialog and two.
+    write_ollama_dropin
+    cat > "$HOME/.lightnode/.root-ollama.sh" <<ROOTOLLAMAEOF
+#!/bin/sh
+sh "$HOME/.lightnode/get-ollama.sh" || exit 1
+mkdir -p /etc/systemd/system/ollama.service.d
+cp "$HOME/.lightnode/ollama-lightnode.conf" /etc/systemd/system/ollama.service.d/lightnode.conf || exit 1
+chmod 0644 /etc/systemd/system/ollama.service.d/lightnode.conf
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable ollama 2>/dev/null || true
+systemctl restart ollama 2>/dev/null || true
+exit 0
+ROOTOLLAMAEOF
+    echo "… approve the administrator prompt to install Ollama (the same prompt also binds it to 0.0.0.0, which the worker container needs)"
+    as_root sh "$HOME/.lightnode/.root-ollama.sh" || { echo "⛔ the Ollama install (or the 0.0.0.0 bind that follows it) did not complete - the administrator prompt was declined, or no polkit agent is running in this session."; echo "   Run this ONCE in a terminal, then click Install again:"; echo "     curl -fsSL https://ollama.com/install.sh | sh"; exit 1; }
+    hash -r 2>/dev/null || true
+    have ollama || { echo "⛔ the Ollama installer ran but 'ollama' is still not on PATH. Open a new terminal and run 'ollama --version'; if that fails, reinstall from https://ollama.com/download/linux, then click Install again."; exit 1; }
+  fi
 fi
 if have cast; then echo "✓ Foundry already installed"; else
   echo "▶ installing Foundry"
@@ -348,12 +464,16 @@ hash -r 2>/dev/null || true
 # 2) Start Docker AND Ollama TOGETHER so Ollama boots during Docker's (much slower)
 # cold start instead of after it. Keep the model resident (no idle eviction) so it
 # never cold-loads mid-job - set before starting the server so it's picked up.
-export OLLAMA_KEEP_ALIVE=-1
-[ "$OS" = "Darwin" ] && { launchctl setenv OLLAMA_KEEP_ALIVE -1 2>/dev/null || true; }
+export OLLAMA_KEEP_ALIVE="$LN_KEEP_ALIVE"
+[ -n "$LN_MAX_LOADED" ] && export OLLAMA_MAX_LOADED_MODELS="$LN_MAX_LOADED" || true
+[ "$OS" = "Darwin" ] && { launchctl setenv OLLAMA_KEEP_ALIVE "$LN_KEEP_ALIVE" 2>/dev/null || true; [ -n "$LN_MAX_LOADED" ] && launchctl setenv OLLAMA_MAX_LOADED_MODELS "$LN_MAX_LOADED" 2>/dev/null || true; }
 if ! curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
   echo "▶ starting the Ollama server"
+  # sudo -n only, never bare sudo: a password prompt here has no tty to appear on
+  # (see as_root). The nohup fallback needs no privileges at all, so this always
+  # has a way through.
   if [ "$OS" = "Darwin" ]; then open -a Ollama 2>/dev/null || brew services start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &)
-  else sudo systemctl start ollama 2>/dev/null || systemctl --user start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &); fi
+  else sudo -n systemctl start ollama 2>/dev/null || systemctl --user start ollama 2>/dev/null || (nohup ollama serve >/dev/null 2>&1 &); fi
 fi
 # Engine not on the default socket? Try the common alternates (Docker Desktop /
 # Colima / Rancher) and pin DOCKER_HOST to whichever answers, before starting it.
@@ -382,7 +502,10 @@ if ! docker info >/dev/null 2>&1; then
     open -a Docker 2>/dev/null || open -a "Docker Desktop" 2>/dev/null || true
   else
     echo "▶ starting the Docker engine"
-    sudo systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || true
+    # Silent paths first (passwordless sudo, then the Docker Desktop user unit);
+    # a graphical admin prompt only as a last resort. Never bare sudo - it would
+    # hang on a password prompt with no tty to show it.
+    sudo -n systemctl start docker 2>/dev/null || systemctl --user start docker-desktop 2>/dev/null || as_root systemctl start docker 2>/dev/null || true
   fi
 fi
 
@@ -427,26 +550,60 @@ echo "✓ Ollama server running"
 # host.docker.internal to the host loopback - bare-metal Linux has no such proxy.)
 # Bind Ollama to 0.0.0.0 so the bridge can reach it. Idempotent.
 if [ "$OS" = "Linux" ]; then
-  if systemctl show ollama 2>/dev/null | grep -q 'OLLAMA_HOST=0.0.0.0'; then
-    echo "✓ Ollama is reachable from the worker container (0.0.0.0)"
-  elif systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
+  # Judge the LISTEN address, not the unit file: the unit file lies whenever
+  # Ollama was started some other way (a user session, a nohup, a snap). Returns
+  # 0 = all interfaces, 1 = loopback only, 2 = can't tell (no ss/netstat), so an
+  # unknown never becomes a block on a guess.
+  ollama_bind_state() {
+    if have ss; then OBS="$(ss -ltn 2>/dev/null)"; elif have netstat; then OBS="$(netstat -ltn 2>/dev/null)"; else return 2; fi
+    printf '%s' "$OBS" | grep -q ':11434' || return 2
+    if printf '%s' "$OBS" | grep -Fq '0.0.0.0:11434' || printf '%s' "$OBS" | grep -Fq '[::]:11434' || printf '%s' "$OBS" | grep -Fq '*:11434'; then return 0; fi
+    return 1
+  }
+  OB=0; ollama_bind_state || OB=$?
+  if [ "$OB" = "1" ]; then
     echo "▶ allowing the worker container to reach Ollama (binding it to 0.0.0.0)"
-    # Editing the system ollama.service needs root. Try, in order: passwordless
-    # sudo (silent), pkexec (a GRAPHICAL admin prompt - works from the GUI app
-    # where there is no terminal for sudo), then sudo (prompts on a real terminal).
-    OLLPRIV='mkdir -p /etc/systemd/system/ollama.service.d && printf "[Service]\\nEnvironment=\\"OLLAMA_HOST=0.0.0.0:11434\\"\\nEnvironment=\\"OLLAMA_KEEP_ALIVE=-1\\"\\n" > /etc/systemd/system/ollama.service.d/lightnode.conf && systemctl daemon-reload && systemctl restart ollama'
-    if sudo -n sh -c "$OLLPRIV" 2>/dev/null || { command -v pkexec >/dev/null 2>&1 && pkexec sh -c "$OLLPRIV" 2>/dev/null; } || sudo sh -c "$OLLPRIV" 2>/dev/null; then
-      for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
-      echo "✓ Ollama now listening on 0.0.0.0:11434 - the worker container can reach it"
+    write_ollama_dropin
+    if systemctl list-unit-files 2>/dev/null | grep -q '^ollama.service'; then
+      # Editing the system unit needs root - same no-hang ladder as everything
+      # else (as_root); a declined prompt is reported, never waited on.
+      cat > "$HOME/.lightnode/.root-ollama-bind.sh" <<ROOTBINDEOF
+#!/bin/sh
+mkdir -p /etc/systemd/system/ollama.service.d
+cp "$HOME/.lightnode/ollama-lightnode.conf" /etc/systemd/system/ollama.service.d/lightnode.conf || exit 1
+chmod 0644 /etc/systemd/system/ollama.service.d/lightnode.conf
+systemctl daemon-reload || exit 1
+systemctl restart ollama || exit 1
+exit 0
+ROOTBINDEOF
+      echo "… approve the administrator prompt so the worker container can reach Ollama"
+      as_root sh "$HOME/.lightnode/.root-ollama-bind.sh" >/dev/null 2>&1 || echo "⚠ could not rebind Ollama automatically (the admin prompt was declined or unavailable)"
     else
-      echo "⚠ Ollama only listens on 127.0.0.1, so the Dockerized worker can't reach it and jobs will fail at inference. Approve the admin prompt if one appears, or run once in a terminal: sudo mkdir -p /etc/systemd/system/ollama.service.d && printf '[Service]\\nEnvironment=\"OLLAMA_HOST=0.0.0.0:11434\"\\n' | sudo tee /etc/systemd/system/ollama.service.d/lightnode.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama"
+      # No systemd unit: Ollama is a plain process we can restart ourselves, so
+      # this path needs no privileges at all.
+      pkill -f 'ollama serve' 2>/dev/null || true; sleep 1
+      OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE="$LN_KEEP_ALIVE" nohup ollama serve >/dev/null 2>&1 &
     fi
-  else
-    echo "▶ restarting Ollama bound to 0.0.0.0 so the worker container can reach it"
-    pkill -f 'ollama serve' 2>/dev/null || true; sleep 1
-    OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE=-1 nohup ollama serve >/dev/null 2>&1 &
     for _ in $(seq 1 30); do curl -s http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 1; done
-    echo "✓ Ollama listening on 0.0.0.0:11434"
+    OB=0; ollama_bind_state || OB=$?
+  fi
+  case "$OB" in
+    0) echo "✓ Ollama listens on all interfaces - the worker container can reach it" ;;
+    1) echo "⛔ Ollama still only listens on 127.0.0.1, so the Dockerized worker cannot reach it and EVERY job would fail at inference - a staked worker that earns nothing and can be slashed. Install stops here; nothing has been staked."
+       echo "   Fix it once in a terminal, then click Install again:"
+       echo "     sudo mkdir -p /etc/systemd/system/ollama.service.d"
+       echo "     printf '[Service]\\nEnvironment=\\"OLLAMA_HOST=0.0.0.0:11434\\"\\n' | sudo tee /etc/systemd/system/ollama.service.d/lightnode.conf"
+       echo "     sudo systemctl daemon-reload && sudo systemctl restart ollama"
+       exit 1 ;;
+    *) echo "⚠ could not confirm which address Ollama listens on (no ss/netstat here). If jobs fail at inference with 'connection refused' to 172.17.0.1:11434, bind Ollama to 0.0.0.0." ;;
+  esac
+  # Belt and braces: the container talks to the bridge GATEWAY, so a host firewall
+  # can still block a correctly-bound Ollama. WARN only - on Docker Desktop for
+  # Linux the daemon lives in a VM where this address legitimately differs from
+  # the one the host sees, and a false block there is worse than a warning.
+  if [ "$OB" = "0" ]; then
+    BRIDGE_GW="$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null | head -1)"; [ -n "$BRIDGE_GW" ] || BRIDGE_GW=172.17.0.1
+    curl -s -m 5 "http://$BRIDGE_GW:11434/api/tags" >/dev/null 2>&1 || echo "⚠ Ollama is bound to all interfaces but did not answer on the docker bridge gateway ($BRIDGE_GW:11434). If jobs fail at inference a host firewall is blocking it - e.g. sudo ufw allow in on docker0 to any port 11434"
   fi
 fi
 
@@ -474,6 +631,17 @@ function unixInstall(network: NetworkId, models: string[]): string {
   const list = models.length ? models : [DEFAULT_MODEL];
   const supported = list.join(","); // SUPPORTED_MODELS the worker advertises
   const shellList = list.map((m) => `"${m}"`).join(" "); // for `for M in ...` loops
+  // Download sizes, straight from the shared catalog so they can never drift from
+  // what the UI showed. A tag we don't know gets no size and simply skips the
+  // disk gate - `known: false` stays first-class, we never guess a footprint.
+  const sizeCases = MODEL_CATALOG.map((e) => `    "${e.tag}") echo ${e.downloadGb};;`).join("\n");
+  // Resident VRAM the whole selected set needs. Every served model is pinned
+  // (keep_alive), so it is the SUM that has to fit, not the largest. Only emitted
+  // when every selected tag is in the catalog - a partial sum would understate it.
+  const entries = list.map((m) => lookupModel(m));
+  const vramNeedGb = entries.every((e) => e !== undefined)
+    ? Math.round(entries.reduce((s, e) => s + residentVramGb(e!), 0) * 10) / 10
+    : 0;
   return [
     "set -e",
     "exec 2>&1", // surface stderr (git clone, cast, etc.) in the streamed log
@@ -482,6 +650,10 @@ function unixInstall(network: NetworkId, models: string[]): string {
     SMART_PREREQS,
     // The app's working dir may be "/" (non-writable). Work in a real home dir.
     'mkdir -p "$HOME/.lightnode" && cd "$HOME/.lightnode" && echo "✓ workdir: $HOME/.lightnode"',
+    // Persist the resolved residency policy so the watchdog re-warms with the SAME
+    // one the install used (it defaults to -1 when the file is absent, so every
+    // pre-existing install keeps pinning exactly as before).
+    `printf '%s\\n' "$LN_KEEP_ALIVE_JSON" > "$HOME/.lightnode/keep-alive"`,
     // Changing the served set? Unload any previously-served model that is NOT in
     // the new set (each is pinned with keep_alive:-1 and never evicts on its own),
     // so its memory is freed instead of sitting resident.
@@ -519,10 +691,66 @@ function unixInstall(network: NetworkId, models: string[]): string {
     "    sleep 2",
     "  done",
     '  wait "$PM_PID" 2>/dev/null || true',
-    "  PM_RC=\"$(grep -oE '__PULLRC__:[0-9]+' \"$PM_LOG\" | tail -1 | cut -d: -f2)\"; rm -f \"$PM_LOG\"",
-    '  if [ "${PM_RC:-1}" = "0" ]; then echo "✓ downloaded $PM_NAME"; else echo "⚠ $PM_NAME download exited ${PM_RC:-?} (continuing)"; fi',
+    // The exit code is reported, but it is NOT the gate. `ollama pull` can exit 0
+    // on a partially-written model, and a scraped marker can be missed entirely -
+    // so the only thing we trust is asking Ollama what it actually has, below.
+    "  PM_RC=\"$(grep -oE '__PULLRC__:[0-9]+' \"$PM_LOG\" | tail -1 | cut -d: -f2)\"; PM_TAIL=\"$(tr '\\r' '\\n' < \"$PM_LOG\" 2>/dev/null | grep -v '^ *$' | tail -2 | tr '\\n' ' ')\"; rm -f \"$PM_LOG\"",
+    '  if [ "${PM_RC:-1}" = "0" ]; then echo "✓ downloaded $PM_NAME"; else echo "⚠ $PM_NAME download exited ${PM_RC:-?}: $PM_TAIL"; fi',
     "}",
-    `for M in ${shellList}; do TAG="$(printf '%s' "$M" | sed -E 's/-([0-9.]+[bB])$/:\\1/')"; if ollama list 2>/dev/null | grep -qiE "(^|[[:space:]])$M(:latest)?([[:space:]]|$)"; then echo "✓ model $M present"; else pull_model "$M" "$TAG"; [ "$TAG" != "$M" ] && ollama cp "$TAG" "$M" >/dev/null 2>&1 && echo "✓ aliased $TAG -> $M" || true; fi; done`,
+    // Is the model REALLY in Ollama under its exact on-chain name? `ollama list`
+    // prints NAME as tag[:latest], so an implicit :latest counts. Whole-line FIXED
+    // compare against the NAME column only: a substring match would accept
+    // "llama3-8b-instruct" for "llama3-8b", and a regex would treat the "." in
+    // "glm-4.7-flash" as a wildcard.
+    "model_present() {",
+    "  ollama list 2>/dev/null | awk 'NR>1 {print $1}' | sed 's/:latest$//' | grep -qxF \"$(printf '%s' \"$1\" | sed 's/:latest$//')\"",
+    "}",
+    // Measured download size per known tag (generated from lib/model-catalog.ts).
+    // Empty for a tag we don't know, which just skips the disk gate.
+    "model_download_gb() {",
+    '  case "$1" in',
+    sizeCases,
+    '    *) echo "";;',
+    "  esac",
+    "}",
+    ...(vramNeedGb > 0
+      ? [
+          // Fit check - WARN, never a block: Ollama still runs an oversized model,
+          // it just spills to the CPU at a fraction of the speed, which is the most
+          // common cause of a missed deadline (and a slash). The operator may also
+          // have swapped GPUs since we measured.
+          `LN_VRAM_NEED=${vramNeedGb}`,
+          `GPU_MB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)"`,
+          `if [ -n "$GPU_MB" ] && awk -v g="$GPU_MB" -v n="$LN_VRAM_NEED" 'BEGIN{exit !(g/1024 < n)}'; then GPU_GB="$(awk -v g="$GPU_MB" 'BEGIN{printf "%.1f", g/1024}')"; echo "⚠ the model(s) you picked need about $LN_VRAM_NEED GB resident (all served models stay loaded at once) and this GPU reports $GPU_GB GB. Whatever does not fit runs on the CPU - far slower, and slow jobs miss their deadline, which is slashable on mainnet. Consider serving fewer or smaller models."; fi`,
+        ]
+      : []),
+    // Pull each missing model, then GATE ON PRESENCE. The old code only warned
+    // ("continuing") on a failed pull and walked straight into staking + register,
+    // producing a staked worker advertising a model it cannot run - every job it
+    // wins then fails. Real tags like qwen3-coder-next (51.7 GB) and gpt-oss:120b
+    // (65.4 GB) make that easy to hit, so the failure has to be loud and terminal.
+    'MISSING_MODELS=""',
+    `for M in ${shellList}; do`,
+    '  if model_present "$M"; then echo "✓ model $M present"; continue; fi',
+    `  TAG="$(printf '%s' "$M" | sed -E 's/-([0-9.]+[bB])$/:\\1/')"`,
+    '  NEED_GB="$(model_download_gb "$M")"',
+    '  if [ -n "$NEED_GB" ]; then',
+    `    FREE_NOW="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"`,
+    `    if [ -n "$FREE_NOW" ] && awk -v f="$FREE_NOW" -v n="$NEED_GB" 'BEGIN{exit !(f < n + 2)}'; then echo "⛔ $M is a ~$NEED_GB GB download and only $FREE_NOW GB is free here. Free up space or pick a smaller model, then run install again - nothing has been staked."; exit 1; fi`,
+    '    echo "▶ $M is a ~$NEED_GB GB download"',
+    "  fi",
+    '  pull_model "$M" "$TAG"',
+    '  [ "$TAG" != "$M" ] && ollama cp "$TAG" "$M" >/dev/null 2>&1 && echo "✓ aliased $TAG -> $M" || true',
+    '  if model_present "$M"; then echo "✓ model $M ready"; else MISSING_MODELS="$MISSING_MODELS $M"; fi',
+    "done",
+    'if [ -n "$MISSING_MODELS" ]; then',
+    '  echo "⛔ these selected model(s) are NOT on this machine after the download:$MISSING_MODELS"',
+    '  echo "   A worker advertises what it serves, so registering now would stake your LCAI on a model that fails every job it wins (slashable on mainnet). Install stops here."',
+    '  echo "   Nothing was staked or registered - your funds are untouched."',
+    '  echo "   The download error is above; the usual causes are out of disk, out of memory, or a tag that does not exist in the Ollama registry."',
+    '  echo "   Check by hand with:  ollama pull <tag>   then   ollama list"',
+    "  exit 1",
+    "fi",
     `if [ -d lightchain-worker-toolkit ]; then echo "✓ toolkit present - updating"; (cd lightchain-worker-toolkit && git pull --ff-only || true); else git clone ${TOOLKIT}.git; fi`,
     "cd lightchain-worker-toolkit/scripts/bash",
     "[ -f secrets.env ] || cp secrets.example.sh secrets.env",
@@ -670,21 +898,49 @@ function unixInstall(network: NetworkId, models: string[]): string {
     // staked but whose model-add failed inside the daemon's one-shot register (the
     // daemon under-sets the gas limit -> OutOfGas). We send addSupportedModel
     // ourselves with gas = estimate x1.5, which lands. No-op if already eligible.
+    //
+    // Two rules make the result trustworthy, and both were previously broken:
+    //   1. NEVER send on a reverting estimate. `cast estimate` runs the call
+    //      against current state from the same sender, so a revert there means the
+    //      tx would revert too. The old fallback to a fixed 300000 gas sent anyway.
+    //   2. NEVER believe the exit code. `cast send --gas-limit N` exits 0 even when
+    //      the receipt comes back status 0 (reverted, gas burned), so a reverted
+    //      add printed "✓ model added" and the install went on to announce "worker
+    //      online" over a staked worker with zero eligible models. The registry is
+    //      the only witness: read isEligible back.
     [
       "add_selected_model_onchain() {",
       '  [ -z "$MODEL_ID" ] && return 0',
       `  if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then return 0; fi`,
-      `  AM_EST="$(cast estimate --from "$WORKER_ADDR" "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null)"`,
-      `  case "\${AM_EST:-}" in ""|*[!0-9]*) AM_GAS=300000;; *) AM_GAS="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$AM_EST")";; esac`,
+      // stderr is merged so a revert reason can be shown; the estimate itself is
+      // the one all-digits line, so a foundry warning can't be mistaken for it.
+      `  AM_RAW="$(cast estimate --from "$WORKER_ADDR" "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --rpc-url "${rpc}" 2>&1)"`,
+      `  AM_EST="$(printf '%s' "$AM_RAW" | grep -oE '^[0-9]+$' | tail -1)"`,
+      '  if [ -z "$AM_EST" ]; then',
+      `    echo "⛔ the on-chain model add would revert, so it was NOT sent: $(printf %s "$AM_RAW" | tr "\\n" " " | cut -c1-160)"`,
+      '    echo "   The worker is staked but is NOT serving the selected model, so it would earn nothing. Check the model is whitelisted on this network, then run install again."',
+      "    return 1",
+      "  fi",
+      `  AM_GAS="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$AM_EST")"`,
       '  echo "▶ adding the selected model on-chain with proper gas (gas-limit $AM_GAS) - the daemon under-gasses this step"',
-      `  if cast send "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --private-key "$WORKER_PRIVKEY" --rpc-url "${rpc}" --gas-limit "$AM_GAS" >/dev/null 2>&1; then echo "✓ model added on-chain (worker now serving it)"; return 0; else echo "⛔ model add failed even with estimated gas"; return 1; fi`,
+      `  AM_OUT="$(cast send "${workerRegistry}" "addSupportedModel(bytes32)" "$MODEL_ID" --private-key "$WORKER_PRIVKEY" --rpc-url "${rpc}" --gas-limit "$AM_GAS" 2>&1)" || { echo "⛔ the model-add tx failed to send: $(printf %s "$AM_OUT" | tr "\\n" " " | cut -c1-160)"; return 1; }`,
+      // A couple of retries only for RPC read-after-write lag behind a load
+      // balancer; cast send has already waited for the receipt.
+      "  for _ in 1 2 3 4 5; do",
+      `    if cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | grep -qi true; then echo "✓ model added on-chain and verified (worker now serving it)"; return 0; fi`,
+      "    sleep 2",
+      "  done",
+      '  echo "⛔ the model-add tx landed but the registry still does not list this worker as serving the model - it reverted on-chain (receipt status 0)."',
+      '  echo "   Your stake is untouched, and the worker is NOT online until this succeeds. Run install again in a minute; if it keeps failing, the model may not be whitelisted on this network."',
+      "  return 1",
       "}",
     ].join("\n"),
     `for p in ${desktopPhases}; do if [ "$p" = "04-import-key" ] && [ "$SKIP_IMPORT" = "1" ]; then echo "▶ phase 04-import-key (skipped - key already present)"; continue; fi; if [ "$p" = "07-register" ]; then REG_OK="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; ELIG_OK="$( [ -n "$MODEL_ID" ] && cast call "${workerRegistry}" 'isEligible(address,bytes32)(bool)' "$WORKER_ADDR" "$MODEL_ID" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" = "true" ]; then echo "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue; fi; if [ "$REG_OK" = "true" ] && [ "$ELIG_OK" != "true" ]; then echo "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; add_selected_model_onchain || exit 1; continue; fi; gate_funding || exit 1; fi; if [ "$p" = "07-register" ]; then echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || true; NOW_REG="$(cast call "${workerRegistry}" 'isWorkerRegistered(address)(bool)' "$WORKER_ADDR" --rpc-url "${rpc}" 2>/dev/null | awk '{print $1}')"; if [ "$NOW_REG" != "true" ]; then echo "⛔ stopped at 07-register (worker not registered on-chain after the attempt)"; exit 1; fi; add_selected_model_onchain || exit 1; else echo "▶ phase $p"; FORCE=1 "$RUNBASH" "$p.sh" 2>&1 || { echo "⛔ stopped at $p"; exit 1; }; fi; done${net.sortition ? "\n" + sortitionRunUnix(net) : ""}`,
-    // Pre-warm: load each served model and pin it (keep_alive:-1) so the first
-    // real job doesn't pay a cold-load that could exceed the inference timeout.
+    // Pre-warm: load each served model and hold it under the resolved residency
+    // policy (-1 = pinned, the default) so the first real job doesn't pay a
+    // cold-load that could exceed the inference timeout.
     `echo "▶ pre-warming ${list.join(", ")} (kept resident to avoid cold-load timeouts)"`,
-    `for M in ${shellList}; do curl -s -m 120 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":-1,\\"stream\\":false}" >/dev/null 2>&1 || true; done`,
+    `for M in ${shellList}; do curl -s -m 120 http://127.0.0.1:11434/api/generate -d "{\\"model\\":\\"$M\\",\\"prompt\\":\\"ok\\",\\"keep_alive\\":$LN_KEEP_ALIVE_JSON,\\"stream\\":false}" >/dev/null 2>&1 || true; done`,
     'echo "✅ worker online"',
   ].join("\n");
 }
@@ -981,15 +1237,32 @@ $ModelId = (cast keccak "$(("${supported}" -split ',')[0])" 2>$null)
 # Gas-correct on-chain add of the selected model, to FINISH a worker that staked
 # but whose model-add failed inside the daemon's one-shot register (the daemon
 # under-sets the gas limit -> OutOfGas). gas = estimate x1.5. No-op if eligible.
+# Same two rules as the bash side: never send on a reverting estimate (the old
+# fixed 300000 fallback sent regardless), and never trust the exit code - cast
+# send returns 0 for a mined-but-REVERTED tx, so the registry is re-read as the
+# only real witness that the worker now serves the model.
 function Add-SelectedModelOnchain {
+  # cast writes to stderr routinely; under the install's ErrorActionPreference=Stop
+  # that would promote an EXPECTED revert into a terminating NativeCommandError and
+  # kill the install. Function-scoped Continue, judged by exit code (see Resolve-WorkerPassword).
+  $ErrorActionPreference = 'Continue'
   if (-not $ModelId) { return $true }
   $elig = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null)
   if ($elig -match 'true') { return $true }
-  $est = (cast estimate --from $env:WORKER_ADDR "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --rpc-url "${rpc}" 2>$null)
-  $gas = if ($est -match '^[0-9]+$') { [int]([long]$est * 3 / 2) } else { 300000 }
+  $estRaw = ((cast estimate --from $env:WORKER_ADDR "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --rpc-url "${rpc}" 2>&1) | Out-String)
+  $est = ([regex]::Match($estRaw, '(?m)^[0-9]+$')).Value
+  if (-not $est) { Write-Host "⛔ the on-chain model add would revert, so it was NOT sent: $(($estRaw -replace '\\s+',' ').Trim())"; Write-Host "   The worker is staked but is NOT serving the selected model. Check the model is whitelisted on this network, then run install again."; return $false }
+  $gas = [int]([long]$est * 3 / 2)
   Write-Host "▶ adding the selected model on-chain with proper gas (gas-limit $gas) - the daemon under-gasses this step"
-  cast send "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --private-key $env:WORKER_PRIVKEY --rpc-url "${rpc}" --gas-limit $gas *> $null
-  if ($LASTEXITCODE -eq 0) { Write-Host "model added on-chain (worker now serving it)"; return $true } else { Write-Host "model add failed even with estimated gas"; return $false }
+  $sendOut = ((cast send "${workerRegistry}" "addSupportedModel(bytes32)" $ModelId --private-key $env:WORKER_PRIVKEY --rpc-url "${rpc}" --gas-limit $gas 2>&1) | Out-String)
+  if ($LASTEXITCODE -ne 0) { Write-Host "⛔ the model-add tx failed to send: $(($sendOut -replace '\\s+',' ').Trim())"; return $false }
+  for ($i = 0; $i -lt 5; $i++) {
+    $elig2 = (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null)
+    if ($elig2 -match 'true') { Write-Host "✓ model added on-chain and verified (worker now serving it)"; return $true }
+    Start-Sleep -Seconds 2
+  }
+  Write-Host "⛔ the model-add tx landed but the registry still does not list this worker as serving the model - it reverted on-chain (receipt status 0). Your stake is untouched; the worker is NOT online until this succeeds."
+  return $false
 }
 foreach ($p in @('${phases}')) { if (($p -like '*04-import-key*') -and $skipImport) { Write-Host "▶ phase 04-import-key (skipped - key present)"; continue }; if ($p -like '*07-register*') { $regOk = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); $eligOk = if ($ModelId) { (cast call "${workerRegistry}" "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $ModelId --rpc-url "${rpc}" 2>$null) } else { "" }; if (($regOk -match 'true') -and ($eligOk -match 'true')) { Write-Host "▶ phase 07-register (skipped - already registered AND serving the selected model on-chain)"; continue }; if (($regOk -match 'true') -and ($eligOk -notmatch 'true')) { Write-Host "▶ phase 07-register (already staked from a prior attempt; finishing the model-add the daemon failed - no re-stake)"; if (-not (Add-SelectedModelOnchain)) { exit 1 }; continue }; if (-not (Wait-Funding)) { exit 1 } }; Write-Host "▶ phase $p"; $global:LASTEXITCODE = 0; $eapPrev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'; try { if ($p -like '*07-register*') { & $p -Force 2>&1 | ForEach-Object { Write-Host $_ }; $nowReg = (cast call "${workerRegistry}" "isWorkerRegistered(address)(bool)" $env:WORKER_ADDR --rpc-url "${rpc}" 2>$null); if ($nowReg -notmatch 'true') { throw "worker not registered on-chain after the attempt" }; if (-not (Add-SelectedModelOnchain)) { throw "model add failed" } } else { & $p 2>&1 | ForEach-Object { Write-Host $_ }; if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" } } } catch { Write-Host "⛔ stopped at $p - $($_.Exception.Message)"; exit 1 } finally { $ErrorActionPreference = $eapPrev } }
 # Pre-warm each served model and pin it so the first job doesn't pay a cold load.
@@ -1584,18 +1857,26 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
       `Write-Host "adding model(s) on-chain: ${modelsToAdd.join(", ")} (no re-stake)..."`,
       // Direct WorkerRegistry.addSupportedModel(bytes32) with gas = estimate x1.5,
       // NOT the worker binary's add-models (which under-sets gas and OutOfGas-
-      // reverts - the same daemon bug that breaks a one-shot install).
+      // reverts - the same daemon bug that breaks a one-shot install). A reverting
+      // ESTIMATE means the send would revert too, so it is never sent; and because
+      // `cast send --gas-limit N` exits 0 even on receipt status 0, success is only
+      // claimed after re-reading isEligible from the registry.
       `$WREG = "${workerRegistry}"; $RPC = "${rpc}"; $addFail = 0`,
       `foreach ($M in @(${modelsToAdd.map((m) => `'${m}'`).join(",")})) {`,
       `  $MID = (cast keccak "$M")`,
       `  $elig = (cast call $WREG "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $MID --rpc-url $RPC 2>$null)`,
       `  if ($elig -match 'true') { Write-Host "  - $M already served on-chain - skipping"; continue }`,
-      `  $est = (cast estimate --from $env:WORKER_ADDR $WREG "addSupportedModel(bytes32)" $MID --rpc-url $RPC 2>$null)`,
-      `  $gas = if ($est -match '^[0-9]+$') { [int]([long]$est * 3 / 2) } else { 300000 }`,
-      `  cast send $WREG "addSupportedModel(bytes32)" $MID --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas *> $null`,
-      `  if ($LASTEXITCODE -eq 0) { Write-Host "  added $M (gas limit $gas)" } else { Write-Host "  failed to add $M"; $addFail = 1 }`,
+      `  $estRaw = ((cast estimate --from $env:WORKER_ADDR $WREG "addSupportedModel(bytes32)" $MID --rpc-url $RPC 2>&1) | Out-String)`,
+      `  $est = ([regex]::Match($estRaw, '(?m)^[0-9]+$')).Value`,
+      `  if (-not $est) { Write-Host "  adding $M would revert on-chain, so nothing was sent: $(($estRaw -replace '\\s+',' ').Trim())"; $addFail = 1; continue }`,
+      `  $gas = [int]([long]$est * 3 / 2)`,
+      `  $sendOut = ((cast send $WREG "addSupportedModel(bytes32)" $MID --private-key $env:WORKER_PRIVKEY --rpc-url $RPC --gas-limit $gas 2>&1) | Out-String)`,
+      `  if ($LASTEXITCODE -ne 0) { Write-Host "  the add tx for $M failed to send: $(($sendOut -replace '\\s+',' ').Trim())"; $addFail = 1; continue }`,
+      `  $seen = $false`,
+      `  for ($i = 0; $i -lt 5; $i++) { $e2 = (cast call $WREG "isEligible(address,bytes32)(bool)" $env:WORKER_ADDR $MID --rpc-url $RPC 2>$null); if ($e2 -match 'true') { $seen = $true; break }; Start-Sleep -Seconds 2 }`,
+      `  if ($seen) { Write-Host "  added $M (gas limit $gas) - verified on-chain" } else { Write-Host "  the add tx for $M landed but the registry still does not list it - it reverted on-chain (receipt status 0)"; $addFail = 1 }`,
       `}`,
-      `if ($addFail -ne 0) { Write-Host "one or more models failed to add - see above"; exit 1 }`,
+      `if ($addFail -ne 0) { Write-Host "one or more models failed to add - see above. The worker is NOT serving them; nothing else changed."; exit 1 }`,
       // Stop the container so the follow-up reinstall recreates it with the new
       // model set (the install short-circuits on a same-network worker that's Up).
       'docker stop lightchain-worker *> $null; Write-Host "added on-chain - restarting the worker with the new set"',
@@ -1617,16 +1898,27 @@ export function addModelsCommand(os: OS, network: NetworkId, modelsToAdd: string
     // subcommand, which sends with an under-set fixed gas limit and OutOfGas-
     // reverts (the same daemon bug that breaks a one-shot gemma install). modelId
     // = keccak256(exact tag). Skip a model that's already eligible on-chain.
+    //
+    // A reverting ESTIMATE is fatal for that model and is never sent (the old
+    // fixed-300000 fallback sent anyway), and since `cast send --gas-limit N`
+    // exits 0 even when the receipt is status 0, the add is only counted once the
+    // registry itself reports the worker eligible for it.
     `WREG="${workerRegistry}"`,
     `ADD_OK=0; ADD_FAIL=0`,
     `for M in ${modelsToAdd.map((m) => `"${m}"`).join(" ")}; do`,
     `  MID="$(cast keccak "$M")"`,
     `  if cast call "$WREG" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MID" --rpc-url "$RPC_URL" 2>/dev/null | grep -qi true; then echo "  • $M already served on-chain - skipping"; continue; fi`,
-    // estimate, then add a 50% buffer; fall back to a generous 300000 if estimate fails.
-    `  GAS_EST="$(cast estimate --from "$WORKER_ADDR" "$WREG" "addSupportedModel(bytes32)" "$MID" --rpc-url "$RPC_URL" 2>/dev/null)"; case "\${GAS_EST:-}" in ''|*[!0-9]*) GAS_LIMIT=300000;; *) GAS_LIMIT="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$GAS_EST")";; esac`,
-    `  if cast send "$WREG" "addSupportedModel(bytes32)" "$MID" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" --gas-limit "$GAS_LIMIT" >/dev/null 2>&1; then echo "  ✓ added $M (gas limit $GAS_LIMIT)"; ADD_OK=$((ADD_OK+1)); else echo "  ⛔ failed to add $M"; ADD_FAIL=$((ADD_FAIL+1)); fi`,
+    `  EST_RAW="$(cast estimate --from "$WORKER_ADDR" "$WREG" "addSupportedModel(bytes32)" "$MID" --rpc-url "$RPC_URL" 2>&1)"`,
+    `  GAS_EST="$(printf '%s' "$EST_RAW" | grep -oE '^[0-9]+$' | tail -1)"`,
+    `  if [ -z "$GAS_EST" ]; then echo "  ⛔ adding $M would revert on-chain, so nothing was sent: $(printf %s "$EST_RAW" | tr "\\n" " " | cut -c1-140)"; ADD_FAIL=$((ADD_FAIL+1)); continue; fi`,
+    // estimate + a 50% buffer (the daemon under-set it -> OutOfGas).
+    `  GAS_LIMIT="$(python3 -c 'import sys; print(int(int(sys.argv[1])*3//2))' "$GAS_EST")"`,
+    `  if ! cast send "$WREG" "addSupportedModel(bytes32)" "$MID" --private-key "$WORKER_PRIVKEY" --rpc-url "$RPC_URL" --gas-limit "$GAS_LIMIT" >/dev/null 2>&1; then echo "  ⛔ the add tx for $M failed to send"; ADD_FAIL=$((ADD_FAIL+1)); continue; fi`,
+    `  ADD_SEEN=""`,
+    `  for _ in 1 2 3 4 5; do if cast call "$WREG" "isEligible(address,bytes32)(bool)" "$WORKER_ADDR" "$MID" --rpc-url "$RPC_URL" 2>/dev/null | grep -qi true; then ADD_SEEN=1; break; fi; sleep 2; done`,
+    `  if [ -n "$ADD_SEEN" ]; then echo "  ✓ added $M (gas limit $GAS_LIMIT) - verified on-chain"; ADD_OK=$((ADD_OK+1)); else echo "  ⛔ the add tx for $M landed but the registry still does not list it - it reverted on-chain (receipt status 0)"; ADD_FAIL=$((ADD_FAIL+1)); fi`,
     `done`,
-    `[ "$ADD_FAIL" = "0" ] || { echo "⛔ one or more models failed to add - see above"; exit 1; }`,
+    `[ "$ADD_FAIL" = "0" ] || { echo "⛔ one or more models failed to add - see above. The worker is NOT serving them; nothing else changed."; exit 1; }`,
     // Stop the container after a successful add so the follow-up reinstall actually
     // recreates it with the new model set (the install short-circuits on a
     // same-network worker that's still Up).
@@ -1770,11 +2062,14 @@ export function preflightCommand(os: OS, network: NetworkId): string {
   const AICONFIG_SELECTOR = "0x85ff4862";
   const MINSTAKE_SELECTOR = "0xca22dfd1";
   // Preflight reports BLOCKS only for things install can't fix on its own (an
-  // unreachable RPC). Docker + Ollama are downgraded to WARN: install auto-installs
-  // and auto-starts them (winget on Windows, brew + open on macOS), so failing
-  // preflight on them would falsely block users from clicking Install when Install
-  // is exactly what would resolve the situation. The warning still tells the user
-  // what install will do next.
+  // unreachable RPC). Docker + Ollama are normally a WARN: install auto-installs
+  // and auto-starts them (winget on Windows, brew + open on macOS, the official
+  // scripts on Linux), so failing preflight on them would falsely block users from
+  // clicking Install when Install is exactly what would resolve the situation. The
+  // warning still tells the user what install will do next. The ONE exception is
+  // Linux with no route to root at all (not root, no passwordless sudo, no
+  // pkexec): there the vendor installers genuinely cannot run, so a WARN would be
+  // green-lighting an install that must fail - see the OS-aware probes below.
   if (os === "windows") {
     return [
       '$ErrorActionPreference = "Continue"',
@@ -1816,8 +2111,43 @@ export function preflightCommand(os: OS, network: NetworkId): string {
     "OK=1",
     APPIMAGE_CURL_HINT_UNIX, // if curl is still broken, name the cause + the .deb fix
 
-    'if command -v docker >/dev/null 2>&1; then if docker info >/dev/null 2>&1; then echo "✓ Docker is running"; else echo "⚠ Docker is installed but not running - install will start Docker Desktop for you"; fi; else echo "⚠ Docker Desktop not installed - install Docker Desktop manually (the installer needs it) then re-run install"; fi',
-    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then echo "✓ Ollama is responding (127.0.0.1:11434)"; elif command -v ollama >/dev/null 2>&1; then echo "⚠ Ollama is installed but not responding - install will start it"; else echo "⚠ Ollama not installed - install will set it up via brew"; fi',
+    // OS + escalation probe for the Docker/Ollama checks below. This unix branch
+    // serves BOTH macOS and Linux, and used to print the macOS story on Linux
+    // ("install will set it up via brew") as a WARN that never clears OK - so it
+    // concluded "safe to install" for an install that could not possibly work.
+    // What actually decides it on Linux is whether we can get root at all, so the
+    // probe mirrors the installer's own ladder exactly (root -> sudo -n -> pkexec).
+    // A missing tool BLOCKS only in that genuinely unfixable case: on a root or
+    // passwordless box, and on macOS (where the installers are brew and must NOT
+    // run as root), it stays a WARN so a first-time install is never blocked.
+    'PF_OS="$(uname -s)"',
+    'PF_ROOT=0; if [ "$(id -u)" = "0" ] || sudo -n true 2>/dev/null || command -v pkexec >/dev/null 2>&1; then PF_ROOT=1; fi',
+    'if command -v docker >/dev/null 2>&1; then',
+    '  if docker info >/dev/null 2>&1; then echo "✓ Docker is running"; elif [ "$PF_OS" = "Darwin" ]; then echo "⚠ Docker is installed but not running - install will start Docker Desktop for you"; else echo "⚠ Docker is installed but its engine is not running - install will try to start it (you may see an admin prompt)"; fi',
+    'elif [ "$PF_OS" = "Darwin" ]; then echo "⚠ Docker not installed - install will set it up with Homebrew (brew install --cask docker)"',
+    'elif [ "$PF_ROOT" = "1" ]; then echo "⚠ Docker not installed - install will set it up with the official get.docker.com script (approve the administrator prompt when it appears)"',
+    'else echo "⛔ Docker is not installed, and installing it needs administrator rights this app cannot obtain (you are not root, passwordless sudo is not configured, and pkexec is unavailable). Run this once in a terminal, then re-run install: curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $(id -un) && newgrp docker"; OK=0; fi',
+    'if curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then echo "✓ Ollama is responding (127.0.0.1:11434)"',
+    'elif command -v ollama >/dev/null 2>&1; then echo "⚠ Ollama is installed but not responding - install will start it"',
+    'elif [ "$PF_OS" = "Darwin" ]; then echo "⚠ Ollama not installed - install will set it up with Homebrew (brew install ollama)"',
+    'elif [ "$PF_ROOT" = "1" ]; then echo "⚠ Ollama not installed - install will set it up with the official Linux installer (approve the administrator prompt when it appears)"',
+    'else echo "⛔ Ollama is not installed, and installing it needs administrator rights this app cannot obtain (you are not root, passwordless sudo is not configured, and pkexec is unavailable). Run this once in a terminal, then re-run install: curl -fsSL https://ollama.com/install.sh | sh"; OK=0; fi',
+    // Linux only: Ollama defaults to listening on 127.0.0.1, which the Dockerized
+    // worker cannot reach (it comes in via the bridge gateway), so every job would
+    // fail at inference. Install rebinds it - but only with root, so this is a
+    // BLOCK exactly when the rebind is impossible, and a WARN otherwise.
+    'if [ "$PF_OS" = "Linux" ] && curl -s -m 5 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then',
+    '  PF_LISTEN="$(ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null || true)"',
+    `  if printf '%s' "$PF_LISTEN" | grep -q ':11434' && ! printf '%s' "$PF_LISTEN" | grep -Fq '0.0.0.0:11434' && ! printf '%s' "$PF_LISTEN" | grep -Fq '[::]:11434' && ! printf '%s' "$PF_LISTEN" | grep -Fq '*:11434'; then`,
+    '    if [ "$PF_ROOT" = "1" ]; then echo "⚠ Ollama only listens on 127.0.0.1 - install will rebind it to 0.0.0.0 (admin prompt) so the worker container can reach it"; else',
+    '      echo "⛔ Ollama only listens on 127.0.0.1, so the Dockerized worker cannot reach it and every job would fail at inference - and this app has no way to obtain the admin rights to rebind it. Run once in a terminal, then re-run install:"',
+    '      echo "     sudo mkdir -p /etc/systemd/system/ollama.service.d"',
+    '      echo "     printf \'[Service]\\nEnvironment=\\"OLLAMA_HOST=0.0.0.0:11434\\"\\n\' | sudo tee /etc/systemd/system/ollama.service.d/lightnode.conf"',
+    '      echo "     sudo systemctl daemon-reload && sudo systemctl restart ollama"',
+    '      OK=0',
+    "    fi",
+    "  fi",
+    "fi",
     `FREE_G="$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"; if [ "\${FREE_G:-0}" -ge 15 ]; then echo "✓ disk: $FREE_G GB free"; else echo "⚠ disk: only \${FREE_G:-?} GB free - the model + image need ~10 GB"; fi`,
     `if curl -s -m 8 -X POST "${net.rpc}" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' | grep -qE '"result"'; then echo "✓ RPC reachable (${net.rpc})"; else echo "⛔ RPC unreachable (${net.rpc}) - check your connection"; OK=0; fi`,
     `if curl -s -m 8 -o /dev/null "${net.workerGateway}/" 2>/dev/null; then echo "✓ gateway reachable"; else echo "⚠ gateway probe inconclusive (${net.workerGateway}) - it may still admit the worker"; fi`,

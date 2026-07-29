@@ -1,4 +1,4 @@
-import { createPublicClient, getAddress, http, toHex, pad } from "viem";
+import { createPublicClient, getAddress, http, toHex, pad, keccak256, toBytes } from "viem";
 import type { PublicClient } from "viem";
 import type { NetworkConfig, Worker, Job, JobTransactions, ModelInfo, NetworkStats, WorkerModel } from "./types.js";
 
@@ -193,13 +193,87 @@ export async function fetchWorkerModels(cfg: NetworkConfig, address: string, tim
   return data.workermodels ?? [];
 }
 
+/**
+ * Known model tags, for recovering a name the indexer could not supply.
+ *
+ * WHY A LOCAL LIST: the web app keeps the full catalog (tags + measured sizes)
+ * in lib/model-catalog.ts, but this package is published to npm standalone and
+ * compiles with `rootDir: "src"` / `include: ["src"]` - a `../lib` import is
+ * outside the program and would simply not exist in `dist/`. So the inversion is
+ * duplicated here in its minimal form: tags only, no sizes (the SDK never sizes
+ * a model). Add a tag in both places when the registry gains one.
+ *
+ * keccak256 is one-way, so this is a dictionary lookup over tags we KNOW, not a
+ * decode: hash each tag, match the digest. An id we cannot match stays
+ * unrecovered and is flagged - it is never guessed.
+ *
+ * Exported ONLY so tests/unit/sdk-consistency.test.ts can assert this list has
+ * not drifted from lib/model-catalog.ts. Not part of the package's public API.
+ */
+export const KNOWN_MODEL_TAGS: readonly string[] = [
+  "qwen3-embedding:0.6b",
+  "llama3-8b",
+  "qwen3-vl:8b",
+  "gemma4:e2b",
+  "gpt-oss:20b",
+  "glm-4.7-flash",
+  "qwen3-vl:30b",
+  "llama3-70b",
+  "qwen3-coder-next",
+  "gpt-oss:120b",
+];
+
+/** modelId (lowercase keccak256 of the tag) -> tag. Built once, from the list. */
+const TAG_BY_ID: ReadonlyMap<string, string> = new Map(
+  KNOWN_MODEL_TAGS.map((t) => [keccak256(toBytes(t)).toLowerCase(), t]),
+);
+
+/** A 32-byte hex digest - i.e. what the registry uses as a model id. */
+function isModelId(s: string): boolean {
+  return /^0x[0-9a-fA-F]{64}$/.test(s.trim());
+}
+
+/**
+ * The real tag for one registry row, or null when we cannot recover it.
+ * Never returns a guess: null is a first-class answer.
+ */
+function recoverModelTag(name: string | undefined, id: string): string | null {
+  const rawId = (id ?? "").toLowerCase();
+  const n = (name ?? "").trim();
+  // Normal case: the indexer gave us a real tag. "Real" = anything that is not
+  // the id echoed back, and not a bare digest standing in for one. The SHAPE
+  // decides, not equality with `id`: a 32-byte digest is never a plausible tag,
+  // and also requiring `n === rawId` let a row whose two fields disagreed be
+  // returned as a "real tag" that was actually a raw hash - which callers would
+  // then hash again into a second, bogus model id.
+  const nameIsId = isModelId(n);
+  if (n && !nameIsId) return n;
+  return TAG_BY_ID.get(rawId || n.toLowerCase()) ?? null;
+}
+
+/**
+ * The network's registered models, with names repaired at the boundary.
+ *
+ * A model's on-chain identity is `id = keccak256(tag)` (see modelId() in
+ * inference.ts) and the registry stores nothing else - no name, no size. When a
+ * model was whitelisted without its tag string the indexer echoes the id back as
+ * `name` (`name === id`, true for most testnet rows today), so returning the row
+ * untouched leaks a raw 66-char hash to every consumer. We invert it against the
+ * known tags here, once, rather than in each caller.
+ */
 export async function fetchModels(cfg: NetworkConfig, timeoutMs?: number): Promise<ModelInfo[]> {
-  const data = await gql<{ modelinfos: ModelInfo[] }>(
+  const data = await gql<{ modelinfos: Omit<ModelInfo, "unnamed">[] }>(
     cfg.subgraph,
     `{ modelinfos { id name fee max_output_tokens is_whitelisted is_enabled } }`,
     timeoutMs,
   );
-  return data.modelinfos ?? [];
+  return (data.modelinfos ?? []).map((m) => {
+    const tag = recoverModelTag(m.name, m.id);
+    // `id` is passed through verbatim - it is the subgraph's case-sensitive
+    // entity key and callers join on it. The placeholder deliberately contains a
+    // space and an ellipsis so it can never be mistaken for an Ollama tag.
+    return { ...m, name: tag ?? `unnamed ${(m.id ?? "").toLowerCase().slice(0, 10)}…`, unnamed: tag === null };
+  });
 }
 
 export async function fetchWorkers(cfg: NetworkConfig, first = 200, timeoutMs?: number): Promise<Worker[]> {

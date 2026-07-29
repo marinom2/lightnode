@@ -7,6 +7,7 @@
  * Pure + deterministic so it's unit-tested: feed it the cleaned log lines and the
  * run phase, get back the milestones to render.
  */
+import { lookupModel } from "./model-catalog";
 
 export type StepStatus = "pending" | "active" | "done" | "error";
 export type RunPhase = "running" | "done" | "failed";
@@ -120,6 +121,16 @@ function explorerFor(net: "mainnet" | "testnet" | null): string {
   return `https://${net === "testnet" ? "testnet" : "mainnet"}.lightscan.app`;
 }
 
+// Root/privilege refusals from the prerequisite stage. The installer shells out to
+// the vendor install scripts (get.docker.com, ollama.com/install.sh) and both
+// elevate with sudo - but the app runs them with no controlling terminal, so sudo
+// can't prompt and dies printing one of its own `sudo: …` lines. The remaining
+// alternatives are those scripts' and pkexec's own refusals. Anchored deliberately:
+// a bare /sudo/ would also match the advice text the installer itself prints
+// ("run once in a terminal: sudo mkdir -p …"), which is not a failure.
+const PRIVILEGE_FAIL_RE =
+  /\bsudo:|superuser permissions|please re-run as root|a password is required|no tty present|a terminal is required to read the password|ability to run commands as root|\bpkexec\b/i;
+
 /**
  * Turn a known install failure into one plain-English, actionable sentence (shown
  * above the technical log on failure). Reacts to the actual on-chain error text -
@@ -128,6 +139,33 @@ function explorerFor(net: "mainnet" | "testnet" | null): string {
  */
 export function diagnoseFailure(cleaned: string[]): string | null {
   const text = cleaned.join("\n");
+  // Hoisted because several recognisers below have to be honest about the operator's
+  // money: every step up to 07-register is local setup, so "nothing was staked" is
+  // only a true thing to say while this is false. `online` guards the fallbacks.
+  const inRegisterPath = /phase\s*\.?\\?\/?0?7[- ]register|worker:latest\s+(?:status|register)|stopped at .*07-register/i.test(text);
+  const online = /worker online|✅\s*worker/i.test(text);
+  // Prerequisite stage, and by far the most likely Linux failure: the vendor install
+  // scripts need root. `set -e` aborts the whole run here, before a single on-chain
+  // call is made, so the reassurance is unconditionally true. Docker is installed
+  // before Ollama, so an "installing Ollama" marker means Docker's own install
+  // already succeeded - test that one first to attribute the failure correctly.
+  if (PRIVILEGE_FAIL_RE.test(text)) {
+    if (/installing Ollama/i.test(text)) {
+      return (
+        "Installing Ollama needs administrator rights and it has no terminal here to ask for your password. " +
+        "Open a terminal and run: curl -fsSL https://ollama.com/install.sh | sh - then run install again and " +
+        "LightNode will skip straight past this step. Nothing was staked."
+      );
+    }
+    if (/installing Docker/i.test(text)) {
+      return (
+        "Installing Docker needs administrator rights and it has no terminal here to ask for your password. " +
+        "Open a terminal and run: curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER - then " +
+        "log out and back in (that is what lets LightNode drive Docker without root) and run install again. " +
+        "Nothing was staked."
+      );
+    }
+  }
   if (/AddSupportedModel\b.*\brevert/i.test(text)) {
     return (
       "Your worker staked and registered on-chain (your stake is locked, not lost), but adding the model " +
@@ -135,6 +173,34 @@ export function diagnoseFailure(cleaned: string[]): string | null {
       "step reverts before it confirms. Finish from the dashboard instead: open “Models this worker serves” and " +
       "add your model there. That uses a separate step that works on an already-registered worker - no re-stake " +
       "or reinstall needed. (If it still won’t take, llama3-8b is the safe fallback.)"
+    );
+  }
+  // Our OWN gas-corrected addSupportedModel failed - "model add failed even with
+  // estimated gas" (bash) / "stopped at …07-register.ps1 - model add failed" (ps1).
+  // The install only calls it once 07-register has succeeded, so reaching this line
+  // proves the stake landed. Say that plainly here, or the generic register fallback
+  // further down would tell an already-staked operator to top up and re-run.
+  if (/model add failed/i.test(text)) {
+    return (
+      "Your worker is staked and registered on-chain - the only thing that didn’t land is attaching the model to it " +
+      "(your stake is locked, not lost). This attempt already sent proper gas, so gas isn’t the cause; the usual " +
+      "reason is that this network’s registry doesn’t list that exact model. Finish from the dashboard: open " +
+      "“Models this worker serves” and add it there - that works on an already-registered worker, so there’s no " +
+      "re-stake and no reinstall. (llama3-8b is listed on every network if you need a safe fallback.)"
+    );
+  }
+  // The dashboard's add-model-on-chain run, not an install: "⛔ failed to add <model>"
+  // / "one or more models failed to add". That script only ever runs against a worker
+  // that is ALREADY registered and it never stakes, so the honest framing is "nothing
+  // changed". Gated on the register path being absent so daemon output during a real
+  // install can't borrow this message and wrongly promise no stake was placed.
+  if (/failed to add\b/i.test(text) && !inRegisterPath) {
+    return (
+      "Adding the model on-chain didn’t go through, so this worker still serves exactly the set it served before - " +
+      "nothing was staked and its registration is untouched. Two things cause this: the worker wallet has no LCAI " +
+      "left for gas (the add is a transaction the worker signs and pays for itself), or this network’s registry " +
+      "doesn’t list that exact model. Send the worker a little LCAI and try again; if it still fails, pick a model " +
+      "the network lists (llama3-8b is on every network)."
     );
   }
   if (/stopped at 07-register/i.test(text) && /less than|insufficient|balance/i.test(text)) {
@@ -186,8 +252,7 @@ export function diagnoseFailure(cleaned: string[]): string | null {
   // network's native gas token, so funding exactly the minimum stake leaves
   // nothing left to pay for the register tx. Surface the worker address so the
   // operator can check + top up directly instead of guessing.
-  const inRegisterPath = /phase\s*\.?\\?\/?0?7[- ]register|worker:latest\s+(?:status|register)|stopped at .*07-register/i.test(text);
-  const online = /worker online|✅\s*worker/i.test(text);
+  //
   // If the pre-register funding gate already CONFIRMED the wallet held enough
   // LCAI ("✓ worker wallet funded (… LCAI)"), a later register failure is NOT a
   // balance problem. Telling a funded operator to "top up" wastes their money and
@@ -219,6 +284,33 @@ export function diagnoseFailure(cleaned: string[]): string | null {
       "token, so sending exactly the minimum stake leaves nothing for the register tx. " +
       linkBit + " Top up a little over the minimum stake (a fraction of an LCAI covers " +
       "gas) and run install again - your existing worker key is reused, no reset needed."
+    );
+  }
+  // A failed `ollama pull` reaches the log ONLY as the installer's own
+  // "⚠ <model> download exited <rc> (continuing)" line - the pull runs detached with
+  // its output in a temp file that is then deleted, so the underlying reason (nearly
+  // always no free disk, sometimes a dropped connection) never gets here. We name the
+  // size from the catalog instead, since "you need 65.4 GB free" is the actionable
+  // part. Deliberately last: the install carries on after this line, so a download
+  // failure is usually the cause of a LATER stop, and whatever actually stopped the
+  // run should speak first. Reaching here means nothing on-chain was attempted.
+  const pullFail = text.match(/(\S+)[ \t]+download exited\b/i);
+  if (pullFail && !inRegisterPath && !online) {
+    const entry = lookupModel(pullFail[1]);
+    const sizeBit = entry
+      ? ` ${entry.tag} is a ${entry.downloadGb} GB download, so you need at least that much free on top of what Docker and the worker image take.`
+      : "";
+    // The installer prints this itself when the disk is under 15 GB free; if it did,
+    // we already know the answer rather than listing space as one of two guesses.
+    const lowDisk = /Only ~?\s*\d+\s*GB free/i.test(text)
+      ? " The installer already flagged this machine as low on disk, so that is almost certainly why."
+      : "";
+    return (
+      "The AI model didn’t finish downloading, so there was nothing for the worker to serve." +
+      sizeBit +
+      lowDisk +
+      " Free up disk space - or go back and pick a smaller model - then run install again; Ollama resumes from " +
+      "where it stopped, so a retry doesn’t re-download what you already have. Nothing was staked."
     );
   }
   return null;

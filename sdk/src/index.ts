@@ -297,7 +297,12 @@ export class LightNode {
       const info = byId.get(r.model_id.toLowerCase());
       return {
         modelId: r.model_id,
-        name: info?.name ?? null,
+        // null, NOT the placeholder. `ServedModel.name` is documented as "from
+        // the model registry, when known", and callers hash it: `lightnode
+        // worker profitability` falls back to this name as its --model and
+        // feeds it to modelId(), so leaking "unnamed 0x1234abcd…" here would
+        // mint a bogus id. null lets that ?? chain fall through correctly.
+        name: info && !info.unnamed ? info.name : null,
         feeWei: info?.fee,
         maxOutputTokens: info?.max_output_tokens,
         indexedActive: r.is_active,
