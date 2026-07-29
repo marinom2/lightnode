@@ -136,7 +136,9 @@ function DesktopDropdown({
       {open && item.children ? (
         <div
           role="menu"
-          className="absolute left-1/2 top-full z-50 mt-2 w-[420px] -translate-x-1/2 rounded-xl border border-bdr-soft bg-card/95 p-1.5 shadow-xl backdrop-blur-xl"
+          // bg-card/95 is already all but opaque, so backdrop-blur-xl bought
+          // almost nothing visually while still forcing a filtered layer.
+          className="absolute left-1/2 top-full z-50 mt-2 w-[420px] -translate-x-1/2 rounded-xl border border-bdr-soft bg-card/95 p-1.5 shadow-xl"
         >
           {item.children.map((c) => (
             <Link
@@ -174,8 +176,19 @@ export function Nav() {
   }, []);
   const links = desktop ? ALL_LINKS.filter((l) => !l.webOnly) : ALL_LINKS;
 
+  // The header carries no backdrop-blur, deliberately. It is `sticky`, so the
+  // content behind it changes on every scroll frame - which means a
+  // backdrop-filter has to re-sample and re-blur the full width of the viewport
+  // 60 times a second. On a 4K display that is ~3840px of blur per frame, and
+  // WebKitGTK (what the desktop app renders with) is markedly slower at it than
+  // Chromium. It was the largest single cause of scroll jank in the desktop
+  // app, and invisible in profiles taken at rest: idle cost was zero.
+  //
+  // An opaque background lands within a hair of the same look on a dark theme
+  // for no per-frame cost. Blur is still fine on surfaces that do not sit over
+  // moving content - the dropdown above only exists while it is open.
   return (
-    <header className="gradient-underline sticky top-0 z-40 border-b border-bdr-soft bg-background/65 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
+    <header className="gradient-underline sticky top-0 z-40 border-b border-bdr-soft bg-background/95">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <Link href="/" className="group flex items-center gap-2" onClick={() => setOpen(false)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
