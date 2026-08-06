@@ -45,7 +45,7 @@
     "wagmi": "^2.19.5"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^25.9.3",
     "@types/react": "^19.0.2",
